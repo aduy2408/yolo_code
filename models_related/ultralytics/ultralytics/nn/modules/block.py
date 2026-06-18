@@ -871,7 +871,7 @@ class C2fNAT(nn.Module):
         self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
         self.num_heads = _choose_attention_heads(self.c, num_heads)
         self.norm1 = nn.LayerNorm(self.c)
-        self.attn = NeighborhoodAttention2D(dim=self.c, num_heads=self.num_heads, kernel_size=int(kernel_size))
+        self.attn = NeighborhoodAttention2D(embed_dim=self.c, num_heads=self.num_heads, kernel_size=int(kernel_size))
         self.norm2 = nn.LayerNorm(self.c)
         self.mlp = nn.Sequential(
             nn.Linear(self.c, 2 * self.c),
@@ -935,7 +935,7 @@ class M3NATFuse(nn.Module):
         self.fuse = Conv(3 * c2, c2, 3, 1)
         self.num_heads = _choose_attention_heads(c2, num_heads)
         self.norm1 = nn.LayerNorm(c2)
-        self.attn = NeighborhoodAttention2D(dim=c2, num_heads=self.num_heads, kernel_size=int(kernel_size))
+        self.attn = NeighborhoodAttention2D(embed_dim=c2, num_heads=self.num_heads, kernel_size=int(kernel_size))
         self.norm2 = nn.LayerNorm(c2)
         self.mlp = nn.Sequential(
             nn.Linear(c2, 2 * c2),
