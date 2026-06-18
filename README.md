@@ -74,6 +74,22 @@ python yolo_related/train.py \
 Use `--wiou-monotonous` for the monotonic Wise-IoU focusing mode. Without it,
 Wise-IoU uses the non-monotonic focusing mode from the reference implementation.
 
+YOLOv8 P2 four-head model with Wise-IoU:
+
+```bash
+python models_related/train_eval/train.py \
+  --root data \
+  --yolo-dir datasets/varroa_yolo \
+  --model-yaml models_related/models_config/yolov8_varroa_p2_wiou.yaml \
+  --pretrained yolov8n.pt \
+  --epochs 100 \
+  --imgsz 640 \
+  --batch-size 4 \
+  --device cpu \
+  --bbox-iou-loss wiou \
+  --name yolov8n_varroa_p2_wiou
+```
+
 YOLOv8 custom YAML with pretrained partial load:
 
 ```bash

@@ -49,6 +49,7 @@ __all__ = (
     "HGStem",
     "ImagePoolingAttn",
     "KVCompressedAttention",
+    "M3NATFuse",
     "Proto",
     "RegionRoutingAttentionLite",
     "TopKAdaptiveGroupKVAttention",
@@ -903,6 +904,67 @@ class C2fNAT(nn.Module):
         y.extend(m(y[-1]) for m in self.m)
         y[-1] = self._refine_last(y[-1])
         return self.cv2(torch.cat(y, 1))
+
+
+class M3NATFuse(nn.Module):
+    """Fuse P2/P3/P4 features into a P3-resolution feature and refine it with NAT."""
+
+    def __init__(self, c1: list[int], c2: int, num_heads: int = 4, kernel_size: int = 3):
+        """Initialize three-scale fusion.
+
+        Args:
+            c1: Input channels for [P2, P3, P4].
+            c2: Output channels at P3 resolution.
+            num_heads: Requested NAT heads.
+            kernel_size: NAT neighborhood kernel size.
+        """
+        super().__init__()
+        if len(c1) != 3:
+            raise ValueError(f"M3NATFuse expects 3 input channel values for [P2, P3, P4], got {c1}.")
+        try:
+            from natten import NeighborhoodAttention2D
+        except ImportError as exc:
+            raise ImportError(
+                "M3NATFuse requires the 'natten' package. Install natten in the training environment before using "
+                "YAMLs that reference M3NATFuse."
+            ) from exc
+
+        self.p2_down = Conv(c1[0], c2, 3, 2)
+        self.p3_proj = Conv(c1[1], c2, 3, 1)
+        self.p4_proj = Conv(c1[2], c2, 3, 1)
+        self.fuse = Conv(3 * c2, c2, 3, 1)
+        self.num_heads = _choose_attention_heads(c2, num_heads)
+        self.norm1 = nn.LayerNorm(c2)
+        self.attn = NeighborhoodAttention2D(dim=c2, num_heads=self.num_heads, kernel_size=int(kernel_size))
+        self.norm2 = nn.LayerNorm(c2)
+        self.mlp = nn.Sequential(
+            nn.Linear(c2, 2 * c2),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(2 * c2, c2),
+            nn.Dropout(0.1),
+        )
+        self.gamma = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x: list[torch.Tensor]) -> torch.Tensor:
+        """Fuse [P2, P3, P4] into a P3-resolution feature map."""
+        if len(x) != 3:
+            raise ValueError(f"M3NATFuse expects [P2, P3, P4], got {len(x)} inputs.")
+        p2, p3, p4 = x
+        target_size = p3.shape[-2:]
+        p2 = self.p2_down(p2)
+        if p2.shape[-2:] != target_size:
+            p2 = F.interpolate(p2, size=target_size, mode="nearest")
+        p3 = self.p3_proj(p3)
+        p4 = F.interpolate(p4, size=target_size, mode="nearest")
+        p4 = self.p4_proj(p4)
+        fused = self.fuse(torch.cat((p2, p3, p4), dim=1))
+
+        fused_nhwc = fused.permute(0, 2, 3, 1).contiguous()
+        att = self.attn(self.norm1(fused_nhwc)) + fused_nhwc
+        refined = self.mlp(self.norm2(att)) + att
+        refined = refined.permute(0, 3, 1, 2).contiguous()
+        return fused + self.gamma * (refined - fused)
 
 
 class C3(nn.Module):
