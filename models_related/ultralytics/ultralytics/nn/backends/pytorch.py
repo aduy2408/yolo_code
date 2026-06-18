@@ -8,7 +8,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from models_related.ultralytics.ultralytics.utils import IS_JETSON, LOGGER, is_jetson
+from ultralytics.utils import IS_JETSON, LOGGER, is_jetson
 
 from .base import BaseBackend
 
@@ -47,7 +47,7 @@ class PyTorchBackend(BaseBackend):
         Args:
             weight (str | torch.nn.Module): Path to the .pt checkpoint or a pre-loaded module.
         """
-        from models_related.ultralytics.ultralytics.nn.tasks import load_checkpoint
+        from ultralytics.nn.tasks import load_checkpoint
 
         if isinstance(weight, torch.nn.Module):
             if self.fuse and hasattr(weight, "fuse"):

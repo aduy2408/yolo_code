@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils.checks import check_requirements
 
 from .base import BaseBackend
 
@@ -43,7 +43,7 @@ class AxeleraBackend(BaseBackend):
         # Load metadata
         metadata_file = found.parent / "metadata.yaml"
         if metadata_file.exists():
-            from models_related.ultralytics.ultralytics.utils import YAML
+            from ultralytics.utils import YAML
 
             self.apply_metadata(YAML.load(metadata_file))
 

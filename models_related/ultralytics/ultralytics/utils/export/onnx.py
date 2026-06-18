@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
+from ultralytics.utils import LOGGER
 
 
 def onnx_calibration_reader(dataset, transform_fn, input_name: str = "images", batch: int = 0):

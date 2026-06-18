@@ -8,9 +8,9 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import IS_JETSON, LOGGER, TORCH_VERSION, ThreadingLocked, is_dgx, is_jetson
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements, check_tensorrt, check_version
-from models_related.ultralytics.ultralytics.utils.torch_utils import TORCH_2_4, TORCH_2_9
+from ultralytics.utils import IS_JETSON, LOGGER, TORCH_VERSION, ThreadingLocked, is_dgx, is_jetson
+from ultralytics.utils.checks import check_requirements, check_tensorrt, check_version
+from ultralytics.utils.torch_utils import TORCH_2_4, TORCH_2_9
 
 
 def best_onnx_opset(onnx: types.ModuleType, cuda: bool = False) -> int:
@@ -121,7 +121,7 @@ def modelopt_quantize_onnx(
 
     # Require modelopt >= 0.44: older releases import onnx.mapping which was removed in onnx >= 1.18 and crash
     check_requirements("nvidia-modelopt[onnx]>=0.44")
-    import models_related.ultralytics.ultralytics.utils.export.onnx as onnx
+    import ultralytics.utils.export.onnx as onnx
 
     input_name = onnx.load(onnx_file, load_external_data=False).graph.input[0].name
     if int8:

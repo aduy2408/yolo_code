@@ -24,8 +24,8 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from torch import Tensor
 
-from models_related.ultralytics.ultralytics.models.sam.modules.blocks import PatchEmbed
-from models_related.ultralytics.ultralytics.models.sam.modules.utils import (
+from ultralytics.models.sam.modules.blocks import PatchEmbed
+from ultralytics.models.sam.modules.utils import (
     apply_rotary_enc,
     compute_axial_cis,
     concat_rel_pos,
@@ -33,7 +33,7 @@ from models_related.ultralytics.ultralytics.models.sam.modules.utils import (
     window_partition,
     window_unpartition,
 )
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils.checks import check_requirements
 
 from .model_misc import LayerScale
 

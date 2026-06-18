@@ -12,12 +12,12 @@ from shutil import which
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.nn.modules import Detect, Pose, Segment
-from models_related.ultralytics.ultralytics.utils import IS_DEBIAN_BOOKWORM, IS_DEBIAN_TRIXIE, IS_RASPBERRYPI, IS_UBUNTU, LOGGER, WINDOWS
-from models_related.ultralytics.ultralytics.utils.checks import check_apt_requirements, check_requirements
-from models_related.ultralytics.ultralytics.utils.patches import onnx_export_patch
-from models_related.ultralytics.ultralytics.utils.tal import make_anchors
-from models_related.ultralytics.ultralytics.utils.torch_utils import copy_attr
+from ultralytics.nn.modules import Detect, Pose, Segment
+from ultralytics.utils import IS_DEBIAN_BOOKWORM, IS_DEBIAN_TRIXIE, IS_RASPBERRYPI, IS_UBUNTU, LOGGER, WINDOWS
+from ultralytics.utils.checks import check_apt_requirements, check_requirements
+from ultralytics.utils.patches import onnx_export_patch
+from ultralytics.utils.tal import make_anchors
+from ultralytics.utils.torch_utils import copy_attr
 
 # Configuration for Model Compression Toolkit (MCT) quantization
 MCT_CONFIG = {
@@ -274,7 +274,7 @@ def torch2imx(
     dataset = dataset() if callable(dataset) else dataset  # resolve lazy dataloader
 
     import model_compression_toolkit as mct
-    import models_related.ultralytics.ultralytics.utils.export.onnx as onnx
+    import ultralytics.utils.export.onnx as onnx
     from edgemdt_tpc import get_target_platform_capabilities
 
     LOGGER.info(f"\n{prefix} starting export with model_compression_toolkit {mct.__version__}...")

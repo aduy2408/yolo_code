@@ -2,9 +2,9 @@
 
 from copy import copy, deepcopy
 
-from models_related.ultralytics.ultralytics.models.yolo.segment import SegmentationTrainer
-from models_related.ultralytics.ultralytics.nn.tasks import YOLOESegModel
-from models_related.ultralytics.ultralytics.utils import RANK
+from ultralytics.models.yolo.segment import SegmentationTrainer
+from ultralytics.nn.tasks import YOLOESegModel
+from ultralytics.utils import RANK
 
 from .train import YOLOETrainer, YOLOETrainerFromScratch, YOLOEVPTrainer
 from .val import YOLOESegValidator

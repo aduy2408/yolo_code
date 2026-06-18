@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from models_related.ultralytics.ultralytics.models.yolo.segment import SegmentationValidator
+from ultralytics.models.yolo.segment import SegmentationValidator
 
 
 class FastSAMValidator(SegmentationValidator):

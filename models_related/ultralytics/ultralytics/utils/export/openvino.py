@@ -7,7 +7,7 @@ from typing import Any
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
+from ultralytics.utils import LOGGER
 
 
 def torch2openvino(
@@ -37,7 +37,7 @@ def torch2openvino(
     Returns:
         (ov.Model): The converted OpenVINO model.
     """
-    import models_related.ultralytics.ultralytics.utils.export.openvino as ov
+    import ultralytics.utils.export.openvino as ov
 
     LOGGER.info(f"\n{prefix} starting export with openvino {ov.__version__}...")
 

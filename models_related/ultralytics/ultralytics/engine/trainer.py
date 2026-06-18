@@ -24,20 +24,20 @@ import torch
 from torch import distributed as dist
 from torch import nn, optim
 
-from models_related.ultralytics.ultralytics import __version__
-from models_related.ultralytics.ultralytics.cfg import get_cfg, get_save_dir
-from models_related.ultralytics.ultralytics.data.utils import check_cls_dataset, check_det_dataset, convert_ndjson_to_yolo_if_needed
-from models_related.ultralytics.ultralytics.nn.tasks import load_checkpoint
-from models_related.ultralytics.ultralytics.optim import MuSGD
-from models_related.ultralytics.ultralytics.utils import (
+from ultralytics import __version__
+from ultralytics.cfg import get_cfg, get_save_dir
+from ultralytics.data.utils import check_cls_dataset, check_det_dataset, convert_ndjson_to_yolo_if_needed
+from ultralytics.nn.tasks import load_checkpoint
+from ultralytics.optim import MuSGD
+from ultralytics.utils import (
     callbacks,
 )
-from models_related.ultralytics.ultralytics.utils.autobatch import check_train_batch_size
-from models_related.ultralytics.ultralytics.utils.checks import check_amp, check_file, check_imgsz, check_model_file_from_stem, print_args
-from models_related.ultralytics.ultralytics.utils.dist import ddp_cleanup, generate_ddp_command
-from models_related.ultralytics.ultralytics.utils.files import get_latest_run
-from models_related.ultralytics.ultralytics.utils.plotting import plot_results
-from models_related.ultralytics.ultralytics.utils.torch_utils import (
+from ultralytics.utils.autobatch import check_train_batch_size
+from ultralytics.utils.checks import check_amp, check_file, check_imgsz, check_model_file_from_stem, print_args
+from ultralytics.utils.dist import ddp_cleanup, generate_ddp_command
+from ultralytics.utils.files import get_latest_run
+from ultralytics.utils.plotting import plot_results
+from ultralytics.utils.torch_utils import (
     TORCH_2_4,
     EarlyStopping,
     ModelEMA,
@@ -52,7 +52,7 @@ from models_related.ultralytics.ultralytics.utils.torch_utils import (
     unset_deterministic,
     unwrap_model,
 )
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, GIT, LOCAL_RANK, LOGGER, RANK, TQDM, YAML, clean_url, colorstr, emojis
+from ultralytics.utils import DEFAULT_CFG, GIT, LOCAL_RANK, LOGGER, RANK, TQDM, YAML, clean_url, colorstr, emojis
 
 
 class BaseTrainer:

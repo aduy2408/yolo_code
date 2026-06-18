@@ -9,8 +9,8 @@ from copy import deepcopy
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, LOGGER, colorstr
-from models_related.ultralytics.ultralytics.utils.torch_utils import autocast, profile_ops
+from ultralytics.utils import DEFAULT_CFG, LOGGER, colorstr
+from ultralytics.utils.torch_utils import autocast, profile_ops
 
 
 def check_train_batch_size(

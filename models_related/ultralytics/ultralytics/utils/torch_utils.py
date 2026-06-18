@@ -20,8 +20,8 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models_related.ultralytics.ultralytics import __version__
-from models_related.ultralytics.ultralytics.utils import (
+from ultralytics import __version__
+from ultralytics.utils import (
     DEFAULT_CFG_DICT,
     DEFAULT_CFG_KEYS,
     LOGGER,
@@ -32,9 +32,9 @@ from models_related.ultralytics.ultralytics.utils import (
     WINDOWS,
     colorstr,
 )
-from models_related.ultralytics.ultralytics.utils.checks import check_version
-from models_related.ultralytics.ultralytics.utils.cpu import CPUInfo
-from models_related.ultralytics.ultralytics.utils.patches import torch_load
+from ultralytics.utils.checks import check_version
+from ultralytics.utils.cpu import CPUInfo
+from ultralytics.utils.patches import torch_load
 
 # Version checks (all default to version>=min_version)
 TORCH_1_9 = check_version(TORCH_VERSION, "1.9.0")
@@ -117,7 +117,7 @@ def autocast(enabled: bool, device: str = "cuda"):
 @functools.lru_cache
 def get_cpu_info():
     """Return a string with system CPU information, i.e. 'Apple M2'."""
-    from models_related.ultralytics.ultralytics.utils import PERSISTENT_CACHE  # avoid circular import error
+    from ultralytics.utils import PERSISTENT_CACHE  # avoid circular import error
 
     if "cpu_info" not in PERSISTENT_CACHE:
         try:
@@ -199,7 +199,7 @@ def select_device(device="", newline=False, verbose=True):
 
     # Auto-select GPUs
     if "-1" in device:
-        from models_related.ultralytics.ultralytics.utils.autodevice import GPUInfo
+        from ultralytics.utils.autodevice import GPUInfo
 
         # Replace each -1 with a selected GPU or remove it
         parts = device.split(",")
@@ -415,7 +415,7 @@ def model_info_for_loggers(trainer):
         ... }
     """
     if trainer.args.profile:  # profile ONNX and TensorRT times
-        from models_related.ultralytics.ultralytics.utils.benchmarks import ProfileModels
+        from ultralytics.utils.benchmarks import ProfileModels
 
         results = ProfileModels([trainer.last], device=trainer.device).run()[0]
         results.pop("model/name")

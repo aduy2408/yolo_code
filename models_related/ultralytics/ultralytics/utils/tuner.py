@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from models_related.ultralytics.ultralytics.cfg import TASK2DATA, TASK2METRIC, get_cfg, get_save_dir
-from models_related.ultralytics.ultralytics.utils import checks
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, DEFAULT_CFG_DICT, LOGGER, NUM_THREADS, colorstr
+from ultralytics.cfg import TASK2DATA, TASK2METRIC, get_cfg, get_save_dir
+from ultralytics.utils import checks
+from ultralytics.utils import DEFAULT_CFG, DEFAULT_CFG_DICT, LOGGER, NUM_THREADS, colorstr
 
 RAY_SEARCH_ALG_REQUIREMENTS = {
     "random": None,

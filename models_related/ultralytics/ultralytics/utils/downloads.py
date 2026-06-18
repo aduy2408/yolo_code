@@ -11,8 +11,8 @@ from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from urllib import parse, request
 
-from models_related.ultralytics.ultralytics.utils import checks
-from models_related.ultralytics.ultralytics.utils import ASSETS_URL, LOGGER, TQDM, clean_url, emojis, is_online, url2file
+from ultralytics.utils import checks
+from ultralytics.utils import ASSETS_URL, LOGGER, TQDM, clean_url, emojis, is_online, url2file
 
 # Define Ultralytics GitHub assets maintained at https://github.com/ultralytics/assets
 GITHUB_ASSETS_REPO = "ultralytics/assets"
@@ -480,7 +480,7 @@ def attempt_download_asset(
     Examples:
         >>> file_path = attempt_download_asset("yolo26n.pt", repo="ultralytics/assets", release="latest")
     """
-    from models_related.ultralytics.ultralytics.utils import SETTINGS  # scoped for circular import
+    from ultralytics.utils import SETTINGS  # scoped for circular import
 
     # YOLOv3/5u updates
     file = str(file)

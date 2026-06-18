@@ -7,7 +7,7 @@ import math
 import torch
 from torch import Tensor, nn
 
-from models_related.ultralytics.ultralytics.nn.modules import MLPBlock
+from ultralytics.nn.modules import MLPBlock
 
 
 class TwoWayTransformer(nn.Module):

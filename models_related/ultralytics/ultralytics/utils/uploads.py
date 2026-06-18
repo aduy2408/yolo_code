@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from time import sleep
 
-from models_related.ultralytics.ultralytics.utils import LOGGER, TQDM
+from ultralytics.utils import LOGGER, TQDM
 
 
 class _ProgressReader:

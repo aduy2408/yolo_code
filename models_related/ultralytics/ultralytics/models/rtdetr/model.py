@@ -9,9 +9,9 @@ References:
     https://arxiv.org/pdf/2304.08069.pdf
 """
 
-from models_related.ultralytics.ultralytics.engine.model import Model
-from models_related.ultralytics.ultralytics.nn.tasks import RTDETRDetectionModel
-from models_related.ultralytics.ultralytics.utils.torch_utils import TORCH_1_11
+from ultralytics.engine.model import Model
+from ultralytics.nn.tasks import RTDETRDetectionModel
+from ultralytics.utils.torch_utils import TORCH_1_11
 
 from .predict import RTDETRPredictor
 from .train import RTDETRTrainer

@@ -9,12 +9,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-from models_related.ultralytics.ultralytics.data.utils import add_polygon_background
-from models_related.ultralytics.ultralytics.models import yolo
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionTrainer
-from models_related.ultralytics.ultralytics.nn.tasks import SemanticSegmentationModel
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
-from models_related.ultralytics.ultralytics.utils.plotting import colors, plt_settings
+from ultralytics.data.utils import add_polygon_background
+from ultralytics.models import yolo
+from ultralytics.models.yolo.detect import DetectionTrainer
+from ultralytics.nn.tasks import SemanticSegmentationModel
+from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
+from ultralytics.utils.plotting import colors, plt_settings
 
 
 class SemanticSegmentationTrainer(DetectionTrainer):

@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils import LOGGER
+from ultralytics.utils.checks import check_requirements
 
 from .base import BaseBackend
 

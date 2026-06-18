@@ -8,8 +8,8 @@ from typing import Any
 import cv2
 import numpy as np
 
-from models_related.ultralytics.ultralytics.solutions.solutions import BaseSolution, SolutionResults  # Import a parent class
-from models_related.ultralytics.ultralytics.utils import plt_settings
+from ultralytics.solutions.solutions import BaseSolution, SolutionResults  # Import a parent class
+from ultralytics.utils import plt_settings
 
 
 class Analytics(BaseSolution):

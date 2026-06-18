@@ -6,8 +6,8 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_executorch_requirements
+from ultralytics.utils import LOGGER
+from ultralytics.utils.checks import check_executorch_requirements
 
 from .base import BaseBackend
 
@@ -43,7 +43,7 @@ class ExecuTorchBackend(BaseBackend):
 
         # Load metadata
         if metadata_file.exists():
-            from models_related.ultralytics.ultralytics.utils import YAML
+            from ultralytics.utils import YAML
 
             self.apply_metadata(YAML.load(metadata_file))
 

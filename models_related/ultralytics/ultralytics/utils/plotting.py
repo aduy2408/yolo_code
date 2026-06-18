@@ -13,10 +13,10 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 from PIL import __version__ as pil_version
 
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils.checks import check_font, check_version, is_ascii
-from models_related.ultralytics.ultralytics.utils.files import increment_path
-from models_related.ultralytics.ultralytics.utils import IS_COLAB, IS_KAGGLE, LOGGER, TryExcept, plt_settings, threaded
+from ultralytics.utils import ops
+from ultralytics.utils.checks import check_font, check_version, is_ascii
+from ultralytics.utils.files import increment_path
+from ultralytics.utils import IS_COLAB, IS_KAGGLE, LOGGER, TryExcept, plt_settings, threaded
 
 
 class Colors:

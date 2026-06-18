@@ -12,12 +12,12 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from PIL import Image
 
-from models_related.ultralytics.ultralytics.data.dataset import SemanticDataset
-from models_related.ultralytics.ultralytics.data.utils import add_polygon_background
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionValidator
-from models_related.ultralytics.ultralytics.utils import LOGGER, RANK
-from models_related.ultralytics.ultralytics.utils.metrics import ConfusionMatrix, SemanticMetrics
-from models_related.ultralytics.ultralytics.utils.plotting import plot_images
+from ultralytics.data.dataset import SemanticDataset
+from ultralytics.data.utils import add_polygon_background
+from ultralytics.models.yolo.detect import DetectionValidator
+from ultralytics.utils import LOGGER, RANK
+from ultralytics.utils.metrics import ConfusionMatrix, SemanticMetrics
+from ultralytics.utils.plotting import plot_images
 
 
 class SemanticSegmentationValidator(DetectionValidator):

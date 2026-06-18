@@ -9,10 +9,10 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from models_related.ultralytics.ultralytics.data.utils import IMG_FORMATS
-from models_related.ultralytics.ultralytics.utils import LOGGER, TORCH_VERSION
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
-from models_related.ultralytics.ultralytics.utils.torch_utils import TORCH_2_4, select_device
+from ultralytics.data.utils import IMG_FORMATS
+from ultralytics.utils import LOGGER, TORCH_VERSION
+from ultralytics.utils.checks import check_requirements
+from ultralytics.utils.torch_utils import TORCH_2_4, select_device
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"  # Avoid OpenMP conflict on some systems
 
@@ -49,7 +49,7 @@ class VisualAISearch:
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the VisualAISearch class with FAISS index and CLIP model."""
         assert TORCH_2_4, f"VisualAISearch requires torch>=2.4 (found torch=={TORCH_VERSION})"
-        from models_related.ultralytics.ultralytics.nn.text_model import build_text_model
+        from ultralytics.nn.text_model import build_text_model
 
         check_requirements("faiss-cpu")
 
@@ -60,10 +60,10 @@ class VisualAISearch:
         self.device = select_device(kwargs.get("device", "cpu"))
 
         if not self.data_dir.exists():
-            from models_related.ultralytics.ultralytics.utils import ASSETS_URL
+            from ultralytics.utils import ASSETS_URL
 
             LOGGER.warning(f"{self.data_dir} not found. Downloading images.zip from {ASSETS_URL}/images.zip")
-            from models_related.ultralytics.ultralytics.utils.downloads import safe_download
+            from ultralytics.utils.downloads import safe_download
 
             safe_download(url=f"{ASSETS_URL}/images.zip", unzip=True, retry=3)
             self.data_dir = Path("images")

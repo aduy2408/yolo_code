@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from models_related.ultralytics.ultralytics.data.utils import HUBDatasetStats
-from models_related.ultralytics.ultralytics.hub.auth import Auth
-from models_related.ultralytics.ultralytics.hub.session import HUBTrainingSession
-from models_related.ultralytics.ultralytics.hub.utils import HUB_API_ROOT, HUB_WEB_ROOT, PREFIX
-from models_related.ultralytics.ultralytics.utils import checks
-from models_related.ultralytics.ultralytics.utils import LOGGER, SETTINGS
+from ultralytics.data.utils import HUBDatasetStats
+from ultralytics.hub.auth import Auth
+from ultralytics.hub.session import HUBTrainingSession
+from ultralytics.hub.utils import HUB_API_ROOT, HUB_WEB_ROOT, PREFIX
+from ultralytics.utils import checks
+from ultralytics.utils import LOGGER, SETTINGS
 
 __all__ = (
     "HUB_WEB_ROOT",
@@ -84,7 +84,7 @@ def reset_model(model_id: str = ""):
 
 def export_fmts_hub():
     """Return a list of HUB-supported export formats."""
-    from models_related.ultralytics.ultralytics.engine.exporter import export_formats
+    from ultralytics.engine.exporter import export_formats
 
     return [*list(export_formats()["Argument"][1:]), "ultralytics_tflite", "ultralytics_coreml"]
 

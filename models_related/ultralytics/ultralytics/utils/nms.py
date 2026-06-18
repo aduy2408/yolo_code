@@ -5,9 +5,9 @@ import time
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
-from models_related.ultralytics.ultralytics.utils.metrics import batch_probiou, box_iou
-from models_related.ultralytics.ultralytics.utils.ops import xywh2xyxy
+from ultralytics.utils import LOGGER
+from ultralytics.utils.metrics import batch_probiou, box_iou
+from ultralytics.utils.ops import xywh2xyxy
 
 
 def non_max_suppression(

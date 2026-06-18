@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from models_related.ultralytics.ultralytics.engine.model import Model
+from ultralytics.engine.model import Model
 
 from .predict import FastSAMPredictor
 from .val import FastSAMValidator

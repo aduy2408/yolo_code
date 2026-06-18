@@ -9,8 +9,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models_related.ultralytics.ultralytics.utils.checks import check_suffix
-from models_related.ultralytics.ultralytics.utils.downloads import is_url
+from ultralytics.utils.checks import check_suffix
+from ultralytics.utils.downloads import is_url
 
 from .backends import (
     AxeleraBackend,
@@ -57,7 +57,7 @@ def check_class_names(names: list | dict) -> dict[int, str]:
                 f"{min(names.keys())}-{max(names.keys())} defined in your dataset YAML."
             )
         if isinstance(names[0], str) and names[0].startswith("n0"):  # imagenet class codes, i.e. 'n01440764'
-            from models_related.ultralytics.ultralytics.utils import ROOT, YAML
+            from ultralytics.utils import ROOT, YAML
 
             names_map = YAML.load(ROOT / "cfg/datasets/ImageNet.yaml")["map"]  # human-readable names
             names = {k: names_map[v] for k, v in names.items()}
@@ -75,8 +75,8 @@ def default_class_names(data: str | Path | None = None) -> dict[int, str]:
     """
     if data:
         try:
-            from models_related.ultralytics.ultralytics.utils import YAML
-            from models_related.ultralytics.ultralytics.utils.checks import check_yaml
+            from ultralytics.utils import YAML
+            from ultralytics.utils.checks import check_yaml
 
             return YAML.load(check_yaml(data))["names"]
         except Exception:
@@ -205,7 +205,7 @@ class AutoBackend(nn.Module):
         if format == "tfjs":
             raise NotImplementedError("Ultralytics TF.js inference is not currently supported.")
         if format not in self._BACKEND_MAP:
-            from models_related.ultralytics.ultralytics.engine.exporter import export_formats
+            from ultralytics.engine.exporter import export_formats
 
             raise TypeError(
                 f"model='{model}' is not a supported model format. "
@@ -303,7 +303,7 @@ class AutoBackend(nn.Module):
         Args:
             imgsz (tuple[int, int, int, int]): Dummy input shape in (batch, channels, height, width) format.
         """
-        from models_related.ultralytics.ultralytics.utils.nms import non_max_suppression
+        from ultralytics.utils.nms import non_max_suppression
 
         if self.format in {"pt", "torchscript", "onnx", "engine", "saved_model", "pb", "triton"} and (
             self.device.type != "cpu" or self.format == "triton"
@@ -330,7 +330,7 @@ class AutoBackend(nn.Module):
             >>> fmt = AutoBackend._model_type("path/to/model.onnx")
             >>> assert fmt == "onnx"
         """
-        from models_related.ultralytics.ultralytics.engine.exporter import export_formats
+        from ultralytics.engine.exporter import export_formats
 
         sf = export_formats()["Suffix"]
         if not is_url(p) and not isinstance(p, str):

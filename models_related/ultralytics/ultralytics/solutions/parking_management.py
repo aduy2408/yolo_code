@@ -8,9 +8,9 @@ from typing import Any
 import cv2
 import numpy as np
 
-from models_related.ultralytics.ultralytics.solutions.solutions import BaseSolution, SolutionAnnotator, SolutionResults
-from models_related.ultralytics.ultralytics.utils import LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_imshow
+from ultralytics.solutions.solutions import BaseSolution, SolutionAnnotator, SolutionResults
+from ultralytics.utils import LOGGER
+from ultralytics.utils.checks import check_imshow
 
 
 class ParkingPtsSelection:

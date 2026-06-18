@@ -7,9 +7,9 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.nn.modules import Pose, Pose26
-from models_related.ultralytics.ultralytics.utils import LOGGER, YAML
-from models_related.ultralytics.ultralytics.utils.checks import check_executorch_requirements
+from ultralytics.nn.modules import Pose, Pose26
+from ultralytics.utils import LOGGER, YAML
+from ultralytics.utils.checks import check_executorch_requirements
 
 
 def executorch_wrapper(model: torch.nn.Module) -> torch.nn.Module:
@@ -58,7 +58,7 @@ def torch2executorch(
         (str): Path to the exported ExecuTorch model directory.
     """
     check_executorch_requirements()
-    from models_related.ultralytics.ultralytics.utils.export.executorch import version as executorch_version
+    from ultralytics.utils.export.executorch import version as executorch_version
     from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
     from executorch.exir import to_edge_transform_and_lower
 

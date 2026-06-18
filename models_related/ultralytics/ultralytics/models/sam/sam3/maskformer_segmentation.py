@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 
-from models_related.ultralytics.ultralytics.nn.modules.transformer import MLP
+from ultralytics.nn.modules.transformer import MLP
 
 
 class LinearPresenceHead(nn.Sequential):

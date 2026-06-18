@@ -5,10 +5,10 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from models_related.ultralytics.ultralytics.engine.predictor import BasePredictor
-from models_related.ultralytics.ultralytics.engine.results import Results
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG
+from ultralytics.engine.predictor import BasePredictor
+from ultralytics.engine.results import Results
+from ultralytics.utils import ops
+from ultralytics.utils import DEFAULT_CFG
 
 
 class SemanticSegmentationPredictor(BasePredictor):

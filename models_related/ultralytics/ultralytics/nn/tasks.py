@@ -10,8 +10,8 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from models_related.ultralytics.ultralytics.nn.autobackend import check_class_names
-from models_related.ultralytics.ultralytics.nn.modules import (
+from ultralytics.nn.autobackend import check_class_names
+from ultralytics.nn.modules import (
     AIFI,
     C1,
     C2,
@@ -81,9 +81,9 @@ from models_related.ultralytics.ultralytics.nn.modules import (
     YOLOESegment26,
     v10Detect,
 )
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, SAFE_LOAD, SETTINGS, WINDOWS, YAML, colorstr, emojis
-from models_related.ultralytics.ultralytics.utils.checks import REMOTE_FILE_PREFIXES, check_file, check_requirements, check_suffix, check_yaml
-from models_related.ultralytics.ultralytics.utils.loss import (
+from ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, SAFE_LOAD, SETTINGS, WINDOWS, YAML, colorstr, emojis
+from ultralytics.utils.checks import REMOTE_FILE_PREFIXES, check_file, check_requirements, check_suffix, check_yaml
+from ultralytics.utils.loss import (
     E2ELoss,
     PoseLoss26,
     SemanticSegmentationLoss,
@@ -93,10 +93,10 @@ from models_related.ultralytics.ultralytics.utils.loss import (
     v8PoseLoss,
     v8SegmentationLoss,
 )
-from models_related.ultralytics.ultralytics.utils.ops import make_divisible
-from models_related.ultralytics.ultralytics.utils.patches import torch_load
-from models_related.ultralytics.ultralytics.utils.plotting import feature_visualization
-from models_related.ultralytics.ultralytics.utils.torch_utils import (
+from ultralytics.utils.ops import make_divisible
+from ultralytics.utils.patches import torch_load
+from ultralytics.utils.plotting import feature_visualization
+from ultralytics.utils.torch_utils import (
     fuse_conv_and_bn,
     fuse_deconv_and_bn,
     initialize_weights,
@@ -847,7 +847,7 @@ class RTDETRDetectionModel(DetectionModel):
 
     def init_criterion(self):
         """Initialize the loss criterion for the RTDETRDetectionModel."""
-        from models_related.ultralytics.ultralytics.models.utils.loss import RTDETRDetectionLoss
+        from ultralytics.models.utils.loss import RTDETRDetectionLoss
 
         return RTDETRDetectionLoss(nc=self.nc, use_vfl=True)
 
@@ -991,7 +991,7 @@ class WorldModel(DetectionModel):
         Returns:
             (torch.Tensor): Text positional embeddings.
         """
-        from models_related.ultralytics.ultralytics.nn.text_model import build_text_model
+        from ultralytics.nn.text_model import build_text_model
 
         device = next(self.model.parameters()).device
         if not getattr(self, "clip_model", None) and cache_clip_model:
@@ -1114,7 +1114,7 @@ class YOLOEModel(DetectionModel):
         Returns:
             (torch.Tensor): Text positional embeddings.
         """
-        from models_related.ultralytics.ultralytics.nn.text_model import build_text_model
+        from ultralytics.nn.text_model import build_text_model
 
         device = next(self.model.parameters()).device
         if not getattr(self, "clip_model", None) and cache_clip_model:
@@ -1298,7 +1298,7 @@ class YOLOEModel(DetectionModel):
             preds (torch.Tensor | list[torch.Tensor], optional): Predictions.
         """
         if not hasattr(self, "criterion"):
-            from models_related.ultralytics.ultralytics.utils.loss import TVPDetectLoss
+            from ultralytics.utils.loss import TVPDetectLoss
 
             visual_prompt = batch.get("visuals", None) is not None  # TODO
             self.criterion = (
@@ -1350,7 +1350,7 @@ class YOLOESegModel(YOLOEModel, SegmentationModel):
             preds (torch.Tensor | list[torch.Tensor], optional): Predictions.
         """
         if not hasattr(self, "criterion"):
-            from models_related.ultralytics.ultralytics.utils.loss import TVPSegmentLoss
+            from ultralytics.utils.loss import TVPSegmentLoss
 
             visual_prompt = batch.get("visuals", None) is not None  # TODO
             self.criterion = (
@@ -1537,8 +1537,8 @@ class _SafeLoad:
 
         import torch.nn.modules as torch_nn
 
-        import models_related.ultralytics.ultralytics.nn.modules as ul_nn
-        import models_related.ultralytics.ultralytics.nn.tasks as ul_tasks
+        import ultralytics.nn.modules as ul_nn
+        import ultralytics.nn.tasks as ul_tasks
 
         allow = []
 
@@ -1570,7 +1570,7 @@ class _SafeLoad:
             pass
 
         # Legacy/cross-platform aliases (pickled paths with no current class namespace), mirroring temporary_modules().
-        from models_related.ultralytics.ultralytics.utils.loss import E2EDetectLoss
+        from ultralytics.utils.loss import E2EDetectLoss
 
         allow += [
             (nn.Identity, "ultralytics.nn.modules.block.Silence"),  # YOLOv9e
@@ -1603,7 +1603,7 @@ def torch_safe_load(weight, safe_only=None):
         >>> from ultralytics.nn.tasks import torch_safe_load
         >>> ckpt, file = torch_safe_load("path/to/best.pt", safe_only=True)
     """
-    from models_related.ultralytics.ultralytics.utils.downloads import attempt_download_asset
+    from ultralytics.utils.downloads import attempt_download_asset
 
     if safe_only is None:
         safe_only = SAFE_LOAD

@@ -12,9 +12,9 @@ from typing import Any
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.utils import checks
-from models_related.ultralytics.ultralytics.utils.plotting import colors
-from models_related.ultralytics.ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, TryExcept, plt_settings
+from ultralytics.utils import checks
+from ultralytics.utils.plotting import colors
+from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, TryExcept, plt_settings
 
 OKS_SIGMA = (
     np.array(

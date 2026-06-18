@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils.checks import check_requirements
 
 from .base import BaseBackend
 
@@ -25,7 +25,7 @@ class TritonBackend(BaseBackend):
             weight (str | Path): Triton model URL (e.g., 'triton://host:8000/model_name').
         """
         check_requirements("tritonclient[all]")
-        from models_related.ultralytics.ultralytics.utils.triton import TritonRemoteModel
+        from ultralytics.utils.triton import TritonRemoteModel
 
         self.model = TritonRemoteModel(weight)
 

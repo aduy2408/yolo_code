@@ -19,13 +19,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from models_related.ultralytics.ultralytics.data.augment import LetterBox
-from models_related.ultralytics.ultralytics.engine.predictor import BasePredictor
-from models_related.ultralytics.ultralytics.engine.results import Results
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils.metrics import box_iou, mask_iou
-from models_related.ultralytics.ultralytics.utils.torch_utils import select_device, smart_inference_mode
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, LOGGER
+from ultralytics.data.augment import LetterBox
+from ultralytics.engine.predictor import BasePredictor
+from ultralytics.engine.results import Results
+from ultralytics.utils import ops
+from ultralytics.utils.metrics import box_iou, mask_iou
+from ultralytics.utils.torch_utils import select_device, smart_inference_mode
+from ultralytics.utils import DEFAULT_CFG, LOGGER
 
 from .amg import (
     batch_iterator,

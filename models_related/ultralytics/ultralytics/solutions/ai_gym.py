@@ -3,7 +3,7 @@
 from collections import defaultdict
 from typing import Any
 
-from models_related.ultralytics.ultralytics.solutions.solutions import BaseSolution, SolutionAnnotator, SolutionResults
+from ultralytics.solutions.solutions import BaseSolution, SolutionAnnotator, SolutionResults
 
 
 class AIGym(BaseSolution):

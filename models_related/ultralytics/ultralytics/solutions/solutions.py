@@ -10,12 +10,12 @@ from typing import Any
 import cv2
 import numpy as np
 
-from models_related.ultralytics.ultralytics import YOLO
-from models_related.ultralytics.ultralytics.solutions.config import SolutionConfig
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils.checks import check_imshow, check_requirements
-from models_related.ultralytics.ultralytics.utils.plotting import Annotator
-from models_related.ultralytics.ultralytics.utils import ASSETS_URL, LOGGER
+from ultralytics import YOLO
+from ultralytics.solutions.config import SolutionConfig
+from ultralytics.utils import ops
+from ultralytics.utils.checks import check_imshow, check_requirements
+from ultralytics.utils.plotting import Annotator
+from ultralytics.utils import ASSETS_URL, LOGGER
 
 
 class BaseSolution:
@@ -122,7 +122,7 @@ class BaseSolution:
         if is_cli and self.CFG["source"] is None:
             d_s = "solutions_ci_demo.mp4" if "-pose" not in self.CFG["model"] else "solution_ci_pose_demo.mp4"
             self.LOGGER.warning(f"source not provided. using default source {ASSETS_URL}/{d_s}")
-            from models_related.ultralytics.ultralytics.utils.downloads import safe_download
+            from ultralytics.utils.downloads import safe_download
 
             safe_download(f"{ASSETS_URL}/{d_s}")  # download source from ultralytics assets
             self.CFG["source"] = d_s  # set default source

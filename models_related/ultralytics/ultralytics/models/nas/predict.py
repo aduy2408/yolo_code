@@ -2,8 +2,8 @@
 
 import torch
 
-from models_related.ultralytics.ultralytics.models.yolo.detect.predict import DetectionPredictor
-from models_related.ultralytics.ultralytics.utils import ops
+from ultralytics.models.yolo.detect.predict import DetectionPredictor
+from ultralytics.utils import ops
 
 
 class NASPredictor(DetectionPredictor):

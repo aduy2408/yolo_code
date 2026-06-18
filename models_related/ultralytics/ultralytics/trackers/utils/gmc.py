@@ -7,7 +7,7 @@ import copy
 import cv2
 import numpy as np
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
+from ultralytics.utils import LOGGER
 
 
 class GMC:

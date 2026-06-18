@@ -7,10 +7,10 @@ from typing import Any
 import cv2
 import torch
 
-from models_related.ultralytics.ultralytics import YOLO
-from models_related.ultralytics.ultralytics.utils import LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
-from models_related.ultralytics.ultralytics.utils.downloads import GITHUB_ASSETS_STEMS
+from ultralytics import YOLO
+from ultralytics.utils import LOGGER
+from ultralytics.utils.checks import check_requirements
+from ultralytics.utils.downloads import GITHUB_ASSETS_STEMS
 
 torch.classes.__path__ = []  # Torch module __path__._path issue: https://github.com/datalab-to/marker/issues/442
 
@@ -125,7 +125,7 @@ class Inference:
 
     def source_upload(self) -> None:
         """Handle video file uploads through the Streamlit interface."""
-        from models_related.ultralytics.ultralytics.data.utils import IMG_FORMATS, VID_FORMATS  # scope import
+        from ultralytics.data.utils import IMG_FORMATS, VID_FORMATS  # scope import
 
         self.vid_file_name = ""
         if self.source == "video":

@@ -7,10 +7,10 @@ from pathlib import Path
 from threading import Thread
 from urllib.request import Request, urlopen
 
-from models_related.ultralytics.ultralytics import SETTINGS, __version__
-from models_related.ultralytics.ultralytics.utils import ARGV, ENVIRONMENT, GIT, IS_PIP_PACKAGE, ONLINE, PYTHON_VERSION, RANK, TESTS_RUNNING
-from models_related.ultralytics.ultralytics.utils.downloads import GITHUB_ASSETS_NAMES
-from models_related.ultralytics.ultralytics.utils.torch_utils import get_cpu_info
+from ultralytics import SETTINGS, __version__
+from ultralytics.utils import ARGV, ENVIRONMENT, GIT, IS_PIP_PACKAGE, ONLINE, PYTHON_VERSION, RANK, TESTS_RUNNING
+from ultralytics.utils.downloads import GITHUB_ASSETS_NAMES
+from ultralytics.utils.torch_utils import get_cpu_info
 
 
 def _post(url: str, data: dict, timeout: float = 5.0) -> None:

@@ -1,12 +1,12 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-from models_related.ultralytics.ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING
+from ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING
 
 try:
     assert not TESTS_RUNNING  # do not log pytest
     assert SETTINGS["neptune"] is True  # verify integration is enabled
 
-    import models_related.ultralytics.ultralytics.utils.callbacks.neptune as neptune
+    import ultralytics.utils.callbacks.neptune as neptune
     from neptune.types import File
 
     assert hasattr(neptune, "__version__")
@@ -89,7 +89,7 @@ def on_train_epoch_end(trainer) -> None:
 def on_fit_epoch_end(trainer) -> None:
     """Log model info and validation metrics at the end of each fit epoch."""
     if run and trainer.epoch == 0:
-        from models_related.ultralytics.ultralytics.utils.torch_utils import model_info_for_loggers
+        from ultralytics.utils.torch_utils import model_info_for_loggers
 
         run["Configuration/Model"] = model_info_for_loggers(trainer)
     _log_scalars(trainer.metrics, trainer.epoch + 1)

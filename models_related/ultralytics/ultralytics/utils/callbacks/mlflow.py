@@ -21,14 +21,14 @@ Commands:
         ps aux | grep 'mlflow' | grep -v 'grep' | awk '{print $2}' | xargs kill -9
 """
 
-from models_related.ultralytics.ultralytics.utils import LOGGER, RUNS_DIR, SETTINGS, TESTS_RUNNING, colorstr
+from ultralytics.utils import LOGGER, RUNS_DIR, SETTINGS, TESTS_RUNNING, colorstr
 
 try:
     import os
 
     assert not TESTS_RUNNING or "test_mlflow" in os.environ.get("PYTEST_CURRENT_TEST", "")  # do not log pytest
     assert SETTINGS["mlflow"] is True  # verify integration is enabled
-    import models_related.ultralytics.ultralytics.utils.callbacks.mlflow as mlflow
+    import ultralytics.utils.callbacks.mlflow as mlflow
 
     assert hasattr(mlflow, "__version__")  # verify package is not directory
     from pathlib import Path

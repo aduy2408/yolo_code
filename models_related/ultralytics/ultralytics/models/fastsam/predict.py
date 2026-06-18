@@ -5,11 +5,11 @@ from __future__ import annotations
 import torch
 from PIL import Image
 
-from models_related.ultralytics.ultralytics.models.yolo.segment import SegmentationPredictor
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG
-from models_related.ultralytics.ultralytics.utils.metrics import box_iou
-from models_related.ultralytics.ultralytics.utils.ops import scale_masks
-from models_related.ultralytics.ultralytics.utils.torch_utils import TORCH_1_10
+from ultralytics.models.yolo.segment import SegmentationPredictor
+from ultralytics.utils import DEFAULT_CFG
+from ultralytics.utils.metrics import box_iou
+from ultralytics.utils.ops import scale_masks
+from ultralytics.utils.torch_utils import TORCH_1_10
 
 from .utils import adjust_bboxes_to_image_border
 
@@ -160,7 +160,7 @@ class FastSAMPredictor(SegmentationPredictor):
         Returns:
             (torch.Tensor): Similarity matrix between given images and texts with shape (M, N).
         """
-        from models_related.ultralytics.ultralytics.nn.text_model import CLIP
+        from ultralytics.nn.text_model import CLIP
 
         if not hasattr(self, "clip"):
             self.clip = CLIP("ViT-B/32", device=self.device)

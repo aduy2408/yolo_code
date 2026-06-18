@@ -2,8 +2,8 @@
 
 import torch
 
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionValidator
-from models_related.ultralytics.ultralytics.utils import ops
+from ultralytics.models.yolo.detect import DetectionValidator
+from ultralytics.utils import ops
 
 __all__ = ["NASValidator"]
 

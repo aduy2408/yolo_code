@@ -10,13 +10,13 @@ import numpy as np
 import torch
 from PIL import Image
 
-from models_related.ultralytics.ultralytics.cfg import TASK2DATA, get_cfg, get_save_dir
-from models_related.ultralytics.ultralytics.engine.results import Results
-from models_related.ultralytics.ultralytics.nn.tasks import guess_model_task, load_checkpoint, yaml_model_load
-from models_related.ultralytics.ultralytics.utils import (
+from ultralytics.cfg import TASK2DATA, get_cfg, get_save_dir
+from ultralytics.engine.results import Results
+from ultralytics.nn.tasks import guess_model_task, load_checkpoint, yaml_model_load
+from ultralytics.utils import (
     callbacks,
 )
-from models_related.ultralytics.ultralytics.utils import ARGV, ASSETS, DEFAULT_CFG_DICT, LOGGER, RANK, SETTINGS, YAML, checks
+from ultralytics.utils import ARGV, ASSETS, DEFAULT_CFG_DICT, LOGGER, RANK, SETTINGS, YAML, checks
 
 
 class Model(torch.nn.Module):
@@ -114,7 +114,7 @@ class Model(torch.nn.Module):
 
         # Check if Ultralytics HUB model from https://hub.ultralytics.com
         if self.is_hub_model(model):
-            from models_related.ultralytics.ultralytics.hub import HUBTrainingSession
+            from ultralytics.hub import HUBTrainingSession
 
             # Fetch model from HUB
             checks.check_requirements("hub-sdk>=0.0.12")
@@ -212,7 +212,7 @@ class Model(torch.nn.Module):
             >>> Model.is_hub_model("yolo26n.pt")
             False
         """
-        from models_related.ultralytics.ultralytics.hub import HUB_WEB_ROOT
+        from ultralytics.hub import HUB_WEB_ROOT
 
         return model.startswith(f"{HUB_WEB_ROOT}/models/")
 
@@ -385,7 +385,7 @@ class Model(torch.nn.Module):
         from copy import deepcopy
         from datetime import datetime
 
-        from models_related.ultralytics.ultralytics import __version__
+        from ultralytics import __version__
 
         updates = {
             "model": deepcopy(self.model).half() if isinstance(self.model, torch.nn.Module) else self.model,
@@ -564,7 +564,7 @@ class Model(torch.nn.Module):
             - Batch size is set to 1 for tracking in videos.
         """
         if not hasattr(self.predictor, "trackers"):
-            from models_related.ultralytics.ultralytics.trackers import register_tracker
+            from ultralytics.trackers import register_tracker
 
             register_tracker(self, persist)
         kwargs["conf"] = kwargs.get("conf") or 0.1  # ByteTrack-based method needs low confidence predictions as input
@@ -640,7 +640,7 @@ class Model(torch.nn.Module):
             >>> print(results)
         """
         self._check_is_pytorch_model()
-        from models_related.ultralytics.ultralytics.utils.benchmarks import benchmark
+        from ultralytics.utils.benchmarks import benchmark
 
         from .exporter import export_formats
 
@@ -833,7 +833,7 @@ class Model(torch.nn.Module):
         """
         self._check_is_pytorch_model()
         if use_ray:
-            from models_related.ultralytics.ultralytics.utils.tuner import run_ray_tune
+            from ultralytics.utils.tuner import run_ray_tune
 
             return run_ray_tune(self, iterations=iterations, *args, **kwargs)
         else:
@@ -890,7 +890,7 @@ class Model(torch.nn.Module):
             >>> print(model.names)
             {0: 'person', 1: 'bicycle', 2: 'car', ...}
         """
-        from models_related.ultralytics.ultralytics.nn.autobackend import check_class_names
+        from ultralytics.nn.autobackend import check_class_names
 
         if hasattr(self.model, "names"):
             return check_class_names(self.model.names)

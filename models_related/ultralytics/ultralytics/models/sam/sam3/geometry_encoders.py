@@ -6,8 +6,8 @@ import torch
 import torch.nn as nn
 import torchvision
 
-from models_related.ultralytics.ultralytics.nn.modules.utils import _get_clones
-from models_related.ultralytics.ultralytics.utils.ops import xywh2xyxy
+from ultralytics.nn.modules.utils import _get_clones
+from ultralytics.utils.ops import xywh2xyxy
 
 
 def is_right_padded(mask: torch.Tensor):

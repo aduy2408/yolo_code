@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from models_related.ultralytics.ultralytics.utils import LOGGER, WINDOWS
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils import LOGGER, WINDOWS
+from ultralytics.utils.checks import check_requirements
 
 
 def qnn_library_paths() -> tuple[str | None, str]:
@@ -80,7 +80,7 @@ def onnx2qnn(
     from onnxruntime.quantization.execution_providers.qnn import get_qnn_qdq_config
     from onnxruntime.quantization.shape_inference import quant_pre_process
 
-    from models_related.ultralytics.ultralytics.utils.export.onnx import onnx_calibration_reader
+    from ultralytics.utils.export.onnx import onnx_calibration_reader
 
     ep_library, htp_backend = qnn_library_paths()
 
@@ -91,7 +91,7 @@ def onnx2qnn(
     qdq_file = ctx_file.with_name(f"{onnx_file.stem}_qnn_qdq.onnx")
 
     LOGGER.info(f"\n{prefix} starting A16W8 quantization and export with ONNX Runtime QNN (HTP arch {name})...")
-    import models_related.ultralytics.ultralytics.utils.export.onnx as onnx
+    import ultralytics.utils.export.onnx as onnx
 
     dims = [d.dim_value for d in onnx.load(str(onnx_file)).graph.input[0].type.tensor_type.shape.dim]
     if len(dims) == 4 and dims[3] in {1, 3} and dims[1] not in {1, 3}:  # channel-last graph (QNNModel export)
@@ -151,7 +151,7 @@ def onnx2qnn(
         raise RuntimeError(f"QNN context binary was not generated at {ctx_file}. See {prefix} logs for details.")
 
     if metadata:  # ensure Ultralytics metadata is present in the context model (usually preserved by ONNX Runtime)
-        import models_related.ultralytics.ultralytics.utils.export.onnx as onnx
+        import ultralytics.utils.export.onnx as onnx
 
         ctx_model = onnx.load(str(ctx_file))
         existing = {p.key for p in ctx_model.metadata_props}

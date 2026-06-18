@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
+from ultralytics.utils import LOGGER
 
 
 def onnx2mnn(
@@ -29,8 +29,8 @@ def onnx2mnn(
     Returns:
         (str): Path to the exported ``.mnn`` file.
     """
-    from models_related.ultralytics.ultralytics.utils.checks import check_requirements
-    from models_related.ultralytics.ultralytics.utils.torch_utils import TORCH_1_10
+    from ultralytics.utils.checks import check_requirements
+    from ultralytics.utils.torch_utils import TORCH_1_10
 
     assert TORCH_1_10, "MNN export requires torch>=1.10.0 to avoid segmentation faults"
     assert Path(onnx_file).exists(), f"failed to export ONNX file: {onnx_file}"

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from models_related.ultralytics.ultralytics.hub.utils import HUB_API_ROOT, HUB_WEB_ROOT, PREFIX, request_with_credentials
-from models_related.ultralytics.ultralytics.utils import IS_COLAB, LOGGER, SETTINGS, emojis
+from ultralytics.hub.utils import HUB_API_ROOT, HUB_WEB_ROOT, PREFIX, request_with_credentials
+from ultralytics.utils import IS_COLAB, LOGGER, SETTINGS, emojis
 
 API_KEY_URL = f"{HUB_WEB_ROOT}/settings?tab=api+keys"
 

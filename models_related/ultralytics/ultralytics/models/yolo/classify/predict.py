@@ -6,11 +6,11 @@ import cv2
 import torch
 from PIL import Image
 
-from models_related.ultralytics.ultralytics.data.augment import classify_transforms
-from models_related.ultralytics.ultralytics.engine.predictor import BasePredictor
-from models_related.ultralytics.ultralytics.engine.results import Results
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG
+from ultralytics.data.augment import classify_transforms
+from ultralytics.engine.predictor import BasePredictor
+from ultralytics.engine.results import Results
+from ultralytics.utils import ops
+from ultralytics.utils import DEFAULT_CFG
 
 
 class ClassificationPredictor(BasePredictor):

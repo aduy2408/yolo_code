@@ -13,9 +13,9 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.nn.autobackend import AutoBackend
-from models_related.ultralytics.ultralytics.utils.ops import xywh2xyxy
-from models_related.ultralytics.ultralytics.utils.plotting import save_one_box
+from ultralytics.nn.autobackend import AutoBackend
+from ultralytics.utils.ops import xywh2xyxy
+from ultralytics.utils.plotting import save_one_box
 
 REID_ASSETS = frozenset(f"yolo26{k}-reid.onnx" for k in "nsmlx")
 
@@ -42,7 +42,7 @@ class ReID:
         self.is_pt = str(model).endswith(".pt")
 
         if self.is_pt:
-            from models_related.ultralytics.ultralytics import YOLO
+            from ultralytics import YOLO
 
             self.model = YOLO(model)
             # Initialize predictor with embed=[idx] so subsequent calls return embeddings.
@@ -52,7 +52,7 @@ class ReID:
             from pathlib import Path
 
             if Path(str(model)).name in REID_ASSETS:
-                from models_related.ultralytics.ultralytics.utils.downloads import attempt_download_asset
+                from ultralytics.utils.downloads import attempt_download_asset
 
                 model = attempt_download_asset(str(model))
             self.model = AutoBackend(str(model), device=self.device, fp16=fp16, verbose=False)

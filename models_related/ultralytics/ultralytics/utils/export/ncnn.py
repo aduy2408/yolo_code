@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER, YAML
+from ultralytics.utils import LOGGER, YAML
 
 
 def torch2ncnn(
@@ -32,11 +32,11 @@ def torch2ncnn(
     Returns:
         (str): Path to the exported ``_ncnn_model`` directory.
     """
-    from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+    from ultralytics.utils.checks import check_requirements
 
     check_requirements("ncnn", cmds="--no-deps")  # no deps to avoid installing opencv-python
     check_requirements("pnnx")
-    import models_related.ultralytics.ultralytics.utils.export.ncnn as ncnn
+    import ultralytics.utils.export.ncnn as ncnn
     import pnnx
 
     LOGGER.info(f"\n{prefix} starting export with NCNN {ncnn.__version__} and PNNX {pnnx.__version__}...")

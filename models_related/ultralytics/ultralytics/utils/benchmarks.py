@@ -43,11 +43,11 @@ from pathlib import Path
 import numpy as np
 import torch.cuda
 
-from models_related.ultralytics.ultralytics import YOLO, YOLOWorld
-from models_related.ultralytics.ultralytics.cfg import TASK2DATA, TASK2METRIC
-from models_related.ultralytics.ultralytics.engine.exporter import export_formats
-from models_related.ultralytics.ultralytics.nn.modules import Segment26
-from models_related.ultralytics.ultralytics.utils import (
+from ultralytics import YOLO, YOLOWorld
+from ultralytics.cfg import TASK2DATA, TASK2METRIC
+from ultralytics.engine.exporter import export_formats
+from ultralytics.nn.modules import Segment26
+from ultralytics.utils import (
     ARM64,
     ASSETS,
     ASSETS_URL,
@@ -60,10 +60,10 @@ from models_related.ultralytics.ultralytics.utils import (
     WEIGHTS_DIR,
     YAML,
 )
-from models_related.ultralytics.ultralytics.utils.checks import IS_PYTHON_MINIMUM_3_13, check_imgsz, check_requirements, check_yolo, is_rockchip
-from models_related.ultralytics.ultralytics.utils.downloads import safe_download
-from models_related.ultralytics.ultralytics.utils.files import file_size
-from models_related.ultralytics.ultralytics.utils.torch_utils import get_cpu_info, select_device
+from ultralytics.utils.checks import IS_PYTHON_MINIMUM_3_13, check_imgsz, check_requirements, check_yolo, is_rockchip
+from ultralytics.utils.downloads import safe_download
+from ultralytics.utils.files import file_size
+from ultralytics.utils.torch_utils import get_cpu_info, select_device
 
 
 def benchmark(

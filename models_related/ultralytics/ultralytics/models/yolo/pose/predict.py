@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from models_related.ultralytics.ultralytics.models.yolo.detect.predict import DetectionPredictor
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG
+from ultralytics.models.yolo.detect.predict import DetectionPredictor
+from ultralytics.utils import ops
+from ultralytics.utils import DEFAULT_CFG
 
 
 class PosePredictor(DetectionPredictor):

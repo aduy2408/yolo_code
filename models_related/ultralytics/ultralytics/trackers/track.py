@@ -5,8 +5,8 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import YAML, IterableSimpleNamespace
-from models_related.ultralytics.ultralytics.utils.checks import check_yaml
+from ultralytics.utils import YAML, IterableSimpleNamespace
+from ultralytics.utils.checks import check_yaml
 
 from .bot_sort import BOTSORT
 from .byte_tracker import BYTETracker
@@ -57,7 +57,7 @@ def on_predict_start(predictor: object, persist: bool = False) -> None:
         predictor.postprocess = predictor._orig_postprocess
         del predictor._orig_postprocess
     if cfg.tracker_type in {"botsort", "tracktrack", "deepocsort"} and cfg.with_reid and cfg.model == "auto":
-        from models_related.ultralytics.ultralytics.nn.modules.head import Detect
+        from ultralytics.nn.modules.head import Detect
 
         if not (
             isinstance(predictor.model.model, torch.nn.Module)

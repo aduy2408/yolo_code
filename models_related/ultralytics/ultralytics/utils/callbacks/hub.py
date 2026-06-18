@@ -3,9 +3,9 @@
 import json
 from time import time
 
-from models_related.ultralytics.ultralytics.hub import HUB_WEB_ROOT, PREFIX, HUBTrainingSession
-from models_related.ultralytics.ultralytics.utils import LOGGER, RANK, SETTINGS
-from models_related.ultralytics.ultralytics.utils.events import events
+from ultralytics.hub import HUB_WEB_ROOT, PREFIX, HUBTrainingSession
+from ultralytics.utils import LOGGER, RANK, SETTINGS
+from ultralytics.utils.events import events
 
 
 def on_pretrain_routine_start(trainer):
@@ -30,7 +30,7 @@ def on_fit_epoch_end(trainer):
             **trainer.metrics,
         }
         if trainer.epoch == 0:
-            from models_related.ultralytics.ultralytics.utils.torch_utils import model_info_for_loggers
+            from ultralytics.utils.torch_utils import model_info_for_loggers
 
             all_plots = {**all_plots, **model_info_for_loggers(trainer)}
 

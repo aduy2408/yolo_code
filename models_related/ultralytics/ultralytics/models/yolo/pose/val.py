@@ -8,9 +8,9 @@ from typing import Any
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionValidator
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils.metrics import OKS_SIGMA, PoseMetrics, kpt_iou
+from ultralytics.models.yolo.detect import DetectionValidator
+from ultralytics.utils import ops
+from ultralytics.utils.metrics import OKS_SIGMA, PoseMetrics, kpt_iou
 
 
 class PoseValidator(DetectionValidator):
@@ -202,7 +202,7 @@ class PoseValidator(DetectionValidator):
             The output format is: class_id x_center y_center width height confidence keypoints where keypoints are
             normalized (x, y, visibility) values for each point.
         """
-        from models_related.ultralytics.ultralytics.engine.results import Results
+        from ultralytics.engine.results import Results
 
         Results(
             np.zeros((shape[0], shape[1]), dtype=np.uint8),

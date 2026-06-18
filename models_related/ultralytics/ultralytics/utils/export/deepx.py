@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from models_related.ultralytics.ultralytics.utils import LOGGER, YAML
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils import LOGGER, YAML
+from ultralytics.utils.checks import check_requirements
 
 
 def onnx2deepx(

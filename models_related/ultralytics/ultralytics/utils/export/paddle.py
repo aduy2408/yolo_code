@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import ARM64, IS_JETSON, LOGGER, YAML
+from ultralytics.utils import ARM64, IS_JETSON, LOGGER, YAML
 
 
 def torch2paddle(
@@ -29,7 +29,7 @@ def torch2paddle(
         (str): Path to the exported ``_paddle_model`` directory.
     """
     assert not IS_JETSON, "Jetson Paddle exports not supported yet"
-    from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+    from ultralytics.utils.checks import check_requirements
 
     check_requirements(
         (

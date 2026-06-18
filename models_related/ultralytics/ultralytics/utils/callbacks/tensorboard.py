@@ -1,8 +1,8 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-from models_related.ultralytics.ultralytics.utils import torch_utils
-from models_related.ultralytics.ultralytics.utils.torch_utils import smart_inference_mode
-from models_related.ultralytics.ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING, colorstr
+from ultralytics.utils import torch_utils
+from ultralytics.utils.torch_utils import smart_inference_mode
+from ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING, colorstr
 
 try:
     assert not TESTS_RUNNING  # do not log pytest

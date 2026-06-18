@@ -48,15 +48,15 @@ import cv2
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.cfg import get_cfg, get_save_dir
-from models_related.ultralytics.ultralytics.data import load_inference_source
-from models_related.ultralytics.ultralytics.data.augment import LetterBox
-from models_related.ultralytics.ultralytics.nn.autobackend import AutoBackend
-from models_related.ultralytics.ultralytics.utils import callbacks
-from models_related.ultralytics.ultralytics.utils.checks import check_imgsz, check_imshow
-from models_related.ultralytics.ultralytics.utils.files import increment_path
-from models_related.ultralytics.ultralytics.utils.torch_utils import attempt_compile, select_device, smart_inference_mode
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, colorstr, ops
+from ultralytics.cfg import get_cfg, get_save_dir
+from ultralytics.data import load_inference_source
+from ultralytics.data.augment import LetterBox
+from ultralytics.nn.autobackend import AutoBackend
+from ultralytics.utils import callbacks
+from ultralytics.utils.checks import check_imgsz, check_imshow
+from ultralytics.utils.files import increment_path
+from ultralytics.utils.torch_utils import attempt_compile, select_device, smart_inference_mode
+from ultralytics.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, colorstr, ops
 
 STREAM_WARNING = """
 Inference results will accumulate in RAM unless `stream=True` is passed, which can cause out-of-memory errors for large

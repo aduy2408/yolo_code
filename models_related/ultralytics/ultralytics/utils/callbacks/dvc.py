@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from models_related.ultralytics.ultralytics.utils import checks
-from models_related.ultralytics.ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING
+from ultralytics.utils import checks
+from ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING
 
 try:
     assert not TESTS_RUNNING  # do not log pytest
@@ -141,7 +141,7 @@ def on_fit_epoch_end(trainer) -> None:
             live.log_metric(metric, value)
 
         if trainer.epoch == 0:
-            from models_related.ultralytics.ultralytics.utils.torch_utils import model_info_for_loggers
+            from ultralytics.utils.torch_utils import model_info_for_loggers
 
             for metric, value in model_info_for_loggers(trainer).items():
                 live.log_metric(metric, value, plot=False)

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from models_related.ultralytics.ultralytics.engine.results import Results
-from models_related.ultralytics.ultralytics.models.yolo.detect.predict import DetectionPredictor
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG
+from ultralytics.engine.results import Results
+from ultralytics.models.yolo.detect.predict import DetectionPredictor
+from ultralytics.utils import ops
+from ultralytics.utils import DEFAULT_CFG
 
 
 class SegmentationPredictor(DetectionPredictor):

@@ -8,11 +8,11 @@ from typing import Any
 import torch
 import torch.distributed as dist
 
-from models_related.ultralytics.ultralytics.data import ClassificationDataset, build_dataloader
-from models_related.ultralytics.ultralytics.engine.validator import BaseValidator
-from models_related.ultralytics.ultralytics.utils import LOGGER, RANK
-from models_related.ultralytics.ultralytics.utils.metrics import ClassifyMetrics, ConfusionMatrix
-from models_related.ultralytics.ultralytics.utils.plotting import plot_images
+from ultralytics.data import ClassificationDataset, build_dataloader
+from ultralytics.engine.validator import BaseValidator
+from ultralytics.utils import LOGGER, RANK
+from ultralytics.utils.metrics import ClassifyMetrics, ConfusionMatrix
+from ultralytics.utils.plotting import plot_images
 
 
 class ClassificationValidator(BaseValidator):

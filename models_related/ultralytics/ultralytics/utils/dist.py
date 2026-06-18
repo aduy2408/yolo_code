@@ -12,7 +12,7 @@ from . import USER_CONFIG_DIR
 from .torch_utils import TORCH_1_9
 
 if TYPE_CHECKING:
-    from models_related.ultralytics.ultralytics.engine.trainer import BaseTrainer
+    from ultralytics.engine.trainer import BaseTrainer
 
 
 def find_free_network_port() -> int:

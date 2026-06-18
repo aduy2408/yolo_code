@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from models_related.ultralytics.ultralytics.engine.model import Model
-from models_related.ultralytics.ultralytics.utils.torch_utils import model_info
+from ultralytics.engine.model import Model
+from ultralytics.utils.torch_utils import model_info
 
 from .predict import Predictor, SAM2Predictor, SAM3Predictor
 

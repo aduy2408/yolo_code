@@ -3,9 +3,9 @@
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.data.augment import LoadVisualPrompt
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionPredictor
-from models_related.ultralytics.ultralytics.models.yolo.segment import SegmentationPredictor
+from ultralytics.data.augment import LoadVisualPrompt
+from ultralytics.models.yolo.detect import DetectionPredictor
+from ultralytics.models.yolo.segment import SegmentationPredictor
 
 
 class YOLOEVPDetectPredictor(DetectionPredictor):

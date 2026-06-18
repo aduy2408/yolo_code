@@ -12,7 +12,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from models_related.ultralytics.ultralytics.utils import NOT_MACOS14
+from ultralytics.utils import NOT_MACOS14
 
 
 class Profile(contextlib.ContextDecorator):
@@ -632,7 +632,7 @@ def masks2segments(masks: np.ndarray | torch.Tensor, strategy: str = "all") -> l
     Returns:
         (list): List of segment masks as float32 arrays.
     """
-    from models_related.ultralytics.ultralytics.data.converter import merge_multi_segment
+    from ultralytics.data.converter import merge_multi_segment
 
     masks = masks.astype("uint8") if isinstance(masks, np.ndarray) else masks.byte().cpu().numpy()
     segments = []

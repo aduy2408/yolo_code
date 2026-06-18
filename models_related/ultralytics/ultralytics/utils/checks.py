@@ -22,10 +22,10 @@ import cv2
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.utils import (
+from ultralytics.utils import (
     downloads,
 )
-from models_related.ultralytics.ultralytics.utils import ARM64, ASSETS, ASSETS_URL, AUTOINSTALL, GIT, IS_COLAB, IS_DOCKER, IS_JETSON, IS_KAGGLE, IS_PIP_PACKAGE, LINUX, LOGGER, MACOS, ONLINE, PYTHON_VERSION, RKNN_CHIPS, ROOT, TORCH_VERSION, TORCHVISION_VERSION, USER_CONFIG_DIR, WINDOWS, Retry, ThreadingLocked, TryExcept, clean_url, colorstr, is_github_action_running, url2file
+from ultralytics.utils import ARM64, ASSETS, ASSETS_URL, AUTOINSTALL, GIT, IS_COLAB, IS_DOCKER, IS_JETSON, IS_KAGGLE, IS_PIP_PACKAGE, LINUX, LOGGER, MACOS, ONLINE, PYTHON_VERSION, RKNN_CHIPS, ROOT, TORCH_VERSION, TORCHVISION_VERSION, USER_CONFIG_DIR, WINDOWS, Retry, ThreadingLocked, TryExcept, clean_url, colorstr, is_github_action_running, url2file
 
 REMOTE_FILE_PREFIXES = ("https://", "http://", "rtsp://", "rtmp://", "tcp://", "ul://", "gs://")
 
@@ -278,7 +278,7 @@ def check_pip_update_available():
     """
     if ONLINE and IS_PIP_PACKAGE:
         try:
-            from models_related.ultralytics.ultralytics import __version__
+            from ultralytics import __version__
 
             latest = check_latest_pypi_version()
             if check_version(__version__, f"<{latest}"):  # check if current version is < latest version
@@ -629,7 +629,7 @@ def check_file(file, suffix="", download=True, download_dir=".", hard=True):
     ):  # file exists or gRPC Triton images
         return file
     elif download and file.lower().startswith("ul://"):  # Ultralytics Platform URI
-        from models_related.ultralytics.ultralytics.utils.callbacks.platform import resolve_platform_uri
+        from ultralytics.utils.callbacks.platform import resolve_platform_uri
 
         url = resolve_platform_uri(file, hard=hard)  # Convert to signed HTTPS URL
         if url is None:
@@ -731,7 +731,7 @@ def check_yolo(verbose=True, device=""):
     """
     import psutil  # scoped as slow import
 
-    from models_related.ultralytics.ultralytics.utils.torch_utils import select_device
+    from ultralytics.utils.torch_utils import select_device
 
     if IS_COLAB:
         shutil.rmtree("sample_data", ignore_errors=True)  # remove colab /sample_data directory
@@ -766,8 +766,8 @@ def collect_system_info():
     """
     import psutil  # scoped as slow import
 
-    from models_related.ultralytics.ultralytics.utils import ENVIRONMENT  # scope to avoid circular import
-    from models_related.ultralytics.ultralytics.utils.torch_utils import get_cpu_info, get_gpu_info
+    from ultralytics.utils import ENVIRONMENT  # scope to avoid circular import
+    from ultralytics.utils.torch_utils import get_cpu_info, get_gpu_info
 
     gib = 1 << 30  # bytes per GiB
     cuda = torch.cuda.is_available()
@@ -836,7 +836,7 @@ def check_amp(model):
         >>> model = YOLO("yolo26n.pt").model.cuda()
         >>> check_amp(model)
     """
-    from models_related.ultralytics.ultralytics.utils.torch_utils import autocast
+    from ultralytics.utils.torch_utils import autocast
 
     device = next(model.parameters()).device  # get model device
     prefix = colorstr("AMP: ")
@@ -870,7 +870,7 @@ def check_amp(model):
     LOGGER.info(f"{prefix}running Automatic Mixed Precision (AMP) checks...")
     warning_msg = "Setting 'amp=True'. If you experience zero-mAP or NaN losses you can disable AMP with amp=False."
     try:
-        from models_related.ultralytics.ultralytics import YOLO
+        from ultralytics import YOLO
 
         assert amp_allclose(YOLO("yolo26n.pt"), im)
         LOGGER.info(f"{prefix}checks passed ✅")
@@ -999,7 +999,7 @@ def is_intel():
     Returns:
         (bool): True if Intel hardware is detected, False otherwise.
     """
-    from models_related.ultralytics.ultralytics.utils.torch_utils import get_cpu_info
+    from ultralytics.utils.torch_utils import get_cpu_info
 
     # Check CPU
     if "intel" in get_cpu_info().lower():

@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from models_related.ultralytics.ultralytics.engine.results import Results
-from models_related.ultralytics.ultralytics.solutions.solutions import BaseSolution, SolutionResults
+from ultralytics.engine.results import Results
+from ultralytics.solutions.solutions import BaseSolution, SolutionResults
 
 
 class InstanceSegmentation(BaseSolution):

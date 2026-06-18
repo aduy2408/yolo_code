@@ -11,9 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.init import constant_, xavier_uniform_
 
-from models_related.ultralytics.ultralytics.utils import NOT_MACOS14
-from models_related.ultralytics.ultralytics.utils.tal import dist2bbox, dist2rbox, make_anchors
-from models_related.ultralytics.ultralytics.utils.torch_utils import TORCH_1_11, fuse_conv_and_bn, smart_inference_mode
+from ultralytics.utils import NOT_MACOS14
+from ultralytics.utils.tal import dist2bbox, dist2rbox, make_anchors
+from ultralytics.utils.torch_utils import TORCH_1_11, fuse_conv_and_bn, smart_inference_mode
 
 from .block import DFL, SAVPE, BNContrastiveHead, ContrastiveHead, Proto, Proto26, RealNVP, Residual, SwiGLUFFN
 from .conv import Conv, DWConv
@@ -1552,7 +1552,7 @@ class RTDETRDecoder(nn.Module):
                 metadata. During inference, returns a tensor of shape (bs, num_queries, 6) containing bounding boxes,
                 confidence scores, and class labels.
         """
-        from models_related.ultralytics.ultralytics.models.utils.ops import get_cdn_group
+        from ultralytics.models.utils.ops import get_cdn_group
 
         # Input projection and embedding
         feats, shapes = self._get_encoder_input(x)

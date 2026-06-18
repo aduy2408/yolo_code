@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
+from ultralytics.utils import LOGGER
 
 from .base import BaseBackend
 
@@ -48,7 +48,7 @@ class DeepXBackend(BaseBackend):
         # Load metadata
         metadata_file = found.parent / "metadata.yaml"
         if metadata_file.exists():
-            from models_related.ultralytics.ultralytics.utils import YAML
+            from ultralytics.utils import YAML
 
             self.apply_metadata(YAML.load(metadata_file))
 

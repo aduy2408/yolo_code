@@ -10,8 +10,8 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.init import trunc_normal_
 
-from models_related.ultralytics.ultralytics.nn.modules import MLP
-from models_related.ultralytics.ultralytics.utils import LOGGER
+from ultralytics.nn.modules import MLP
+from ultralytics.utils import LOGGER
 
 from .blocks import SAM2TwoWayTransformer, TwoWayTransformer
 from .decoders import MaskDecoder, SAM2MaskDecoder

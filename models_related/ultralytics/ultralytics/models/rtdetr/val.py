@@ -7,11 +7,11 @@ from typing import Any
 
 import torch
 
-from models_related.ultralytics.ultralytics.data import YOLODataset
-from models_related.ultralytics.ultralytics.data.augment import Compose, Format, v8_transforms
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionValidator
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils import colorstr
+from ultralytics.data import YOLODataset
+from ultralytics.data.augment import Compose, Format, v8_transforms
+from ultralytics.models.yolo.detect import DetectionValidator
+from ultralytics.utils import ops
+from ultralytics.utils import colorstr
 
 __all__ = ("RTDETRValidator",)  # tuple or list
 

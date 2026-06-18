@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from models_related.ultralytics.ultralytics.utils import LINUX, LOGGER, MACOS, RANK, WINDOWS
+from ultralytics.utils import LINUX, LOGGER, MACOS, RANK, WINDOWS
 
 
 class ConsoleLogger:

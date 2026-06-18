@@ -8,18 +8,18 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.nn.modules import Detect, Pose, Pose26
-from models_related.ultralytics.ultralytics.utils import LINUX, LOGGER, MACOS
-from models_related.ultralytics.ultralytics.utils.checks import (
+from ultralytics.nn.modules import Detect, Pose, Pose26
+from ultralytics.utils import LINUX, LOGGER, MACOS
+from ultralytics.utils.checks import (
     IS_PYTHON_MINIMUM_3_13,
     check_apt_requirements,
     check_requirements,
     check_version,
     is_sudo_available,
 )
-from models_related.ultralytics.ultralytics.utils.downloads import attempt_download_asset
-from models_related.ultralytics.ultralytics.utils.files import spaces_in_path
-from models_related.ultralytics.ultralytics.utils.tal import make_anchors
+from ultralytics.utils.downloads import attempt_download_asset
+from ultralytics.utils.files import spaces_in_path
+from ultralytics.utils.tal import make_anchors
 
 
 def tf_wrapper(model: torch.nn.Module) -> torch.nn.Module:

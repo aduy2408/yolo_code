@@ -5,9 +5,9 @@ from __future__ import annotations
 from copy import copy
 from pathlib import Path
 
-from models_related.ultralytics.ultralytics.models import yolo
-from models_related.ultralytics.ultralytics.nn.tasks import SegmentationModel
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, RANK
+from ultralytics.models import yolo
+from ultralytics.nn.tasks import SegmentationModel
+from ultralytics.utils import DEFAULT_CFG, RANK
 
 
 class SegmentationTrainer(yolo.detect.DetectionTrainer):

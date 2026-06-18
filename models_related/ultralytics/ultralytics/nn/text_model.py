@@ -9,9 +9,9 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
-from models_related.ultralytics.ultralytics.utils import checks
-from models_related.ultralytics.ultralytics.utils.torch_utils import smart_inference_mode
-from models_related.ultralytics.ultralytics.utils import WEIGHTS_DIR
+from ultralytics.utils import checks
+from ultralytics.utils.torch_utils import smart_inference_mode
+from ultralytics.utils import WEIGHTS_DIR
 
 try:
     import clip
@@ -208,7 +208,7 @@ class MobileCLIP(TextModel):
         config = self.config_size_map[size]
         file = f"mobileclip_{size}.pt"
         if not Path(file).is_file():
-            from models_related.ultralytics.ultralytics import download
+            from ultralytics import download
 
             download(f"https://docs-assets.developer.apple.com/ml-research/datasets/mobileclip/{file}")
         self.model = mobileclip.create_model_and_transforms(f"mobileclip_{config}", pretrained=file, device=device)[0]
@@ -288,7 +288,7 @@ class MobileCLIPTS(TextModel):
             weight (str): Path to the TorchScript model weights.
         """
         super().__init__()
-        from models_related.ultralytics.ultralytics.utils.downloads import attempt_download_asset
+        from ultralytics.utils.downloads import attempt_download_asset
 
         self.encoder = torch.jit.load(attempt_download_asset(weight), map_location=device)
         self.tokenizer = clip.clip.tokenize

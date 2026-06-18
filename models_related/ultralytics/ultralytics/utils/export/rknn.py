@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from models_related.ultralytics.ultralytics.utils import IS_COLAB, LOGGER, YAML
+from ultralytics.utils import IS_COLAB, LOGGER, YAML
 
 
 def _check_rknn_return(ret, name: str):
@@ -51,7 +51,7 @@ def onnx2rknn(
         if not dataset.is_file():
             raise ValueError(f"Generated RKNN INT8 calibration image-list file not found: {dataset}")
 
-    from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+    from ultralytics.utils.checks import check_requirements
 
     LOGGER.info(f"\n{prefix} starting export with rknn-toolkit2...")
     check_requirements("rknn-toolkit2>=2.3.2")

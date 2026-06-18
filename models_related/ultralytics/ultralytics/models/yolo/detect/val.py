@@ -10,14 +10,14 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-from models_related.ultralytics.ultralytics.data import converter
-from models_related.ultralytics.ultralytics.engine.validator import BaseValidator
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
-from models_related.ultralytics.ultralytics.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
-from models_related.ultralytics.ultralytics.utils.plotting import plot_images
-from models_related.ultralytics.ultralytics.data import build_dataloader, build_yolo_dataset
-from models_related.ultralytics.ultralytics.utils import LOGGER, RANK, nms
+from ultralytics.data import converter
+from ultralytics.engine.validator import BaseValidator
+from ultralytics.utils import ops
+from ultralytics.utils.checks import check_requirements
+from ultralytics.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
+from ultralytics.utils.plotting import plot_images
+from ultralytics.data import build_dataloader, build_yolo_dataset
+from ultralytics.utils import LOGGER, RANK, nms
 
 
 class DetectionValidator(BaseValidator):
@@ -398,7 +398,7 @@ class DetectionValidator(BaseValidator):
             shape (tuple[int, int]): Shape of the original image (height, width).
             file (Path): File path to save the detections.
         """
-        from models_related.ultralytics.ultralytics.engine.results import Results
+        from ultralytics.engine.results import Results
 
         Results(
             np.zeros((shape[0], shape[1]), dtype=np.uint8),

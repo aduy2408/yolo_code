@@ -8,8 +8,8 @@ from copy import deepcopy
 
 import torch
 
-from models_related.ultralytics.ultralytics.nn.modules.utils import inverse_sigmoid
-from models_related.ultralytics.ultralytics.utils.ops import xywh2xyxy
+from ultralytics.nn.modules.utils import inverse_sigmoid
+from ultralytics.utils.ops import xywh2xyxy
 
 from ..modules.sam import SAM2Model
 from .geometry_encoders import Prompt

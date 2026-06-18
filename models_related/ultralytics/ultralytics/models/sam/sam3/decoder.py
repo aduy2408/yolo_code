@@ -13,9 +13,9 @@ import torch
 from torch import nn
 from torchvision.ops.roi_align import RoIAlign
 
-from models_related.ultralytics.ultralytics.nn.modules.transformer import MLP
-from models_related.ultralytics.ultralytics.nn.modules.utils import _get_clones, inverse_sigmoid
-from models_related.ultralytics.ultralytics.utils.ops import xywh2xyxy
+from ultralytics.nn.modules.transformer import MLP
+from ultralytics.nn.modules.utils import _get_clones, inverse_sigmoid
+from ultralytics.utils.ops import xywh2xyxy
 
 from .model_misc import gen_sineembed_for_position
 

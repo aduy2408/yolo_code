@@ -8,12 +8,12 @@ from typing import Any
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionValidator
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils.metrics import OBBMetrics, batch_probiou
-from models_related.ultralytics.ultralytics.utils.nms import TorchNMS
-from models_related.ultralytics.ultralytics.utils.plotting import plot_images
-from models_related.ultralytics.ultralytics.utils import LOGGER
+from ultralytics.models.yolo.detect import DetectionValidator
+from ultralytics.utils import ops
+from ultralytics.utils.metrics import OBBMetrics, batch_probiou
+from ultralytics.utils.nms import TorchNMS
+from ultralytics.utils.plotting import plot_images
+from ultralytics.utils import LOGGER
 
 
 class OBBValidator(DetectionValidator):
@@ -222,7 +222,7 @@ class OBBValidator(DetectionValidator):
         """
         import numpy as np
 
-        from models_related.ultralytics.ultralytics.engine.results import Results
+        from ultralytics.engine.results import Results
 
         Results(
             np.zeros((shape[0], shape[1]), dtype=np.uint8),

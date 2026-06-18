@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER, TORCH_VERSION
+from ultralytics.utils import LOGGER, TORCH_VERSION
 
 
 def torch2torchscript(

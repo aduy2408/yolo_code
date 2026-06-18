@@ -6,8 +6,8 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements, is_rockchip
+from ultralytics.utils import LOGGER
+from ultralytics.utils.checks import check_requirements, is_rockchip
 
 from .base import BaseBackend
 
@@ -52,7 +52,7 @@ class RKNNBackend(BaseBackend):
         # Load metadata
         metadata_file = w.parent / "metadata.yaml"
         if metadata_file.exists():
-            from models_related.ultralytics.ultralytics.utils import YAML
+            from ultralytics.utils import YAML
 
             self.apply_metadata(YAML.load(metadata_file))
 

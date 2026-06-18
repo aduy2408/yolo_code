@@ -10,7 +10,7 @@ from math import isfinite
 from pathlib import Path
 from time import sleep, time
 
-from models_related.ultralytics.ultralytics.utils import ENVIRONMENT, GIT, LOGGER, PYTHON_VERSION, RANK, SETTINGS, TESTS_RUNNING, Retry, colorstr
+from ultralytics.utils import ENVIRONMENT, GIT, LOGGER, PYTHON_VERSION, RANK, SETTINGS, TESTS_RUNNING, Retry, colorstr
 
 PREFIX = colorstr("Platform: ")
 
@@ -34,8 +34,8 @@ try:
 
     import requests
 
-    from models_related.ultralytics.ultralytics.utils.logger import ConsoleLogger, SystemLogger
-    from models_related.ultralytics.ultralytics.utils.torch_utils import model_info_for_loggers
+    from ultralytics.utils.logger import ConsoleLogger, SystemLogger
+    from ultralytics.utils.torch_utils import model_info_for_loggers
 
     _executor = ThreadPoolExecutor(max_workers=10)  # Bounded thread pool for async operations
 
@@ -228,7 +228,7 @@ def _handle_control_response(trainer, ctx, response):
 
 def _upload_model(model_path, project, name, progress=False, retry=1, model_id=None):
     """Upload model checkpoint to Platform via signed URL."""
-    from models_related.ultralytics.ultralytics.utils.uploads import safe_upload
+    from ultralytics.utils.uploads import safe_upload
 
     model_path = Path(model_path)
     if not model_path.exists():
@@ -274,8 +274,8 @@ def _get_environment_info():
     import psutil
     import torch
 
-    from models_related.ultralytics.ultralytics import __version__
-    from models_related.ultralytics.ultralytics.utils.torch_utils import get_cpu_info, get_gpu_info
+    from ultralytics import __version__
+    from ultralytics.utils.torch_utils import get_cpu_info, get_gpu_info
 
     # Get RAM and disk totals
     memory = psutil.virtual_memory()

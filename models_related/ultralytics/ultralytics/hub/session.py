@@ -10,11 +10,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from models_related.ultralytics.ultralytics import __version__
-from models_related.ultralytics.ultralytics.hub.utils import HELP_MSG, HUB_WEB_ROOT, PREFIX
-from models_related.ultralytics.ultralytics.utils import checks
-from models_related.ultralytics.ultralytics.utils.errors import HUBModelError
-from models_related.ultralytics.ultralytics.utils import IS_COLAB, LOGGER, SETTINGS, TQDM
+from ultralytics import __version__
+from ultralytics.hub.utils import HELP_MSG, HUB_WEB_ROOT, PREFIX
+from ultralytics.utils import checks
+from ultralytics.utils.errors import HUBModelError
+from ultralytics.utils import IS_COLAB, LOGGER, SETTINGS, TQDM
 
 AGENT_NAME = f"python-{__version__}-colab" if IS_COLAB else f"python-{__version__}-local"
 

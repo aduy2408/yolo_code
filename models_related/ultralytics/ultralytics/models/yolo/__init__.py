@@ -1,7 +1,7 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-from models_related.ultralytics.ultralytics.models.yolo import yoloe
-from models_related.ultralytics.ultralytics.models.yolo import classify, detect, obb, pose, segment, semantic, world
+from ultralytics.models.yolo import yoloe
+from ultralytics.models.yolo import classify, detect, obb, pose, segment, semantic, world
 
 from .model import YOLO, YOLOE, YOLOWorld
 

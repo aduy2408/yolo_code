@@ -1,12 +1,12 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-from models_related.ultralytics.ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING
+from ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING
 
 try:
     assert not TESTS_RUNNING  # do not log pytest
     assert SETTINGS["clearml"] is True  # verify integration is enabled
-    import models_related.ultralytics.ultralytics.utils.callbacks.clearml as clearml
-    from models_related.ultralytics.ultralytics.utils.callbacks.clearml import Task
+    import ultralytics.utils.callbacks.clearml as clearml
+    from ultralytics.utils.callbacks.clearml import Task
 
     assert hasattr(clearml, "__version__")  # verify package is not directory
 
@@ -106,7 +106,7 @@ def on_fit_epoch_end(trainer) -> None:
             title = k.split("/")[0]
             task.get_logger().report_scalar(title, k, v, iteration=trainer.epoch)
         if trainer.epoch == 0:
-            from models_related.ultralytics.ultralytics.utils.torch_utils import model_info_for_loggers
+            from ultralytics.utils.torch_utils import model_info_for_loggers
 
             for k, v in model_info_for_loggers(trainer).items():
                 task.get_logger().report_single_value(k, v)

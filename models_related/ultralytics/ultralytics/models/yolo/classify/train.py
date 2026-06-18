@@ -7,13 +7,13 @@ from typing import Any
 
 import torch
 
-from models_related.ultralytics.ultralytics.data import ClassificationDataset, build_dataloader
-from models_related.ultralytics.ultralytics.engine.trainer import BaseTrainer
-from models_related.ultralytics.ultralytics.models import yolo
-from models_related.ultralytics.ultralytics.nn.tasks import ClassificationModel
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
-from models_related.ultralytics.ultralytics.utils.plotting import plot_images
-from models_related.ultralytics.ultralytics.utils.torch_utils import is_parallel, torch_distributed_zero_first
+from ultralytics.data import ClassificationDataset, build_dataloader
+from ultralytics.engine.trainer import BaseTrainer
+from ultralytics.models import yolo
+from ultralytics.nn.tasks import ClassificationModel
+from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
+from ultralytics.utils.plotting import plot_images
+from ultralytics.utils.torch_utils import is_parallel, torch_distributed_zero_first
 
 
 class ClassificationTrainer(BaseTrainer):

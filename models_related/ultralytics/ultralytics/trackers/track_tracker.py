@@ -10,7 +10,7 @@ import numpy as np
 import scipy.linalg
 import torch
 
-from models_related.ultralytics.ultralytics.utils.metrics import bbox_ioa
+from ultralytics.utils.metrics import bbox_ioa
 
 from ..utils import LOGGER
 from .basetrack import TrackState
@@ -172,8 +172,8 @@ def compute_dets_del(predictor) -> list | None:
     raw = getattr(predictor, "_raw_preds", None)
     if raw is None or not isinstance(raw, torch.Tensor):
         return None
-    from models_related.ultralytics.ultralytics.utils import ops
-    from models_related.ultralytics.ultralytics.utils.metrics import box_iou
+    from ultralytics.utils import ops
+    from ultralytics.utils.metrics import box_iou
 
     loose_results = predictor._orig_postprocess(
         raw, predictor._postprocess_im, predictor._postprocess_im0s, iou=_LOOSE_NMS_IOU

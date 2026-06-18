@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from typing import Any
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
+from ultralytics.utils import LOGGER
 
 
 class GPUInfo:

@@ -11,11 +11,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from models_related.ultralytics.ultralytics import __version__
-from models_related.ultralytics.ultralytics.utils import (
+from ultralytics import __version__
+from ultralytics.utils import (
     checks,
 )
-from models_related.ultralytics.ultralytics.utils import ASSETS, DEFAULT_CFG, DEFAULT_CFG_DICT, DEFAULT_CFG_PATH, FLOAT_OR_INT, IS_VSCODE, LOGGER, RANK, ROOT, RUNS_DIR, SETTINGS, SETTINGS_FILE, STR_OR_PATH, TESTS_RUNNING, YAML, IterableSimpleNamespace, colorstr, deprecation_warn, vscode_msg
+from ultralytics.utils import ASSETS, DEFAULT_CFG, DEFAULT_CFG_DICT, DEFAULT_CFG_PATH, FLOAT_OR_INT, IS_VSCODE, LOGGER, RANK, ROOT, RUNS_DIR, SETTINGS, SETTINGS_FILE, STR_OR_PATH, TESTS_RUNNING, YAML, IterableSimpleNamespace, colorstr, deprecation_warn, vscode_msg
 
 # Define valid solutions
 SOLUTION_MAP = {
@@ -433,7 +433,7 @@ def get_save_dir(args: SimpleNamespace, name: str | None = None) -> Path:
     if getattr(args, "save_dir", None):
         save_dir = args.save_dir
     else:
-        from models_related.ultralytics.ultralytics.utils.files import increment_path
+        from ultralytics.utils.files import increment_path
 
         project = args.project or ""
         if not Path(project).is_absolute():
@@ -612,7 +612,7 @@ def handle_yolo_hub(args: list[str]) -> None:
         - For the 'login' command, if no API key is provided, an empty string is passed to the login function.
         - The 'logout' command does not require any additional arguments.
     """
-    from models_related.ultralytics.ultralytics import hub
+    from ultralytics import hub
 
     if args[0] == "login":
         key = args[1] if len(args) > 1 else ""
@@ -693,7 +693,7 @@ def handle_yolo_solutions(args: list[str]) -> None:
         - The inference solution will be launched using the 'streamlit run' command.
         - The Streamlit app file is located in the Ultralytics package directory.
     """
-    from models_related.ultralytics.ultralytics.solutions.config import SolutionConfig
+    from ultralytics.solutions.config import SolutionConfig
 
     full_args_dict = vars(SolutionConfig())  # arguments dictionary
     overrides = {}
@@ -743,7 +743,7 @@ def handle_yolo_solutions(args: list[str]) -> None:
     else:
         import cv2  # Only needed for cap and vw functionality
 
-        from models_related.ultralytics.ultralytics import solutions
+        from ultralytics import solutions
 
         solution = getattr(solutions, SOLUTION_MAP[solution_name])(is_cli=True, **overrides)  # class i.e. ObjectCounter
 
@@ -973,19 +973,19 @@ def entrypoint(debug: str = "") -> None:
     overrides["model"] = model
     stem = Path(model).stem.lower()
     if "rtdetr" in stem:  # guess architecture
-        from models_related.ultralytics.ultralytics import RTDETR
+        from ultralytics import RTDETR
 
         model = RTDETR(model)  # no task argument
     elif "fastsam" in stem:
-        from models_related.ultralytics.ultralytics import FastSAM
+        from ultralytics import FastSAM
 
         model = FastSAM(model)
     elif "sam_" in stem or "sam2_" in stem or "sam2.1_" in stem:
-        from models_related.ultralytics.ultralytics import SAM
+        from ultralytics import SAM
 
         model = SAM(model)
     else:
-        from models_related.ultralytics.ultralytics import YOLO
+        from ultralytics import YOLO
 
         model = YOLO(model, task=task)
         if "yoloe" in stem or "world" in stem:

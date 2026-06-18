@@ -6,8 +6,8 @@ from pathlib import Path
 
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils import LOGGER
+from ultralytics.utils.checks import check_requirements
 
 from .base import BaseBackend
 
@@ -32,7 +32,7 @@ class QNNBackend(BaseBackend):
         check_requirements("onnxruntime-qnn")
         import onnxruntime
 
-        from models_related.ultralytics.ultralytics.utils.export.qnn import qnn_library_paths
+        from ultralytics.utils.export.qnn import qnn_library_paths
 
         onnx_file = Path(weight)
         LOGGER.info(f"Loading {onnx_file} for Qualcomm QNN inference...")

@@ -8,11 +8,11 @@ from typing import Any
 
 import torch
 
-from models_related.ultralytics.ultralytics.data import build_yolo_dataset
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionTrainer
-from models_related.ultralytics.ultralytics.nn.tasks import WorldModel
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
-from models_related.ultralytics.ultralytics.utils.torch_utils import unwrap_model
+from ultralytics.data import build_yolo_dataset
+from ultralytics.models.yolo.detect import DetectionTrainer
+from ultralytics.nn.tasks import WorldModel
+from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
+from ultralytics.utils.torch_utils import unwrap_model
 
 
 def on_pretrain_routine_end(trainer) -> None:

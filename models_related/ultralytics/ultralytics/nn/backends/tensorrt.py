@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.utils import IS_JETSON, LOGGER, PYTHON_VERSION
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements, check_tensorrt, check_version
+from ultralytics.utils import IS_JETSON, LOGGER, PYTHON_VERSION
+from ultralytics.utils.checks import check_requirements, check_tensorrt, check_version
 
 from .base import BaseBackend
 
@@ -34,10 +34,10 @@ class TensorRTBackend(BaseBackend):
             check_requirements("numpy==1.23.5")
 
         try:
-            import models_related.ultralytics.ultralytics.nn.backends.tensorrt as trt
+            import ultralytics.nn.backends.tensorrt as trt
         except ImportError:
             check_tensorrt()
-            import models_related.ultralytics.ultralytics.nn.backends.tensorrt as trt
+            import ultralytics.nn.backends.tensorrt as trt
 
         check_version(trt.__version__, ">=7.0.0", hard=True)
         check_version(trt.__version__, "!=10.2.0", msg="https://github.com/ultralytics/ultralytics/pull/24367")

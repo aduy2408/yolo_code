@@ -2,14 +2,14 @@
 
 import numpy as np
 
-from models_related.ultralytics.ultralytics.utils.metrics import batch_probiou, bbox_ioa
+from ultralytics.utils.metrics import batch_probiou, bbox_ioa
 
 try:
     import lap  # for linear_assignment
 
     assert lap.__version__  # verify package is not directory
 except (ImportError, AssertionError, AttributeError):
-    from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+    from ultralytics.utils.checks import check_requirements
 
     check_requirements("lap>=0.5.12")  # https://github.com/gatagat/lap
     import lap

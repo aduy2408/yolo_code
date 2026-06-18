@@ -10,8 +10,8 @@ from typing import Any
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.utils import LOGGER, YAML
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils import LOGGER, YAML
+from ultralytics.utils.checks import check_requirements
 
 
 def torch2axelera(
@@ -40,13 +40,13 @@ def torch2axelera(
     prev_protobuf = os.environ.get("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION")
     os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
     try:
-        from models_related.ultralytics.ultralytics.utils.export.axelera import compiler
+        from ultralytics.utils.export.axelera import compiler
     except ImportError:
         check_requirements(
             "axelera-devkit==1.6.0",
             cmds="--extra-index-url https://software.axelera.ai/artifactory/api/pypi/axelera-pypi/simple",
         )
-        from models_related.ultralytics.ultralytics.utils.export.axelera import compiler
+        from ultralytics.utils.export.axelera import compiler
 
     from axelera.compiler import CompilerConfig
     from axelera.compiler.config.model_specific import extract_ultralytics_metadata

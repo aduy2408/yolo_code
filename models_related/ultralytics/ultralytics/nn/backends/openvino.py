@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.utils import ARM64, LINUX, LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils import ARM64, LINUX, LOGGER
+from ultralytics.utils.checks import check_requirements
 
 from .base import BaseBackend
 
@@ -28,7 +28,7 @@ class OpenVINOBackend(BaseBackend):
         """
         LOGGER.info(f"Loading {weight} for OpenVINO inference...")
         check_requirements("openvino>=2024.0.0")
-        import models_related.ultralytics.ultralytics.nn.backends.openvino as ov
+        import ultralytics.nn.backends.openvino as ov
 
         core = ov.Core()
         fallback_device = "CPU" if core.available_devices == ["CPU"] else "AUTO"
@@ -52,7 +52,7 @@ class OpenVINOBackend(BaseBackend):
         # Load metadata
         metadata_file = w.parent / "metadata.yaml"
         if metadata_file.exists():
-            from models_related.ultralytics.ultralytics.utils import YAML
+            from ultralytics.utils import YAML
 
             self.apply_metadata(YAML.load(metadata_file))
 

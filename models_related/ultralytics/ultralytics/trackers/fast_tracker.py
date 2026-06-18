@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from models_related.ultralytics.ultralytics.utils.metrics import bbox_ioa
+from ultralytics.utils.metrics import bbox_ioa
 
 from .basetrack import TrackState
 from .byte_tracker import BYTETracker, STrack

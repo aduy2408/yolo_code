@@ -7,10 +7,10 @@ from typing import Any
 
 import torch
 
-from models_related.ultralytics.ultralytics.data.build import load_inference_source
-from models_related.ultralytics.ultralytics.engine.model import Model
-from models_related.ultralytics.ultralytics.models import yolo
-from models_related.ultralytics.ultralytics.nn.tasks import (
+from ultralytics.data.build import load_inference_source
+from ultralytics.engine.model import Model
+from ultralytics.models import yolo
+from ultralytics.nn.tasks import (
     ClassificationModel,
     DetectionModel,
     OBBModel,
@@ -21,7 +21,7 @@ from models_related.ultralytics.ultralytics.nn.tasks import (
     YOLOEModel,
     YOLOESegModel,
 )
-from models_related.ultralytics.ultralytics.utils import ROOT, YAML
+from ultralytics.utils import ROOT, YAML
 
 
 class YOLO(Model):
@@ -77,7 +77,7 @@ class YOLO(Model):
             # Continue with default YOLO initialization
             super().__init__(model=model, task=task, verbose=verbose)
             if hasattr(self.model, "model") and "RTDETR" in self.model.model[-1]._get_name():  # if RTDETR head
-                from models_related.ultralytics.ultralytics import RTDETR
+                from ultralytics import RTDETR
 
                 new_instance = RTDETR(self)
                 self.__class__ = type(new_instance)

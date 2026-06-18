@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from models_related.ultralytics.ultralytics.data import YOLOConcatDataset, build_grounding, build_yolo_dataset
-from models_related.ultralytics.ultralytics.data.utils import check_det_dataset
-from models_related.ultralytics.ultralytics.models.yolo.world import WorldTrainer
-from models_related.ultralytics.ultralytics.utils import DATASETS_DIR, DEFAULT_CFG, LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_file
-from models_related.ultralytics.ultralytics.utils.torch_utils import unwrap_model
+from ultralytics.data import YOLOConcatDataset, build_grounding, build_yolo_dataset
+from ultralytics.data.utils import check_det_dataset
+from ultralytics.models.yolo.world import WorldTrainer
+from ultralytics.utils import DATASETS_DIR, DEFAULT_CFG, LOGGER
+from ultralytics.utils.checks import check_file
+from ultralytics.utils.torch_utils import unwrap_model
 
 
 class WorldTrainerFromScratch(WorldTrainer):
@@ -115,7 +115,7 @@ class WorldTrainerFromScratch(WorldTrainer):
         """
         # If string, load from YAML file
         if not isinstance(data, dict):
-            from models_related.ultralytics.ultralytics.utils import YAML
+            from ultralytics.utils import YAML
 
             return YAML.load(check_file(data))
         return data

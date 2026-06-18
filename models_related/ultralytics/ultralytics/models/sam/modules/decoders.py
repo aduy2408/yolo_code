@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from models_related.ultralytics.ultralytics.nn.modules import MLP, LayerNorm2d
+from ultralytics.nn.modules import MLP, LayerNorm2d
 
 
 class MaskDecoder(nn.Module):

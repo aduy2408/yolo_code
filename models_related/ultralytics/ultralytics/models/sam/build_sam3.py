@@ -4,8 +4,8 @@
 
 import torch.nn as nn
 
-from models_related.ultralytics.ultralytics.nn.modules.transformer import MLP
-from models_related.ultralytics.ultralytics.utils.patches import torch_load
+from ultralytics.nn.modules.transformer import MLP
+from ultralytics.utils.patches import torch_load
 
 from .modules.blocks import PositionEmbeddingSine, RoPEAttention
 from .modules.encoders import MemoryEncoder
@@ -146,7 +146,7 @@ def build_sam3_image_model(checkpoint_path: str, enable_segmentation: bool = Tru
     try:
         import clip
     except ImportError:
-        from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+        from ultralytics.utils.checks import check_requirements
 
         check_requirements("git+https://github.com/ultralytics/CLIP.git")
         import clip

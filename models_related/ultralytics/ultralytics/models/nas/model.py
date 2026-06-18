@@ -7,11 +7,11 @@ from typing import Any
 
 import torch
 
-from models_related.ultralytics.ultralytics.engine.model import Model
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG_DICT
-from models_related.ultralytics.ultralytics.utils.downloads import attempt_download_asset
-from models_related.ultralytics.ultralytics.utils.patches import torch_load
-from models_related.ultralytics.ultralytics.utils.torch_utils import model_info
+from ultralytics.engine.model import Model
+from ultralytics.utils import DEFAULT_CFG_DICT
+from ultralytics.utils.downloads import attempt_download_asset
+from ultralytics.utils.patches import torch_load
+from ultralytics.utils.torch_utils import model_info
 
 from .predict import NASPredictor
 from .val import NASValidator

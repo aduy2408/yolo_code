@@ -9,11 +9,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionValidator
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
-from models_related.ultralytics.ultralytics.utils.metrics import SegmentMetrics, mask_iou
-from models_related.ultralytics.ultralytics.utils import LOGGER
+from ultralytics.models.yolo.detect import DetectionValidator
+from ultralytics.utils import ops
+from ultralytics.utils.checks import check_requirements
+from ultralytics.utils.metrics import SegmentMetrics, mask_iou
+from ultralytics.utils import LOGGER
 
 
 class SegmentationValidator(DetectionValidator):
@@ -199,7 +199,7 @@ class SegmentationValidator(DetectionValidator):
             shape (tuple[int, int]): Shape of the original image.
             file (Path): File path to save the detections.
         """
-        from models_related.ultralytics.ultralytics.engine.results import Results
+        from ultralytics.engine.results import Results
 
         Results(
             np.zeros((shape[0], shape[1]), dtype=np.uint8),

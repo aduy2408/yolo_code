@@ -7,8 +7,8 @@ from typing import Any
 import cv2
 import numpy as np
 
-from models_related.ultralytics.ultralytics.solutions.object_counter import ObjectCounter
-from models_related.ultralytics.ultralytics.solutions.solutions import SolutionAnnotator, SolutionResults
+from ultralytics.solutions.object_counter import ObjectCounter
+from ultralytics.solutions.solutions import SolutionAnnotator, SolutionResults
 
 
 class Heatmap(ObjectCounter):

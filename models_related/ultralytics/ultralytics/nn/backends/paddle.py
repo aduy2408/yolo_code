@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.utils import ARM64, LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils import ARM64, LOGGER
+from ultralytics.utils.checks import check_requirements
 
 from .base import BaseBackend
 
@@ -61,7 +61,7 @@ class PaddleBackend(BaseBackend):
         # Load metadata
         metadata_file = (w if w.is_dir() else w.parent) / "metadata.yaml"
         if metadata_file.exists():
-            from models_related.ultralytics.ultralytics.utils import YAML
+            from ultralytics.utils import YAML
 
             self.apply_metadata(YAML.load(metadata_file))
 

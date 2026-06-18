@@ -5,8 +5,8 @@ from typing import Any
 
 import cv2
 
-from models_related.ultralytics.ultralytics.solutions.solutions import BaseSolution, SolutionAnnotator, SolutionResults
-from models_related.ultralytics.ultralytics.utils.plotting import colors
+from ultralytics.solutions.solutions import BaseSolution, SolutionAnnotator, SolutionResults
+from ultralytics.utils.plotting import colors
 
 
 class DistanceCalculation(BaseSolution):

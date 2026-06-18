@@ -15,10 +15,10 @@ from typing import Any
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics.data.augment import LetterBox
-from models_related.ultralytics.ultralytics.utils import ops
-from models_related.ultralytics.ultralytics.utils.plotting import Annotator, colors, save_one_box
-from models_related.ultralytics.ultralytics.utils import LOGGER, DataExportMixin, SimpleClass
+from ultralytics.data.augment import LetterBox
+from ultralytics.utils import ops
+from ultralytics.utils.plotting import Annotator, colors, save_one_box
+from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass
 
 
 class BaseTensor(SimpleClass):

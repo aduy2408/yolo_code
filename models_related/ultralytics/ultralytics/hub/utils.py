@@ -5,7 +5,7 @@ import threading
 import time
 from typing import Any
 
-from models_related.ultralytics.ultralytics.utils import (
+from ultralytics.utils import (
     IS_COLAB,
     LOGGER,
     TQDM,

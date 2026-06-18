@@ -25,10 +25,10 @@ import cv2
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics import __version__
-from models_related.ultralytics.ultralytics.utils.git import GitRepo
-from models_related.ultralytics.ultralytics.utils.patches import imread, imshow, imwrite, torch_save  # for patches
-from models_related.ultralytics.ultralytics.utils.tqdm import TQDM  # noqa
+from ultralytics import __version__
+from ultralytics.utils.git import GitRepo
+from ultralytics.utils.patches import imread, imshow, imwrite, torch_save  # for patches
+from ultralytics.utils.tqdm import TQDM  # noqa
 
 # PyTorch Multi-GPU DDP Constants
 RANK = int(os.getenv("RANK", -1))
@@ -1350,7 +1350,7 @@ class SettingsManager(JSONDict):
         import hashlib
         import uuid
 
-        from models_related.ultralytics.ultralytics.utils.torch_utils import torch_distributed_zero_first
+        from ultralytics.utils.torch_utils import torch_distributed_zero_first
 
         root = GIT.root or Path()
         datasets_root = (root.parent if GIT.root and is_dir_writeable(root.parent) else root).resolve()

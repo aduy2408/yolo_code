@@ -6,10 +6,10 @@ from copy import copy
 from pathlib import Path
 from typing import Any
 
-from models_related.ultralytics.ultralytics.models import yolo
-from models_related.ultralytics.ultralytics.nn.tasks import PoseModel
-from models_related.ultralytics.ultralytics.utils import DEFAULT_CFG, RANK
-from models_related.ultralytics.ultralytics.utils.torch_utils import unwrap_model
+from ultralytics.models import yolo
+from ultralytics.nn.tasks import PoseModel
+from ultralytics.utils import DEFAULT_CFG, RANK
+from ultralytics.utils.torch_utils import unwrap_model
 
 
 class PoseTrainer(yolo.detect.DetectionTrainer):

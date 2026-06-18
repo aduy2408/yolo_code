@@ -80,18 +80,18 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from models_related.ultralytics.ultralytics import __version__
-from models_related.ultralytics.ultralytics.cfg import TASK2CALIBRATIONDATA, TASK2DATA, get_cfg
-from models_related.ultralytics.ultralytics.data import build_dataloader, build_yolo_dataset
-from models_related.ultralytics.ultralytics.data.dataset import YOLODataset
-from models_related.ultralytics.ultralytics.data.utils import check_cls_dataset, check_det_dataset
-from models_related.ultralytics.ultralytics.nn.autobackend import check_class_names, default_class_names
-from models_related.ultralytics.ultralytics.nn.modules import C2f, Classify, Detect, RTDETRDecoder, Segment26, SemanticSegment
-from models_related.ultralytics.ultralytics.nn.tasks import ClassificationModel, DetectionModel, SegmentationModel, WorldModel
-from models_related.ultralytics.ultralytics.utils import (
+from ultralytics import __version__
+from ultralytics.cfg import TASK2CALIBRATIONDATA, TASK2DATA, get_cfg
+from ultralytics.data import build_dataloader, build_yolo_dataset
+from ultralytics.data.dataset import YOLODataset
+from ultralytics.data.utils import check_cls_dataset, check_det_dataset
+from ultralytics.nn.autobackend import check_class_names, default_class_names
+from ultralytics.nn.modules import C2f, Classify, Detect, RTDETRDecoder, Segment26, SemanticSegment
+from ultralytics.nn.tasks import ClassificationModel, DetectionModel, SegmentationModel, WorldModel
+from ultralytics.utils import (
     callbacks,
 )
-from models_related.ultralytics.ultralytics.utils.checks import (
+from ultralytics.utils.checks import (
     IS_PYTHON_MINIMUM_3_9,
     IS_PYTHON_MINIMUM_3_13,
     check_imgsz,
@@ -99,12 +99,12 @@ from models_related.ultralytics.ultralytics.utils.checks import (
     check_version,
     is_intel,
 )
-from models_related.ultralytics.ultralytics.utils.files import file_size
-from models_related.ultralytics.ultralytics.utils.metrics import batch_probiou
-from models_related.ultralytics.ultralytics.utils.nms import TorchNMS
-from models_related.ultralytics.ultralytics.utils.ops import Profile
-from models_related.ultralytics.ultralytics.utils.patches import arange_patch
-from models_related.ultralytics.ultralytics.utils.torch_utils import (
+from ultralytics.utils.files import file_size
+from ultralytics.utils.metrics import batch_probiou
+from ultralytics.utils.nms import TorchNMS
+from ultralytics.utils.ops import Profile
+from ultralytics.utils.patches import arange_patch
+from ultralytics.utils.torch_utils import (
     TORCH_1_11,
     TORCH_1_13,
     TORCH_2_1,
@@ -113,7 +113,7 @@ from models_related.ultralytics.ultralytics.utils.torch_utils import (
     TORCH_2_9,
     select_device,
 )
-from models_related.ultralytics.ultralytics.utils import ARM64, DEFAULT_CFG, IS_DOCKER, LINUX, LOGGER, MACOS, MACOS_VERSION, QNN_HTP_ARCHS, RKNN_CHIPS, SETTINGS, TORCH_VERSION, WINDOWS, YAML, colorstr, get_default_args, is_jetson
+from ultralytics.utils import ARM64, DEFAULT_CFG, IS_DOCKER, LINUX, LOGGER, MACOS, MACOS_VERSION, QNN_HTP_ARCHS, RKNN_CHIPS, SETTINGS, TORCH_VERSION, WINDOWS, YAML, colorstr, get_default_args, is_jetson
 
 
 def export_formats():
@@ -635,15 +635,15 @@ class Exporter:
         model = model.fuse()
 
         if fmt == "imx":
-            from models_related.ultralytics.ultralytics.utils.export.imx import FXModel
+            from ultralytics.utils.export.imx import FXModel
 
             model = FXModel(model, self.imgsz)
         if fmt in {"tflite", "edgetpu"}:
-            from models_related.ultralytics.ultralytics.utils.export.tensorflow import tf_wrapper
+            from ultralytics.utils.export.tensorflow import tf_wrapper
 
             model = tf_wrapper(model)
         if fmt == "executorch":
-            from models_related.ultralytics.ultralytics.utils.export.executorch import executorch_wrapper
+            from ultralytics.utils.export.executorch import executorch_wrapper
 
             model = executorch_wrapper(model)
         for m in model.modules():
@@ -807,7 +807,7 @@ class Exporter:
     @try_export
     def export_torchscript(self, prefix=colorstr("TorchScript:")):
         """Export YOLO model to TorchScript format."""
-        from models_related.ultralytics.ultralytics.utils.export.torchscript import torch2torchscript
+        from ultralytics.utils.export.torchscript import torch2torchscript
 
         return torch2torchscript(
             model=NMSModel(self.model, self.args) if self.args.nms else self.model,
@@ -832,7 +832,7 @@ class Exporter:
         check_requirements(requirements)
         import onnx
 
-        from models_related.ultralytics.ultralytics.utils.export.engine import best_onnx_opset, torch2onnx
+        from ultralytics.utils.export.engine import best_onnx_opset, torch2onnx
 
         opset = self.args.opset or best_onnx_opset(onnx, cuda="cuda" in self.device.type)
         LOGGER.info(f"\n{prefix} starting export with onnx {onnx.__version__} opset {opset}...")
@@ -902,7 +902,7 @@ class Exporter:
 
         onnx.save(model_onnx, f)
         if self.args.int8 and self.args.format == "onnx":
-            from models_related.ultralytics.ultralytics.utils.export.onnx import onnx_int8_quantize
+            from ultralytics.utils.export.onnx import onnx_int8_quantize
 
             source = Path(f)
             f_int8 = str(source.with_name(f"{source.stem}_int8{source.suffix}"))
@@ -920,7 +920,7 @@ class Exporter:
     @try_export
     def export_openvino(self, prefix=colorstr("OpenVINO:")):
         """Export YOLO model to OpenVINO format."""
-        from models_related.ultralytics.ultralytics.utils.export.openvino import torch2openvino
+        from ultralytics.utils.export.openvino import torch2openvino
 
         # OpenVINO <= 2025.1.0 error on macOS 15.4+: https://github.com/openvinotoolkit/openvino/issues/30023
         check_requirements("openvino>=2025.2.0" if MACOS and MACOS_VERSION >= "15.4" else "openvino>=2024.0.0")
@@ -983,7 +983,7 @@ class Exporter:
     @try_export
     def export_paddle(self, prefix=colorstr("PaddlePaddle:")):
         """Export YOLO model to PaddlePaddle format."""
-        from models_related.ultralytics.ultralytics.utils.export.paddle import torch2paddle
+        from ultralytics.utils.export.paddle import torch2paddle
 
         return torch2paddle(
             model=self.model,
@@ -996,7 +996,7 @@ class Exporter:
     @try_export
     def export_mnn(self, prefix=colorstr("MNN:")):
         """Export YOLO model to MNN format using MNN https://github.com/alibaba/MNN."""
-        from models_related.ultralytics.ultralytics.utils.export.mnn import onnx2mnn
+        from ultralytics.utils.export.mnn import onnx2mnn
 
         return onnx2mnn(
             onnx_file=self.export_onnx(),
@@ -1010,7 +1010,7 @@ class Exporter:
     @try_export
     def export_ncnn(self, prefix=colorstr("NCNN:")):
         """Export YOLO model to NCNN format using PNNX https://github.com/pnnx/pnnx."""
-        from models_related.ultralytics.ultralytics.utils.export.ncnn import torch2ncnn
+        from ultralytics.utils.export.ncnn import torch2ncnn
 
         return torch2ncnn(
             model=self.model,
@@ -1026,7 +1026,7 @@ class Exporter:
     def export_coreml(self, prefix=colorstr("CoreML:")):
         """Export YOLO model to CoreML format."""
         mlmodel = self.args.format.lower() == "mlmodel"  # legacy *.mlmodel export format requested
-        from models_related.ultralytics.ultralytics.utils.export.coreml import IOSDetectModel, pipeline_coreml, torch2coreml
+        from ultralytics.utils.export.coreml import IOSDetectModel, pipeline_coreml, torch2coreml
 
         # numpy 2.4.x breaks coremltools CoreML export https://github.com/apple/coremltools/issues/2633
         check_requirements(["coremltools>=9.0", "numpy>=1.14.5,<=2.3.5"])
@@ -1112,7 +1112,7 @@ class Exporter:
         """Export YOLO model to TensorRT format https://developer.nvidia.com/tensorrt."""
         assert self.im.device.type != "cpu", "export running on CPU but must be on GPU, i.e. use 'device=0'"
         f_onnx = self.export_onnx()  # run before TRT import https://github.com/ultralytics/ultralytics/issues/7016
-        from models_related.ultralytics.ultralytics.utils.export.engine import onnx2engine
+        from ultralytics.utils.export.engine import onnx2engine
 
         assert Path(f_onnx).exists(), f"failed to export ONNX file: {f_onnx}"
         f = self.file.with_suffix(".engine")  # TensorRT engine file
@@ -1140,7 +1140,7 @@ class Exporter:
             "TensorFlow exports not supported on macOS with Python>=3.13: the ai-edge-litert macOS wheel fails to load "
             "(missing libpywrap_litert_common.dylib). TensorFlow export works on Linux Python 3.13."
         )
-        from models_related.ultralytics.ultralytics.utils.export.tensorflow import onnx2saved_model
+        from ultralytics.utils.export.tensorflow import onnx2saved_model
 
         f = Path(str(self.file).replace(self.file.suffix, "_saved_model"))
         if f.is_dir():
@@ -1181,7 +1181,7 @@ class Exporter:
     @try_export
     def export_pb(self, keras_model, prefix=colorstr("TensorFlow GraphDef:")):
         """Export YOLO model to TensorFlow GraphDef *.pb format https://github.com/leimao/Frozen-Graph-TensorFlow."""
-        from models_related.ultralytics.ultralytics.utils.export.tensorflow import keras2pb
+        from ultralytics.utils.export.tensorflow import keras2pb
 
         return keras2pb(keras_model, output_file=self.file.with_suffix(".pb"), prefix=prefix)
 
@@ -1209,7 +1209,7 @@ class Exporter:
         )
         assert TORCH_2_8, "export requires torch>=2.8.0."
 
-        from models_related.ultralytics.ultralytics.utils.export.axelera import torch2axelera
+        from ultralytics.utils.export.axelera import torch2axelera
 
         output_dir = self.file.parent / f"{self.file.stem}_axelera_model"
         return torch2axelera(
@@ -1226,7 +1226,7 @@ class Exporter:
     def export_executorch(self, prefix=colorstr("ExecuTorch:")):
         """Export YOLO model to ExecuTorch *.pte format."""
         assert TORCH_2_9, f"ExecuTorch requires torch>=2.9.0 but torch=={TORCH_VERSION} is installed"
-        from models_related.ultralytics.ultralytics.utils.export.executorch import torch2executorch
+        from ultralytics.utils.export.executorch import torch2executorch
 
         return torch2executorch(
             model=self.model,
@@ -1239,7 +1239,7 @@ class Exporter:
     @try_export
     def export_edgetpu(self, tflite_model="", prefix=colorstr("Edge TPU:")):
         """Export YOLO model to Edge TPU format https://coral.ai/docs/edgetpu/models-intro/."""
-        from models_related.ultralytics.ultralytics.utils.export.tensorflow import tflite2edgetpu
+        from ultralytics.utils.export.tensorflow import tflite2edgetpu
 
         output_file = tflite2edgetpu(tflite_file=tflite_model, output_dir=tflite_model.parent, prefix=prefix)
         self._add_tflite_metadata(output_file)
@@ -1252,7 +1252,7 @@ class Exporter:
             "TensorFlow.js export not supported on Python>=3.13: tensorflowjs requires the np.object alias removed "
             "in NumPy 1.24, but Python 3.13 has no NumPy<2.1 wheels."
         )
-        from models_related.ultralytics.ultralytics.utils.export.tensorflow import pb2tfjs
+        from ultralytics.utils.export.tensorflow import pb2tfjs
 
         output_dir = pb2tfjs(
             pb_file=str(self.file.with_suffix(".pb")),
@@ -1267,7 +1267,7 @@ class Exporter:
     @try_export
     def export_rknn(self, prefix=colorstr("RKNN:")):
         """Export YOLO model to RKNN format with optional INT8 quantization."""
-        from models_related.ultralytics.ultralytics.utils.export.rknn import onnx2rknn
+        from ultralytics.utils.export.rknn import onnx2rknn
 
         self.args.opset = min(self.args.opset or 19, 19)  # rknn-toolkit expects opset<=19
         f_onnx = self.export_onnx()
@@ -1304,7 +1304,7 @@ class Exporter:
 
         if getattr(self.model, "end2end", False):
             raise ValueError("IMX export is not supported for end2end models.")
-        from models_related.ultralytics.ultralytics.utils.export.imx import torch2imx
+        from ultralytics.utils.export.imx import torch2imx
 
         return torch2imx(
             model=self.model,
@@ -1321,7 +1321,7 @@ class Exporter:
     def export_deepx(self, prefix=colorstr("DEEPX:")):
         """Export YOLO model to DEEPX format."""
         assert LINUX and not ARM64, "DEEPX export only supported on non-aarch64 Linux"
-        from models_related.ultralytics.ultralytics.utils.export.deepx import onnx2deepx
+        from ultralytics.utils.export.deepx import onnx2deepx
 
         f = self.export_onnx()
         return onnx2deepx(
@@ -1336,7 +1336,7 @@ class Exporter:
     @try_export
     def export_qnn(self, prefix=colorstr("Qualcomm QNN:")):
         """Export YOLO model to a Qualcomm QNN context binary using ONNX Runtime QNN."""
-        from models_related.ultralytics.ultralytics.utils.export.qnn import onnx2qnn
+        from ultralytics.utils.export.qnn import onnx2qnn
 
         # Wrap for Hexagon-friendly I/O: channel-last input (the class-map wrap for semantic is format-agnostic)
         model, im = self.model, self.im

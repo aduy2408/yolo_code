@@ -8,8 +8,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils import LOGGER
+from ultralytics.utils.checks import check_requirements
 
 
 class IOSDetectModel(nn.Module):
@@ -211,7 +211,7 @@ def torch2coreml(
     if not mlmodel:
         # RT-DETR decoder class logits and deformable-sampling indices drift in fp16; pin those op types to fp32
         # only when an RTDETRDecoder is present. YOLO detect/segment/pose/OBB keep mlprogram's fp16 default.
-        from models_related.ultralytics.ultralytics.nn.modules.head import RTDETRDecoder
+        from ultralytics.nn.modules.head import RTDETRDecoder
 
         if any(isinstance(m, RTDETRDecoder) for m in model.modules()):
             fp32_ops = {"linear", "gather", "gather_nd", "gather_along_axis"}

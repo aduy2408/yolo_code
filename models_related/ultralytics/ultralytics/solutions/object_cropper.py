@@ -3,8 +3,8 @@
 from pathlib import Path
 from typing import Any
 
-from models_related.ultralytics.ultralytics.solutions.solutions import BaseSolution, SolutionResults
-from models_related.ultralytics.ultralytics.utils.plotting import save_one_box
+from ultralytics.solutions.solutions import BaseSolution, SolutionResults
+from ultralytics.utils.plotting import save_one_box
 
 
 class ObjectCropper(BaseSolution):

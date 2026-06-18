@@ -9,15 +9,15 @@ from typing import Any
 import torch
 from torch.nn import functional as F
 
-from models_related.ultralytics.ultralytics.data import YOLOConcatDataset, build_dataloader, build_yolo_dataset
-from models_related.ultralytics.ultralytics.data.augment import LoadVisualPrompt
-from models_related.ultralytics.ultralytics.data.utils import check_det_dataset
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionValidator
-from models_related.ultralytics.ultralytics.models.yolo.segment import SegmentationValidator
-from models_related.ultralytics.ultralytics.nn.modules.head import YOLOEDetect
-from models_related.ultralytics.ultralytics.nn.tasks import YOLOEModel
-from models_related.ultralytics.ultralytics.utils import LOGGER, TQDM
-from models_related.ultralytics.ultralytics.utils.torch_utils import select_device, smart_inference_mode
+from ultralytics.data import YOLOConcatDataset, build_dataloader, build_yolo_dataset
+from ultralytics.data.augment import LoadVisualPrompt
+from ultralytics.data.utils import check_det_dataset
+from ultralytics.models.yolo.detect import DetectionValidator
+from ultralytics.models.yolo.segment import SegmentationValidator
+from ultralytics.nn.modules.head import YOLOEDetect
+from ultralytics.nn.tasks import YOLOEModel
+from ultralytics.utils import LOGGER, TQDM
+from ultralytics.utils.torch_utils import select_device, smart_inference_mode
 
 
 class YOLOEDetectValidator(DetectionValidator):
@@ -174,7 +174,7 @@ class YOLOEDetectValidator(DetectionValidator):
             self.device = select_device(self.args.device, verbose=False)
 
             if isinstance(model, (str, Path)):
-                from models_related.ultralytics.ultralytics.nn.tasks import load_checkpoint
+                from ultralytics.nn.tasks import load_checkpoint
 
                 model, _ = load_checkpoint(model, device=self.device)  # model, ckpt
             model.eval().to(self.device)

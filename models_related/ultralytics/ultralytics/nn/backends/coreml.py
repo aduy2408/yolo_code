@@ -8,8 +8,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from models_related.ultralytics.ultralytics.utils import LOGGER
-from models_related.ultralytics.ultralytics.utils.checks import check_requirements
+from ultralytics.utils import LOGGER
+from ultralytics.utils.checks import check_requirements
 
 from .base import BaseBackend
 
@@ -54,7 +54,7 @@ class CoreMLBackend(BaseBackend):
         im = im.transpose(0, 3, 1, 2) if self.dynamic else Image.fromarray((im[0] * 255).astype("uint8"))
         y = self.model.predict({self.input_name: im})
         if "confidence" in y:  # NMS included
-            from models_related.ultralytics.ultralytics.utils.ops import xywh2xyxy
+            from ultralytics.utils.ops import xywh2xyxy
 
             box = xywh2xyxy(y["coordinates"] * [[w, h, w, h]])
             cls = y["confidence"].argmax(1, keepdims=True)

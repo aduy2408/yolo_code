@@ -17,9 +17,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models_related.ultralytics.ultralytics.nn.modules import LayerNorm2d
-from models_related.ultralytics.ultralytics.utils.instance import to_2tuple
-from models_related.ultralytics.ultralytics.utils.torch_utils import TORCH_1_11
+from ultralytics.nn.modules import LayerNorm2d
+from ultralytics.utils.instance import to_2tuple
+from ultralytics.utils.torch_utils import TORCH_1_11
 
 CKPT_KWARGS = {"use_reentrant": False} if TORCH_1_11 else {}  # use_reentrant added in torch 1.11, required in 2.9
 

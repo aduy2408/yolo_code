@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from copy import copy
 
-from models_related.ultralytics.ultralytics.models.yolo.detect import DetectionTrainer
-from models_related.ultralytics.ultralytics.nn.tasks import RTDETRDetectionModel
-from models_related.ultralytics.ultralytics.utils import RANK, colorstr
+from ultralytics.models.yolo.detect import DetectionTrainer
+from ultralytics.nn.tasks import RTDETRDetectionModel
+from ultralytics.utils import RANK, colorstr
 
 from .val import RTDETRDataset, RTDETRValidator
 

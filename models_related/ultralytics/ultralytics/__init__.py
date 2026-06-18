@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING
 if not os.environ.get("OMP_NUM_THREADS"):
     os.environ["OMP_NUM_THREADS"] = "1"  # default for reduced CPU utilization during training
 
-from models_related.ultralytics.ultralytics.utils import ASSETS, SETTINGS
-from models_related.ultralytics.ultralytics.utils.checks import check_yolo as checks
-from models_related.ultralytics.ultralytics.utils.downloads import download
+from ultralytics.utils import ASSETS, SETTINGS
+from ultralytics.utils.checks import check_yolo as checks
+from ultralytics.utils.downloads import download
 
 settings = SETTINGS
 
@@ -29,7 +29,7 @@ __all__ = (
 
 if TYPE_CHECKING:
     # Enable hints for type checkers
-    from models_related.ultralytics.ultralytics.models import YOLO, YOLOWorld, YOLOE, NAS, SAM, FastSAM, RTDETR  # noqa
+    from ultralytics.models import YOLO, YOLOWorld, YOLOE, NAS, SAM, FastSAM, RTDETR  # noqa
 
 
 def __getattr__(name: str):

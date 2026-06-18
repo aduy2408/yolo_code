@@ -194,9 +194,9 @@ def update_models(model_names: tuple = ("yolo26n.pt",), source_dir: Path = Path(
         >>> model_names = ("yolo26n.pt", "yolo11s.pt")
         >>> update_models(model_names, source_dir=Path("/models"), update_names=True)
     """
-    from models_related.ultralytics.ultralytics import YOLO
-    from models_related.ultralytics.ultralytics.nn.autobackend import default_class_names
-    from models_related.ultralytics.ultralytics.utils import LOGGER
+    from ultralytics import YOLO
+    from ultralytics.nn.autobackend import default_class_names
+    from ultralytics.utils import LOGGER
 
     target_dir = source_dir / "updated_models"
     target_dir.mkdir(parents=True, exist_ok=True)  # Ensure target directory exists
