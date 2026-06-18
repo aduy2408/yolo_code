@@ -212,3 +212,9 @@ results.csv
 
 # CI test asset cache
 .ultralytics_cache/
+
+# Keep the vendored/patched Ultralytics tree complete in this repository.
+!models_related/ultralytics/
+!models_related/ultralytics/**
+models_related/ultralytics/**/__pycache__/
+models_related/ultralytics/**/*.py[cod]

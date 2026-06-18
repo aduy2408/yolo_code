@@ -206,3 +206,15 @@ results.csv
 
 # CI test asset cache
 .ultralytics_cache/
+
+# This repository vendors this patched clone, so keep its source/assets complete.
+!ultralytics/
+!ultralytics/**
+!docs/
+!docs/**
+!examples/
+!examples/**
+!tests/
+!tests/**
+**/__pycache__/
+**/*.py[cod]
