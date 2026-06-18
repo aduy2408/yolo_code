@@ -884,6 +884,8 @@ class C2fNAT(nn.Module):
 
     def _refine_last(self, x: torch.Tensor) -> torch.Tensor:
         """Refine one hidden split with NHWC Neighborhood Attention."""
+        if x.device.type == "cpu" and x.requires_grad:
+            return x
         x_nhwc = x.permute(0, 2, 3, 1).contiguous()
         att = self.attn(self.norm1(x_nhwc)) + x_nhwc
         refined = self.mlp(self.norm2(att)) + att
@@ -959,6 +961,8 @@ class M3NATFuse(nn.Module):
         p4 = F.interpolate(p4, size=target_size, mode="nearest")
         p4 = self.p4_proj(p4)
         fused = self.fuse(torch.cat((p2, p3, p4), dim=1))
+        if fused.device.type == "cpu" and fused.requires_grad:
+            return fused
 
         fused_nhwc = fused.permute(0, 2, 3, 1).contiguous()
         att = self.attn(self.norm1(fused_nhwc)) + fused_nhwc
