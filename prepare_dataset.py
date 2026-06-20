@@ -26,25 +26,24 @@ def resolve_repo_root(root: str | Path) -> Path:
     return root
 
 
-def label_path_for(image_path: Path, image_dir: Path, label_dir: Path) -> Path:
-    return (label_dir / image_path.relative_to(image_dir)).with_suffix(".txt")
+def parse_gt_csv(csv_path: Path) -> dict[str, list[list[float]]]:
+    """Parse gt_filtered.csv into a dictionary mapping relative image path to a list of xyxy boxes."""
+    if not csv_path.exists():
+        return {}
 
-
-def read_original_boxes(label_path: Path) -> list[list[float]]:
-    """Read original label files: first line count, remaining values are xyxy pixels."""
-    if not label_path.exists():
-        return []
-
-    lines = [line.strip() for line in label_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if not lines:
-        return []
-
-    boxes: list[list[float]] = []
-    for line in lines[1:]:
-        values = [float(value) for value in line.replace(",", " ").split()]
+    gt_dict: dict[str, list[list[float]]] = {}
+    lines = [line.strip() for line in csv_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        rel_img_path = parts[0]
+        values = [float(value) for value in parts[2:]]
+        boxes: list[list[float]] = []
         for idx in range(0, len(values) - 3, 4):
             boxes.append(values[idx : idx + 4])
-    return boxes
+        gt_dict[rel_img_path] = boxes
+    return gt_dict
 
 
 def clamp_xyxy_boxes(boxes: list[list[float]], width: int, height: int) -> list[list[float]]:
@@ -113,7 +112,9 @@ def prepare_dataset(
 
     for split in SPLITS:
         image_dir = root_path / split / "videos"
-        label_dir = root_path / split / "labels"
+        gt_csv_path = root_path / split / "gt_filtered.csv"
+        gt_dict = parse_gt_csv(gt_csv_path)
+
         yolo_image_dir = out_path / "images" / split
         yolo_label_dir = out_path / "labels" / split
         yolo_image_dir.mkdir(parents=True, exist_ok=True)
@@ -134,8 +135,9 @@ def prepare_dataset(
             if overwrite_labels or not dst_label.exists():
                 with Image.open(image_path) as image:
                     width, height = image.size
-                original_label = label_path_for(image_path, image_dir, label_dir)
-                boxes = clamp_xyxy_boxes(read_original_boxes(original_label), width, height)
+                
+                rel_path = str(image_path.relative_to(root_path / split)).replace("\\", "/")
+                boxes = clamp_xyxy_boxes(gt_dict.get(rel_path, []), width, height)
                 dst_label.write_text("\n".join(yolo_rows_from_boxes(boxes, width, height)), encoding="utf-8")
 
     return write_data_yaml(out_path)
