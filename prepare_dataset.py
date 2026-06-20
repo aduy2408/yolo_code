@@ -121,6 +121,11 @@ def prepare_dataset(
         yolo_label_dir.mkdir(parents=True, exist_ok=True)
 
         images = iter_images(image_dir)
+        
+        # Chỉ giữ lại các ảnh có tên trong file gt_filtered.csv
+        if gt_dict:
+            images = [img for img in images if str(img.relative_to(root_path / split)).replace("\\", "/") in gt_dict]
+
         if limit > 0:
             images = images[:limit]
 
