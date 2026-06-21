@@ -338,7 +338,7 @@ class Model(torch.nn.Module):
             p.requires_grad = True
         return self
 
-    def load(self, weights: str | Path = "yolo26n.pt") -> Model:
+    def load(self, weights: str | Path = "yolo26n.pt", smart_transfer: bool = True) -> Model:
         """Load parameters from the specified weights file into the model.
 
         This method supports loading weights from a file or directly from a weights object. It matches parameters by
@@ -346,6 +346,7 @@ class Model(torch.nn.Module):
 
         Args:
             weights (str | Path): Path to the weights file or a weights object.
+            smart_transfer (bool, optional): Whether to use smart matching for shifted layers.
 
         Returns:
             (Model): The instance of the class with loaded weights.
@@ -362,7 +363,7 @@ class Model(torch.nn.Module):
         if isinstance(weights, (str, Path)):
             self.overrides["pretrained"] = weights  # remember the weights for DDP training
             weights, self.ckpt = load_checkpoint(weights)
-        self.model.load(weights)
+        self.model.load(weights, smart_transfer=smart_transfer)
         return self
 
     def save(self, filename: str | Path = "saved_model.pt") -> None:

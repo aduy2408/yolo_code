@@ -552,18 +552,45 @@ def copy_attr(a, b, include=(), exclude=()):
             setattr(a, k, v)
 
 
-def intersect_dicts(da, db, exclude=()):
+def intersect_dicts(da, db, exclude=(), smart_transfer=True):
     """Return a dictionary of intersecting keys with matching shapes, excluding 'exclude' keys, using da values.
 
     Args:
         da (dict): First dictionary.
         db (dict): Second dictionary.
         exclude (tuple, optional): Keys to exclude.
+        smart_transfer (bool, optional): Try to match shifted layer indices for custom models.
 
     Returns:
         (dict): Dictionary of intersecting keys with matching shapes.
     """
-    return {k: v for k, v in da.items() if k in db and all(x not in k for x in exclude) and v.shape == db[k].shape}
+    res = {k: v for k, v in da.items() if k in db and all(x not in k for x in exclude) and v.shape == db[k].shape}
+    
+    if not smart_transfer:
+        return res
+
+    # Smart matching for shifted layer indices
+    import re
+    da_unmatched = [k for k in da if k not in res and all(x not in k for x in exclude)]
+    db_unmatched = [k for k in db if k not in res and all(x not in k for x in exclude)]
+    
+    def sig(k, d):
+        m = re.match(r'^model\.(\d+)\.(.*)', k)
+        suffix = m.group(2) if m else k
+        return (suffix, d[k].shape)
+        
+    db_sigs = [sig(k, db) for k in db_unmatched]
+    
+    for ka in da_unmatched:
+        s_a = sig(ka, da)
+        if s_a in db_sigs:
+            idx = db_sigs.index(s_a)
+            kb = db_unmatched[idx]
+            res[kb] = da[ka]
+            db_sigs.pop(idx)
+            db_unmatched.pop(idx)
+            
+    return res
 
 
 def is_parallel(model):
