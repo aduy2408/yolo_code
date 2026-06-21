@@ -1830,6 +1830,7 @@ def parse_model(d, ch, verbose=True):
             BiLevelRoutingAttention,
             KVCompressedAttention,
             RegionRoutingAttentionLite,
+            NATBlock,
             TopKAdaptiveGroupKVAttention,
             TopKGlobalGroupKVAttention,
         }

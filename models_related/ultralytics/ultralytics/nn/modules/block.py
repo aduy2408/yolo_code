@@ -908,6 +908,47 @@ class C2fNAT(nn.Module):
         return self.cv2(torch.cat(y, 1))
 
 
+class NATBlock(nn.Module):
+    """Neighborhood Attention Transformer block for YOLO."""
+
+    def __init__(self, c1: int, c2: int, num_heads: int = 4, kernel_size: int = 7):
+        """Initialize a Neighborhood Attention block."""
+        super().__init__()
+        try:
+            from natten import NeighborhoodAttention2D
+        except ImportError as exc:
+            raise ImportError(
+                "NATBlock requires the 'natten' package. Install natten in the training environment before using "
+                "YAMLs that reference NATBlock."
+            ) from exc
+
+        self.c = c1
+        self.num_heads = _choose_attention_heads(c1, num_heads)
+        self.norm1 = nn.LayerNorm(c1)
+        self.attn = NeighborhoodAttention2D(embed_dim=c1, num_heads=self.num_heads, kernel_size=int(kernel_size))
+        self.norm2 = nn.LayerNorm(c1)
+        self.mlp = nn.Sequential(
+            nn.Linear(c1, 2 * c1),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(2 * c1, c1),
+            nn.Dropout(0.1),
+        )
+        self.gamma = nn.Parameter(torch.zeros(1))
+        self.proj = Conv(c1, c2, 1) if c1 != c2 else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through NATBlock."""
+        if x.device.type == "cpu" and x.requires_grad:
+            return self.proj(x)
+        x_nhwc = x.permute(0, 2, 3, 1).contiguous()
+        att = self.attn(self.norm1(x_nhwc)) + x_nhwc
+        refined = self.mlp(self.norm2(att)) + att
+        refined = refined.permute(0, 3, 1, 2).contiguous()
+        out = x + self.gamma * (refined - x)
+        return self.proj(out)
+
+
 class M3NATFuse(nn.Module):
     """Fuse P2/P3/P4 features into a P3-resolution feature and refine it with NAT."""
 
