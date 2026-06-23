@@ -16,7 +16,6 @@ SPLITS = ("train", "val", "test")
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg")
 GT_SOURCES = ("gt_one", "gt_filtered")
 CLASS_POLICIES = ("all", "only-class-1", "drop-class-3", "map-3-to-1")
-SPLIT_MODES = ("random_resplit", "split_respect_test")
 
 
 @dataclass(frozen=True)
@@ -189,68 +188,20 @@ def dedupe_records(records: list[SampleRecord]) -> list[SampleRecord]:
 def assign_output_splits(
     records: list[SampleRecord],
     *,
-    split_mode: str,
-    resplit: bool,
-    target_val_count: int,
-    target_test_count: int,
     seed: int,
 ) -> dict[str, list[SampleRecord]]:
-    if split_mode == "split_respect_test":
-        assigned = {split: [] for split in SPLITS}
-        for record in records:
-            assigned[record.source_split].append(record)
-
-        expected = {"train": 2553, "val": 451, "test": 942}
-        actual = {split: len(assigned[split]) for split in SPLITS}
-        if actual != expected:
-            raise ValueError(
-                "split_respect_test expects filtered source counts "
-                f"{expected}, but got {actual}. Use gt_one + only positives + class_policy=all."
-            )
-
-        rng = random.Random(seed)
-        val_records = list(assigned["val"])
-        test_records = list(assigned["test"])
-        rng.shuffle(val_records)
-        rng.shuffle(test_records)
-
-        val_to_train_count = 2762 - expected["train"]
-        if val_to_train_count < 0 or val_to_train_count > len(val_records):
-            raise ValueError("split_respect_test computed an invalid val->train transfer size.")
-        train_records = list(assigned["train"]) + val_records[:val_to_train_count]
-        remaining_val = val_records[val_to_train_count:]
-
-        test_to_val_count = target_val_count - len(remaining_val)
-        if test_to_val_count < 0 or test_to_val_count > len(test_records):
-            raise ValueError("split_respect_test computed an invalid test->val transfer size.")
-        final_val = remaining_val + test_records[:test_to_val_count]
-        final_test = test_records[test_to_val_count:]
-
-        result = {"train": train_records, "val": final_val, "test": final_test}
-        final_counts = {split: len(rows) for split, rows in result.items()}
-        expected_final = {"train": 2762, "val": target_val_count, "test": target_test_count}
-        if final_counts != expected_final:
-            raise ValueError(f"split_respect_test produced unexpected counts: {final_counts} != {expected_final}")
-        return result
-
-    if not resplit:
-        assigned = {split: [] for split in SPLITS}
-        for record in records:
-            assigned[record.source_split].append(record)
-        return assigned
-
     shuffled = list(records)
     random.Random(seed).shuffle(shuffled)
-    required = target_val_count + target_test_count
-    if required > len(shuffled):
-        raise ValueError(
-            f"Requested val/test counts ({required}) exceed available records ({len(shuffled)})."
-        )
 
-    val_records = shuffled[:target_val_count]
-    test_records = shuffled[target_val_count : target_val_count + target_test_count]
-    train_records = shuffled[target_val_count + target_test_count :]
-    return {"train": train_records, "val": val_records, "test": test_records}
+    total = len(shuffled)
+    val_end = round(total * 0.15)
+    test_end = val_end + round(total * 0.15)
+
+    return {
+        "train": shuffled[test_end:],
+        "val": shuffled[:val_end],
+        "test": shuffled[val_end:test_end],
+    }
 
 
 def write_data_yaml(
@@ -260,11 +211,13 @@ def write_data_yaml(
     gt_source: str,
     only_positives: bool,
     class_policy: str,
-    split_mode: str,
-    resplit: bool,
     seed: int,
 ) -> Path:
     yaml_path = out_dir / "varroa.yaml"
+    splits_line = (
+        f"split_counts: {{train: {split_counts['train']}, "
+        f"val: {split_counts['val']}, test: {split_counts['test']}}}"
+    )
     yaml_path.write_text(
         "\n".join(
             [
@@ -274,12 +227,10 @@ def write_data_yaml(
                 "test: images/test",
                 "nc: 1",
                 "names: [varroa]",
-                f"split_counts: {{train: {split_counts['train']}, val: {split_counts['val']}, test: {split_counts['test']}}}",
+                splits_line,
                 f"gt_source: {gt_source}",
                 f"only_positives: {str(only_positives).lower()}",
                 f"class_policy: {class_policy}",
-                f"split_mode: {split_mode}",
-                f"resplit: {str(resplit).lower()}",
                 f"seed: {seed}",
                 "",
             ]
@@ -298,21 +249,13 @@ def prepare_dataset(
     limit: int = 0,
     gt_source: str = "gt_one",
     only_positives: bool = True,
-    class_policy: str = "only-class-1",
-    split_mode: str = "random_resplit",
-    resplit: bool = True,
-    target_val_count: int = 592,
-    target_test_count: int = 592,
+    class_policy: str = "map-3-to-1",
     seed: int = 42,
 ) -> Path:
     if gt_source not in GT_SOURCES:
         raise ValueError(f"Unsupported gt_source: {gt_source}")
     if class_policy not in CLASS_POLICIES:
         raise ValueError(f"Unsupported class_policy: {class_policy}")
-    if split_mode not in SPLIT_MODES:
-        raise ValueError(f"Unsupported split_mode: {split_mode}")
-    if target_val_count < 0 or target_test_count < 0:
-        raise ValueError("target_val_count and target_test_count must be non-negative.")
 
     root_path = resolve_repo_root(root)
     out_path = Path(out_dir).expanduser()
@@ -322,14 +265,7 @@ def prepare_dataset(
     records = load_records(root_path, gt_source)
     records = filter_records(records, only_positives=only_positives, class_policy=class_policy)
     records = dedupe_records(records)
-    split_records = assign_output_splits(
-        records,
-        split_mode=split_mode,
-        resplit=resplit,
-        target_val_count=target_val_count,
-        target_test_count=target_test_count,
-        seed=seed,
-    )
+    split_records = assign_output_splits(records, seed=seed)
 
     split_counts: dict[str, int] = {}
     for split in SPLITS:
@@ -369,8 +305,6 @@ def prepare_dataset(
         gt_source=gt_source,
         only_positives=only_positives,
         class_policy=class_policy,
-        split_mode=split_mode,
-        resplit=resplit,
         seed=seed,
     )
 
@@ -389,16 +323,7 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Keep only positive rows. Use --no-only-positives to keep token 0 rows.",
     )
-    parser.add_argument("--class-policy", default="only-class-1", choices=CLASS_POLICIES)
-    parser.add_argument("--split-mode", default="random_resplit", choices=SPLIT_MODES)
-    parser.add_argument(
-        "--resplit",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Resplit from the pooled filtered records. Use --no-resplit to keep source splits.",
-    )
-    parser.add_argument("--target-val-count", type=int, default=592)
-    parser.add_argument("--target-test-count", type=int, default=592)
+    parser.add_argument("--class-policy", default="map-3-to-1", choices=CLASS_POLICIES)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -414,10 +339,6 @@ def main() -> None:
         gt_source=args.gt_source,
         only_positives=args.only_positives,
         class_policy=args.class_policy,
-        split_mode=args.split_mode,
-        resplit=args.resplit,
-        target_val_count=args.target_val_count,
-        target_test_count=args.target_test_count,
         seed=args.seed,
     )
     print(f"YOLO dataset ready: {yaml_path}")
