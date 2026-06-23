@@ -169,9 +169,10 @@ class KVCompressedAttention(nn.Module):
         kv = kv.reshape(b, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         k, v = kv[0], kv[1]
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        out = (attn @ v).transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
+        with torch.cuda.amp.autocast(enabled=False):
+            attn = (q.float() @ k.float().transpose(-2, -1)) * self.scale
+            attn = attn.softmax(dim=-1)
+        out = (attn.to(v.dtype) @ v).transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
         return x + self.proj_bn(self.proj(out))
 
 
@@ -277,9 +278,10 @@ class TopKGlobalGroupKVAttention(_TopKGroupKVAttentionBase):
         k = self._format_selected_kv(k_groups[batch_idx, route_idx])
         v = self._format_selected_kv(v_groups[batch_idx, route_idx])
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        out = (attn @ v).transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
+        with torch.cuda.amp.autocast(enabled=False):
+            attn = (q.float() @ k.float().transpose(-2, -1)) * self.scale
+            attn = attn.softmax(dim=-1)
+        out = (attn.to(v.dtype) @ v).transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
         return x + self.proj_bn(self.proj(out))
 
 
@@ -327,9 +329,10 @@ class TopKAdaptiveGroupKVAttention(_TopKGroupKVAttentionBase):
             q_tokens = q_tokens.permute(0, 2, 1, 3)
             k_tokens = self._format_selected_kv(k_groups[batch_idx, selected])
             v_tokens = self._format_selected_kv(v_groups[batch_idx, selected])
-            attn = (q_tokens @ k_tokens.transpose(-2, -1)) * self.scale
-            attn = attn.softmax(dim=-1)
-            out = (attn @ v_tokens).transpose(1, 2).reshape(b, tokens_per_region, c)
+            with torch.cuda.amp.autocast(enabled=False):
+                attn = (q_tokens.float() @ k_tokens.float().transpose(-2, -1)) * self.scale
+                attn = attn.softmax(dim=-1)
+            out = (attn.to(v_tokens.dtype) @ v_tokens).transpose(1, 2).reshape(b, tokens_per_region, c)
             outputs.append(out)
 
         out_regions = torch.stack(outputs, dim=1)
@@ -436,9 +439,10 @@ class BiLevelRoutingAttention(nn.Module):
             index=index,
         )
 
-        attn = (query * self.scale) @ key_g.flatten(-3, -2).transpose(-1, -2)
-        attn = attn.softmax(dim=-1)
-        out = attn @ value_g.flatten(-3, -2)
+        with torch.cuda.amp.autocast(enabled=False):
+            attn = (query.float() * self.scale) @ key_g.flatten(-3, -2).float().transpose(-1, -2)
+            attn = attn.softmax(dim=-1)
+        out = attn.to(value_g.dtype) @ value_g.flatten(-3, -2)
         out = self._seq2grid(out, q_region_h, q_region_w, region_size)
         return out[:, :, :orig_h, :orig_w]
 
@@ -540,9 +544,10 @@ class RegionRoutingAttentionLite(nn.Module):
             )
             k_tokens = k_tokens.permute(0, 2, 1, 3)
             v_tokens = v_tokens.permute(0, 2, 1, 3)
-            attn = (q_tokens @ k_tokens.transpose(-2, -1)) * self.scale
-            attn = attn.softmax(dim=-1)
-            out = (attn @ v_tokens).transpose(1, 2).reshape(b, tokens_per_region, c)
+            with torch.cuda.amp.autocast(enabled=False):
+                attn = (q_tokens.float() @ k_tokens.float().transpose(-2, -1)) * self.scale
+                attn = attn.softmax(dim=-1)
+            out = (attn.to(v_tokens.dtype) @ v_tokens).transpose(1, 2).reshape(b, tokens_per_region, c)
             outputs.append(out)
 
         out_regions = torch.stack(outputs, dim=1)
