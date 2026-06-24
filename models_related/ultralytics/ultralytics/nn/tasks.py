@@ -28,15 +28,18 @@ from ultralytics.nn.modules import (
     A2C2f,
     AConv,
     ADown,
+    ASFAttention,
     BiLevelRoutingAttention,
     Bottleneck,
     BottleneckCSP,
     C2f,
+    C2fCBAM,
     C2fAttn,
     C2fCIB,
     C2fKV,
     C2fNAT,
     C2fPSA,
+    EnSimAM,
     C3Ghost,
     C3k2,
     C3x,
@@ -65,18 +68,21 @@ from ultralytics.nn.modules import (
     Pose26,
     RegionRoutingAttentionLite,
     RepC3,
+    RepC2f,
     RepConv,
     RepNCSPELAN4,
     RepVGGDW,
     ResNetLayer,
     RTDETRDecoder,
     SCDown,
+    ScalSeq,
     Segment,
     Segment26,
     SemanticSegment,
     TorchVision,
     TopKAdaptiveGroupKVAttention,
     TopKGlobalGroupKVAttention,
+    WeightedAdd,
     WorldDetect,
     YOLOEDetect,
     YOLOESegment,
@@ -1809,6 +1815,7 @@ def parse_model(d, ch, verbose=True):
             C1,
             C2,
             C2f,
+            C2fCBAM,
             C2fKV,
             C2fNAT,
             C3k2,
@@ -1825,6 +1832,7 @@ def parse_model(d, ch, verbose=True):
             DWConvTranspose2d,
             C3x,
             RepC3,
+            RepC2f,
             PSA,
             SCDown,
             C2fCIB,
@@ -1843,6 +1851,7 @@ def parse_model(d, ch, verbose=True):
             C1,
             C2,
             C2f,
+            C2fCBAM,
             C2fKV,
             C2fNAT,
             C3k2,
@@ -1852,6 +1861,7 @@ def parse_model(d, ch, verbose=True):
             C3Ghost,
             C3x,
             RepC3,
+            RepC2f,
             C2fPSA,
             C2fCIB,
             C2PSA,
@@ -1901,6 +1911,18 @@ def parse_model(d, ch, verbose=True):
             if c2 != nc:
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
             args = [c1, c2, *args[1:]]
+        elif m is ScalSeq:
+            c1, c2 = [ch[x] for x in f], args[0]
+            if c2 != nc:
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, *args[1:]]
+        elif m is ASFAttention:
+            c2 = ch[f]
+            args = [c2, *args]
+        elif m is EnSimAM:
+            c2 = ch[f]
+        elif m is WeightedAdd:
+            c2 = ch[f[0]] if isinstance(f, list) else ch[f]
         elif m is AIFI:
             args = [ch[f], *args]
         elif m in frozenset({HGStem, HGBlock}):

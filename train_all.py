@@ -35,17 +35,25 @@ from ultralytics import YOLO
 
 # ==========================================
 # CẤU HÌNH SIZE MÔ HÌNH Ở ĐÂY (n, s, m, l, x)
-MODEL_SCALE = "n" 
+MODEL_SCALE = "n"
 # ==========================================
 
 # Đường dẫn tới thư mục chứa các file config
 config_dir = Path("/marimo/yolo_code/models_related/models_config")
 data_path = "/marimo/data/datasets/varroa_yolo/varroa.yaml"
 
+COMBO_CONFIGS = [
+    "yolov8_varroa_repensimam_kvheads_concat.yaml",
+    "yolov8_varroa_repensimam_kvheads_concat_asf.yaml",
+    "yolov8_varroa_repensimam_kvheads_bifpn.yaml",
+    "yolov8_varroa_repensimam_kvheads_bifpn_asf.yaml",
+    "yolov8_varroa_repensimam_kvheads_bifpn_asf_p2p4.yaml",
+]
+
 # Lấy danh sách tất cả các file yaml gốc (chỉ lấy các file bắt đầu bằng yolov8_ để bỏ qua các file yolov8x_ sinh ra)
 all_configs = sorted([
     f for f in os.listdir(config_dir) 
-    if f.endswith('.yaml') and f.startswith('yolov8_')
+    if f.endswith('.yaml') and f.startswith('yolov8_') and f not in COMBO_CONFIGS
 ])
 
 # Chia thành 2 nửa
@@ -61,8 +69,11 @@ if part == "1":
 elif part == "2":
     configs_to_run = part2_configs
     print(f"[*] ĐANG CHẠY PHẦN 2: {len(configs_to_run)} configs")
+elif part == "combo":
+    configs_to_run = COMBO_CONFIGS
+    print(f"[*] ĐANG CHẠY COMBO YOLOv8{MODEL_SCALE}: {len(configs_to_run)} configs")
 else:
-    print("Vui lòng truyền đối số là 1 hoặc 2. Ví dụ: python train_all.py 1")
+    print("Vui lòng truyền đối số là 1, 2 hoặc combo. Ví dụ: python train_all.py combo")
     sys.exit(1)
 
 # Chạy vòng lặp qua từng config

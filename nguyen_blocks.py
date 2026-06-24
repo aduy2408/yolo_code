@@ -29,7 +29,6 @@ __all__ = (
     "ADown",
     "ASFAttention",
     "Attention",
-    "BiLevelRoutingAttention",
     "BNContrastiveHead",
     "Bottleneck",
     "BottleneckCSP",
@@ -37,8 +36,6 @@ __all__ = (
     "C2fCBAM",
     "C2fAttn",
     "C2fCIB",
-    "C2fKV",
-    "C2fNAT",
     "C2fPSA",
     "EnSimAM",
     "C3Ghost",
@@ -51,20 +48,17 @@ __all__ = (
     "HGBlock",
     "HGStem",
     "ImagePoolingAttn",
-    "KVCompressedAttention",
-    "M3NATFuse",
     "Proto",
-    "RegionRoutingAttentionLite",
-    "TopKAdaptiveGroupKVAttention",
-    "TopKGlobalGroupKVAttention",
     "RepC3",
     "RepC2f",
     "RepNCSPELAN4",
     "RepVGGDW",
     "ResNetLayer",
-    "ScalSeq",
     "SCDown",
+    "ScalSeq",
     "TorchVision",
+    "VarroaConvBlock",
+    "VarroaSEBlock",
     "WeightedAdd",
 )
 
@@ -92,6 +86,46 @@ class DFL(nn.Module):
         b, _, a = x.shape  # batch, channels, anchors
         return self.conv(x.view(b, 4, self.c1, a).transpose(2, 1).softmax(1)).view(b, 4, a)
         # return self.conv(x.view(b, self.c1, 4, a).softmax(1)).view(b, 4, a)
+
+
+class VarroaConvBlock(nn.Module):
+    """Small Conv-BN-SiLU block for Varroa YOLO architecture experiments."""
+
+    def __init__(self, c1: int, c2: int, kernel_size: int = 3, shortcut: bool = True):
+        """Initialize the block with input/output channels and optional residual shortcut."""
+        super().__init__()
+        padding = kernel_size // 2
+        self.conv = nn.Conv2d(c1, c2, kernel_size, stride=1, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU(inplace=True)
+        self.shortcut = shortcut and c1 == c2
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply conv-bn-activation and optional residual addition."""
+        y = self.act(self.bn(self.conv(x)))
+        return x + y if self.shortcut else y
+
+
+class VarroaSEBlock(nn.Module):
+    """Squeeze-excitation block for lightweight attention experiments on Varroa."""
+
+    def __init__(self, c1: int, c2: int, reduction: int = 8):
+        """Initialize SE projection and channel gating layers."""
+        super().__init__()
+        hidden = max(c2 // reduction, 8)
+        self.proj = nn.Identity() if c1 == c2 else nn.Conv2d(c1, c2, 1, bias=False)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Conv2d(c2, hidden, 1),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden, c2, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Project channels if needed, then apply SE gating."""
+        x = self.proj(x)
+        return x * self.fc(self.pool(x))
 
 
 class WeightedAdd(nn.Module):
@@ -203,475 +237,6 @@ class EnSimAM(nn.Module):
 
         attention = 0.5 * a_global + 0.25 * a_local + 0.25 * a_edge
         return x * attention
-
-
-
-def _choose_attention_heads(channels: int, requested_heads: int) -> int:
-    """Pick a valid attention head count that divides channels."""
-    requested_heads = max(1, min(int(requested_heads), int(channels)))
-    for heads in range(requested_heads, 0, -1):
-        if channels % heads == 0:
-            return heads
-    return 1
-
-
-class KVCompressedAttention(nn.Module):
-    """Self-attention with full-resolution queries and spatially compressed keys/values."""
-
-    def __init__(self, c1: int, c2: int, num_heads: int = 4, sr_ratio: int = 2, mode: str = "dwconv"):
-        """Initialize KV-compressed attention.
-
-        Args:
-            c1: Input channels.
-            c2: Output channels.
-            num_heads: Requested attention heads. Reduced if it does not divide c2.
-            sr_ratio: Spatial compression ratio for K/V tokens.
-            mode: ``dwconv`` or ``group_weight`` compression.
-        """
-        super().__init__()
-        if mode not in {"dwconv", "group_weight"}:
-            raise ValueError(f"Unsupported KV compression mode: {mode}")
-
-        self.c2 = c2
-        self.num_heads = _choose_attention_heads(c2, num_heads)
-        self.head_dim = c2 // self.num_heads
-        self.scale = self.head_dim**-0.5
-        self.sr_ratio = max(1, int(sr_ratio))
-        self.mode = mode
-
-        self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
-        self.q = nn.Conv2d(c2, c2, 1, bias=False)
-        self.kv = nn.Conv2d(c2, c2 * 2, 1, bias=False)
-        if self.sr_ratio > 1 and self.mode == "dwconv":
-            self.kv_compress = nn.Sequential(
-                nn.Conv2d(c2, c2, 3, stride=self.sr_ratio, padding=1, groups=c2, bias=False),
-                nn.BatchNorm2d(c2),
-                nn.SiLU(inplace=True),
-                nn.Conv2d(c2, c2, 1, bias=False),
-                nn.BatchNorm2d(c2),
-                nn.SiLU(inplace=True),
-            )
-        else:
-            self.kv_compress = nn.Identity()
-        self.group_score = nn.Linear(c2, 1) if self.mode == "group_weight" and self.sr_ratio > 1 else None
-        self.proj = nn.Conv2d(c2, c2, 1, bias=False)
-        self.proj_bn = nn.BatchNorm2d(c2)
-
-    def _compress_group_weight(self, x: torch.Tensor) -> torch.Tensor:
-        """Compress each sr_ratio x sr_ratio token group with learned softmax weights."""
-        if self.sr_ratio <= 1:
-            return x
-        b, c, h, w = x.shape
-        pad_h = (self.sr_ratio - h % self.sr_ratio) % self.sr_ratio
-        pad_w = (self.sr_ratio - w % self.sr_ratio) % self.sr_ratio
-        if pad_h or pad_w:
-            x = F.pad(x, (0, pad_w, 0, pad_h))
-        hp, wp = x.shape[-2:]
-        gh, gw = hp // self.sr_ratio, wp // self.sr_ratio
-        tokens = x.view(b, c, gh, self.sr_ratio, gw, self.sr_ratio).permute(0, 2, 4, 3, 5, 1).contiguous()
-        tokens = tokens.view(b, gh, gw, self.sr_ratio * self.sr_ratio, c)
-        weights = self.group_score(tokens).softmax(dim=3)
-        compressed = (tokens * weights).sum(dim=3)
-        return compressed.permute(0, 3, 1, 2).contiguous()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Apply KV-compressed attention and return a BCHW tensor."""
-        x = self.input_proj(x)
-        b, c, h, w = x.shape
-        q = self.q(x).flatten(2).transpose(1, 2)
-        q = q.reshape(b, h * w, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
-
-        kv_source = self._compress_group_weight(x) if self.group_score is not None else self.kv_compress(x)
-        kv = self.kv(kv_source).flatten(2).transpose(1, 2)
-        kv = kv.reshape(b, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        k, v = kv[0], kv[1]
-
-        with torch.cuda.amp.autocast(enabled=False):
-            attn = (q.float() @ k.float().transpose(-2, -1)) * self.scale
-            attn = attn.softmax(dim=-1)
-        out = (attn.to(v.dtype) @ v).transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
-        return x + self.proj_bn(self.proj(out))
-
-
-class _TopKGroupKVAttentionBase(nn.Module):
-    """Shared utilities for top-k grouped K/V attention blocks."""
-
-    def __init__(self, c1: int, c2: int, num_heads: int, group_size: int):
-        super().__init__()
-        self.c2 = c2
-        self.num_heads = _choose_attention_heads(c2, num_heads)
-        self.head_dim = c2 // self.num_heads
-        self.scale = self.head_dim**-0.5
-        self.group_size = max(1, int(group_size))
-
-        self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
-        self.q = nn.Conv2d(c2, c2, 1, bias=False)
-        self.kv = nn.Conv2d(c2, c2 * 2, 1, bias=False)
-        self.score = nn.Conv2d(c2, 1, 3, padding=1, bias=True)
-        self.proj = nn.Conv2d(c2, c2, 1, bias=False)
-        self.proj_bn = nn.BatchNorm2d(c2)
-
-    @staticmethod
-    def _pad_to_multiple(x: torch.Tensor, multiple: int) -> tuple[torch.Tensor, int, int]:
-        """Pad H/W to a multiple and return the original H/W."""
-        h, w = x.shape[-2:]
-        pad_h = (multiple - h % multiple) % multiple
-        pad_w = (multiple - w % multiple) % multiple
-        if pad_h or pad_w:
-            x = F.pad(x, (0, pad_w, 0, pad_h))
-        return x, h, w
-
-    def _to_groups(self, x: torch.Tensor, group_h: int, group_w: int) -> torch.Tensor:
-        """Convert BCHW into B x groups x group_tokens x C."""
-        b, c, _, _ = x.shape
-        g = self.group_size
-        return (
-            x.view(b, c, group_h, g, group_w, g)
-            .permute(0, 2, 4, 3, 5, 1)
-            .contiguous()
-            .view(b, group_h * group_w, g * g, c)
-        )
-
-    @staticmethod
-    def _to_regions(x: torch.Tensor, region_size: int, region_h: int, region_w: int) -> torch.Tensor:
-        """Convert BCHW into B x regions x region_tokens x C."""
-        b, c, _, _ = x.shape
-        r = region_size
-        return (
-            x.view(b, c, region_h, r, region_w, r)
-            .permute(0, 2, 4, 3, 5, 1)
-            .contiguous()
-            .view(b, region_h * region_w, r * r, c)
-        )
-
-    def _compress_kv_groups(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Compress projected K/V maps into one weighted token per spatial group."""
-        padded, _, _ = self._pad_to_multiple(x, self.group_size)
-        _, _, hp, wp = padded.shape
-        group_h, group_w = hp // self.group_size, wp // self.group_size
-
-        k_map, v_map = self.kv(padded).chunk(2, dim=1)
-        score_map = self.score(padded)
-        k_tokens = self._to_groups(k_map, group_h, group_w)
-        v_tokens = self._to_groups(v_map, group_h, group_w)
-        score_tokens = self._to_groups(score_map, group_h, group_w).squeeze(-1)
-        weights = score_tokens.softmax(dim=2).unsqueeze(-1)
-
-        k_groups = (k_tokens * weights).sum(dim=2)
-        v_groups = (v_tokens * weights).sum(dim=2)
-        group_scores = score_tokens.mean(dim=2)
-        return k_groups, v_groups, group_scores
-
-    def _format_full_q(self, q_map: torch.Tensor) -> torch.Tensor:
-        """Convert full-resolution Q map to B x heads x tokens x head_dim."""
-        b, c, h, w = q_map.shape
-        q = q_map.flatten(2).transpose(1, 2)
-        return q.reshape(b, h * w, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
-
-    def _format_selected_kv(self, selected: torch.Tensor) -> torch.Tensor:
-        """Convert B x tokens x C selected K/V tokens to B x heads x tokens x head_dim."""
-        b, n, _ = selected.shape
-        return selected.reshape(b, n, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
-
-
-class TopKGlobalGroupKVAttention(_TopKGroupKVAttentionBase):
-    """Full-query attention over a global top-k set of compressed K/V groups."""
-
-    def __init__(self, c1: int, c2: int, num_heads: int = 4, group_size: int = 4, topk: int = 100):
-        """Initialize global top-k grouped K/V attention."""
-        super().__init__(c1, c2, num_heads, group_size)
-        self.topk = max(1, int(topk))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Select one top-k group set per image and attend all query tokens to it."""
-        x = self.input_proj(x)
-        b, c, h, w = x.shape
-        q = self._format_full_q(self.q(x))
-        k_groups, v_groups, group_scores = self._compress_kv_groups(x)
-
-        route_count = min(self.topk, k_groups.shape[1])
-        route_idx = group_scores.topk(route_count, dim=-1).indices
-        batch_idx = torch.arange(b, device=x.device)[:, None]
-        k = self._format_selected_kv(k_groups[batch_idx, route_idx])
-        v = self._format_selected_kv(v_groups[batch_idx, route_idx])
-
-        with torch.cuda.amp.autocast(enabled=False):
-            attn = (q.float() @ k.float().transpose(-2, -1)) * self.scale
-            attn = attn.softmax(dim=-1)
-        out = (attn.to(v.dtype) @ v).transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
-        return x + self.proj_bn(self.proj(out))
-
-
-class TopKAdaptiveGroupKVAttention(_TopKGroupKVAttentionBase):
-    """Region-wise query attention over adaptive top-k compressed K/V groups."""
-
-    def __init__(
-        self,
-        c1: int,
-        c2: int,
-        num_heads: int = 4,
-        group_size: int = 4,
-        query_region_size: int = 10,
-        topk: int = 8,
-    ):
-        """Initialize adaptive top-k grouped K/V attention."""
-        super().__init__(c1, c2, num_heads, group_size)
-        self.query_region_size = max(1, int(query_region_size))
-        self.topk = max(1, int(topk))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Select top-k K/V groups per query region, then attend region tokens to them."""
-        x = self.input_proj(x)
-        b, c, _, _ = x.shape
-        q_map = self.q(x)
-        q_padded, orig_h, orig_w = self._pad_to_multiple(q_map, self.query_region_size)
-        _, _, hp, wp = q_padded.shape
-        region_h, region_w = hp // self.query_region_size, wp // self.query_region_size
-        num_regions = region_h * region_w
-        tokens_per_region = self.query_region_size * self.query_region_size
-
-        q_regions = self._to_regions(q_padded, self.query_region_size, region_h, region_w)
-        q_repr = q_regions.mean(dim=2)
-        k_groups, v_groups, _ = self._compress_kv_groups(x)
-        affinity = (q_repr @ k_groups.transpose(-2, -1)) * (c**-0.5)
-
-        route_count = min(self.topk, k_groups.shape[1])
-        route_idx = affinity.topk(route_count, dim=-1).indices
-        batch_idx = torch.arange(b, device=x.device)[:, None]
-
-        outputs = []
-        for region_idx in range(num_regions):
-            selected = route_idx[:, region_idx]
-            q_tokens = q_regions[:, region_idx].reshape(b, tokens_per_region, self.num_heads, self.head_dim)
-            q_tokens = q_tokens.permute(0, 2, 1, 3)
-            k_tokens = self._format_selected_kv(k_groups[batch_idx, selected])
-            v_tokens = self._format_selected_kv(v_groups[batch_idx, selected])
-            with torch.cuda.amp.autocast(enabled=False):
-                attn = (q_tokens.float() @ k_tokens.float().transpose(-2, -1)) * self.scale
-                attn = attn.softmax(dim=-1)
-            out = (attn.to(v_tokens.dtype) @ v_tokens).transpose(1, 2).reshape(b, tokens_per_region, c)
-            outputs.append(out)
-
-        out_regions = torch.stack(outputs, dim=1)
-        r = self.query_region_size
-        out = out_regions.view(b, region_h, region_w, r, r, c).permute(0, 5, 1, 3, 2, 4).contiguous()
-        out = out.view(b, c, hp, wp)[:, :, :orig_h, :orig_w]
-        return x + self.proj_bn(self.proj(out))
-
-
-class BiLevelRoutingAttention(nn.Module):
-    """NCHW bi-level routing attention adapted for YOLO feature maps."""
-
-    def __init__(
-        self,
-        c1: int,
-        c2: int,
-        num_heads: int = 4,
-        n_win: int = 7,
-        topk: int = 4,
-        side_dwconv: int = 3,
-    ):
-        """Initialize bi-level routing attention."""
-        super().__init__()
-        self.c2 = c2
-        self.num_heads = _choose_attention_heads(c2, num_heads)
-        self.head_dim = c2 // self.num_heads
-        self.scale = c2**-0.5
-        self.n_win = max(1, int(n_win))
-        self.topk = max(1, int(topk))
-
-        self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
-        self.qkv_linear = nn.Conv2d(c2, c2 * 3, 1)
-        self.lepe = (
-            nn.Conv2d(c2, c2, side_dwconv, stride=1, padding=side_dwconv // 2, groups=c2)
-            if side_dwconv > 0
-            else None
-        )
-        self.output_linear = nn.Conv2d(c2, c2, 1, bias=False)
-        self.output_bn = nn.BatchNorm2d(c2)
-
-    @staticmethod
-    def _pad_to_region_size(x: torch.Tensor, region_size: tuple[int, int]) -> tuple[torch.Tensor, int, int]:
-        """Pad H/W to multiples of region_size and return original H/W."""
-        h, w = x.shape[-2:]
-        pad_h = (region_size[0] - h % region_size[0]) % region_size[0]
-        pad_w = (region_size[1] - w % region_size[1]) % region_size[1]
-        if pad_h or pad_w:
-            x = F.pad(x, (0, pad_w, 0, pad_h))
-        return x, h, w
-
-    @staticmethod
-    def _grid2seq(x: torch.Tensor, region_size: tuple[int, int], num_heads: int) -> tuple[torch.Tensor, int, int]:
-        """Convert BCHW to B x heads x regions x region_tokens x head_dim."""
-        b, c, h, w = x.shape
-        rh, rw = region_size
-        region_h, region_w = h // rh, w // rw
-        x = x.view(b, num_heads, c // num_heads, region_h, rh, region_w, rw)
-        x = x.permute(0, 1, 3, 5, 4, 6, 2).contiguous()
-        return x.view(b, num_heads, region_h * region_w, rh * rw, c // num_heads), region_h, region_w
-
-    @staticmethod
-    def _seq2grid(x: torch.Tensor, region_h: int, region_w: int, region_size: tuple[int, int]) -> torch.Tensor:
-        """Convert B x heads x regions x region_tokens x head_dim to BCHW."""
-        b, num_heads, _, _, head_dim = x.shape
-        rh, rw = region_size
-        x = x.view(b, num_heads, region_h, region_w, rh, rw, head_dim)
-        x = x.permute(0, 1, 6, 2, 4, 3, 5).contiguous()
-        return x.view(b, num_heads * head_dim, region_h * rh, region_w * rw)
-
-    def _regional_routing_attention(
-        self,
-        query: torch.Tensor,
-        key: torch.Tensor,
-        value: torch.Tensor,
-        region_graph: torch.Tensor,
-        region_size: tuple[int, int],
-    ) -> torch.Tensor:
-        """Apply token attention from each query region to selected key/value regions."""
-        query, orig_h, orig_w = self._pad_to_region_size(query, region_size)
-        key, _, _ = self._pad_to_region_size(key, region_size)
-        value, _, _ = self._pad_to_region_size(value, region_size)
-
-        query, q_region_h, q_region_w = self._grid2seq(query, region_size, self.num_heads)
-        key, _, _ = self._grid2seq(key, region_size, self.num_heads)
-        value, _, _ = self._grid2seq(value, region_size, self.num_heads)
-
-        b, num_heads, q_regions, topk = region_graph.shape
-        _, _, kv_regions, kv_region_tokens, head_dim = key.shape
-        index = region_graph.view(b, num_heads, q_regions, topk, 1, 1).expand(
-            -1, -1, -1, -1, kv_region_tokens, head_dim
-        )
-        key_g = torch.gather(
-            key.view(b, num_heads, 1, kv_regions, kv_region_tokens, head_dim).expand(
-                -1, -1, q_regions, -1, -1, -1
-            ),
-            dim=3,
-            index=index,
-        )
-        value_g = torch.gather(
-            value.view(b, num_heads, 1, kv_regions, kv_region_tokens, head_dim).expand(
-                -1, -1, q_regions, -1, -1, -1
-            ),
-            dim=3,
-            index=index,
-        )
-
-        with torch.cuda.amp.autocast(enabled=False):
-            attn = (query.float() * self.scale) @ key_g.flatten(-3, -2).float().transpose(-1, -2)
-            attn = attn.softmax(dim=-1)
-        out = attn.to(value_g.dtype) @ value_g.flatten(-3, -2)
-        out = self._seq2grid(out, q_region_h, q_region_w, region_size)
-        return out[:, :, :orig_h, :orig_w]
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Route query regions to top-k key/value regions and apply token attention."""
-        x = self.input_proj(x)
-        _, c, h, w = x.shape
-        region_size = (max(1, h // self.n_win), max(1, w // self.n_win))
-
-        qkv = self.qkv_linear(x)
-        q, k, v = qkv.chunk(3, dim=1)
-
-        q_r = F.avg_pool2d(q.detach(), kernel_size=region_size, ceil_mode=True, count_include_pad=False)
-        k_r = F.avg_pool2d(k.detach(), kernel_size=region_size, ceil_mode=True, count_include_pad=False)
-        q_r = q_r.permute(0, 2, 3, 1).flatten(1, 2)
-        k_r = k_r.flatten(2, 3)
-        affinity = q_r @ k_r
-        route_count = min(self.topk, k_r.shape[-1])
-        route_idx = affinity.topk(route_count, dim=-1).indices
-        route_idx = route_idx.unsqueeze(1).expand(-1, self.num_heads, -1, -1)
-
-        out = self._regional_routing_attention(q, k, v, route_idx, region_size)
-        lepe = self.lepe(v) if self.lepe is not None else torch.zeros_like(v)
-        out = out + lepe
-        return x + self.output_bn(self.output_linear(out.reshape(-1, c, h, w)))
-
-
-class RegionRoutingAttentionLite(nn.Module):
-    """Bi-level routing attention for YOLO feature maps using pure PyTorch ops."""
-
-    def __init__(self, c1: int, c2: int, num_heads: int = 4, region_size: int = 10, topk: int = 4):
-        """Initialize region-routed token attention."""
-        super().__init__()
-        self.c2 = c2
-        self.num_heads = _choose_attention_heads(c2, num_heads)
-        self.head_dim = c2 // self.num_heads
-        self.scale = self.head_dim**-0.5
-        self.region_size = max(1, int(region_size))
-        self.topk = max(1, int(topk))
-
-        self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
-        self.qkv = nn.Conv2d(c2, c2 * 3, 1, bias=False)
-        self.proj = nn.Conv2d(c2, c2, 1, bias=False)
-        self.proj_bn = nn.BatchNorm2d(c2)
-
-    def _pad_to_regions(self, x: torch.Tensor) -> tuple[torch.Tensor, int, int]:
-        """Pad H/W so both are divisible by region_size."""
-        h, w = x.shape[-2:]
-        pad_h = (self.region_size - h % self.region_size) % self.region_size
-        pad_w = (self.region_size - w % self.region_size) % self.region_size
-        if pad_h or pad_w:
-            x = F.pad(x, (0, pad_w, 0, pad_h))
-        return x, h, w
-
-    def _to_regions(self, x: torch.Tensor, region_h: int, region_w: int) -> torch.Tensor:
-        """Convert BCHW into B x regions x tokens x C."""
-        b, c, _, _ = x.shape
-        r = self.region_size
-        return (
-            x.view(b, c, region_h, r, region_w, r)
-            .permute(0, 2, 4, 3, 5, 1)
-            .contiguous()
-            .view(b, region_h * region_w, r * r, c)
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Route each query region to top-k key/value regions, then attend locally."""
-        x = self.input_proj(x)
-        b, c, h, w = x.shape
-        padded, orig_h, orig_w = self._pad_to_regions(x)
-        _, _, hp, wp = padded.shape
-        region_h, region_w = hp // self.region_size, wp // self.region_size
-        num_regions = region_h * region_w
-        tokens_per_region = self.region_size * self.region_size
-
-        qkv = self.qkv(padded)
-        q, k, v = qkv.chunk(3, dim=1)
-        q_regions = self._to_regions(q, region_h, region_w)
-        k_regions = self._to_regions(k, region_h, region_w)
-        v_regions = self._to_regions(v, region_h, region_w)
-
-        q_repr = q_regions.mean(dim=2)
-        k_repr = k_regions.mean(dim=2)
-        affinity = (q_repr @ k_repr.transpose(-2, -1)) * (c**-0.5)
-        route_count = min(self.topk, num_regions)
-        route_idx = affinity.topk(route_count, dim=-1).indices
-
-        outputs = []
-        batch_idx = torch.arange(b, device=x.device)[:, None]
-        for region_idx in range(num_regions):
-            selected = route_idx[:, region_idx]
-            q_tokens = q_regions[:, region_idx].reshape(b, tokens_per_region, self.num_heads, self.head_dim)
-            q_tokens = q_tokens.permute(0, 2, 1, 3)
-            k_tokens = k_regions[batch_idx, selected].reshape(
-                b, route_count * tokens_per_region, self.num_heads, self.head_dim
-            )
-            v_tokens = v_regions[batch_idx, selected].reshape(
-                b, route_count * tokens_per_region, self.num_heads, self.head_dim
-            )
-            k_tokens = k_tokens.permute(0, 2, 1, 3)
-            v_tokens = v_tokens.permute(0, 2, 1, 3)
-            with torch.cuda.amp.autocast(enabled=False):
-                attn = (q_tokens.float() @ k_tokens.float().transpose(-2, -1)) * self.scale
-                attn = attn.softmax(dim=-1)
-            out = (attn.to(v_tokens.dtype) @ v_tokens).transpose(1, 2).reshape(b, tokens_per_region, c)
-            outputs.append(out)
-
-        out_regions = torch.stack(outputs, dim=1)
-        r = self.region_size
-        out = out_regions.view(b, region_h, region_w, r, r, c).permute(0, 5, 1, 3, 2, 4).contiguous()
-        out = out.view(b, c, hp, wp)[:, :, :orig_h, :orig_w]
-        return x + self.proj_bn(self.proj(out))
 
 
 class Proto(nn.Module):
@@ -946,227 +511,6 @@ class RepC2f(C2f):
         """Initialize RepC2f with the same interface and output shape as C2f."""
         super().__init__(c1, c2, n, shortcut, g, e)
         self.m = nn.ModuleList(RepBottleneck(self.c, self.c, shortcut, g, e=1.0) for _ in range(n))
-
-
-class C2fKV(nn.Module):
-    """C2f block with PSA-style split and gated KV-compressed attention on the final hidden feature."""
-
-    def __init__(
-        self,
-        c1: int,
-        c2: int,
-        n: int = 1,
-        shortcut: bool = False,
-        g: int = 1,
-        e: float = 0.5,
-        num_heads: int = 4,
-        sr_ratio: int = 2,
-        mode: str = "dwconv",
-    ):
-        """Initialize a C2f-style block with a lightweight PSA-style KV attention branch."""
-        super().__init__()
-        self.c = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
-        self.cv2 = Conv((2 + n) * self.c, c2, 1)
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
-        self.kv_c = max(1, self.c // 2)
-        self.bypass_c = self.c - self.kv_c
-        self.kv = KVCompressedAttention(self.kv_c, self.kv_c, num_heads, sr_ratio, mode)
-        self.gamma = nn.Parameter(torch.zeros(1))
-
-    def _refine_last(self, x: torch.Tensor) -> torch.Tensor:
-        """Refine one split of the final hidden feature with gated KV attention."""
-        if self.bypass_c == 0:
-            return x + self.gamma * (self.kv(x) - x)
-        a, b = x.split((self.bypass_c, self.kv_c), dim=1)
-        b = b + self.gamma * (self.kv(b) - b)
-        return torch.cat((a, b), dim=1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through C2f with PSA-style KV refinement on the final hidden feature."""
-        y = list(self.cv1(x).chunk(2, 1))
-        y.extend(m(y[-1]) for m in self.m)
-        y[-1] = self._refine_last(y[-1])
-        return self.cv2(torch.cat(y, 1))
-
-    def forward_split(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass using split() instead of chunk()."""
-        y = self.cv1(x).split((self.c, self.c), 1)
-        y = [y[0], y[1]]
-        y.extend(m(y[-1]) for m in self.m)
-        y[-1] = self._refine_last(y[-1])
-        return self.cv2(torch.cat(y, 1))
-
-
-class C2fNAT(nn.Module):
-    """C2f block with gated Neighborhood Attention on the final hidden feature."""
-
-    def __init__(
-        self,
-        c1: int,
-        c2: int,
-        n: int = 1,
-        shortcut: bool = False,
-        g: int = 1,
-        e: float = 0.5,
-        num_heads: int = 4,
-        kernel_size: int = 3,
-    ):
-        """Initialize a C2f-style block with a lightweight NAT refinement branch."""
-        super().__init__()
-        try:
-            from natten import NeighborhoodAttention2D
-        except ImportError as exc:
-            raise ImportError(
-                "C2fNAT requires the 'natten' package. Install natten in the training environment before using "
-                "YAMLs that reference C2fNAT."
-            ) from exc
-
-        self.c = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
-        self.cv2 = Conv((2 + n) * self.c, c2, 1)
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
-        self.num_heads = _choose_attention_heads(self.c, num_heads)
-        self.norm1 = nn.LayerNorm(self.c)
-        self.attn = NeighborhoodAttention2D(embed_dim=self.c, num_heads=self.num_heads, kernel_size=int(kernel_size))
-        self.norm2 = nn.LayerNorm(self.c)
-        self.mlp = nn.Sequential(
-            nn.Linear(self.c, 2 * self.c),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(2 * self.c, self.c),
-            nn.Dropout(0.1),
-        )
-        self.gamma = nn.Parameter(torch.zeros(1))
-
-    def _refine_last(self, x: torch.Tensor) -> torch.Tensor:
-        """Refine one hidden split with NHWC Neighborhood Attention."""
-        if x.device.type == "cpu" and x.requires_grad:
-            return x
-        x_nhwc = x.permute(0, 2, 3, 1).contiguous()
-        att = self.attn(self.norm1(x_nhwc)) + x_nhwc
-        refined = self.mlp(self.norm2(att)) + att
-        refined = refined.permute(0, 3, 1, 2).contiguous()
-        return x + self.gamma * (refined - x)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through C2f with NAT refinement on the final hidden feature."""
-        y = list(self.cv1(x).chunk(2, 1))
-        y.extend(m(y[-1]) for m in self.m)
-        y[-1] = self._refine_last(y[-1])
-        return self.cv2(torch.cat(y, 1))
-
-    def forward_split(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass using split() instead of chunk()."""
-        y = self.cv1(x).split((self.c, self.c), 1)
-        y = [y[0], y[1]]
-        y.extend(m(y[-1]) for m in self.m)
-        y[-1] = self._refine_last(y[-1])
-        return self.cv2(torch.cat(y, 1))
-
-
-class NATBlock(nn.Module):
-    """Neighborhood Attention Transformer block for YOLO."""
-
-    def __init__(self, c1: int, c2: int, num_heads: int = 4, kernel_size: int = 7):
-        """Initialize a Neighborhood Attention block."""
-        super().__init__()
-        try:
-            from natten import NeighborhoodAttention2D
-        except ImportError as exc:
-            raise ImportError(
-                "NATBlock requires the 'natten' package. Install natten in the training environment before using "
-                "YAMLs that reference NATBlock."
-            ) from exc
-
-        self.c = c1
-        self.num_heads = _choose_attention_heads(c1, num_heads)
-        self.norm1 = nn.LayerNorm(c1)
-        self.attn = NeighborhoodAttention2D(embed_dim=c1, num_heads=self.num_heads, kernel_size=int(kernel_size))
-        self.norm2 = nn.LayerNorm(c1)
-        self.mlp = nn.Sequential(
-            nn.Linear(c1, 2 * c1),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(2 * c1, c1),
-            nn.Dropout(0.1),
-        )
-        self.gamma = nn.Parameter(torch.zeros(1))
-        self.proj = Conv(c1, c2, 1) if c1 != c2 else nn.Identity()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through NATBlock."""
-        if x.device.type == "cpu" and x.requires_grad:
-            return self.proj(x)
-        x_nhwc = x.permute(0, 2, 3, 1).contiguous()
-        att = self.attn(self.norm1(x_nhwc)) + x_nhwc
-        refined = self.mlp(self.norm2(att)) + att
-        refined = refined.permute(0, 3, 1, 2).contiguous()
-        out = x + self.gamma * (refined - x)
-        return self.proj(out)
-
-
-class M3NATFuse(nn.Module):
-    """Fuse P2/P3/P4 features into a P3-resolution feature and refine it with NAT."""
-
-    def __init__(self, c1: list[int], c2: int, num_heads: int = 4, kernel_size: int = 3):
-        """Initialize three-scale fusion.
-
-        Args:
-            c1: Input channels for [P2, P3, P4].
-            c2: Output channels at P3 resolution.
-            num_heads: Requested NAT heads.
-            kernel_size: NAT neighborhood kernel size.
-        """
-        super().__init__()
-        if len(c1) != 3:
-            raise ValueError(f"M3NATFuse expects 3 input channel values for [P2, P3, P4], got {c1}.")
-        try:
-            from natten import NeighborhoodAttention2D
-        except ImportError as exc:
-            raise ImportError(
-                "M3NATFuse requires the 'natten' package. Install natten in the training environment before using "
-                "YAMLs that reference M3NATFuse."
-            ) from exc
-
-        self.p2_down = Conv(c1[0], c2, 3, 2)
-        self.p3_proj = Conv(c1[1], c2, 3, 1)
-        self.p4_proj = Conv(c1[2], c2, 3, 1)
-        self.fuse = Conv(3 * c2, c2, 3, 1)
-        self.num_heads = _choose_attention_heads(c2, num_heads)
-        self.norm1 = nn.LayerNorm(c2)
-        self.attn = NeighborhoodAttention2D(embed_dim=c2, num_heads=self.num_heads, kernel_size=int(kernel_size))
-        self.norm2 = nn.LayerNorm(c2)
-        self.mlp = nn.Sequential(
-            nn.Linear(c2, 2 * c2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(2 * c2, c2),
-            nn.Dropout(0.1),
-        )
-        self.gamma = nn.Parameter(torch.zeros(1))
-
-    def forward(self, x: list[torch.Tensor]) -> torch.Tensor:
-        """Fuse [P2, P3, P4] into a P3-resolution feature map."""
-        if len(x) != 3:
-            raise ValueError(f"M3NATFuse expects [P2, P3, P4], got {len(x)} inputs.")
-        p2, p3, p4 = x
-        target_size = p3.shape[-2:]
-        p2 = self.p2_down(p2)
-        if p2.shape[-2:] != target_size:
-            p2 = F.interpolate(p2, size=target_size, mode="nearest")
-        p3 = self.p3_proj(p3)
-        p4 = F.interpolate(p4, size=target_size, mode="nearest")
-        p4 = self.p4_proj(p4)
-        fused = self.fuse(torch.cat((p2, p3, p4), dim=1))
-        if fused.device.type == "cpu" and fused.requires_grad:
-            return fused
-
-        fused_nhwc = fused.permute(0, 2, 3, 1).contiguous()
-        att = self.attn(self.norm1(fused_nhwc)) + fused_nhwc
-        refined = self.mlp(self.norm2(att)) + att
-        refined = refined.permute(0, 3, 1, 2).contiguous()
-        return fused + self.gamma * (refined - fused)
 
 
 class C3(nn.Module):
@@ -1675,25 +1019,21 @@ class BNContrastiveHead(nn.Module):
         return x * self.logit_scale.exp() + self.bias
 
 
-class RepBottleneck(Bottleneck):
-    """Rep bottleneck."""
+class RepBottleneck(nn.Module):
+    """YOLOv8 bottleneck variant using RepConv for the 3x3 convolution."""
 
-    def __init__(
-        self, c1: int, c2: int, shortcut: bool = True, g: int = 1, k: tuple[int, int] = (3, 3), e: float = 0.5
-    ):
-        """Initialize RepBottleneck.
+    def __init__(self, c1: int, c2: int, shortcut: bool = True, g: int = 1, e: float = 0.5):
+        """Initialize RepBottleneck as Conv1x1 followed by RepConv3x3."""
+        super().__init__()
+        c_ = int(c2 * e)
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = RepConv(c_, c2, 3, 1, p=1, g=g)
+        self.add = shortcut and c1 == c2
 
-        Args:
-            c1 (int): Input channels.
-            c2 (int): Output channels.
-            shortcut (bool): Whether to use shortcut connection.
-            g (int): Groups for convolutions.
-            k (tuple): Kernel sizes for convolutions.
-            e (float): Expansion ratio.
-        """
-        super().__init__(c1, c2, shortcut, g, k, e)
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = RepConv(c1, c_, k[0], 1)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply RepBottleneck with optional residual shortcut."""
+        y = self.cv2(self.cv1(x))
+        return x + y if self.add else y
 
 
 class RepCSP(C3):
