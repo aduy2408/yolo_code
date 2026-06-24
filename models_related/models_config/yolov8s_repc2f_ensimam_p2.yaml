@@ -1,0 +1,59 @@
+# YOLOv8s Varroa accuracy-focused model for small object detection.
+# Backbone keeps early P2 detail with C2f, then uses RepC2f for deeper stages.
+# Neck keeps BiFPN P2/P3/P4/P5 and adds EnSimAM on P2/P3 fused features.
+
+nc: 1
+scale: s
+scales:
+  n: [0.33, 0.25, 1024]
+  s: [0.33, 0.50, 1024]
+  m: [0.67, 0.75, 768]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.25, 512]
+
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]]       # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]      # 1-P2/4
+  - [-1, 3, C2f, [128, True]]       # 2-P2/4 detail-preserving
+  - [-1, 1, Conv, [256, 3, 2]]      # 3-P3/8
+  - [-1, 6, RepC2f, [256, True]]    # 4-P3/8
+  - [-1, 1, Conv, [512, 3, 2]]      # 5-P4/16
+  - [-1, 6, RepC2f, [512, True]]    # 6-P4/16
+  - [-1, 1, Conv, [1024, 3, 2]]     # 7-P5/32
+  - [-1, 3, RepC2f, [1024, True]]   # 8-P5/32
+  - [-1, 1, SPPF, [1024, 5]]        # 9-P5/32
+
+head:
+  # Lateral channel alignment to one BiFPN width.
+  - [2, 1, Conv, [256, 1, 1]]       # 10-P2/4 lateral
+  - [4, 1, Conv, [256, 1, 1]]       # 11-P3/8 lateral
+  - [6, 1, Conv, [256, 1, 1]]       # 12-P4/16 lateral
+  - [9, 1, Conv, [256, 1, 1]]       # 13-P5/32 lateral
+
+  # Top-down BiFPN path: P5 -> P4 -> P3 -> P2.
+  - [13, 1, ConvTranspose, [256, 2, 2]] # 14-P5 up to P4
+  - [[12, 14], 1, WeightedAdd, []]      # 15-P4 top-down weighted sum
+  - [-1, 3, RepC2f, [256]]             # 16-P4 top-down
+  - [-1, 1, ConvTranspose, [256, 2, 2]] # 17-P4 up to P3
+  - [[11, 17], 1, WeightedAdd, []]      # 18-P3 top-down weighted sum
+  - [-1, 3, RepC2f, [256]]             # 19-P3 top-down
+  - [-1, 1, EnSimAM, []]               # 20-P3 attention
+  - [-1, 1, ConvTranspose, [256, 2, 2]] # 21-P3 up to P2
+  - [[10, 21], 1, WeightedAdd, []]      # 22-P2 weighted sum
+  - [-1, 3, C2f, [256]]                # 23-P2 output tiny
+  - [-1, 1, EnSimAM, []]               # 24-P2 attention
+
+  # Bottom-up BiFPN path: P2 -> P3 -> P4 -> P5.
+  - [24, 1, Conv, [256, 3, 2]]          # 25-P2 down to P3
+  - [[11, 20, 25], 1, WeightedAdd, []]  # 26-P3 weighted sum
+  - [-1, 3, RepC2f, [256]]             # 27-P3 output small
+  - [-1, 1, EnSimAM, []]               # 28-P3 attention
+  - [-1, 1, Conv, [256, 3, 2]]          # 29-P3 down to P4
+  - [[12, 16, 29], 1, WeightedAdd, []]  # 30-P4 weighted sum
+  - [-1, 3, RepC2f, [256]]             # 31-P4 output medium
+  - [-1, 1, Conv, [256, 3, 2]]          # 32-P4 down to P5
+  - [[13, 32], 1, WeightedAdd, []]      # 33-P5 weighted sum
+  - [-1, 3, RepC2f, [256]]             # 34-P5 output large
+
+  - [[24, 28, 31, 34], 1, Detect, [nc]]

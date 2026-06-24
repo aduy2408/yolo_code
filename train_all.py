@@ -50,10 +50,22 @@ COMBO_CONFIGS = [
     "yolov8_varroa_repensimam_kvheads_bifpn_asf_p2p4.yaml",
 ]
 
+KVPLACE_CONFIGS = [
+    "yolov8_varroa_kvheads_repc2f.yaml",
+    "yolov8_varroa_kvheads_repc2f_ensimam_p5.yaml",
+    "yolov8_varroa_kvheads_repc2f_ensimam_p2p3.yaml",
+    "yolov8_varroa_kvheads_repc2f_bifpn.yaml",
+    "yolov8_varroa_kvheads_repc2f_bifpn_ensimam_p2p3.yaml",
+    "yolov8_varroa_kvheads_repc2f_bifpn_asf.yaml",
+    "yolov8_varroa_kvheads_repc2f_bifpn_asf_ensimam.yaml",
+]
+
+SPECIAL_CONFIGS = set(COMBO_CONFIGS + KVPLACE_CONFIGS)
+
 # Lấy danh sách tất cả các file yaml gốc (chỉ lấy các file bắt đầu bằng yolov8_ để bỏ qua các file yolov8x_ sinh ra)
 all_configs = sorted([
     f for f in os.listdir(config_dir) 
-    if f.endswith('.yaml') and f.startswith('yolov8_') and f not in COMBO_CONFIGS
+    if f.endswith('.yaml') and f.startswith('yolov8_') and f not in SPECIAL_CONFIGS
 ])
 
 # Chia thành 2 nửa
@@ -78,8 +90,11 @@ elif part == "combo1":
 elif part == "combo2":
     configs_to_run = COMBO_CONFIGS[2:]
     print(f"[*] ĐANG CHẠY COMBO 2 YOLOv8{MODEL_SCALE}: {len(configs_to_run)} configs")
+elif part == "kvplace":
+    configs_to_run = KVPLACE_CONFIGS
+    print(f"[*] ĐANG CHẠY KVPLACE YOLOv8{MODEL_SCALE}: {len(configs_to_run)} configs")
 else:
-    print("Vui lòng truyền đối số là 1, 2, combo, combo1 hoặc combo2. Ví dụ: python train_all.py combo1")
+    print("Vui lòng truyền đối số là 1, 2, combo, combo1, combo2 hoặc kvplace. Ví dụ: python train_all.py kvplace")
     sys.exit(1)
 
 # Chạy vòng lặp qua từng config
@@ -116,29 +131,29 @@ for config_name in configs_to_run:
 
         patience=40,
 
-        box=10.0,
-        dfl=2.0,
-        cls=0.25,
+        # box=10.0,
+        # dfl=2.0,
+        # cls=0.25,
         bbox_iou_loss="wiou",
         wiou_monotonous=False,
 
-        mosaic=0.2,
-        close_mosaic=40,
-        mixup=0.0,
-        copy_paste=0.0,
-        degrees=0.0,
-        perspective=0.0,
-        translate=0.1,
-        scale=0.25,
-        shear=0.0,
+        # mosaic=0.2,
+        # close_mosaic=40,
+        # mixup=0.0,
+        # copy_paste=0.0,
+        # degrees=0.0,
+        # perspective=0.0,
+        # translate=0.1,
+        # scale=0.25,
+        # shear=0.0,
 
-        optimizer="AdamW",
-        lr0=0.001,
-        lrf=0.01,
-        cos_lr=True,
-        weight_decay=0.0005,
-        warmup_epochs=3,
+        # optimizer="AdamW",
+        # lr0=0.001,
+        # lrf=0.01,
+        # cos_lr=True,
+        # weight_decay=0.0005,
+        # warmup_epochs=3,
 
-        project="runs/detect/yolo_related/runs/train",
-        name=run_name,
+        # project="runs/detect/yolo_related/runs/train",
+        # name=run_name,
     )
