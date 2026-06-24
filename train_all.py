@@ -93,8 +93,17 @@ elif part == "combo2":
 elif part == "kvplace":
     configs_to_run = KVPLACE_CONFIGS
     print(f"[*] ĐANG CHẠY KVPLACE YOLOv8{MODEL_SCALE}: {len(configs_to_run)} configs")
+elif part == "kvplace1":
+    configs_to_run = KVPLACE_CONFIGS[:3]
+    print(f"[*] ĐANG CHẠY KVPLACE 1 YOLOv8{MODEL_SCALE}: {len(configs_to_run)} configs")
+elif part == "kvplace2":
+    configs_to_run = KVPLACE_CONFIGS[3:]
+    print(f"[*] ĐANG CHẠY KVPLACE 2 YOLOv8{MODEL_SCALE}: {len(configs_to_run)} configs")
 else:
-    print("Vui lòng truyền đối số là 1, 2, combo, combo1, combo2 hoặc kvplace. Ví dụ: python train_all.py kvplace")
+    print(
+        "Vui lòng truyền đối số là 1, 2, combo, combo1, combo2, kvplace, kvplace1 hoặc kvplace2. "
+        "Ví dụ: python train_all.py kvplace1"
+    )
     sys.exit(1)
 
 # Chạy vòng lặp qua từng config
