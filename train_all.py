@@ -72,8 +72,14 @@ elif part == "2":
 elif part == "combo":
     configs_to_run = COMBO_CONFIGS
     print(f"[*] ĐANG CHẠY COMBO YOLOv8{MODEL_SCALE}: {len(configs_to_run)} configs")
+elif part == "combo1":
+    configs_to_run = COMBO_CONFIGS[:2]
+    print(f"[*] ĐANG CHẠY COMBO 1 YOLOv8{MODEL_SCALE}: {len(configs_to_run)} configs")
+elif part == "combo2":
+    configs_to_run = COMBO_CONFIGS[2:]
+    print(f"[*] ĐANG CHẠY COMBO 2 YOLOv8{MODEL_SCALE}: {len(configs_to_run)} configs")
 else:
-    print("Vui lòng truyền đối số là 1, 2 hoặc combo. Ví dụ: python train_all.py combo")
+    print("Vui lòng truyền đối số là 1, 2, combo, combo1 hoặc combo2. Ví dụ: python train_all.py combo1")
     sys.exit(1)
 
 # Chạy vòng lặp qua từng config
