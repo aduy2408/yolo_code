@@ -101,7 +101,7 @@ for config_name in configs_to_run:
     model = YOLO(str(model_yaml))
     
     # Load đúng file pretrained weights theo scale
-    model.load(f"yolov8{MODEL_SCALE}.pt") 
+    model.load(f"yolov8{MODEL_SCALE}.pt",smart_transfer=True) 
     
     # Đặt tên run bỏ đuôi .yaml
     run_name = new_config_name.replace('.yaml', '')
