@@ -289,6 +289,110 @@ class BboxLoss(nn.Module):
         return loss_iou, loss_dfl
 
 
+# EXPERIMENTAL: Boundary-aware contrastive loss for tiny-object localization.
+# This auxiliary objective samples Detect feature maps around each GT box so
+# object-interior features stay close while boundary/background features are
+# pushed away. It is opt-in through boundary_contrast and has no inference path.
+class BoundaryContrastiveLoss(nn.Module):
+    """Boundary-aware InfoNCE loss over Detect feature maps."""
+
+    def __init__(self, levels: int = 2, ring: float = 1.0, samples: int = 16, tau: float = 0.2):
+        """Initialize boundary contrast settings."""
+        super().__init__()
+        self.levels = max(int(levels), 0)
+        self.ring = max(float(ring), 0.0)
+        self.samples = max(int(samples), 1)
+        self.tau = max(float(tau), 1e-6)
+
+    @staticmethod
+    def _sample_indices(mask: torch.Tensor, limit: int) -> torch.Tensor:
+        """Sample up to limit flattened indices from a boolean mask."""
+        idx = mask.flatten().nonzero(as_tuple=False).squeeze(1)
+        if idx.numel() > limit:
+            idx = idx[torch.randperm(idx.numel(), device=idx.device)[:limit]]
+        return idx
+
+    def forward(
+        self,
+        feats: list[torch.Tensor],
+        gt_bboxes: torch.Tensor,
+        mask_gt: torch.Tensor,
+        strides: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute boundary-aware contrastive loss from feature maps and image-space GT boxes."""
+        losses = []
+        num_levels = min(self.levels, len(feats), len(strides))
+        for level, feat in enumerate(feats[:num_levels]):
+            bs, _, h, w = feat.shape
+            stride = strides[level].to(device=feat.device, dtype=feat.dtype).clamp(min=1)
+            y, x = torch.meshgrid(
+                torch.arange(h, device=feat.device, dtype=feat.dtype) + 0.5,
+                torch.arange(w, device=feat.device, dtype=feat.dtype) + 0.5,
+                indexing="ij",
+            )
+
+            for bi in range(bs):
+                boxes = gt_bboxes[bi][mask_gt[bi, :, 0].bool()]
+                if boxes.numel() == 0:
+                    continue
+
+                fmap = feat[bi].flatten(1).transpose(0, 1)
+                fmap = F.normalize(fmap, dim=1)
+
+                for box in boxes:
+                    x1, y1, x2, y2 = box / stride
+                    x1 = x1.clamp(0, w)
+                    x2 = x2.clamp(0, w)
+                    y1 = y1.clamp(0, h)
+                    y2 = y2.clamp(0, h)
+                    if (x2 - x1) < 1 or (y2 - y1) < 1:
+                        continue
+
+                    # EXPERIMENTAL: prefer a tighter interior region when it
+                    # exists, so positives represent object texture, not edges.
+                    pad_x = torch.minimum((x2 - x1) * 0.25, torch.tensor(0.5, device=feat.device, dtype=feat.dtype))
+                    pad_y = torch.minimum((y2 - y1) * 0.25, torch.tensor(0.5, device=feat.device, dtype=feat.dtype))
+                    inner = (x >= x1 + pad_x) & (x < x2 - pad_x) & (y >= y1 + pad_y) & (y < y2 - pad_y)
+                    obj = inner if inner.any() else ((x >= x1) & (x < x2) & (y >= y1) & (y < y2))
+
+                    dx1 = (x1 - self.ring).clamp(0, w)
+                    dy1 = (y1 - self.ring).clamp(0, h)
+                    dx2 = (x2 + self.ring).clamp(0, w)
+                    dy2 = (y2 + self.ring).clamp(0, h)
+                    dilated = (x >= dx1) & (x < dx2) & (y >= dy1) & (y < dy2)
+                    original = (x >= x1) & (x < x2) & (y >= y1) & (y < y2)
+                    boundary = dilated & ~original
+
+                    # EXPERIMENTAL: nearby background is a cheap hard-negative
+                    # proxy without using prediction confidence.
+                    near_x1 = (x1 - self.ring * 3).clamp(0, w)
+                    near_y1 = (y1 - self.ring * 3).clamp(0, h)
+                    near_x2 = (x2 + self.ring * 3).clamp(0, w)
+                    near_y2 = (y2 + self.ring * 3).clamp(0, h)
+                    near = (x >= near_x1) & (x < near_x2) & (y >= near_y1) & (y < near_y2)
+                    background = near & ~dilated
+                    if not background.any():
+                        background = ~dilated
+
+                    obj_idx = self._sample_indices(obj, self.samples)
+                    bnd_idx = self._sample_indices(boundary, self.samples)
+                    bg_idx = self._sample_indices(background, self.samples)
+                    if obj_idx.numel() < 2 or bnd_idx.numel() == 0 or bg_idx.numel() == 0:
+                        continue
+
+                    obj_feat = fmap[obj_idx]
+                    pos = obj_feat.roll(1, dims=0)
+                    neg = fmap[torch.cat((bnd_idx, bg_idx), 0)]
+
+                    pos_logits = (obj_feat * pos).sum(1, keepdim=True) / self.tau
+                    neg_logits = obj_feat @ neg.T / self.tau
+                    logits = torch.cat((pos_logits, neg_logits), 1)
+                    labels = torch.zeros(logits.shape[0], device=feat.device, dtype=torch.long)
+                    losses.append(F.cross_entropy(logits, labels))
+
+        return torch.stack(losses).mean() if losses else gt_bboxes.sum() * 0.0
+
+
 class RLELoss(nn.Module):
     """Residual Log-Likelihood Estimation Loss.
 
@@ -505,6 +609,19 @@ class v8DetectionLoss:
             iou_loss=getattr(h, "bbox_iou_loss", "ciou"),
             wiou_monotonous=getattr(h, "wiou_monotonous", False),
         ).to(device)
+        # EXPERIMENTAL: optional boundary-aware contrastive objective for
+        # Varroa-scale localization. Disabled by default via boundary_contrast=0.
+        self.boundary_gain = float(getattr(h, "boundary_contrast", 0.0))
+        self.boundary_loss = (
+            BoundaryContrastiveLoss(
+                levels=getattr(h, "boundary_levels", 2),
+                ring=getattr(h, "boundary_ring", 1.0),
+                samples=getattr(h, "boundary_samples", 16),
+                tau=getattr(h, "boundary_tau", 0.2),
+            ).to(device)
+            if self.boundary_gain > 0
+            else None
+        )
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
@@ -538,7 +655,7 @@ class v8DetectionLoss:
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size and return foreground mask and
         target indices.
         """
-        loss = torch.zeros(3, device=self.device)  # box, cls, dfl
+        loss = torch.zeros(4 if self.boundary_loss is not None else 3, device=self.device)  # box, cls, dfl, boundary
         pred_distri, pred_scores = (
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
@@ -592,11 +709,14 @@ class v8DetectionLoss:
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
+        if self.boundary_loss is not None:
+            # EXPERIMENTAL: add feature-space boundary separation only during training loss computation.
+            loss[3] = self.boundary_loss(preds["feats"], gt_bboxes, mask_gt, self.stride) * self.boundary_gain
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,
             loss.detach(),
-        )  # loss(box, cls, dfl)
+        )  # loss(box, cls, dfl[, boundary])
 
     def parse_output(
         self, preds: dict[str, torch.Tensor] | tuple[torch.Tensor, dict[str, torch.Tensor]]

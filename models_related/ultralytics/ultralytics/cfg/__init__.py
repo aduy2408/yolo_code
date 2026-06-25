@@ -160,6 +160,9 @@ CFG_FLOAT_KEYS = frozenset(
         "box",
         "cls",
         "cls_pw",
+        "boundary_contrast",
+        "boundary_ring",
+        "boundary_tau",
         "dfl",
         "degrees",
         "shear",
@@ -208,6 +211,8 @@ CFG_INT_KEYS = frozenset(
         "line_width",
         "nbs",
         "save_period",
+        "boundary_levels",
+        "boundary_samples",
     }
 )
 CFG_BOOL_KEYS = frozenset(

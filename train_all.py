@@ -250,6 +250,12 @@ for config_name in configs_to_run:
         # cls=0.25,
         bbox_iou_loss="wiou",
         wiou_monotonous=False,
+        # EXPERIMENTAL: uncomment for boundary-aware contrastive localization ablation.
+        # boundary_contrast=0.05,
+        # boundary_levels=2,
+        # boundary_ring=1.0,
+        # boundary_samples=16,
+        # boundary_tau=0.2,
 
         # mosaic=0.2,
         # close_mosaic=40,

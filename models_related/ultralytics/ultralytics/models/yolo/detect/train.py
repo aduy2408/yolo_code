@@ -61,6 +61,15 @@ class DetectionTrainer(BaseTrainer):
             _callbacks (dict, optional): Dictionary of callback functions to be executed during training.
         """
         super().__init__(cfg, overrides, _callbacks)
+        self.loss_names = self._loss_names()
+
+    def _loss_names(self) -> tuple[str, ...]:
+        """Return detection loss names, including opt-in experimental components."""
+        names = ("box_loss", "cls_loss", "dfl_loss")
+        # EXPERIMENTAL: boundary_loss is logged only when the auxiliary boundary contrast objective is enabled.
+        if float(getattr(self.args, "boundary_contrast", 0.0)) > 0:
+            names += ("boundary_loss",)
+        return names
 
     def build_dataset(self, img_path: str, mode: str = "train", batch: int | None = None):
         """Build YOLO Dataset for training or validation.
@@ -185,7 +194,7 @@ class DetectionTrainer(BaseTrainer):
 
     def get_validator(self):
         """Return a DetectionValidator for YOLO model validation."""
-        self.loss_names = "box_loss", "cls_loss", "dfl_loss"
+        self.loss_names = self._loss_names()
         return yolo.detect.DetectionValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
