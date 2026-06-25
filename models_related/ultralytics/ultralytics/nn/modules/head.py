@@ -118,6 +118,11 @@ class Detect(nn.Module):
             )
         )
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+        # EXPERIMENTAL: train-only localization quality map heads. These
+        # parameters live on the model so the optimizer can update them, but
+        # loc_maps are emitted only when the loss enables loc_quality.
+        self.loc_quality_enabled = False
+        self.loc_cv = nn.ModuleList(nn.Conv2d(x, 1, 1) for x in ch)
 
         if end2end:
             self.one2one_cv2 = copy.deepcopy(self.cv2)
@@ -152,7 +157,12 @@ class Detect(nn.Module):
         bs = x[0].shape[0]  # batch size
         boxes = torch.cat([box_head[i](x[i]).view(bs, 4 * self.reg_max, -1) for i in range(self.nl)], dim=-1)
         scores = torch.cat([cls_head[i](x[i]).view(bs, self.nc, -1) for i in range(self.nl)], dim=-1)
-        return dict(boxes=boxes, scores=scores, feats=x)
+        out = dict(boxes=boxes, scores=scores, feats=x)
+        # EXPERIMENTAL: LQM supervision is train-only and does not alter
+        # detection outputs, inference decoding, or export graphs.
+        if self.training and self.loc_quality_enabled:
+            out["loc_maps"] = [self.loc_cv[i](x[i]) for i in range(self.nl)]
+        return out
 
     def forward(
         self, x: list[torch.Tensor]

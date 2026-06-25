@@ -69,6 +69,9 @@ class DetectionTrainer(BaseTrainer):
         # EXPERIMENTAL: boundary_loss is logged only when the auxiliary boundary contrast objective is enabled.
         if float(getattr(self.args, "boundary_contrast", 0.0)) > 0:
             names += ("boundary_loss",)
+        # EXPERIMENTAL: loc_quality_loss is logged only when LQM supervision is enabled.
+        if float(getattr(self.args, "loc_quality", 0.0)) > 0:
+            names += ("loc_quality_loss",)
         return names
 
     def build_dataset(self, img_path: str, mode: str = "train", batch: int | None = None):

@@ -163,6 +163,8 @@ CFG_FLOAT_KEYS = frozenset(
         "boundary_contrast",
         "boundary_ring",
         "boundary_tau",
+        "loc_quality",
+        "loc_quality_sigma",
         "dfl",
         "degrees",
         "shear",
@@ -213,6 +215,7 @@ CFG_INT_KEYS = frozenset(
         "save_period",
         "boundary_levels",
         "boundary_samples",
+        "loc_quality_levels",
     }
 )
 CFG_BOOL_KEYS = frozenset(

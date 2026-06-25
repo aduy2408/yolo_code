@@ -393,6 +393,76 @@ class BoundaryContrastiveLoss(nn.Module):
         return torch.stack(losses).mean() if losses else gt_bboxes.sum() * 0.0
 
 
+# EXPERIMENTAL: Localization Quality Map loss for tiny-object localization.
+# This auxiliary objective teaches train-only 1x1 heads to predict a smooth
+# center-high localization target for each GT box. It has no inference path.
+class LocalizationQualityLoss(nn.Module):
+    """Gaussian localization quality map supervision over Detect feature maps."""
+
+    def __init__(self, levels: int = 2, sigma: float = 0.45, loss_type: str = "mse"):
+        """Initialize LQM settings."""
+        super().__init__()
+        self.levels = max(int(levels), 0)
+        self.sigma = max(float(sigma), 1e-3)
+        self.loss_type = str(loss_type).lower()
+        if self.loss_type not in {"mse", "smoothl1"}:
+            raise ValueError("loc_quality_loss must be 'mse' or 'smoothl1'.")
+
+    def forward(
+        self,
+        loc_maps: list[torch.Tensor],
+        gt_bboxes: torch.Tensor,
+        mask_gt: torch.Tensor,
+        strides: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute LQM loss from predicted maps and image-space GT boxes."""
+        losses = []
+        num_levels = min(self.levels, len(loc_maps), len(strides))
+        for level, loc_map in enumerate(loc_maps[:num_levels]):
+            bs, _, h, w = loc_map.shape
+            stride = strides[level].to(device=loc_map.device, dtype=loc_map.dtype).clamp(min=1)
+            y, x = torch.meshgrid(
+                torch.arange(h, device=loc_map.device, dtype=loc_map.dtype) + 0.5,
+                torch.arange(w, device=loc_map.device, dtype=loc_map.dtype) + 0.5,
+                indexing="ij",
+            )
+            target = torch.zeros((bs, 1, h, w), device=loc_map.device, dtype=loc_map.dtype)
+
+            for bi in range(bs):
+                boxes = gt_bboxes[bi][mask_gt[bi, :, 0].bool()]
+                if boxes.numel() == 0:
+                    continue
+                image_target = target[bi, 0]
+                for box in boxes:
+                    x1, y1, x2, y2 = box / stride
+                    x1 = x1.clamp(0, w)
+                    x2 = x2.clamp(0, w)
+                    y1 = y1.clamp(0, h)
+                    y2 = y2.clamp(0, h)
+                    bw = x2 - x1
+                    bh = y2 - y1
+                    if bw < 1 or bh < 1:
+                        continue
+
+                    cx = (x1 + x2) * 0.5
+                    cy = (y1 + y2) * 0.5
+                    sigma_x = (bw * self.sigma).clamp(min=1e-3)
+                    sigma_y = (bh * self.sigma).clamp(min=1e-3)
+                    inside = (x >= x1) & (x < x2) & (y >= y1) & (y < y2)
+                    quality = torch.exp(
+                        -0.5 * (((x - cx) / sigma_x).pow(2) + ((y - cy) / sigma_y).pow(2))
+                    ) * inside.to(loc_map.dtype)
+                    image_target.copy_(torch.maximum(image_target, quality))
+
+            pred = loc_map.sigmoid()
+            if self.loss_type == "smoothl1":
+                losses.append(F.smooth_l1_loss(pred, target))
+            else:
+                losses.append(F.mse_loss(pred, target))
+
+        return torch.stack(losses).mean() if losses else gt_bboxes.sum() * 0.0
+
+
 class RLELoss(nn.Module):
     """Residual Log-Likelihood Estimation Loss.
 
@@ -622,6 +692,20 @@ class v8DetectionLoss:
             if self.boundary_gain > 0
             else None
         )
+        # EXPERIMENTAL: optional train-only Localization Quality Map supervision.
+        # The Detect module owns the 1x1 heads so optimizer updates them.
+        self.loc_quality_gain = float(getattr(h, "loc_quality", 0.0))
+        m.loc_quality_enabled = self.loc_quality_gain > 0
+        self.loc_quality_heads = getattr(m, "loc_cv", None)
+        self.loc_quality_loss = (
+            LocalizationQualityLoss(
+                levels=getattr(h, "loc_quality_levels", 2),
+                sigma=getattr(h, "loc_quality_sigma", 0.45),
+                loss_type=getattr(h, "loc_quality_loss", "mse"),
+            ).to(device)
+            if self.loc_quality_gain > 0
+            else None
+        )
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
@@ -655,7 +739,10 @@ class v8DetectionLoss:
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size and return foreground mask and
         target indices.
         """
-        loss = torch.zeros(4 if self.boundary_loss is not None else 3, device=self.device)  # box, cls, dfl, boundary
+        loss = torch.zeros(
+            3 + int(self.boundary_loss is not None) + int(self.loc_quality_loss is not None),
+            device=self.device,
+        )  # box, cls, dfl[, boundary][, loc_quality]
         pred_distri, pred_scores = (
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
@@ -712,11 +799,18 @@ class v8DetectionLoss:
         if self.boundary_loss is not None:
             # EXPERIMENTAL: add feature-space boundary separation only during training loss computation.
             loss[3] = self.boundary_loss(preds["feats"], gt_bboxes, mask_gt, self.stride) * self.boundary_gain
+        if self.loc_quality_loss is not None:
+            # EXPERIMENTAL: train-only smooth localization map supervision.
+            loc_idx = 3 + int(self.boundary_loss is not None)
+            loc_maps = preds.get("loc_maps")
+            if loc_maps is None:
+                loc_maps = [self.loc_quality_heads[i](x) for i, x in enumerate(preds["feats"])]
+            loss[loc_idx] = self.loc_quality_loss(loc_maps, gt_bboxes, mask_gt, self.stride) * self.loc_quality_gain
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,
             loss.detach(),
-        )  # loss(box, cls, dfl[, boundary])
+        )  # loss(box, cls, dfl[, boundary][, loc_quality])
 
     def parse_output(
         self, preds: dict[str, torch.Tensor] | tuple[torch.Tensor, dict[str, torch.Tensor]]
