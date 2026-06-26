@@ -296,13 +296,14 @@ class BboxLoss(nn.Module):
 class BoundaryContrastiveLoss(nn.Module):
     """Boundary-aware InfoNCE loss over Detect feature maps."""
 
-    def __init__(self, levels: int = 2, ring: float = 1.0, samples: int = 16, tau: float = 0.2):
+    def __init__(self, levels: int = 2, ring: float = 1.0, samples: int = 16, tau: float = 0.2, shrinkage: float = 0.25):
         """Initialize boundary contrast settings."""
         super().__init__()
         self.levels = max(int(levels), 0)
         self.ring = max(float(ring), 0.0)
         self.samples = max(int(samples), 1)
         self.tau = max(float(tau), 1e-6)
+        self.shrinkage = max(float(shrinkage), 0.0)
 
     @staticmethod
     def _sample_indices(mask: torch.Tensor, limit: int) -> torch.Tensor:
@@ -350,8 +351,8 @@ class BoundaryContrastiveLoss(nn.Module):
 
                     # EXPERIMENTAL: prefer a tighter interior region when it
                     # exists, so positives represent object texture, not edges.
-                    pad_x = torch.minimum((x2 - x1) * 0.25, torch.tensor(0.5, device=feat.device, dtype=feat.dtype))
-                    pad_y = torch.minimum((y2 - y1) * 0.25, torch.tensor(0.5, device=feat.device, dtype=feat.dtype))
+                    pad_x = torch.minimum((x2 - x1) * self.shrinkage, torch.tensor(0.5, device=feat.device, dtype=feat.dtype))
+                    pad_y = torch.minimum((y2 - y1) * self.shrinkage, torch.tensor(0.5, device=feat.device, dtype=feat.dtype))
                     inner = (x >= x1 + pad_x) & (x < x2 - pad_x) & (y >= y1 + pad_y) & (y < y2 - pad_y)
                     obj = inner if inner.any() else ((x >= x1) & (x < x2) & (y >= y1) & (y < y2))
 
@@ -688,6 +689,7 @@ class v8DetectionLoss:
                 ring=getattr(h, "boundary_ring", 1.0),
                 samples=getattr(h, "boundary_samples", 16),
                 tau=getattr(h, "boundary_tau", 0.2),
+                shrinkage=getattr(h, "boundary_shrinkage", 0.25),
             ).to(device)
             if self.boundary_gain > 0
             else None
