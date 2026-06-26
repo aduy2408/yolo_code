@@ -1,5 +1,5 @@
-# YOLOv8 Varroa TPH-style config: SPPF-level KVCA + EnSimAM global context,
-# RepC2f PAN fusion, EnSimAM neck outputs, and KVCA encoder prediction heads for P2/P3/P4/P5.
+# YOLOv8 Varroa TPH-style config: SPPF-level KVCA encoder + EnSimAM global context,
+# RepC2f PAN fusion, EnSimAM neck outputs, and KVCA encoder prediction heads for P2/P3.
 
 nc: 1
 scales:
@@ -20,7 +20,7 @@ backbone:
   - [-1, 1, Conv, [1024, 3, 2]]     # 7-P5/32
   - [-1, 3, C2f, [1024, True]]      # 8-P5/32
   - [-1, 1, SPPF, [1024, 5]]        # 9-P5/32
-  - [-1, 1, KVCompressedAttention, [1024, 4, 2, dwconv]]  # 10-P5/32
+  - [-1, 1, KVCompressedTransformerEncoder, [1024, 4, 2, dwconv]]  # 10-P5/32
   - [-1, 1, EnSimAM, []]            # 11-P5/32
 
 head:
@@ -56,10 +56,8 @@ head:
   - [26, 1, EnSimAM, []]
   - [29, 1, EnSimAM, []]
 
-  # Transformer Prediction Head-style KVCA encoder refinements before Detect.
+  # Transformer Prediction Head-style KVCA encoder refinements before small-object Detect inputs.
   - [30, 1, KVCompressedTransformerEncoder, [128, 4, 8, dwconv]]
   - [31, 1, KVCompressedTransformerEncoder, [256, 4, 4, dwconv]]
-  - [32, 1, KVCompressedTransformerEncoder, [512, 4, 2, dwconv]]
-  - [33, 1, KVCompressedTransformerEncoder, [1024, 4, 2, dwconv]]
 
-  - [[34, 35, 36, 37], 1, Detect, [nc]]
+  - [[34, 35, 32, 33], 1, Detect, [nc]]
