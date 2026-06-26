@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Train the two TPH/KVCA Varroa configs: YOLOv8-style and YOLOv5-style."""
+"""Train and test the two TPH/KVCA Varroa configs."""
 
 from __future__ import annotations
 
-import argparse
+import csv
 import os
 import shutil
 import sys
@@ -12,10 +12,31 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 LOCAL_ULTRALYTICS = ROOT / "models_related" / "ultralytics"
 
-CONFIGS = (
+# ==========================================
+# EDIT CONFIG HERE
+# ==========================================
+MODEL_SCALE = "n"  # n, s, m, l, x
+EPOCHS = 200
+IMGSZ = 640
+BATCH = 16
+WORKERS = 4
+DEVICE = "cuda"
+PATIENCE = 30
+
+RUN_PREPARE_DATA = True
+DATA_ROOT = Path(os.environ.get("VARROA_DATA_ROOT", "/marimo/data"))
+DATASET_OUT_DIR = ROOT / "datasets" / "varroa_yolo"
+DATA_PATH = DATASET_OUT_DIR / "varroa.yaml"
+
+PROJECT = ROOT / "runs" / "detect" / "yolo_related" / "runs" / "train"
+TEST_PROJECT = ROOT / "runs" / "detect" / "yolo_related" / "runs" / "test"
+GENERATED_CONFIG_DIR = Path("/tmp") / "varroa_train_all_2_configs"
+
+CONFIGS_TO_RUN = [
     ROOT / "models_related" / "models_config" / "yolov8" / "yolov8_varroa_tph_kvencoder_repc2f_ensimam_p2.yaml",
     ROOT / "models_related" / "models_config" / "yolov5" / "yolov5-tph-kvca-cbam-p2.yaml",
-)
+]
+# ==========================================
 
 
 def prefer_local_ultralytics() -> None:
@@ -26,132 +47,163 @@ def prefer_local_ultralytics() -> None:
             del sys.modules[name]
 
 
-def prepare_data(root: Path, data_root: Path, out_dir: Path) -> Path:
-    """Prepare YOLO dataset YAML when requested."""
-    sys.path.insert(0, str(root))
+prefer_local_ultralytics()
+
+from ultralytics import YOLO
+
+
+def prepare_data() -> None:
+    """Prepare the Varroa YOLO dataset."""
     from prepare_dataset import prepare_dataset
 
-    prepare_dataset(str(data_root), str(out_dir))
-    data_yaml = out_dir / "varroa.yaml"
-    if not data_yaml.is_file():
-        raise FileNotFoundError(f"Prepared dataset YAML not found: {data_yaml}")
-    return data_yaml
+    print(f"Preparing dataset from {DATA_ROOT} -> {DATASET_OUT_DIR}")
+    prepare_dataset(str(DATA_ROOT), str(DATASET_OUT_DIR))
 
 
-def config_for_scale(config: Path, scale: str, work_dir: Path) -> Path:
-    """Copy a config and inject the requested Ultralytics scale."""
+def config_for_scale(config: Path) -> Path:
+    """Copy a config and inject the selected model scale."""
     text = config.read_text()
-    lines = text.splitlines()
     out_lines = []
     inserted = False
 
-    for line in lines:
+    for line in text.splitlines():
         if line.startswith("scale:"):
-            out_lines.append(f"scale: {scale}")
+            out_lines.append(f"scale: {MODEL_SCALE}")
             inserted = True
-        else:
-            out_lines.append(line)
-            if not inserted and line.startswith("nc:"):
-                out_lines.append(f"scale: {scale}")
-                inserted = True
+            continue
+
+        out_lines.append(line)
+        if not inserted and line.startswith("nc:"):
+            out_lines.append(f"scale: {MODEL_SCALE}")
+            inserted = True
 
     if not inserted:
-        out_lines.insert(0, f"scale: {scale}")
+        out_lines.insert(0, f"scale: {MODEL_SCALE}")
 
-    work_dir.mkdir(parents=True, exist_ok=True)
-    scaled = work_dir / f"{config.stem}_{scale}{config.suffix}"
-    scaled.write_text("\n".join(out_lines) + "\n")
-    return scaled
+    GENERATED_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    scaled_config = GENERATED_CONFIG_DIR / f"{config.stem}_{MODEL_SCALE}{config.suffix}"
+    scaled_config.write_text("\n".join(out_lines) + "\n")
+    return scaled_config
 
 
-def train_one(args: argparse.Namespace, config: Path, data_yaml: Path):
-    """Train one config with matching pretrained weights."""
-    from ultralytics import YOLO
+def pretrained_for(config: Path) -> str:
+    """Return matching pretrained weights for a config family."""
+    return f"yolov5{MODEL_SCALE}.pt" if "yolov5" in config.parts else f"yolov8{MODEL_SCALE}.pt"
 
-    scaled_config = config_for_scale(config, args.scale, args.work_dir)
-    run_name = f"{config.stem}_{args.scale}"
 
-    print("\n" + "=" * 72)
+def train_config(config: Path) -> None:
+    """Train one config."""
+    if not config.is_file():
+        raise FileNotFoundError(f"Missing config: {config}")
+
+    model_yaml = config_for_scale(config)
+    run_name = f"{config.stem}_{MODEL_SCALE}"
+
+    print("\n" + "=" * 60)
     print(f"Training: {run_name}")
-    print(f"Config:   {scaled_config}")
-    print("=" * 72)
+    print(f"Config:   {model_yaml}")
+    print("=" * 60)
 
-    model = YOLO(str(scaled_config))
-    if args.pretrained:
-        weights = args.pretrained
-    elif "yolov5" in config.parts:
-        weights = f"yolov5{args.scale}.pt"
-    else:
-        weights = f"yolov8{args.scale}.pt"
+    model = YOLO(str(model_yaml))
+    model.load(pretrained_for(config), smart_transfer=True)
 
-    if not args.no_pretrained:
-        model.load(weights, smart_transfer=True)
-
-    return model.train(
-        data=str(data_yaml),
-        epochs=args.epochs,
-        imgsz=args.imgsz,
-        batch=args.batch,
-        workers=args.workers,
-        device=args.device,
-        patience=args.patience,
-        bbox_iou_loss=args.bbox_iou_loss,
-        wiou_monotonous=args.wiou_monotonous,
-        project=str(args.project),
+    model.train(
+        data=str(DATA_PATH),
+        epochs=EPOCHS,
+        imgsz=IMGSZ,
+        batch=BATCH,
+        workers=WORKERS,
+        device=DEVICE,
+        patience=PATIENCE,
+        bbox_iou_loss="wiou",
+        wiou_monotonous=False,
+        # EXPERIMENTAL: boundary-aware contrastive localization ablation.
+        # boundary_contrast=0.05,
+        # boundary_levels=2,
+        # boundary_ring=1.0,
+        # boundary_samples=16,
+        # boundary_tau=0.2,
+        project=str(PROJECT),
         name=run_name,
-        exist_ok=args.exist_ok,
     )
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train the YOLOv8 and YOLOv5 TPH/KVCA Varroa configs.")
-    parser.add_argument("--scale", default="n", choices=("n", "s", "m", "l", "x"))
-    parser.add_argument("--configs", nargs="*", type=Path, default=list(CONFIGS), help="Override configs to train.")
-    parser.add_argument("--data", type=Path, default=None, help="Existing dataset YAML. Required unless --prepare-data.")
-    parser.add_argument("--prepare-data", action="store_true", help="Run prepare_dataset.py before training.")
-    parser.add_argument("--data-root", type=Path, default=ROOT / "data", help="Raw data root for --prepare-data.")
-    parser.add_argument("--out-dir", type=Path, default=ROOT / "datasets" / "varroa_yolo")
-    parser.add_argument("--project", type=Path, default=ROOT / "runs" / "detect" / "yolo_related" / "runs" / "train")
-    parser.add_argument("--work-dir", type=Path, default=Path("/tmp") / "varroa_train_all_2_configs")
+def find_best_weights() -> list[Path]:
+    """Find best.pt files for this script's run names."""
+    run_names = {f"{config.stem}_{MODEL_SCALE}" for config in CONFIGS_TO_RUN}
+    best_paths = []
+    for best_path in PROJECT.glob("*/weights/best.pt"):
+        if best_path.parents[1].name in run_names:
+            best_paths.append(best_path)
+    return sorted(best_paths)
 
-    parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--batch", type=int, default=16)
-    parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--device", default="cuda")
-    parser.add_argument("--patience", type=int, default=40)
-    parser.add_argument("--bbox-iou-loss", default="wiou")
-    parser.add_argument("--wiou-monotonous", action="store_true")
-    parser.add_argument("--pretrained", default=None, help="Use one explicit pretrained checkpoint for all configs.")
-    parser.add_argument("--no-pretrained", action="store_true", help="Train from scratch.")
-    parser.add_argument("--exist-ok", action="store_true")
-    parser.add_argument("--clean-work-dir", action="store_true")
-    return parser.parse_args()
+
+def run_test_inference() -> Path | None:
+    """Evaluate trained checkpoints on the test split and save a summary CSV."""
+    best_paths = find_best_weights()
+    print(f"\nFound {len(best_paths)} trained checkpoints for testing")
+    if not best_paths:
+        return None
+
+    results = []
+    for best_path in best_paths:
+        run_name = best_path.parents[1].name
+
+        print("\n" + "=" * 60)
+        print(f"Testing: {run_name}")
+        print(f"Weight:  {best_path}")
+        print("=" * 60)
+
+        model = YOLO(str(best_path))
+        metrics = model.val(
+            data=str(DATA_PATH),
+            split="test",
+            imgsz=IMGSZ,
+            batch=BATCH,
+            device=DEVICE,
+            conf=0.001,
+            iou=0.5,
+            project=str(TEST_PROJECT),
+            name=run_name,
+            exist_ok=True,
+        )
+
+        row = (
+            run_name,
+            float(metrics.box.map50),
+            float(metrics.box.map),
+            float(metrics.box.mp),
+            float(metrics.box.mr),
+        )
+        results.append(row)
+        print(f"mAP50={row[1]:.4f} | mAP50-95={row[2]:.4f} | P={row[3]:.4f} | R={row[4]:.4f}")
+
+    results.sort(key=lambda x: x[1], reverse=True)
+    TEST_PROJECT.mkdir(parents=True, exist_ok=True)
+    summary_path = TEST_PROJECT / "test_summary.csv"
+    with summary_path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["run_name", "mAP50", "mAP50-95", "precision", "recall"])
+        writer.writerows(results)
+
+    print(f"\nSaved test summary: {summary_path}")
+    return TEST_PROJECT
 
 
 def main() -> None:
-    args = parse_args()
-    prefer_local_ultralytics()
+    if RUN_PREPARE_DATA:
+        prepare_data()
 
-    if args.clean_work_dir and args.work_dir.exists():
-        shutil.rmtree(args.work_dir)
+    if not DATA_PATH.is_file():
+        raise FileNotFoundError(f"Dataset YAML not found: {DATA_PATH}")
 
-    if args.prepare_data:
-        data_yaml = prepare_data(ROOT, args.data_root, args.out_dir)
-    elif args.data:
-        data_yaml = args.data
-    else:
-        data_yaml = args.out_dir / "varroa.yaml"
+    if GENERATED_CONFIG_DIR.exists():
+        shutil.rmtree(GENERATED_CONFIG_DIR)
 
-    if not data_yaml.is_file():
-        raise FileNotFoundError(f"Dataset YAML not found: {data_yaml}. Pass --data or use --prepare-data.")
+    for config in CONFIGS_TO_RUN:
+        train_config(config)
 
-    missing = [config for config in args.configs if not config.is_file()]
-    if missing:
-        raise FileNotFoundError("Missing config(s): " + ", ".join(str(p) for p in missing))
-
-    for config in args.configs:
-        train_one(args, config.resolve(), data_yaml.resolve())
+    run_test_inference()
 
 
 if __name__ == "__main__":

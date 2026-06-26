@@ -301,7 +301,7 @@ class KVCompressedAttention(nn.Module):
         kv = kv.reshape(b, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         k, v = kv[0], kv[1]
 
-        with torch.cuda.amp.autocast(enabled=not self.force_fp32_attention):
+        with torch.amp.autocast("cuda", enabled=not self.force_fp32_attention):
             if self.force_fp32_attention:
                 attn = (q.float() @ k.float().transpose(-2, -1)) * self.scale
             else:
