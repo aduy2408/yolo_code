@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from ultralytics.utils.torch_utils import fuse_conv_and_bn
 
 from .conv import CBAM, Conv, DWConv, GhostConv, LightConv, RepConv, autopad
-from .transformer import TransformerBlock
+from .transformer import LayerNorm2d, TransformerBlock
 
 __all__ = (
     "C1",
@@ -41,6 +41,7 @@ __all__ = (
     "C2fNAT",
     "C2fPSA",
     "EnSimAM",
+    "C3CBAM",
     "C3Ghost",
     "C3k2",
     "C3x",
@@ -52,6 +53,7 @@ __all__ = (
     "HGStem",
     "ImagePoolingAttn",
     "KVCompressedAttention",
+    "KVCompressedTransformerEncoder",
     "M3NATFuse",
     "Proto",
     "RegionRoutingAttentionLite",
@@ -218,7 +220,15 @@ def _choose_attention_heads(channels: int, requested_heads: int) -> int:
 class KVCompressedAttention(nn.Module):
     """Self-attention with full-resolution queries and spatially compressed keys/values."""
 
-    def __init__(self, c1: int, c2: int, num_heads: int = 4, sr_ratio: int = 2, mode: str = "dwconv"):
+    def __init__(
+        self,
+        c1: int,
+        c2: int,
+        num_heads: int = 4,
+        sr_ratio: int = 2,
+        mode: str = "dwconv",
+        residual: bool = True,
+    ):
         """Initialize KV-compressed attention.
 
         Args:
@@ -227,6 +237,7 @@ class KVCompressedAttention(nn.Module):
             num_heads: Requested attention heads. Reduced if it does not divide c2.
             sr_ratio: Spatial compression ratio for K/V tokens.
             mode: ``dwconv`` or ``group_weight`` compression.
+            residual: Whether to add the projected attention output back to the input projection.
         """
         super().__init__()
         if mode not in {"dwconv", "group_weight"}:
@@ -238,6 +249,7 @@ class KVCompressedAttention(nn.Module):
         self.scale = self.head_dim**-0.5
         self.sr_ratio = max(1, int(sr_ratio))
         self.mode = mode
+        self.residual = residual
 
         self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
         self.q = nn.Conv2d(c2, c2, 1, bias=False)
@@ -290,7 +302,36 @@ class KVCompressedAttention(nn.Module):
             attn = (q.float() @ k.float().transpose(-2, -1)) * self.scale
             attn = attn.softmax(dim=-1)
         out = (attn.to(v.dtype) @ v).transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
-        return x + self.proj_bn(self.proj(out))
+        out = self.proj_bn(self.proj(out))
+        return x + out if self.residual else out
+
+
+class KVCompressedTransformerEncoder(nn.Module):
+    """Pre-norm transformer encoder block using KV-compressed self-attention and a convolutional FFN."""
+
+    def __init__(
+        self,
+        c1: int,
+        c2: int,
+        num_heads: int = 4,
+        sr_ratio: int = 2,
+        mode: str = "dwconv",
+        mlp_ratio: float = 2.0,
+    ):
+        """Initialize LayerNorm-KVCA and LayerNorm-FFN residual branches."""
+        super().__init__()
+        hidden = max(c2, int(c2 * mlp_ratio))
+        self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
+        self.norm1 = LayerNorm2d(c2)
+        self.attn = KVCompressedAttention(c2, c2, num_heads, sr_ratio, mode, residual=False)
+        self.norm2 = LayerNorm2d(c2)
+        self.ffn = nn.Sequential(Conv(c2, hidden, 1, 1), Conv(hidden, c2, 1, 1, act=False))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply LN -> KVCA -> residual, then LN -> FFN -> residual."""
+        x = self.input_proj(x)
+        x = x + self.attn(self.norm1(x))
+        return x + self.ffn(self.norm2(x))
 
 
 class _TopKGroupKVAttentionBase(nn.Module):
@@ -1193,6 +1234,28 @@ class C3(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the CSP bottleneck with 3 convolutions."""
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
+
+
+class C3CBAM(C3):
+    """C3 block followed by CBAM channel and spatial attention."""
+
+    def __init__(
+        self,
+        c1: int,
+        c2: int,
+        n: int = 1,
+        shortcut: bool = True,
+        g: int = 1,
+        e: float = 0.5,
+        kernel_size: int = 7,
+    ):
+        """Initialize C3 with CBAM refinement on the output feature map."""
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.attn = CBAM(c2, kernel_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply C3 and refine its output with CBAM attention."""
+        return self.attn(super().forward(x))
 
 
 class C3x(C3):
