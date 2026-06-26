@@ -227,6 +227,7 @@ class KVCompressedAttention(nn.Module):
         num_heads: int = 4,
         sr_ratio: int = 2,
         mode: str = "dwconv",
+        force_fp32_attention: bool = True,
         residual: bool = True,
     ):
         """Initialize KV-compressed attention.
@@ -237,6 +238,7 @@ class KVCompressedAttention(nn.Module):
             num_heads: Requested attention heads. Reduced if it does not divide c2.
             sr_ratio: Spatial compression ratio for K/V tokens.
             mode: ``dwconv`` or ``group_weight`` compression.
+            force_fp32_attention: Whether to disable AMP and compute attention logits in float32.
             residual: Whether to add the projected attention output back to the input projection.
         """
         super().__init__()
@@ -249,6 +251,7 @@ class KVCompressedAttention(nn.Module):
         self.scale = self.head_dim**-0.5
         self.sr_ratio = max(1, int(sr_ratio))
         self.mode = mode
+        self.force_fp32_attention = force_fp32_attention
         self.residual = residual
 
         self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
@@ -298,8 +301,11 @@ class KVCompressedAttention(nn.Module):
         kv = kv.reshape(b, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         k, v = kv[0], kv[1]
 
-        with torch.cuda.amp.autocast(enabled=False):
-            attn = (q.float() @ k.float().transpose(-2, -1)) * self.scale
+        with torch.cuda.amp.autocast(enabled=not self.force_fp32_attention):
+            if self.force_fp32_attention:
+                attn = (q.float() @ k.float().transpose(-2, -1)) * self.scale
+            else:
+                attn = (q @ k.transpose(-2, -1)) * self.scale
             attn = attn.softmax(dim=-1)
         out = (attn.to(v.dtype) @ v).transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
         out = self.proj_bn(self.proj(out))
@@ -316,6 +322,7 @@ class KVCompressedTransformerEncoder(nn.Module):
         num_heads: int = 4,
         sr_ratio: int = 2,
         mode: str = "dwconv",
+        force_fp32_attention: bool = True,
         mlp_ratio: float = 2.0,
     ):
         """Initialize LayerNorm-KVCA and LayerNorm-FFN residual branches."""
@@ -323,7 +330,7 @@ class KVCompressedTransformerEncoder(nn.Module):
         hidden = max(c2, int(c2 * mlp_ratio))
         self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
         self.norm1 = LayerNorm2d(c2)
-        self.attn = KVCompressedAttention(c2, c2, num_heads, sr_ratio, mode, residual=False)
+        self.attn = KVCompressedAttention(c2, c2, num_heads, sr_ratio, mode, force_fp32_attention, residual=False)
         self.norm2 = LayerNorm2d(c2)
         self.ffn = nn.Sequential(Conv(c2, hidden, 1, 1), Conv(hidden, c2, 1, 1, act=False))
 
