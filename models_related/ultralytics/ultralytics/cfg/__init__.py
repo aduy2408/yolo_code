@@ -163,6 +163,7 @@ CFG_FLOAT_KEYS = frozenset(
         "boundary_contrast",
         "boundary_ring",
         "boundary_tau",
+        "boundary_shrinkage",
         "loc_quality",
         "loc_quality_sigma",
         "dfl",

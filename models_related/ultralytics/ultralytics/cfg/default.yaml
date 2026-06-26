@@ -107,6 +107,7 @@ boundary_levels: 2 # (int) EXPERIMENTAL number of Detect feature levels to use f
 boundary_ring: 1.0 # (float) EXPERIMENTAL boundary ring thickness in feature-cell units
 boundary_samples: 16 # (int) EXPERIMENTAL max samples per object group and feature level
 boundary_tau: 0.2 # (float) EXPERIMENTAL InfoNCE temperature for boundary contrast
+boundary_shrinkage: 0.25 # (float) EXPERIMENTAL feature boundary interior shrinkage
 loc_quality: 0.0 # (float) EXPERIMENTAL localization quality map loss gain for tiny-object localization
 loc_quality_levels: 2 # (int) EXPERIMENTAL number of Detect feature levels to supervise with LQM
 loc_quality_sigma: 0.45 # (float) EXPERIMENTAL Gaussian sigma scale for localization quality targets
