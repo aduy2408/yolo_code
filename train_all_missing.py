@@ -167,7 +167,7 @@ part = args.part
 # train_all_full.py đã có n/s/l cho YOLOv5, YOLOv8, YOLOv10, YOLO11
 # và t/s/c cho YOLOv9. Script này bổ sung các scale còn thiếu có sẵn
 # trong Ultralytics: m/x cho v5, v8, v10; m/e cho v9.
-# Riêng YOLO11 chạy đủ n/s/m/l/x theo yêu cầu.
+# Riêng YOLO11 chạy s/m/l/x; yolo11n đã chạy đủ 3 seed trước đó.
 # YOLOv9 không có weight x chuẩn trong repo Ultralytics này.
 all_models = [
     # YOLOv5 (Sử dụng bản 'u' - updated cho tương thích Ultralytics)
@@ -179,7 +179,7 @@ all_models = [
     # YOLOv10
     "yolov10m.pt", "yolov10x.pt",
     # YOLO11
-    "yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
+    "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
 ]
 
 # Chia list thành 3 phần cho 3 máy.
@@ -212,7 +212,7 @@ for model_name in models_to_run:
             epochs=100,
             patience=20,     # Early stopping = 20 epochs
             imgsz=640,
-            batch=16,
+            batch=8,
             workers=4,
             device="cuda",
             seed=seed,
