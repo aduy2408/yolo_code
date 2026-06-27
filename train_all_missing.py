@@ -167,7 +167,7 @@ part = args.part
 # train_all_full.py đã có n/s/l cho YOLOv5, YOLOv8, YOLOv10, YOLO11
 # và t/s/c cho YOLOv9. Script này bổ sung các scale còn thiếu có sẵn
 # trong Ultralytics: m/x cho v5, v8, v10; m/e cho v9.
-# Riêng YOLO11 chạy s/m/l/x; yolo11n đã chạy đủ 3 seed trước đó.
+# Riêng YOLO11 chỉ chạy m/x vì n/s/l đã có trong train_all_full.py.
 # YOLOv9 không có weight x chuẩn trong repo Ultralytics này.
 all_models = [
     # YOLOv5 (Sử dụng bản 'u' - updated cho tương thích Ultralytics)
@@ -179,16 +179,25 @@ all_models = [
     # YOLOv10
     "yolov10m.pt", "yolov10x.pt",
     # YOLO11
-    "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
+    "yolo11m.pt", "yolo11x.pt",
 ]
 
-# Chia list thành 3 phần cho 3 máy.
-part_idx = int(part) - 1
-num_parts = 3
-start_idx = len(all_models) * part_idx // num_parts
-end_idx = len(all_models) * (part_idx + 1) // num_parts
-models_to_run = all_models[start_idx:end_idx]
-print(f"[*] ĐANG CHẠY MÁY {part} (Phần {part}/{num_parts}): {len(models_to_run)} models")
+model_parts = {
+    "1": [
+        "yolov5mu.pt", "yolov5xu.pt",
+        "yolov8m.pt",
+    ],
+    "2": [
+        "yolov9m.pt", "yolov9e.pt",
+        "yolov10m.pt", "yolov10x.pt",
+    ],
+    "3": [
+        "yolov8x.pt",
+        "yolo11m.pt", "yolo11x.pt",
+    ],
+}
+models_to_run = model_parts[part]
+print(f"[*] ĐANG CHẠY MÁY {part} (Phần {part}/3): {len(models_to_run)} models")
 
 print(f"[*] Danh sách: {models_to_run}")
 

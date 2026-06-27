@@ -149,6 +149,7 @@ def upload_runs_to_hf(root: Path, part_name: str, hf_token: str | None = None, r
 
 
 data_path = "/marimo/data/datasets/varroa_yolo/varroa.yaml"
+train_project = ROOT / "runs/detect/yolo_related/runs/train"
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -191,31 +192,58 @@ print(f"[*] Danh sách: {models_to_run}")
 
 seeds = [42, 43, 44]
 
+
+def is_run_complete(run_dir: Path) -> bool:
+    """Return True for runs that look fully finished."""
+    return (
+        (run_dir / ".train_complete").is_file()
+        or (
+            (run_dir / "weights" / "best.pt").is_file()
+            and (run_dir / "results.png").is_file()
+        )
+    )
+
+
 for model_name in models_to_run:
     for seed in seeds:
+        # Tên run sẽ là tên file bỏ đuôi .pt, ví dụ: yolov8n_seed42
+        run_name = f"{model_name.replace('.pt', '')}_seed{seed}"
+        run_dir = train_project / run_name
+        last_pt = run_dir / "weights" / "last.pt"
+
+        if is_run_complete(run_dir):
+            print("\n" + "="*50)
+            print(f"[*] Skip run đã hoàn tất: {run_name}")
+            print("="*50 + "\n")
+            continue
+
         print("\n" + "="*50)
         print(f"[*] Bắt đầu training với model: {model_name} | Seed: {seed}")
         print("="*50 + "\n")
-        
-        # Khởi tạo mô hình mới mỗi lần để tránh rò rỉ state
-        model = YOLO(model_name)
-        
-        # Tên run sẽ là tên file bỏ đuôi .pt, ví dụ: yolov8n_seed42
-        run_name = f"{model_name.replace('.pt', '')}_seed{seed}"
-        
-        # Train mô hình với settings default (như yêu cầu), 100 epoch, early stop 20
-        model.train(
-            data=data_path,
-            epochs=100,
-            patience=20,     # Early stopping = 20 epochs
-            imgsz=640,
-            batch=16,
-            workers=4,
-            device="cuda",
-            seed=seed,
-            project=str(ROOT / "runs/detect/yolo_related/runs/train"),
-            name=run_name,
-        )
+
+        if last_pt.is_file():
+            print(f"[*] Resume run chưa hoàn tất từ checkpoint: {last_pt}")
+            model = YOLO(str(last_pt))
+            model.train(resume=True)
+        else:
+            # Khởi tạo mô hình mới mỗi lần để tránh rò rỉ state
+            model = YOLO(model_name)
+
+            # Train mô hình với settings default (như yêu cầu), 100 epoch, early stop 20
+            model.train(
+                data=data_path,
+                epochs=100,
+                patience=20,     # Early stopping = 20 epochs
+                imgsz=640,
+                batch=16,
+                workers=4,
+                device="cuda",
+                seed=seed,
+                project=str(train_project),
+                name=run_name,
+            )
+
+        (run_dir / ".train_complete").touch()
 
 print("\n[*] Hoàn thành training tất cả các mô hình. Đang chạy test inference...")
 test_output_root = run_test_inference(ROOT, data_path)
