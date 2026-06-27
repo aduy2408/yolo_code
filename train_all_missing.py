@@ -155,8 +155,8 @@ parser.add_argument(
     "part",
     nargs="?",
     default="1",
-    choices=("1", "2"),
-    help="Phần models để chạy (1 hoặc 2 cho 2 máy).",
+    choices=("1", "2", "3"),
+    help="Phần models để chạy (1, 2 hoặc 3 cho 3 máy).",
 )
 parser.add_argument("--hf-token", default=None, help="Hugging Face token for upload. Falls back to HF_TOKEN env var.")
 parser.add_argument("--hf-repo-id", default=None, help="Target Hugging Face repo id. Falls back to HF_REPO_ID or auto name.")
@@ -182,14 +182,13 @@ all_models = [
     "yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
 ]
 
-# Chia list thành 2 phần cho 2 máy
-mid_idx = len(all_models) // 2
-if part == "1":
-    models_to_run = all_models[:mid_idx]
-    print(f"[*] ĐANG CHẠY MÁY 1 (Phần 1): {len(models_to_run)} models")
-else:
-    models_to_run = all_models[mid_idx:]
-    print(f"[*] ĐANG CHẠY MÁY 2 (Phần 2): {len(models_to_run)} models")
+# Chia list thành 3 phần cho 3 máy.
+part_idx = int(part) - 1
+num_parts = 3
+start_idx = len(all_models) * part_idx // num_parts
+end_idx = len(all_models) * (part_idx + 1) // num_parts
+models_to_run = all_models[start_idx:end_idx]
+print(f"[*] ĐANG CHẠY MÁY {part} (Phần {part}/{num_parts}): {len(models_to_run)} models")
 
 print(f"[*] Danh sách: {models_to_run}")
 
