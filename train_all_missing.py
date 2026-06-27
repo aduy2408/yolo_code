@@ -109,7 +109,7 @@ def run_test_inference(root: Path, data_test: str) -> Path | None:
         )
 
     test_root.mkdir(parents=True, exist_ok=True)
-    summary_path = test_root / "test_summary_full.csv"
+    summary_path = test_root / "test_summary_missing.csv"
     with summary_path.open("w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["run_name", "mAP50", "mAP50-95", "precision", "recall"])
@@ -131,7 +131,7 @@ def upload_runs_to_hf(root: Path, part_name: str, hf_token: str | None = None, r
         print("huggingface_hub is not installed; skipping Hugging Face upload.")
         return
 
-    repo_id = repo_id or os.environ.get("HF_REPO_ID", f"duyle2408/varroa-yolo-{part_name}-full")
+    repo_id = repo_id or os.environ.get("HF_REPO_ID", f"duyle2408/varroa-yolo-{part_name}-missing")
     folder_path = root / "runs/detect/yolo_related/runs"
     if not folder_path.exists():
         print(f"Upload folder does not exist: {folder_path}")
@@ -163,19 +163,23 @@ parser.add_argument("--hf-repo-id", default=None, help="Target Hugging Face repo
 args = parser.parse_args()
 part = args.part
 
-# Danh sách các mô hình nguyên bản cần train
-# Yolov9 không có bản n và l, mà thường là t (tiny), s, c (compact - tương đương l), e
+# Danh sách các mô hình nguyên bản còn thiếu từ train_all_full.py.
+# train_all_full.py đã có n/s/l cho YOLOv5, YOLOv8, YOLOv10, YOLO11
+# và t/s/c cho YOLOv9. Script này bổ sung các scale còn thiếu có sẵn
+# trong Ultralytics: m/x cho v5, v8, v10; m/e cho v9.
+# Riêng YOLO11 chạy đủ n/s/m/l/x theo yêu cầu.
+# YOLOv9 không có weight x chuẩn trong repo Ultralytics này.
 all_models = [
     # YOLOv5 (Sử dụng bản 'u' - updated cho tương thích Ultralytics)
-    "yolov5nu.pt", "yolov5su.pt", "yolov5lu.pt",
+    "yolov5mu.pt", "yolov5xu.pt",
     # YOLOv8
-    "yolov8n.pt", "yolov8s.pt", "yolov8l.pt",
+    "yolov8m.pt", "yolov8x.pt",
     # YOLOv9
-    "yolov9t.pt", "yolov9s.pt", "yolov9c.pt", 
+    "yolov9m.pt", "yolov9e.pt",
     # YOLOv10
-    "yolov10n.pt", "yolov10s.pt", "yolov10l.pt",
+    "yolov10m.pt", "yolov10x.pt",
     # YOLO11
-    "yolo11n.pt", "yolo11s.pt", "yolo11l.pt",
+    "yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
 ]
 
 # Chia list thành 2 phần cho 2 máy
@@ -221,4 +225,4 @@ print("\n[*] Hoàn thành training tất cả các mô hình. Đang chạy test 
 test_output_root = run_test_inference(ROOT, data_path)
 
 if test_output_root is not None:
-    upload_runs_to_hf(ROOT, f"baselines-part{part}", hf_token=args.hf_token, repo_id=args.hf_repo_id)
+    upload_runs_to_hf(ROOT, f"baselines-missing-part{part}", hf_token=args.hf_token, repo_id=args.hf_repo_id)
