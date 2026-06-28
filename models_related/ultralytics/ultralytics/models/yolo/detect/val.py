@@ -125,6 +125,9 @@ class DetectionValidator(BaseValidator):
             max_det=self.args.max_det,
             end2end=self.end2end,
             rotated=self.args.task == "obb",
+            nms_method=self.args.nms_method,
+            soft_nms_sigma=self.args.soft_nms_sigma,
+            soft_nms_min_score=self.args.soft_nms_min_score,
         )
         return [{"bboxes": x[:, :4], "conf": x[:, 4], "cls": x[:, 5], "extra": x[:, 6:]} for x in outputs]
 

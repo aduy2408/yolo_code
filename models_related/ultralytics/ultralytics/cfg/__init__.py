@@ -197,10 +197,13 @@ CFG_FRACTION_KEYS = frozenset(
         "copy_paste",
         "conf",
         "iou",
+        "soft_nms_sigma",
+        "soft_nms_min_score",
         "fraction",
         "multi_scale",
     }
 )
+CFG_CHOICE_KEYS = {"nms_method": {"hard", "soft-linear", "soft-gaussian"}}
 CFG_INT_KEYS = frozenset(
     {  # integer-only arguments
         "epochs",
@@ -418,6 +421,9 @@ def check_cfg(cfg: dict, hard: bool = True) -> None:
                         f"'{k}' must be a bool (i.e. '{k}=True' or '{k}=False')"
                     )
                 cfg[k] = bool(v)
+            elif k in CFG_CHOICE_KEYS and v not in CFG_CHOICE_KEYS[k]:
+                choices = "', '".join(sorted(CFG_CHOICE_KEYS[k]))
+                raise ValueError(f"'{k}={v}' is an invalid value. Valid '{k}' values are '{choices}'.")
 
 
 def get_save_dir(args: SimpleNamespace, name: str | None = None) -> Path:

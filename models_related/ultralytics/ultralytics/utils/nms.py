@@ -26,6 +26,9 @@ def non_max_suppression(
     rotated: bool = False,
     end2end: bool = False,
     return_idxs: bool = False,
+    nms_method: str = "hard",
+    soft_nms_sigma: float = 0.5,
+    soft_nms_min_score: float = 0.001,
 ):
     """Perform non-maximum suppression (NMS) on prediction results.
 
@@ -49,6 +52,9 @@ def non_max_suppression(
         rotated (bool): Whether to handle Oriented Bounding Boxes (OBB).
         end2end (bool): Whether the model is end-to-end and doesn't require NMS.
         return_idxs (bool): Whether to return the indices of kept detections.
+        nms_method (str): NMS method to use: "hard", "soft-linear", or "soft-gaussian".
+        soft_nms_sigma (float): Sigma value for Gaussian Soft-NMS.
+        soft_nms_min_score (float): Minimum score to keep after Soft-NMS decay.
 
     Returns:
         (list[torch.Tensor] | tuple[list[torch.Tensor], list[torch.Tensor]]): List of detections per image with shape
@@ -58,6 +64,13 @@ def non_max_suppression(
     # Checks
     assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
     assert 0 <= iou_thres <= 1, f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"
+    assert nms_method in {"hard", "soft-linear", "soft-gaussian"}, (
+        f"Invalid NMS method {nms_method}, valid values are 'hard', 'soft-linear', or 'soft-gaussian'"
+    )
+    assert soft_nms_sigma > 0, f"Invalid Soft-NMS sigma {soft_nms_sigma}, valid values are greater than 0.0"
+    assert 0 <= soft_nms_min_score <= 1, (
+        f"Invalid Soft-NMS minimum score {soft_nms_min_score}, valid values are between 0.0 and 1.0"
+    )
     if isinstance(prediction, (list, tuple)):  # YOLOv8 model in validation mode, output = (inference_out, loss_out)
         prediction = prediction[0]  # select only inference output
     if classes is not None:
@@ -147,13 +160,23 @@ def non_max_suppression(
             i = TorchNMS.fast_nms(boxes, scores, iou_thres, iou_func=batch_probiou)
         else:
             boxes = x[:, :4] + c  # boxes (offset by class)
-            # Speed strategy: torchvision for val or already loaded (faster), TorchNMS for predict (lower latency)
-            if "torchvision" in sys.modules:
-                import torchvision  # scope as slow import
-
-                i = torchvision.ops.nms(boxes, scores, iou_thres)
+            if nms_method != "hard":
+                i = TorchNMS.soft_nms(
+                    boxes,
+                    scores,
+                    iou_thres,
+                    method=nms_method[5:],
+                    sigma=soft_nms_sigma,
+                    min_score=soft_nms_min_score,
+                )
             else:
-                i = TorchNMS.nms(boxes, scores, iou_thres)
+                # Speed strategy: torchvision for val or already loaded (faster), TorchNMS for predict (lower latency)
+                if "torchvision" in sys.modules:
+                    import torchvision  # scope as slow import
+
+                    i = torchvision.ops.nms(boxes, scores, iou_thres)
+                else:
+                    i = TorchNMS.nms(boxes, scores, iou_thres)
         i = i[:max_det]  # limit detections
 
         output[xi] = x[i]
@@ -293,6 +316,73 @@ class TorchNMS:
             iou = inter / (areas[i] + areas[rest] - inter)
             # Keep boxes with IoU <= threshold
             order = rest[iou <= iou_threshold]
+
+        return keep[:keep_idx]
+
+    @staticmethod
+    def soft_nms(
+        boxes: torch.Tensor,
+        scores: torch.Tensor,
+        iou_threshold: float,
+        method: str = "linear",
+        sigma: float = 0.5,
+        min_score: float = 0.001,
+    ) -> torch.Tensor:
+        """Soft-NMS that decays overlapping boxes and returns kept indices ordered by final selection.
+
+        Args:
+            boxes (torch.Tensor): Bounding boxes with shape (N, 4) in xyxy format.
+            scores (torch.Tensor): Confidence scores with shape (N,). The tensor is updated in-place with decayed scores.
+            iou_threshold (float): IoU threshold used by linear Soft-NMS.
+            method (str): Soft-NMS method, either "linear" or "gaussian".
+            sigma (float): Sigma value for Gaussian Soft-NMS.
+            min_score (float): Minimum score to keep after score decay.
+
+        Returns:
+            (torch.Tensor): Indices of boxes to keep after Soft-NMS.
+        """
+        if boxes.numel() == 0:
+            return torch.empty((0,), dtype=torch.int64, device=boxes.device)
+        if method not in {"linear", "gaussian"}:
+            raise ValueError(f"Invalid Soft-NMS method '{method}'. Expected 'linear' or 'gaussian'.")
+        if sigma <= 0:
+            raise ValueError(f"Invalid Soft-NMS sigma {sigma}. Expected a value greater than 0.0.")
+
+        x1, y1, x2, y2 = boxes.unbind(1)
+        areas = (x2 - x1) * (y2 - y1)
+        idxs = torch.arange(scores.numel(), device=boxes.device)
+        keep = torch.zeros(scores.numel(), dtype=torch.int64, device=boxes.device)
+        keep_idx = 0
+
+        while idxs.numel() > 0:
+            max_pos = scores[idxs].argmax()
+            current = idxs[max_pos]
+            current_score = scores[current]
+            if current_score < min_score:
+                break
+
+            keep[keep_idx] = current
+            keep_idx += 1
+            idxs = idxs[idxs != current]
+            if idxs.numel() == 0:
+                break
+
+            xx1 = torch.maximum(x1[current], x1[idxs])
+            yy1 = torch.maximum(y1[current], y1[idxs])
+            xx2 = torch.minimum(x2[current], x2[idxs])
+            yy2 = torch.minimum(y2[current], y2[idxs])
+            w = (xx2 - xx1).clamp_(min=0)
+            h = (yy2 - yy1).clamp_(min=0)
+            inter = w * h
+            iou = inter / (areas[current] + areas[idxs] - inter)
+
+            if method == "linear":
+                decay = torch.ones_like(iou)
+                decay = torch.where(iou > iou_threshold, 1 - iou, decay)
+            else:
+                decay = torch.exp(-((iou * iou) / sigma))
+            scores[idxs] *= decay
+            idxs = idxs[scores[idxs] >= min_score]
 
         return keep[:keep_idx]
 
