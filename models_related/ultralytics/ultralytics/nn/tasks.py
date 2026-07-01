@@ -28,6 +28,7 @@ from ultralytics.nn.modules import (
     A2C2f,
     AConv,
     ADown,
+    AdversarialPerturbationInjection,
     ASFAttention,
     BiLevelRoutingAttention,
     BoundaryFeatureBlock,
@@ -344,6 +345,137 @@ class BaseModel(torch.nn.Module):
         if verbose:
             LOGGER.info(f"Transferred {len_updated_csd}/{len(self.model.state_dict())} items from pretrained weights")
 
+    def _api_modules(self) -> list[AdversarialPerturbationInjection]:
+        """Return train-time API perturbation modules in this model."""
+
+        return [m for m in self.modules() if isinstance(m, AdversarialPerturbationInjection)]
+
+    def _clear_api_modules(self) -> None:
+        """Clear state from all API perturbation modules."""
+
+        for module in self._api_modules():
+            module.clear_state()
+
+    @staticmethod
+    def _api_foreground_target(batch, feature: torch.Tensor) -> torch.Tensor:
+        """Build a P2-resolution foreground target from normalized xywh labels."""
+
+        target = torch.zeros((feature.shape[0], 1, feature.shape[2], feature.shape[3]), device=feature.device, dtype=feature.dtype)
+        bboxes = batch.get("bboxes")
+        batch_idx = batch.get("batch_idx")
+        if bboxes is None or batch_idx is None or bboxes.numel() == 0:
+            return target
+
+        bboxes = bboxes.to(device=feature.device, dtype=feature.dtype)
+        batch_idx = batch_idx.to(device=feature.device, dtype=torch.long).view(-1)
+        h, w = feature.shape[2:]
+        for idx, box in zip(batch_idx.tolist(), bboxes, strict=False):
+            if idx < 0 or idx >= feature.shape[0]:
+                continue
+            xc, yc, bw, bh = [float(v) for v in box]
+            x1 = max(0, min(w - 1, int((xc - bw / 2.0) * w)))
+            y1 = max(0, min(h - 1, int((yc - bh / 2.0) * h)))
+            x2 = max(x1 + 1, min(w, int((xc + bw / 2.0) * w) + 1))
+            y2 = max(y1 + 1, min(h, int((yc + bh / 2.0) * h) + 1))
+            target[idx, :, y1:y2, x1:x2] = 1.0
+        return target
+
+    @staticmethod
+    def _api_boundary_target(batch, feature: torch.Tensor, ring: float = 1.0, shrinkage: float = 0.25) -> torch.Tensor:
+        """Build a P2-resolution target that marks GT box boundary bands."""
+
+        target = torch.zeros((feature.shape[0], 1, feature.shape[2], feature.shape[3]), device=feature.device, dtype=feature.dtype)
+        bboxes = batch.get("bboxes")
+        batch_idx = batch.get("batch_idx")
+        if bboxes is None or batch_idx is None or bboxes.numel() == 0:
+            return target
+
+        bboxes = bboxes.to(device=feature.device, dtype=feature.dtype)
+        batch_idx = batch_idx.to(device=feature.device, dtype=torch.long).view(-1)
+        h, w = feature.shape[2:]
+        for idx, box in zip(batch_idx.tolist(), bboxes, strict=False):
+            if idx < 0 or idx >= feature.shape[0]:
+                continue
+
+            xc, yc, bw, bh = [float(v) for v in box]
+            x1 = (xc - bw / 2.0) * w
+            y1 = (yc - bh / 2.0) * h
+            x2 = (xc + bw / 2.0) * w
+            y2 = (yc + bh / 2.0) * h
+
+            pad_x = max(ring, bw * w * 0.5 * ring)
+            pad_y = max(ring, bh * h * 0.5 * ring)
+            outer_x1 = max(0, min(w - 1, int(x1 - pad_x)))
+            outer_y1 = max(0, min(h - 1, int(y1 - pad_y)))
+            outer_x2 = max(outer_x1 + 1, min(w, int(x2 + pad_x) + 1))
+            outer_y2 = max(outer_y1 + 1, min(h, int(y2 + pad_y) + 1))
+
+            shrink_x = bw * w * 0.5 * shrinkage
+            shrink_y = bh * h * 0.5 * shrinkage
+            inner_x1 = max(0, min(w - 1, int(x1 + shrink_x)))
+            inner_y1 = max(0, min(h - 1, int(y1 + shrink_y)))
+            inner_x2 = max(inner_x1 + 1, min(w, int(x2 - shrink_x) + 1))
+            inner_y2 = max(inner_y1 + 1, min(h, int(y2 - shrink_y) + 1))
+
+            target[idx, :, outer_y1:outer_y2, outer_x1:outer_x2] = 1.0
+            target[idx, :, inner_y1:inner_y2, inner_x1:inner_x2] = 0.0
+        return target
+
+    def _api_target(self, batch, api: AdversarialPerturbationInjection) -> torch.Tensor:
+        """Build the auxiliary API target selected by the module configuration."""
+
+        if api.captured is None:
+            raise RuntimeError("API target requires a captured feature.")
+        if api.target_mode in {"boundary", "boundary_ring", "ring"}:
+            return self._api_boundary_target(batch, api.captured)
+        return self._api_foreground_target(batch, api.captured)
+
+    def _api_adversarial_loss(self, batch):
+        """Compute clean detection loss plus SET-style API auxiliary loss."""
+
+        api_modules = self._api_modules()
+        if not api_modules or not self.training or not torch.is_grad_enabled():
+            return None
+
+        api = api_modules[0]  # API is intentionally applied to one P2 feature in the compare YAML.
+        if api.rho == 0 or api.api_weight == 0:
+            return None
+
+        try:
+            for module in api_modules:
+                module.capture()
+
+            set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
+            try:
+                clean_preds = self.forward(batch["img"])
+            finally:
+                clear_boundary_context()
+
+            clean_loss, clean_items = self.criterion(clean_preds, batch)
+            if api.captured is None or clean_loss.numel() < 2:
+                return clean_loss, clean_items
+
+            target = self._api_target(batch, api)
+            aux_clean_loss = api.auxiliary_loss(target, feature=api.captured)
+            grad = torch.autograd.grad(
+                aux_clean_loss,
+                api.captured,
+                retain_graph=True,
+                create_graph=False,
+                allow_unused=True,
+            )[0]
+            if not api.set_perturbation_from_grad(grad):
+                return clean_loss, clean_items
+
+            aux_loss = api.adversarial_auxiliary_loss(target)
+            total_loss = clean_loss.clone()
+            total_loss[1] = total_loss[1] + api.api_weight * aux_loss
+            total_items = clean_items.clone()
+            total_items[1] = total_items[1] + api.api_weight * aux_loss.detach()
+            return total_loss, total_items.detach()
+        finally:
+            self._clear_api_modules()
+
     def loss(self, batch, preds=None):
         """Compute loss.
 
@@ -355,6 +487,9 @@ class BaseModel(torch.nn.Module):
             self.criterion = self.init_criterion()
 
         if preds is None:
+            api_loss = self._api_adversarial_loss(batch)
+            if api_loss is not None:
+                return api_loss
             set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
             try:
                 preds = self.forward(batch["img"])
@@ -1934,7 +2069,7 @@ def parse_model(d, ch, verbose=True):
         elif m is ASFAttention:
             c2 = ch[f]
             args = [c2, *args]
-        elif m is BoundaryFeatureBlock:
+        elif m in frozenset({AdversarialPerturbationInjection, BoundaryFeatureBlock}):
             c2 = ch[f]
             args = [c2, *args]
         elif m is EnSimAM:

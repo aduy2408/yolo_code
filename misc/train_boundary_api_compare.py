@@ -1,27 +1,28 @@
 import argparse
 import csv
-import shutil
-import subprocess
 import sys
 from pathlib import Path
+import os
+import shutil
 
 
-MARIMO_ROOT = Path("/marimo/yolo_code")
-ROOT = MARIMO_ROOT.resolve() if MARIMO_ROOT.exists() else Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / "models_related" / "ultralytics"
 
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(LOCAL))
 for k in list(sys.modules.keys()):
     if k == "ultralytics" or k.startswith("ultralytics."):
         del sys.modules[k]
 
 from ultralytics import YOLO
-from ultralytics.utils.loss import add_boundary_contrastive_loss
 
 
 MODEL_SCALE = "n"
 CONFIG_DIR = ROOT / "models_related" / "models_config" / "yolov8"
-DATA_PATH = "/marimo/data/datasets/varroa_yolo/varroa.yaml"
+DATA_ROOT = Path(os.environ.get("VARROA_DATA_ROOT", "/marimo/data"))
+DATASET_OUT_DIR = ROOT / "datasets" / "varroa_yolo"
+DATA_PATH = DATASET_OUT_DIR / "varroa.yaml"
 TRAIN_PROJECT = ROOT / "runs/detect/yolo_related/runs/train"
 TEST_PROJECT = ROOT / "runs/detect/yolo_related/runs/test_boundary_api_compare"
 
@@ -41,7 +42,13 @@ EXPERIMENTS = (
     {
         "key": "baseline_p2_boundary_api",
         "config": "yolov8_varroa_compare_baseline_p2_boundary_api.yaml",
-        "suffix": "baseline_p2_boundary_api_bcon005",
+        "suffix": "baseline_p2_boundary_api",
+        "use_boundary_api": True,
+    },
+    {
+        "key": "baseline_p2_boundary_api_ring",
+        "config": "yolov8_varroa_compare_baseline_p2_boundary_api_ring.yaml",
+        "suffix": "baseline_p2_boundary_api_ring",
         "use_boundary_api": True,
     },
 )
@@ -49,7 +56,7 @@ EXPERIMENTS = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Train baseline vs baseline+P2 vs baseline+P2+BoundaryFeatureBlock+boundary loss API."
+        description="Train baseline/P2 comparisons plus foreground or boundary-ring P2 API perturbation."
     )
     parser.add_argument("--scale", default=MODEL_SCALE, choices=("n", "s", "m", "l", "x"))
     parser.add_argument("--epochs", type=int, default=200)
@@ -58,27 +65,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--patience", type=int, default=40)
-    parser.add_argument("--boundary-gain", type=float, default=0.05)
+    parser.add_argument(
+        "--only",
+        choices=tuple(exp["key"] for exp in EXPERIMENTS),
+        default=None,
+        help="Train only one experiment instead of the full comparison.",
+    )
     parser.add_argument("--test", action="store_true", help="Evaluate best.pt from both runs on the test split.")
+    parser.add_argument("--no-val", action="store_true", help="Disable validation during training.")
+    parser.add_argument("--no-plots", action="store_true", help="Disable Ultralytics training plots.")
     parser.add_argument("--exist-ok", action="store_true", help="Allow overwriting existing run names.")
     parser.add_argument("--skip-prepare", action="store_true", help="Skip prepare_dataset.py.")
     return parser.parse_args()
 
-
 def prepare_dataset(skip: bool) -> None:
     if skip:
         return
-    subprocess.run(
-        [
-            "python",
-            str(ROOT / "prepare_dataset.py"),
-            "--root",
-            "/marimo/data",
-            "--out-dir",
-            "datasets/varroa_yolo",
-        ],
-        check=True,
-    )
+    from misc.prepare_dataset import prepare_dataset as build_varroa_dataset
+
+    print(f"Preparing dataset from {DATA_ROOT} -> {DATASET_OUT_DIR}")
+    build_varroa_dataset(str(DATA_ROOT), str(DATASET_OUT_DIR))
 
 
 def scaled_yaml(config_name: str, scale: str) -> Path:
@@ -108,16 +114,15 @@ def train_one(exp: dict, args: argparse.Namespace) -> str:
         "project": str(TRAIN_PROJECT),
         "name": run_name,
         "exist_ok": args.exist_ok,
+        "val": not args.no_val,
+        "plots": not args.no_plots,
     }
-    if exp["use_boundary_api"]:
-        train_kwargs = add_boundary_contrastive_loss(train_kwargs, gain=args.boundary_gain)
-    else:
-        train_kwargs["boundary_contrast"] = 0.0
+    train_kwargs["boundary_contrast"] = 0.0
 
     print("\n" + "=" * 80)
     print(f"Training {exp['key']}: {run_name}")
     print(f"YAML: {model_yaml}")
-    print(f"Boundary API: {exp['use_boundary_api']}")
+    print(f"Boundary/API module: {exp['use_boundary_api']}")
     print("=" * 80)
     model.train(**train_kwargs)
     return run_name
@@ -178,7 +183,8 @@ def evaluate_runs(run_names: list[str], args: argparse.Namespace) -> Path:
 def main() -> None:
     args = parse_args()
     prepare_dataset(args.skip_prepare)
-    run_names = [train_one(exp, args) for exp in EXPERIMENTS]
+    experiments = [exp for exp in EXPERIMENTS if args.only in (None, exp["key"])]
+    run_names = [train_one(exp, args) for exp in experiments]
     if args.test:
         evaluate_runs(run_names, args)
 

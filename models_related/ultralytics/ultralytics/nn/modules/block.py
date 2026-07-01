@@ -29,6 +29,7 @@ __all__ = (
     "SPPF",
     "AConv",
     "ADown",
+    "AdversarialPerturbationInjection",
     "ASFAttention",
     "Attention",
     "BiLevelRoutingAttention",
@@ -134,6 +135,7 @@ class BoundaryFeatureBlock(nn.Module):
         shrinkage: float = 0.25,
         reduction: int = 4,
         alpha_init: float = 0.1,
+        alpha_max: float = 0.1,
     ) -> None:
         """Initialize a residual transform applied only to boundary and near-background cells."""
 
@@ -141,7 +143,11 @@ class BoundaryFeatureBlock(nn.Module):
         hidden_channels = max(c1 // max(int(reduction), 1), 8)
         self.ring = max(float(ring), 0.0)
         self.shrinkage = max(float(shrinkage), 0.0)
-        self.alpha = nn.Parameter(torch.tensor(float(alpha_init)))
+        self.alpha_max = max(float(alpha_max), 0.0)
+        limit = self.alpha_max * 0.999
+        init = max(min(float(alpha_init), limit), -limit)
+        init = 0.0 if self.alpha_max == 0 else torch.atanh(torch.tensor(init / self.alpha_max)).item()
+        self.alpha = nn.Parameter(torch.tensor(init))
         self.transform = nn.Sequential(
             nn.Conv2d(c1, hidden_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(hidden_channels),
@@ -168,7 +174,8 @@ class BoundaryFeatureBlock(nn.Module):
             ring=self.ring,
             shrinkage=self.shrinkage,
         )
-        return x + self.alpha.to(dtype=x.dtype) * self.transform(x * mask) * mask
+        alpha = torch.tanh(self.alpha).to(dtype=x.dtype) * self.alpha_max
+        return x + alpha * self.transform(x * mask) * mask
 
 
 def _clamp_interval(start: float, end: float, limit: int) -> tuple[int, int]:
@@ -227,6 +234,108 @@ def _build_boundary_background_mask(
         mask[idx, :, iy1:iy2, ix1:ix2] = 0.0
 
     return mask
+
+
+class AdversarialPerturbationInjection(nn.Module):
+    """Train-only gradient-based feature perturbation injection for one FPN level."""
+
+    def __init__(
+        self,
+        c1: int,
+        rho: float = 0.02,
+        api_weight: float = 0.25,
+        target_mode: str = "foreground",
+        eps: float = 1e-6,
+    ) -> None:
+        """Initialize SET-style API parameters.
+
+        The perturbation is supplied by the training loss path from the
+        auxiliary-loss gradient w.r.t. the captured feature. A small auxiliary
+        head scores the perturbed P2 feature without a second full detector forward.
+        """
+
+        super().__init__()
+        self.rho = max(float(rho), 0.0)
+        self.api_weight = max(float(api_weight), 0.0)
+        self.target_mode = str(target_mode)
+        self.eps = max(float(eps), 1e-12)
+        self.aux_head = nn.Conv2d(c1, 1, kernel_size=1)
+        self.mode = "off"
+        self.captured: torch.Tensor | None = None
+        self.perturbation: torch.Tensor | None = None
+        self.last_perturbation_norm: torch.Tensor | None = None
+
+    def clear_state(self) -> None:
+        """Clear captured feature and perturbation state."""
+
+        self.mode = "off"
+        self.captured = None
+        self.perturbation = None
+
+    def capture(self) -> None:
+        """Capture the next forward feature without perturbing it."""
+
+        self.clear_state()
+        self.mode = "capture"
+
+    def perturb(self) -> None:
+        """Apply the stored perturbation on the next forward."""
+
+        self.mode = "perturb"
+
+    def set_perturbation_from_grad(self, grad: torch.Tensor | None) -> bool:
+        """Create an L2-normalized adversarial perturbation from a feature gradient."""
+
+        if grad is None or self.rho == 0 or self.api_weight == 0:
+            self.perturbation = None
+            return False
+
+        flat = grad.detach().float().flatten(1)
+        norm = flat.norm(p=2, dim=1).clamp(min=self.eps).view(-1, 1, 1, 1)
+        perturbation = grad.detach().float() / norm * self.rho
+        self.perturbation = perturbation.to(dtype=grad.dtype, device=grad.device)
+        self.last_perturbation_norm = self.perturbation.detach().float().flatten(1).norm(p=2, dim=1)
+        return bool(torch.isfinite(self.perturbation).all())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Capture or perturb a feature during training; stay identity otherwise."""
+
+        if not self.training:
+            return x
+        if self.mode == "capture":
+            self.captured = x
+            if x.requires_grad:
+                x.retain_grad()
+            return x
+        if self.mode == "perturb" and self.perturbation is not None:
+            return x + self.perturbation.to(device=x.device, dtype=x.dtype)
+        return x
+
+    def auxiliary_logits(self, feature: torch.Tensor | None = None) -> torch.Tensor:
+        """Return auxiliary objectness logits for a captured or supplied feature."""
+
+        if feature is None:
+            if self.captured is None:
+                raise RuntimeError("API auxiliary_logits requires captured feature.")
+            feature = self.captured
+        return self.aux_head(feature)
+
+    def auxiliary_loss(self, target: torch.Tensor, feature: torch.Tensor | None = None) -> torch.Tensor:
+        """Compute BCE objectness loss for the auxiliary P2 API branch."""
+
+        logits = self.auxiliary_logits(feature)
+        target = target.to(device=logits.device, dtype=logits.dtype)
+        if target.shape[-2:] != logits.shape[-2:]:
+            target = F.interpolate(target, size=logits.shape[-2:], mode="nearest")
+        return F.binary_cross_entropy_with_logits(logits, target)
+
+    def adversarial_auxiliary_loss(self, target: torch.Tensor) -> torch.Tensor:
+        """Compute auxiliary loss on the captured feature plus stored perturbation."""
+
+        if self.captured is None or self.perturbation is None:
+            raise RuntimeError("API adversarial_auxiliary_loss requires captured feature and perturbation.")
+        feature = self.captured + self.perturbation.to(device=self.captured.device, dtype=self.captured.dtype)
+        return self.auxiliary_loss(target, feature=feature)
 
 
 class DFL(nn.Module):

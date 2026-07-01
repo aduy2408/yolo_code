@@ -27,7 +27,7 @@ from torch import nn, optim
 from ultralytics import __version__
 from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data.utils import check_cls_dataset, check_det_dataset, convert_ndjson_to_yolo_if_needed
-from ultralytics.nn.modules import clear_boundary_context, set_boundary_context
+from ultralytics.nn.modules import AdversarialPerturbationInjection, clear_boundary_context, set_boundary_context
 from ultralytics.nn.tasks import load_checkpoint
 from ultralytics.optim import MuSGD
 from ultralytics.utils import (
@@ -435,7 +435,8 @@ class BaseTrainer:
                 try:
                     with autocast(self.amp):
                         batch = self.preprocess_batch(batch)
-                        if self.args.compile:
+                        has_api = any(isinstance(m, AdversarialPerturbationInjection) for m in unwrap_model(self.model).modules())
+                        if self.args.compile and not has_api:
                             # Decouple inference and loss calculations for improved compile performance
                             set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
                             try:
