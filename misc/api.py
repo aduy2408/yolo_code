@@ -1,13 +1,18 @@
 """
-Adversarial Perturbation Injection (API)
-Technique to improve robustness of tiny object detection
+Training-time augmentation and loss helpers for tiny object detection.
 
-Purpose: Inject controlled adversarial perturbations during training
-to improve model robustness to small object variations
+Includes:
+- Adversarial Perturbation Injection (API)
+- Boundary contrastive localization loss config helpers
 """
 
 import torch
 import torch.nn as nn
+from ultralytics.utils.loss import (
+    BoundaryContrastiveLossConfig,
+    add_boundary_contrastive_loss,
+    boundary_contrastive_loss_kwargs,
+)
 
 
 class AdversarialPerturbationInjection(nn.Module):

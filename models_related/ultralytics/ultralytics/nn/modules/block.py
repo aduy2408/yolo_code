@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,6 +33,7 @@ __all__ = (
     "Attention",
     "BiLevelRoutingAttention",
     "BNContrastiveHead",
+    "BoundaryFeatureBlock",
     "Bottleneck",
     "BottleneckCSP",
     "C2f",
@@ -69,7 +72,161 @@ __all__ = (
     "SCDown",
     "TorchVision",
     "WeightedAdd",
+    "clear_boundary_context",
+    "set_boundary_context",
+    "set_boundary_enabled",
 )
+
+
+@dataclass
+class BoundaryContext:
+    """Train-time labels used by BoundaryFeatureBlock."""
+
+    batch_idx: torch.Tensor
+    bboxes: torch.Tensor
+    image_shape: tuple[int, int, int, int]
+
+
+_BOUNDARY_CONTEXT: BoundaryContext | None = None
+_BOUNDARY_ENABLED = True
+
+
+def set_boundary_enabled(enabled: bool) -> None:
+    """Enable or disable train-time boundary feature refinement."""
+
+    global _BOUNDARY_ENABLED
+    _BOUNDARY_ENABLED = enabled
+
+
+def set_boundary_context(
+    batch_idx: torch.Tensor | None,
+    bboxes: torch.Tensor | None,
+    image_shape: tuple[int, int, int, int],
+) -> None:
+    """Store normalized YOLO xywh labels for train-time boundary masks."""
+
+    global _BOUNDARY_CONTEXT
+    if batch_idx is None or bboxes is None:
+        _BOUNDARY_CONTEXT = None
+        return
+
+    _BOUNDARY_CONTEXT = BoundaryContext(
+        batch_idx=batch_idx.detach(),
+        bboxes=bboxes.detach(),
+        image_shape=image_shape,
+    )
+
+
+def clear_boundary_context() -> None:
+    """Clear train-time boundary labels after a forward pass."""
+
+    global _BOUNDARY_CONTEXT
+    _BOUNDARY_CONTEXT = None
+
+
+class BoundaryFeatureBlock(nn.Module):
+    """Train-only GT-guided boundary/background feature refinement for one FPN level."""
+
+    def __init__(
+        self,
+        c1: int,
+        ring: float = 1.0,
+        shrinkage: float = 0.25,
+        reduction: int = 4,
+        alpha_init: float = 0.1,
+    ) -> None:
+        """Initialize a residual transform applied only to boundary and near-background cells."""
+
+        super().__init__()
+        hidden_channels = max(c1 // max(int(reduction), 1), 8)
+        self.ring = max(float(ring), 0.0)
+        self.shrinkage = max(float(shrinkage), 0.0)
+        self.alpha = nn.Parameter(torch.tensor(float(alpha_init)))
+        self.transform = nn.Sequential(
+            nn.Conv2d(c1, hidden_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(hidden_channels),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden_channels, c1, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(c1),
+            nn.SiLU(inplace=True),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Refine boundary/background cells during training and stay identity otherwise."""
+
+        if not _BOUNDARY_ENABLED or not self.training or _BOUNDARY_CONTEXT is None:
+            return x
+
+        mask = _build_boundary_background_mask(
+            batch_idx=_BOUNDARY_CONTEXT.batch_idx,
+            bboxes=_BOUNDARY_CONTEXT.bboxes,
+            batch_size=x.shape[0],
+            feature_height=x.shape[2],
+            feature_width=x.shape[3],
+            device=x.device,
+            dtype=x.dtype,
+            ring=self.ring,
+            shrinkage=self.shrinkage,
+        )
+        return x + self.alpha.to(dtype=x.dtype) * self.transform(x * mask) * mask
+
+
+def _clamp_interval(start: float, end: float, limit: int) -> tuple[int, int]:
+    """Convert a continuous feature interval to a non-empty clamped integer slice."""
+
+    if limit <= 0:
+        return 0, 0
+    start_i = max(0, min(limit - 1, int(start)))
+    end_i = max(start_i + 1, min(limit, int(end) + 1))
+    return start_i, end_i
+
+
+def _build_boundary_background_mask(
+    batch_idx: torch.Tensor,
+    bboxes: torch.Tensor,
+    batch_size: int,
+    feature_height: int,
+    feature_width: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    ring: float,
+    shrinkage: float,
+) -> torch.Tensor:
+    """Build a mask for dilated-boundary and near-background cells from normalized xywh GT boxes."""
+
+    mask = torch.zeros((batch_size, 1, feature_height, feature_width), device=device, dtype=dtype)
+    if bboxes.numel() == 0:
+        return mask
+
+    batch_idx = batch_idx.to(device=device, dtype=torch.long).view(-1)
+    bboxes = bboxes.to(device=device, dtype=dtype)
+    ring = max(float(ring), 0.0)
+    near_ring = ring * 3.0
+
+    for idx, box in zip(batch_idx.tolist(), bboxes, strict=False):
+        if idx < 0 or idx >= batch_size:
+            continue
+
+        x_center, y_center, width, height = [float(v) for v in box]
+        x1 = (x_center - width / 2.0) * feature_width
+        y1 = (y_center - height / 2.0) * feature_height
+        x2 = (x_center + width / 2.0) * feature_width
+        y2 = (y_center + height / 2.0) * feature_height
+
+        dx1, dx2 = _clamp_interval(x1 - ring, x2 + ring, feature_width)
+        dy1, dy2 = _clamp_interval(y1 - ring, y2 + ring, feature_height)
+        nx1, nx2 = _clamp_interval(x1 - near_ring, x2 + near_ring, feature_width)
+        ny1, ny2 = _clamp_interval(y1 - near_ring, y2 + near_ring, feature_height)
+        pad_x = min(max(x2 - x1, 0.0) * shrinkage, 0.5)
+        pad_y = min(max(y2 - y1, 0.0) * shrinkage, 0.5)
+        ix1, ix2 = _clamp_interval(x1 + pad_x, x2 - pad_x, feature_width)
+        iy1, iy2 = _clamp_interval(y1 + pad_y, y2 - pad_y, feature_height)
+
+        mask[idx, :, ny1:ny2, nx1:nx2] = 1.0
+        mask[idx, :, dy1:dy2, dx1:dx2] = 1.0
+        mask[idx, :, iy1:iy2, ix1:ix2] = 0.0
+
+    return mask
 
 
 class DFL(nn.Module):

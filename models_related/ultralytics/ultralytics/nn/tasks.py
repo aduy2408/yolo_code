@@ -30,6 +30,7 @@ from ultralytics.nn.modules import (
     ADown,
     ASFAttention,
     BiLevelRoutingAttention,
+    BoundaryFeatureBlock,
     Bottleneck,
     BottleneckCSP,
     C2f,
@@ -90,6 +91,8 @@ from ultralytics.nn.modules import (
     YOLOEDetect,
     YOLOESegment,
     YOLOESegment26,
+    clear_boundary_context,
+    set_boundary_context,
     v10Detect,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, SAFE_LOAD, SETTINGS, WINDOWS, YAML, colorstr, emojis
@@ -352,7 +355,11 @@ class BaseModel(torch.nn.Module):
             self.criterion = self.init_criterion()
 
         if preds is None:
-            preds = self.forward(batch["img"])
+            set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
+            try:
+                preds = self.forward(batch["img"])
+            finally:
+                clear_boundary_context()
         return self.criterion(preds, batch)
 
     def init_criterion(self):
@@ -1925,6 +1932,9 @@ def parse_model(d, ch, verbose=True):
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
             args = [c1, c2, *args[1:]]
         elif m is ASFAttention:
+            c2 = ch[f]
+            args = [c2, *args]
+        elif m is BoundaryFeatureBlock:
             c2 = ch[f]
             args = [c2, *args]
         elif m is EnSimAM:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,76 @@ from ultralytics.utils.torch_utils import autocast
 
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist, rbox2dist
+
+
+@dataclass(frozen=True)
+class BoundaryContrastiveLossConfig:
+    """YOLO.train kwargs for the boundary-aware contrastive localization loss."""
+
+    gain: float = 0.05
+    levels: int = 2
+    ring: float = 1.0
+    samples: int = 16
+    tau: float = 0.2
+    shrinkage: float = 0.25
+
+    def as_train_kwargs(self) -> dict[str, float | int]:
+        """Return kwargs accepted by YOLO.train(...)."""
+
+        return {
+            "boundary_contrast": float(self.gain),
+            "boundary_levels": int(self.levels),
+            "boundary_ring": float(self.ring),
+            "boundary_samples": int(self.samples),
+            "boundary_tau": float(self.tau),
+            "boundary_shrinkage": float(self.shrinkage),
+        }
+
+
+def boundary_contrastive_loss_kwargs(
+    gain: float = 0.05,
+    levels: int = 2,
+    ring: float = 1.0,
+    samples: int = 16,
+    tau: float = 0.2,
+    shrinkage: float = 0.25,
+) -> dict[str, float | int]:
+    """Build YOLO.train kwargs that enable the boundary contrastive loss."""
+
+    return BoundaryContrastiveLossConfig(
+        gain=gain,
+        levels=levels,
+        ring=ring,
+        samples=samples,
+        tau=tau,
+        shrinkage=shrinkage,
+    ).as_train_kwargs()
+
+
+def add_boundary_contrastive_loss(
+    train_kwargs: dict | None = None,
+    *,
+    gain: float = 0.05,
+    levels: int = 2,
+    ring: float = 1.0,
+    samples: int = 16,
+    tau: float = 0.2,
+    shrinkage: float = 0.25,
+) -> dict:
+    """Return train kwargs with boundary contrastive localization loss enabled."""
+
+    kwargs = dict(train_kwargs or {})
+    kwargs.update(
+        boundary_contrastive_loss_kwargs(
+            gain=gain,
+            levels=levels,
+            ring=ring,
+            samples=samples,
+            tau=tau,
+            shrinkage=shrinkage,
+        )
+    )
+    return kwargs
 
 
 class VarifocalLoss(nn.Module):

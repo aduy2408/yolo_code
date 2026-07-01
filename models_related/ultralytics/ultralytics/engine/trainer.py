@@ -27,6 +27,7 @@ from torch import nn, optim
 from ultralytics import __version__
 from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data.utils import check_cls_dataset, check_det_dataset, convert_ndjson_to_yolo_if_needed
+from ultralytics.nn.modules import clear_boundary_context, set_boundary_context
 from ultralytics.nn.tasks import load_checkpoint
 from ultralytics.optim import MuSGD
 from ultralytics.utils import (
@@ -436,7 +437,11 @@ class BaseTrainer:
                         batch = self.preprocess_batch(batch)
                         if self.args.compile:
                             # Decouple inference and loss calculations for improved compile performance
-                            preds = self.model(batch["img"])
+                            set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
+                            try:
+                                preds = self.model(batch["img"])
+                            finally:
+                                clear_boundary_context()
                             loss, self.loss_items = unwrap_model(self.model).loss(batch, preds)
                         else:
                             loss, self.loss_items = self.model(batch)

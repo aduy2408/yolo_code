@@ -37,6 +37,7 @@ from .block import (
     Attention,
     BiLevelRoutingAttention,
     BNContrastiveHead,
+    BoundaryFeatureBlock,
     Bottleneck,
     BottleneckCSP,
     C2f,
@@ -77,6 +78,9 @@ from .block import (
     TopKAdaptiveGroupKVAttention,
     TopKGlobalGroupKVAttention,
     WeightedAdd,
+    clear_boundary_context,
+    set_boundary_context,
+    set_boundary_enabled,
 )
 from .conv import (
     CBAM,
@@ -150,6 +154,7 @@ __all__ = (
     "Attention",
     "BiLevelRoutingAttention",
     "BNContrastiveHead",
+    "BoundaryFeatureBlock",
     "Bottleneck",
     "BottleneckCSP",
     "C2f",
@@ -224,5 +229,8 @@ __all__ = (
     "YOLOESegment",
     "YOLOESegment26",
     "WeightedAdd",
+    "clear_boundary_context",
+    "set_boundary_context",
+    "set_boundary_enabled",
     "v10Detect",
 )
