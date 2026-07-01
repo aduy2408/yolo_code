@@ -40,15 +40,21 @@ EXPERIMENTS = (
         "use_boundary_api": False,
     },
     {
-        "key": "baseline_p2_boundary_api",
-        "config": "yolov8_varroa_compare_baseline_p2_boundary_api.yaml",
-        "suffix": "baseline_p2_boundary_api",
+        "key": "baseline_p2_boundary",
+        "config": "yolov8_varroa_compare_baseline_p2_boundary.yaml",
+        "suffix": "baseline_p2_boundary",
         "use_boundary_api": True,
     },
     {
-        "key": "baseline_p2_boundary_api_ring",
-        "config": "yolov8_varroa_compare_baseline_p2_boundary_api_ring.yaml",
-        "suffix": "baseline_p2_boundary_api_ring",
+        "key": "baseline_p2_api_boxgrad",
+        "config": "yolov8_varroa_compare_baseline_p2_api_boxgrad.yaml",
+        "suffix": "baseline_p2_api_boxgrad",
+        "use_boundary_api": True,
+    },
+    {
+        "key": "baseline_p2_boundary_api_boxgrad",
+        "config": "yolov8_varroa_compare_baseline_p2_boundary_api_boxgrad.yaml",
+        "suffix": "baseline_p2_boundary_api_boxgrad",
         "use_boundary_api": True,
     },
 )
@@ -56,7 +62,7 @@ EXPERIMENTS = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Train baseline/P2 comparisons plus foreground or boundary-ring P2 API perturbation."
+        description="Train baseline/P2 comparisons plus boundary and localization-gradient P2 API perturbation."
     )
     parser.add_argument("--scale", default=MODEL_SCALE, choices=("n", "s", "m", "l", "x"))
     parser.add_argument("--epochs", type=int, default=200)
@@ -96,7 +102,7 @@ def scaled_yaml(config_name: str, scale: str) -> Path:
 
 def train_one(exp: dict, args: argparse.Namespace) -> str:
     model_yaml = scaled_yaml(exp["config"], args.scale)
-    run_name = model_yaml.stem + "_" + exp["suffix"]
+    run_name = model_yaml.stem
 
     model = YOLO(str(model_yaml))
     model.load(f"yolov8{args.scale}.pt", smart_transfer=True)

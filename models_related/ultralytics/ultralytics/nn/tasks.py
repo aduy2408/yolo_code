@@ -430,8 +430,14 @@ class BaseModel(torch.nn.Module):
             return self._api_boundary_target(batch, api.captured)
         return self._api_foreground_target(batch, api.captured)
 
+    @staticmethod
+    def _api_is_boxgrad(api: AdversarialPerturbationInjection) -> bool:
+        """Return whether API should use localization-loss gradients."""
+
+        return api.target_mode in {"boxgrad", "locgrad", "localization", "bbox", "box"}
+
     def _api_adversarial_loss(self, batch):
-        """Compute clean detection loss plus SET-style API auxiliary loss."""
+        """Compute clean detection loss plus SET-style API regularization."""
 
         api_modules = self._api_modules()
         if not api_modules or not self.training or not torch.is_grad_enabled():
@@ -454,6 +460,38 @@ class BaseModel(torch.nn.Module):
             clean_loss, clean_items = self.criterion(clean_preds, batch)
             if api.captured is None or clean_loss.numel() < 2:
                 return clean_loss, clean_items
+
+            if self._api_is_boxgrad(api):
+                if clean_loss.numel() < 3:
+                    return clean_loss, clean_items
+                loc_loss = clean_loss[0] + clean_loss[2]
+                grad = torch.autograd.grad(
+                    loc_loss,
+                    api.captured,
+                    retain_graph=True,
+                    create_graph=False,
+                    allow_unused=True,
+                )[0]
+                if not api.set_perturbation_from_grad(grad):
+                    return clean_loss, clean_items
+
+                for module in api_modules:
+                    module.perturb()
+
+                set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
+                try:
+                    perturbed_preds = self.forward(batch["img"])
+                finally:
+                    clear_boundary_context()
+
+                perturbed_loss, perturbed_items = self.criterion(perturbed_preds, batch)
+                total_loss = clean_loss.clone()
+                total_items = clean_items.clone()
+                total_loss[0] = total_loss[0] + api.api_weight * perturbed_loss[0]
+                total_loss[2] = total_loss[2] + api.api_weight * perturbed_loss[2]
+                total_items[0] = total_items[0] + api.api_weight * perturbed_items[0].detach()
+                total_items[2] = total_items[2] + api.api_weight * perturbed_items[2].detach()
+                return total_loss, total_items.detach()
 
             target = self._api_target(batch, api)
             aux_clean_loss = api.auxiliary_loss(target, feature=api.captured)

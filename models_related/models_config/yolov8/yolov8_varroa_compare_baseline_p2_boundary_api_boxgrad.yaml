@@ -1,0 +1,47 @@
+# YOLOv8 Varroa compare baseline+P2+boundary+API box-gradient.
+# Boundary is train-only and API regularizes box+dfl localization only.
+
+nc: 1
+scales:
+  n: [0.33, 0.25, 1024]
+  s: [0.33, 0.50, 1024]
+  m: [0.67, 0.75, 768]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.25, 512]
+
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]
+  - [-1, 1, Conv, [128, 3, 2]]
+  - [-1, 3, RepC2f, [128, True]]
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [-1, 6, RepC2f, [256, True]]
+  - [-1, 1, Conv, [512, 3, 2]]
+  - [-1, 6, RepC2f, [512, True]]
+  - [-1, 1, Conv, [1024, 3, 2]]
+  - [-1, 3, RepC2f, [1024, True]]
+  - [-1, 1, SPPF, [1024, 5]]
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, nearest]]
+  - [[-1, 6], 1, Concat, [1]]
+  - [-1, 3, RepC2f, [512]]
+  - [-1, 1, nn.Upsample, [None, 2, nearest]]
+  - [[-1, 4], 1, Concat, [1]]
+  - [-1, 3, RepC2f, [256]]
+  - [-1, 1, nn.Upsample, [None, 2, nearest]]
+  - [[-1, 2], 1, Concat, [1]]
+  - [-1, 3, RepC2f, [128]]
+  - [-1, 1, BoundaryFeatureBlock, [1.0, 0.25, 4, 0.0, 0.01]]
+  - [-1, 1, AdversarialPerturbationInjection, [0.005, 0.05, boxgrad]]
+  - [-1, 1, Conv, [128, 3, 2]]
+  - [[-1, 15], 1, Concat, [1]]
+  - [-1, 3, RepC2f, [256]]
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[-1, 12], 1, Concat, [1]]
+  - [-1, 3, RepC2f, [512]]
+  - [-1, 1, Conv, [512, 3, 2]]
+  - [[-1, 9], 1, Concat, [1]]
+  - [-1, 3, RepC2f, [1024]]
+  - [20, 1, KVCompressedAttention, [128, 4, 8, dwconv]]
+  - [23, 1, KVCompressedAttention, [256, 4, 4, dwconv]]
+  - [[30, 31, 26, 29], 1, Detect, [nc]]
