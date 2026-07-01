@@ -53,6 +53,7 @@ __all__ = (
     "HGStem",
     "ImagePoolingAttn",
     "KVCompressedAttention",
+    "KVCompressedAttentionPartial",
     "KVCompressedTransformerEncoder",
     "M3NATFuse",
     "Proto",
@@ -218,7 +219,16 @@ def _choose_attention_heads(channels: int, requested_heads: int) -> int:
 
 
 class KVCompressedAttention(nn.Module):
-    """Self-attention with full-resolution queries and spatially compressed keys/values."""
+    """Self-attention with full-resolution queries and spatially compressed keys/values.
+
+    Supports multiple K/V spatial compression modes:
+    - avg: AvgPool + GroupNorm for K and V.
+    - avg_dwk/dwconv: AvgPool + DWConv + GroupNorm for K, AvgPool + GroupNorm for V.
+    - dw_stride: stride depthwise Conv + GroupNorm for K and V.
+    - group_weight: learned softmax weighting inside each sr_ratio x sr_ratio group.
+    Attention is computed via ``F.scaled_dot_product_attention`` which automatically
+    dispatches to FlashAttention v2 on supported CUDA hardware.
+    """
 
     def __init__(
         self,
@@ -227,7 +237,7 @@ class KVCompressedAttention(nn.Module):
         num_heads: int = 4,
         sr_ratio: int = 2,
         mode: str = "dwconv",
-        force_fp32_attention: bool = True,
+        attn_drop: float = 0.0,
         residual: bool = True,
     ):
         """Initialize KV-compressed attention.
@@ -237,12 +247,14 @@ class KVCompressedAttention(nn.Module):
             c2: Output channels.
             num_heads: Requested attention heads. Reduced if it does not divide c2.
             sr_ratio: Spatial compression ratio for K/V tokens.
-            mode: ``dwconv`` or ``group_weight`` compression.
-            force_fp32_attention: Whether to disable AMP and compute attention logits in float32.
+            mode: ``avg``, ``avg_dwk``, ``dw_stride``, ``dwconv``, or ``group_weight`` compression.
+            attn_drop: Dropout probability applied to attention weights during training.
             residual: Whether to add the projected attention output back to the input projection.
         """
         super().__init__()
-        if mode not in {"dwconv", "group_weight"}:
+        if mode == "dwconv":
+            mode = "avg_dwk"
+        if mode not in {"avg", "avg_dwk", "dw_stride", "group_weight"}:
             raise ValueError(f"Unsupported KV compression mode: {mode}")
 
         self.c2 = c2
@@ -251,24 +263,55 @@ class KVCompressedAttention(nn.Module):
         self.scale = self.head_dim**-0.5
         self.sr_ratio = max(1, int(sr_ratio))
         self.mode = mode
-        self.force_fp32_attention = force_fp32_attention
+        self.attn_drop_p = attn_drop
         self.residual = residual
 
         self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
         self.q = nn.Conv2d(c2, c2, 1, bias=False)
-        self.kv = nn.Conv2d(c2, c2 * 2, 1, bias=False)
-        if self.sr_ratio > 1 and self.mode == "dwconv":
-            self.kv_compress = nn.Sequential(
-                nn.Conv2d(c2, c2, 3, stride=self.sr_ratio, padding=1, groups=c2, bias=False),
-                nn.BatchNorm2d(c2),
-                nn.SiLU(inplace=True),
-                nn.Conv2d(c2, c2, 1, bias=False),
-                nn.BatchNorm2d(c2),
-                nn.SiLU(inplace=True),
+        self.q_norm = nn.LayerNorm(self.head_dim)  # stabilize Q logits before SDPA
+
+        if self.sr_ratio > 1 and self.mode == "avg":
+            self.k_compress = nn.Sequential(
+                nn.AvgPool2d(self.sr_ratio, self.sr_ratio),
+                nn.GroupNorm(min(32, c2), c2),
+            )
+            self.v_compress = nn.Sequential(
+                nn.AvgPool2d(self.sr_ratio, self.sr_ratio),
+                nn.GroupNorm(min(32, c2), c2),
+            )
+        elif self.sr_ratio > 1 and self.mode == "avg_dwk":
+            # No activation - K must stay linear for well-formed attention logits.
+            self.k_compress = nn.Sequential(
+                nn.AvgPool2d(self.sr_ratio, self.sr_ratio),
+                nn.Conv2d(c2, c2, 3, 1, 1, groups=c2, bias=False),
+                nn.GroupNorm(min(32, c2), c2),
+            )
+            self.v_compress = nn.Sequential(
+                nn.AvgPool2d(self.sr_ratio, self.sr_ratio),
+                nn.GroupNorm(min(32, c2), c2),
+            )
+        elif self.sr_ratio > 1 and self.mode == "dw_stride":
+            self.k_compress = nn.Sequential(
+                nn.Conv2d(c2, c2, 3, self.sr_ratio, 1, groups=c2, bias=False),
+                nn.GroupNorm(min(32, c2), c2),
+            )
+            self.v_compress = nn.Sequential(
+                nn.Conv2d(c2, c2, 3, self.sr_ratio, 1, groups=c2, bias=False),
+                nn.GroupNorm(min(32, c2), c2),
             )
         else:
-            self.kv_compress = nn.Identity()
+            self.k_compress = nn.Identity()
+            self.v_compress = nn.Identity()
+
+        # Separate linear projections for K and V (no shared kv conv, no activation)
+        self.k_proj = nn.Conv2d(c2, c2, 1, bias=False)
+        self.v_proj = nn.Conv2d(c2, c2, 1, bias=False)
+
+        # group_weight path keeps its own scorer (unchanged)
         self.group_score = nn.Linear(c2, 1) if self.mode == "group_weight" and self.sr_ratio > 1 else None
+        # Shared kv conv kept for group_weight compatibility
+        self.kv = nn.Conv2d(c2, c2 * 2, 1, bias=False) if self.mode == "group_weight" else None
+
         self.proj = nn.Conv2d(c2, c2, 1, bias=False)
         self.proj_bn = nn.BatchNorm2d(c2)
 
@@ -293,27 +336,49 @@ class KVCompressedAttention(nn.Module):
         """Apply KV-compressed attention and return a BCHW tensor."""
         x = self.input_proj(x)
         b, c, h, w = x.shape
-        q = self.q(x).flatten(2).transpose(1, 2)
-        q = q.reshape(b, h * w, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
 
-        kv_source = self._compress_group_weight(x) if self.group_score is not None else self.kv_compress(x)
-        kv = self.kv(kv_source).flatten(2).transpose(1, 2)
-        kv = kv.reshape(b, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        k, v = kv[0], kv[1]
+        # Q: full-resolution, normalized per head
+        q = self.q(x).flatten(2).transpose(1, 2)  # [B, H*W, C]
+        q = q.reshape(b, h * w, self.num_heads, self.head_dim).permute(0, 2, 1, 3)  # [B, nh, H*W, hd]
+        q = self.q_norm(q)
 
-        with torch.amp.autocast("cuda", enabled=not self.force_fp32_attention):
-            if self.force_fp32_attention:
-                attn = (q.float() @ k.float().transpose(-2, -1)) * self.scale
-            else:
-                attn = (q @ k.transpose(-2, -1)) * self.scale
-            attn = attn.softmax(dim=-1)
-        out = (attn.to(v.dtype) @ v).transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
+        if self.mode == "group_weight" and self.group_score is not None:
+            # group_weight path: unchanged (shared kv compress)
+            kv_source = self._compress_group_weight(x)
+            kv = self.kv(kv_source).flatten(2).transpose(1, 2)
+            kv = kv.reshape(b, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            k, v = kv[0], kv[1]
+        else:
+            # Non-group-weight paths use separate K and V compression and projection.
+            k_src = self.k_compress(x)  # [B, C, H/sr, W/sr]
+            v_src = self.v_compress(x)  # [B, C, H/sr, W/sr]
+            k = self.k_proj(k_src)  # no activation
+            v = self.v_proj(v_src)  # no activation
+            # reshape to [B, nh, tokens, hd]
+            def _to_heads(t):
+                n = t.shape[2] * t.shape[3]
+                return t.flatten(2).transpose(1, 2).reshape(b, n, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            k = _to_heads(k)
+            v = _to_heads(v)
+
+        # Flash Attention via PyTorch SDPA (dispatches to FlashAttn v2 on CUDA)
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            dropout_p=self.attn_drop_p if self.training else 0.0,
+            scale=self.scale,
+        )
+
+        out = out.transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
         out = self.proj_bn(self.proj(out))
         return x + out if self.residual else out
 
 
 class KVCompressedTransformerEncoder(nn.Module):
-    """Pre-norm transformer encoder block using KV-compressed self-attention and a convolutional FFN."""
+    """Pre-norm transformer encoder block using KV-compressed self-attention and a DW-PW convolutional FFN.
+
+    FFN structure: PW-expand → DW-spatial-mix → PW-project, giving each token access to its
+    8-connected spatial neighborhood while keeping the channel mixing role of the outer PWs.
+    """
 
     def __init__(
         self,
@@ -322,23 +387,95 @@ class KVCompressedTransformerEncoder(nn.Module):
         num_heads: int = 4,
         sr_ratio: int = 2,
         mode: str = "dwconv",
-        force_fp32_attention: bool = True,
+        attn_drop: float = 0.0,
         mlp_ratio: float = 2.0,
     ):
-        """Initialize LayerNorm-KVCA and LayerNorm-FFN residual branches."""
+        """Initialize LayerNorm-KVCA and LayerNorm-DW-FFN residual branches.
+
+        Args:
+            c1: Input channels.
+            c2: Output channels.
+            num_heads: Requested attention heads.
+            sr_ratio: Spatial compression ratio passed to KVCompressedAttention.
+            mode: KV compression mode (``dwconv`` or ``group_weight``).
+            attn_drop: Attention dropout probability (training only).
+            mlp_ratio: Hidden dim multiplier for the FFN.
+        """
         super().__init__()
         hidden = max(c2, int(c2 * mlp_ratio))
         self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
         self.norm1 = LayerNorm2d(c2)
-        self.attn = KVCompressedAttention(c2, c2, num_heads, sr_ratio, mode, force_fp32_attention, residual=False)
+        self.attn = KVCompressedAttention(c2, c2, num_heads, sr_ratio, mode, attn_drop=attn_drop, residual=False)
         self.norm2 = LayerNorm2d(c2)
-        self.ffn = nn.Sequential(Conv(c2, hidden, 1, 1), Conv(hidden, c2, 1, 1, act=False))
+        # DW-PW FFN: channel expand → spatial mix → channel project
+        self.ffn = nn.Sequential(
+            Conv(c2, hidden, 1, 1),                    # PW: channel expand
+            Conv(hidden, hidden, 3, 1, g=hidden),      # DW: spatial mix in 3×3 neighborhood
+            Conv(hidden, c2, 1, 1, act=False),         # PW: channel project
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Apply LN -> KVCA -> residual, then LN -> FFN -> residual."""
+        """Apply LN -> KVCA -> residual, then LN -> DW-FFN -> residual."""
         x = self.input_proj(x)
         x = x + self.attn(self.norm1(x))
         return x + self.ffn(self.norm2(x))
+
+
+class KVCompressedAttentionPartial(nn.Module):
+    """PSA-style partial KV-compressed attention.
+
+    Splits input channels in half: one half passes through ``KVCompressedAttention``
+    (with a residual connection), the other half bypasses unchanged.  The two halves
+    are concatenated and projected back to ``c2`` channels with a pointwise Conv.
+
+    Benefits at high-resolution feature maps (P2/P3):
+    - Attention head_dim is halved → compute reduced ~50 %.
+    - Bypass half retains fine-grained local texture untouched by attention.
+    - Parameter overhead is small: only an extra ``Conv(c2, c2, 1)`` output projection.
+    """
+
+    def __init__(
+        self,
+        c1: int,
+        c2: int,
+        num_heads: int = 4,
+        sr_ratio: int = 2,
+        mode: str = "dwconv",
+        attn_drop: float = 0.0,
+    ):
+        """Initialize partial KVCA.
+
+        Args:
+            c1: Input channels.
+            c2: Output channels (must be even).
+            num_heads: Attention heads for the *attention* half; clipped to c2//2.
+            sr_ratio: Spatial compression ratio passed to ``KVCompressedAttention``.
+            mode: KV compression mode (``dwconv`` or ``group_weight``).
+            attn_drop: Attention dropout probability (training only).
+        """
+        super().__init__()
+        if c2 % 2 != 0:
+            raise ValueError(f"KVCompressedAttentionPartial requires even c2, got {c2}")
+        c_attn = c2 // 2
+        self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
+        self.attn = KVCompressedAttention(
+            c_attn,
+            c_attn,
+            num_heads=max(1, num_heads // 2),  # half heads for half channels
+            sr_ratio=sr_ratio,
+            mode=mode,
+            attn_drop=attn_drop,
+            residual=True,
+        )
+        # Pointwise mix after concat – no activation to stay linear
+        self.out_proj = Conv(c2, c2, 1, 1, act=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply KVCA on first half of channels, bypass second half, mix outputs."""
+        x = self.input_proj(x)
+        x_attn, x_bypass = x.chunk(2, dim=1)
+        x_attn = self.attn(x_attn)
+        return self.out_proj(torch.cat([x_attn, x_bypass], dim=1))
 
 
 class _TopKGroupKVAttentionBase(nn.Module):

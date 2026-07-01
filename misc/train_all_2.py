@@ -54,7 +54,7 @@ from ultralytics import YOLO
 
 def prepare_data() -> None:
     """Prepare the Varroa YOLO dataset."""
-    from prepare_dataset import prepare_dataset
+    from misc.prepare_dataset import prepare_dataset
 
     print(f"Preparing dataset from {DATA_ROOT} -> {DATASET_OUT_DIR}")
     prepare_dataset(str(DATA_ROOT), str(DATASET_OUT_DIR))

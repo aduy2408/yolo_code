@@ -1,4 +1,4 @@
-# YOLOv8n Varroa placement ablation: RepC2f + EnSimAM on final P2/P3 neck outputs + KVCA before P2/P3 Detect heads.
+# YOLOv8n Varroa placement ablation: RepC2f + standard concat neck + Detect on P3/P4/P5 with KVCA before P3 only.
 
 nc: 1
 scales:
@@ -9,16 +9,16 @@ scales:
   x: [1.00, 1.25, 512]
 
 backbone:
-  - [-1, 1, Conv, [64, 3, 2]]
-  - [-1, 1, Conv, [128, 3, 2]]
-  - [-1, 3, RepC2f, [128, True]]
-  - [-1, 1, Conv, [256, 3, 2]]
-  - [-1, 6, RepC2f, [256, True]]
-  - [-1, 1, Conv, [512, 3, 2]]
-  - [-1, 6, RepC2f, [512, True]]
-  - [-1, 1, Conv, [1024, 3, 2]]
-  - [-1, 3, RepC2f, [1024, True]]
-  - [-1, 1, SPPF, [1024, 5]]
+  - [-1, 1, Conv, [64, 3, 2]]       # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]      # 1-P2/4
+  - [-1, 3, RepC2f, [128, True]]    # 2-P2/4
+  - [-1, 1, Conv, [256, 3, 2]]      # 3-P3/8
+  - [-1, 6, RepC2f, [256, True]]    # 4-P3/8
+  - [-1, 1, Conv, [512, 3, 2]]      # 5-P4/16
+  - [-1, 6, RepC2f, [512, True]]    # 6-P4/16
+  - [-1, 1, Conv, [1024, 3, 2]]     # 7-P5/32
+  - [-1, 3, RepC2f, [1024, True]]   # 8-P5/32
+  - [-1, 1, SPPF, [1024, 5]]        # 9-P5/32
 
 head:
   - [-1, 1, nn.Upsample, [None, 2, nearest]]
@@ -27,7 +27,7 @@ head:
 
   - [-1, 1, nn.Upsample, [None, 2, nearest]]
   - [[-1, 4], 1, Concat, [1]]
-  - [-1, 3, RepC2f, [256]]          # 15-P3/8 top-down
+  - [-1, 3, RepC2f, [256]]          # 15-P3/8
 
   - [-1, 1, nn.Upsample, [None, 2, nearest]]
   - [[-1, 2], 1, Concat, [1]]
@@ -45,10 +45,6 @@ head:
   - [[-1, 9], 1, Concat, [1]]
   - [-1, 3, RepC2f, [1024]]         # 27-P5/32
 
-  - [18, 1, EnSimAM, []]
-  - [21, 1, EnSimAM, []]
+  - [21, 1, KVCompressedAttention, [256, 4, 4, dwconv]]
 
-  - [28, 1, KVCompressedAttention, [128, 4, 8, dwconv]]
-  - [29, 1, KVCompressedAttention, [256, 4, 4, dwconv]]
-
-  - [[30, 31, 24, 27], 1, Detect, [nc]]
+  - [[28, 24, 27], 1, Detect, [nc]]
