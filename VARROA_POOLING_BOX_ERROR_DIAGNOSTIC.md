@@ -779,6 +779,34 @@ Interpretation:
 - The best observed test result was `mAP50-95 = 0.35750` with soft-linear NMS,
   only a small gain over the P2/P3-only baseline.
 
+### Follow-up: VFL target correctness vs learned ranking
+
+Latest VFL diagnostics separate target construction from learned ranking:
+
+- BCE baseline scoring is not localization-aware. The measured relationship
+  between `sigmoid(cls)` and assigned IoU is weakly negative, so the default
+  class logit does not rank tighter anchors above looser anchors.
+- VFL target construction is correct. Positive target bins exactly match the
+  assigned IoU bins, which rules out a target-binning or assignment-label bug.
+- VFL predicted class scores still remain weakly negative against assigned IoU.
+  That means the failure is not that VFL receives the wrong target; it is that
+  the classification branch representation/head is not learning an IoU-ranking
+  signal strongly enough from the loss-only change.
+
+Diagnostic added:
+
+```text
+misc/vfl_feature_iou_linear_probe.py
+```
+
+This script loads a checkpoint, extracts frozen per-anchor features immediately
+before the final Detect box conv (`cv2[i][:-1]`) and class conv (`cv3[i][:-1]`),
+reuses the existing TAL positives and assigned-IoU labels, and fits linear
+probes from each feature type to IoU. If the regression-side feature predicts
+IoU materially better than the classification-side feature, that supports the
+current interpretation: VFL target construction is correct, but the YOLOv8
+classification branch is not sufficiently localization-aware for IoU ranking.
+
 ## Conclusion
 
 The model is not mainly failing to detect varroa. It is detecting them at AP50,
