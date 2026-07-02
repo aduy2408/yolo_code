@@ -86,7 +86,17 @@ class Detect(nn.Module):
     legacy = False  # backward compatibility for v3/v5/v8/v9 models
     xyxy = False  # xyxy or xywh output
 
-    def __init__(self, nc: int = 80, reg_max=16, end2end=False, ch: tuple = ()):
+    def __init__(
+        self,
+        nc: int = 80,
+        reg_max=16,
+        end2end=False,
+        ch: tuple = (),
+        cls_geometry_fuse: bool = False,
+        cls_geometry_mode: str = "add",
+        cls_geometry_detach: bool = True,
+        cls_deform_geometry: bool = False,
+    ):
         """Initialize the YOLO detection layer with specified number of classes and channels.
 
         Args:
@@ -94,6 +104,10 @@ class Detect(nn.Module):
             reg_max (int): Maximum number of DFL channels.
             end2end (bool): Whether to use end-to-end NMS-free detection.
             ch (tuple): Tuple of channel sizes from backbone feature maps.
+            cls_geometry_fuse (bool): Fuse DFL expected distances into classification features.
+            cls_geometry_mode (str): Geometry fusion mode, "add" or "concat".
+            cls_geometry_detach (bool): Detach geometry cue before feeding classification branch.
+            cls_deform_geometry (bool): Reserved flag for future VFNet-like deformable classification.
         """
         super().__init__()
         self.nc = nc  # number of classes
@@ -101,6 +115,14 @@ class Detect(nn.Module):
         self.reg_max = reg_max  # DFL channels
         self.no = nc + self.reg_max * 4  # number of outputs per anchor
         self.stride = torch.zeros(self.nl)  # strides computed during build
+        self.cls_geometry_fuse = bool(cls_geometry_fuse)
+        self.cls_geometry_mode = str(cls_geometry_mode).lower()
+        if self.cls_geometry_mode not in {"add", "concat"}:
+            raise ValueError("cls_geometry_mode must be 'add' or 'concat'.")
+        self.cls_geometry_detach = bool(cls_geometry_detach)
+        self.cls_deform_geometry = bool(cls_deform_geometry)
+        if self.cls_deform_geometry:
+            raise NotImplementedError("cls_deform_geometry is reserved for a future VFNet-like experiment.")
         c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels
         self.cv2 = nn.ModuleList(
             nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
@@ -117,6 +139,17 @@ class Detect(nn.Module):
                 for x in ch
             )
         )
+        if self.cls_geometry_fuse:
+            cls_channels = [m[-1].in_channels for m in self.cv3]
+            self.cls_geometry_embed = nn.ModuleList(nn.Conv2d(4, c, 1) for c in cls_channels)
+            self.cls_geometry_fuse_conv = (
+                nn.ModuleList(Conv(c * 2, c, 1) for c in cls_channels)
+                if self.cls_geometry_mode == "concat"
+                else nn.ModuleList(nn.Identity() for _ in cls_channels)
+            )
+        else:
+            self.cls_geometry_embed = nn.ModuleList()
+            self.cls_geometry_fuse_conv = nn.ModuleList()
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
         # EXPERIMENTAL: localization quality map heads. These parameters live
         # on the model so the optimizer can update them during LQM training.
@@ -126,16 +159,25 @@ class Detect(nn.Module):
         if end2end:
             self.one2one_cv2 = copy.deepcopy(self.cv2)
             self.one2one_cv3 = copy.deepcopy(self.cv3)
+            if self.cls_geometry_fuse:
+                self.one2one_cls_geometry_embed = copy.deepcopy(self.cls_geometry_embed)
+                self.one2one_cls_geometry_fuse_conv = copy.deepcopy(self.cls_geometry_fuse_conv)
 
     @property
     def one2many(self):
         """Returns the one-to-many head components, here for v3/v5/v8/v9/v11 backward compatibility."""
-        return dict(box_head=self.cv2, cls_head=self.cv3)
+        out = dict(box_head=self.cv2, cls_head=self.cv3)
+        if self.cls_geometry_fuse:
+            out.update(geom_embed=self.cls_geometry_embed, geom_fuse=self.cls_geometry_fuse_conv)
+        return out
 
     @property
     def one2one(self):
         """Returns the one-to-one head components."""
-        return dict(box_head=self.one2one_cv2, cls_head=self.one2one_cv3)
+        out = dict(box_head=self.one2one_cv2, cls_head=self.one2one_cv3)
+        if self.cls_geometry_fuse:
+            out.update(geom_embed=self.one2one_cls_geometry_embed, geom_fuse=self.one2one_cls_geometry_fuse_conv)
+        return out
 
     @property
     def end2end(self):
@@ -147,15 +189,59 @@ class Detect(nn.Module):
         """Override the end-to-end detection mode."""
         self._end2end = value
 
+    def _geometry_dist_map(self, box_logits: torch.Tensor) -> torch.Tensor:
+        """Return DFL expected l/t/r/b distance maps from box logits."""
+        bs, _, h, w = box_logits.shape
+        dist = box_logits.view(bs, 4, self.reg_max, h, w).softmax(2)
+        proj = torch.arange(self.reg_max, device=box_logits.device, dtype=box_logits.dtype).view(1, 1, -1, 1, 1)
+        dist = (dist * proj).sum(2)
+        dist = dist / max(self.reg_max - 1, 1)
+        return dist.detach() if self.cls_geometry_detach else dist
+
+    def _geometry_cls_logits(
+        self,
+        cls_branch: torch.nn.Module,
+        cls_input: torch.Tensor,
+        dist_map: torch.Tensor,
+        geom_embed: torch.nn.Module,
+        geom_fuse: torch.nn.Module,
+    ) -> torch.Tensor:
+        """Return class logits after fusing an l/t/r/b geometry cue into cls features."""
+        cls_feat = cls_input
+        for layer in list(cls_branch.children())[:-1]:
+            cls_feat = layer(cls_feat)
+        geom_feat = geom_embed(dist_map)
+        if self.cls_geometry_mode == "add":
+            cls_feat = cls_feat + geom_feat
+        else:
+            cls_feat = geom_fuse(torch.cat((cls_feat, geom_feat), dim=1))
+        return cls_branch[-1](cls_feat)
+
     def forward_head(
-        self, x: list[torch.Tensor], box_head: torch.nn.Module = None, cls_head: torch.nn.Module = None
+        self,
+        x: list[torch.Tensor],
+        box_head: torch.nn.Module = None,
+        cls_head: torch.nn.Module = None,
+        geom_embed: torch.nn.Module = None,
+        geom_fuse: torch.nn.Module = None,
     ) -> dict[str, torch.Tensor]:
         """Concatenates and returns predicted bounding boxes and class probabilities."""
         if box_head is None or cls_head is None:  # for fused inference
             return dict()
         bs = x[0].shape[0]  # batch size
-        boxes = torch.cat([box_head[i](x[i]).view(bs, 4 * self.reg_max, -1) for i in range(self.nl)], dim=-1)
-        scores = torch.cat([cls_head[i](x[i]).view(bs, self.nc, -1) for i in range(self.nl)], dim=-1)
+        if not self.cls_geometry_fuse:
+            boxes = torch.cat([box_head[i](x[i]).view(bs, 4 * self.reg_max, -1) for i in range(self.nl)], dim=-1)
+            scores = torch.cat([cls_head[i](x[i]).view(bs, self.nc, -1) for i in range(self.nl)], dim=-1)
+        else:
+            boxes_per_level, scores_per_level = [], []
+            for i in range(self.nl):
+                box_logits = box_head[i](x[i])
+                boxes_per_level.append(box_logits.view(bs, 4 * self.reg_max, -1))
+                dist_map = self._geometry_dist_map(box_logits)
+                cls_logits = self._geometry_cls_logits(cls_head[i], x[i], dist_map, geom_embed[i], geom_fuse[i])
+                scores_per_level.append(cls_logits.view(bs, self.nc, -1))
+            boxes = torch.cat(boxes_per_level, dim=-1)
+            scores = torch.cat(scores_per_level, dim=-1)
         out = dict(boxes=boxes, scores=scores, feats=x)
         # EXPERIMENTAL: LQM maps are train-time auxiliary outputs only.
         if self.training and getattr(self, "loc_quality_enabled", False):
@@ -268,7 +354,7 @@ class Detect(nn.Module):
 
     def fuse(self) -> None:
         """Remove the one2many head for inference optimization."""
-        self.cv2 = self.cv3 = None
+        self.cv2 = self.cv3 = self.cls_geometry_embed = self.cls_geometry_fuse_conv = None
 
 
 class Segment(Detect):

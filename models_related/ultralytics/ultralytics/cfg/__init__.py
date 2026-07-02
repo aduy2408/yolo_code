@@ -207,7 +207,10 @@ CFG_FRACTION_KEYS = frozenset(
         "multi_scale",
     }
 )
-CFG_CHOICE_KEYS = {"nms_method": {"hard", "soft-linear", "soft-gaussian"}}
+CFG_CHOICE_KEYS = {
+    "nms_method": {"hard", "soft-linear", "soft-gaussian"},
+    "cls_geometry_mode": {"add", "concat"},
+}
 CFG_INT_KEYS = frozenset(
     {  # integer-only arguments
         "epochs",
@@ -238,6 +241,9 @@ CFG_BOOL_KEYS = frozenset(
         "vfl_iou_detach",
         "vfl_pos_q_weight",
         "vfl_weight_box_by_q",
+        "cls_geometry_fuse",
+        "cls_geometry_detach",
+        "cls_deform_geometry",
         "wiou_monotonous",
         "single_cls",
         "rect",
