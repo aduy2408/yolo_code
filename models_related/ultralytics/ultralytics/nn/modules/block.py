@@ -45,6 +45,7 @@ __all__ = (
     "C2fNAT",
     "C2fPSA",
     "EnSimAM",
+    "EnSimAMEdgeRepC2f",
     "C3CBAM",
     "C3Ghost",
     "C3k2",
@@ -66,6 +67,7 @@ __all__ = (
     "TopKGlobalGroupKVAttention",
     "RepC3",
     "RepC2f",
+    "PoolingEdgeRepC2f",
     "RepNCSPELAN4",
     "RepVGGDW",
     "ResNetLayer",
@@ -231,6 +233,55 @@ def _build_boundary_background_mask(
         mask[idx, :, iy1:iy2, ix1:ix2] = 0.0
 
     return mask
+
+class MS_Scharr_EnSimAM(nn.Module):
+    """Multi-scale local-variance EnSimAM with Scharr edge attention."""
+
+    def __init__(self, lambd: float = 1e-4, alpha: float = 1.0, beta: float = 1.0, eps: float = 1e-6):
+        """Initialize learnable local and branch fusion weights with fixed Scharr kernels."""
+        super().__init__()
+        self.lambd = lambd
+        self.alpha = alpha
+        self.beta = beta
+        self.eps = eps
+        self.local_weights = nn.Parameter(torch.ones(3, dtype=torch.float32))
+        self.branch_weights = nn.Parameter(torch.tensor([0.5, 0.25, 0.25], dtype=torch.float32))
+        scharr_x = torch.tensor([[-3.0, 0.0, 3.0], [-10.0, 0.0, 10.0], [-3.0, 0.0, 3.0]]).view(1, 1, 3, 3)
+        scharr_y = torch.tensor([[-3.0, -10.0, -3.0], [0.0, 0.0, 0.0], [3.0, 10.0, 3.0]]).view(1, 1, 3, 3)
+        self.register_buffer("scharr_x", scharr_x, persistent=False)
+        self.register_buffer("scharr_y", scharr_y, persistent=False)
+
+    @staticmethod
+    def local_variance(x: torch.Tensor, kernel_size: int, padding: int) -> torch.Tensor:
+        """Compute local variance while preserving [B, C, H, W]."""
+        local_mean = F.avg_pool2d(x, kernel_size=kernel_size, stride=1, padding=padding)
+        return F.avg_pool2d((x - local_mean).pow(2), kernel_size=kernel_size, stride=1, padding=padding)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply global, multi-kernel local, and Scharr edge attention."""
+        mean = x.mean(dim=(2, 3), keepdim=True)
+        var = (x - mean).pow(2).mean(dim=(2, 3), keepdim=True)
+        energy = (x - mean).pow(2) / (4 * (var + self.lambd)) + 0.5
+        a_global = torch.sigmoid(1.0 / energy)
+
+        local_var_3 = self.local_variance(x, kernel_size=3, padding=1)
+        local_var_5 = self.local_variance(x, kernel_size=5, padding=2)
+        local_var_7 = self.local_variance(x, kernel_size=7, padding=3)
+        local_weights = torch.softmax(self.local_weights, dim=0)
+        local_var = local_weights[0] * local_var_3 + local_weights[1] * local_var_5 + local_weights[2] * local_var_7
+        a_local = torch.sigmoid(self.alpha * local_var)
+
+        c = x.shape[1]
+        scharr_x = self.scharr_x.to(dtype=x.dtype, device=x.device).repeat(c, 1, 1, 1)
+        scharr_y = self.scharr_y.to(dtype=x.dtype, device=x.device).repeat(c, 1, 1, 1)
+        gx = F.conv2d(x, scharr_x, padding=1, groups=c)
+        gy = F.conv2d(x, scharr_y, padding=1, groups=c)
+        edge = torch.sqrt(gx.pow(2) + gy.pow(2) + self.eps)
+        a_edge = torch.sigmoid(self.beta * edge)
+
+        branch_weights = torch.softmax(self.branch_weights, dim=0)
+        attention = branch_weights[0] * a_global + branch_weights[1] * a_local + branch_weights[2] * a_edge
+        return x * attention
 
 
 class AdversarialPerturbationInjection(nn.Module):
@@ -1394,6 +1445,41 @@ class RepC2f(C2f):
         """Initialize RepC2f with the same interface and output shape as C2f."""
         super().__init__(c1, c2, n, shortcut, g, e)
         self.m = nn.ModuleList(RepBottleneck(self.c, self.c, shortcut, g, e=1.0) for _ in range(n))
+
+
+class EnSimAMEdgeRepC2f(RepC2f):
+    """RepC2f with EnSimAM applied only to the second split branch."""
+
+    def __init__(self, c1: int, c2: int, n: int = 1, shortcut: bool = False, g: int = 1, e: float = 0.5):
+        """Initialize branch-local EnSimAM refinement."""
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.edge = EnSimAM()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply edge refinement only on y[1], preserving the RepC2f topology."""
+        y = list(self.cv1(x).chunk(2, 1))
+        y[1] = self.edge(y[1])
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
+
+
+class PoolingEdgeRepC2f(RepC2f):
+    """RepC2f with pooling edge enhancement applied only to the second split branch."""
+
+    def __init__(self, c1: int, c2: int, n: int = 1, shortcut: bool = False, g: int = 1, e: float = 0.5):
+        """Initialize branch-local pooling edge refinement."""
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.pool = nn.AvgPool2d(3, stride=1, padding=1)
+        self.edge_conv = Conv(self.c, self.c, 3)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply edge refinement only on y[1], preserving the RepC2f topology."""
+        y = list(self.cv1(x).chunk(2, 1))
+        edge = y[1] - self.pool(y[1])
+        edge = self.edge_conv(edge)
+        y[1] = y[1] + edge
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
 
 
 class C2fKV(nn.Module):
