@@ -150,11 +150,8 @@ class BoundaryFeatureBlock(nn.Module):
         self.alpha = nn.Parameter(torch.tensor(init))
         self.transform = nn.Sequential(
             nn.Conv2d(c1, hidden_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(hidden_channels),
             nn.SiLU(inplace=True),
             nn.Conv2d(hidden_channels, c1, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(c1),
-            nn.SiLU(inplace=True),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -175,7 +172,7 @@ class BoundaryFeatureBlock(nn.Module):
             shrinkage=self.shrinkage,
         )
         alpha = torch.tanh(self.alpha).to(dtype=x.dtype) * self.alpha_max
-        return x + alpha * self.transform(x * mask) * mask
+        return x + alpha * self.transform(x) * mask
 
 
 def _clamp_interval(start: float, end: float, limit: int) -> tuple[int, int]:
