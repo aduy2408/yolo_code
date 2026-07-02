@@ -104,15 +104,17 @@ class VarifocalLoss(nn.Module):
         https://arxiv.org/abs/2008.13367
     """
 
-    def __init__(self, gamma: float = 2.0, alpha: float = 0.75):
+    def __init__(self, gamma: float = 2.0, alpha: float = 0.75, pos_q_weight: bool = True):
         """Initialize the VarifocalLoss class with focusing and balancing parameters."""
         super().__init__()
         self.gamma = gamma
         self.alpha = alpha
+        self.pos_q_weight = pos_q_weight
 
     def forward(self, pred_score: torch.Tensor, gt_score: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
         """Compute varifocal loss between predictions and ground truth."""
-        weight = self.alpha * pred_score.sigmoid().pow(self.gamma) * (1 - label) + gt_score * label
+        pos_weight = gt_score if self.pos_q_weight else label
+        weight = self.alpha * pred_score.sigmoid().pow(self.gamma) * (1 - label) + pos_weight * label
         with autocast(enabled=False):
             loss = (
                 (F.binary_cross_entropy_with_logits(pred_score.float(), gt_score.float(), reduction="none") * weight)
@@ -328,9 +330,12 @@ class BboxLoss(nn.Module):
         fg_mask: torch.Tensor,
         imgsz: torch.Tensor,
         stride: torch.Tensor,
+        quality_weights: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute IoU and DFL losses for bounding boxes."""
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
+        if quality_weights is not None:
+            weight = weight * quality_weights.to(device=weight.device, dtype=weight.dtype).view(-1, 1)
         if self.wise_iou is None:
             iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
             loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
@@ -724,6 +729,15 @@ class v8DetectionLoss:
 
         m = model.model[-1]  # Detect() module
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
+        self.vfl = (
+            VarifocalLoss(
+                gamma=float(getattr(h, "vfl_gamma", 2.0)),
+                alpha=float(getattr(h, "vfl_alpha", 0.75)),
+                pos_q_weight=bool(getattr(h, "vfl_pos_q_weight", True)),
+            )
+            if bool(getattr(h, "vfl", False))
+            else None
+        )
         self.hyp = h
         self.stride = m.stride  # model strides
         self.nc = m.nc  # number of classes
@@ -739,10 +753,10 @@ class v8DetectionLoss:
             self.class_weights = self.class_weights.to(device).view(1, 1, -1)
 
         self.assigner = TaskAlignedAssigner(
-            topk=tal_topk,
+            topk=int(getattr(h, "tal_topk", tal_topk)),
             num_classes=self.nc,
             alpha=0.5,
-            beta=6.0,
+            beta=float(getattr(h, "tal_beta", 6.0)),
             stride=self.stride.tolist(),
             topk2=tal_topk2,
         )
@@ -845,15 +859,66 @@ class v8DetectionLoss:
         )
 
         target_scores_sum = max(target_scores.sum(), 1)
+        cls_target_scores = target_scores
+        cls_target_scores_sum = target_scores_sum
+        assigned_iou = None
 
         # Cls loss with optional class weighting
-        bce_loss = self.bce(pred_scores, target_scores.to(dtype))  # (bs, num_anchors, nc)
-        if self.class_weights is not None:
-            bce_loss *= self.class_weights
-        loss[1] = bce_loss.sum() / target_scores_sum  # BCE
+        if (self.vfl is not None or getattr(self.hyp, "cls_iou_target", False)) and fg_mask.sum():
+            iou_pred_bboxes = pred_bboxes[fg_mask]
+            if self.vfl is None or bool(getattr(self.hyp, "vfl_iou_detach", True)):
+                iou_pred_bboxes = iou_pred_bboxes.detach()
+            assigned_iou = bbox_iou(
+                iou_pred_bboxes,
+                (target_bboxes / stride_tensor)[fg_mask],
+                xywh=False,
+                CIoU=False,
+            ).squeeze(-1).clamp(0)
+            if self.vfl is not None and bool(getattr(self.hyp, "vfl_iou_detach", True)):
+                assigned_iou = assigned_iou.detach()
+        if self.vfl is not None:
+            if assigned_iou is not None:
+                cls_target_scores = target_scores.clone()
+                cls_target_scores[fg_mask] = torch.where(
+                    target_scores[fg_mask] > 0,
+                    assigned_iou.unsqueeze(-1).to(dtype=target_scores.dtype),
+                    target_scores[fg_mask],
+                )
+            cls_target_scores_sum = max(cls_target_scores.sum(), 1)
+            cls_labels = (cls_target_scores > 0).to(dtype)
+            loss[1] = self.vfl(pred_scores, cls_target_scores.to(dtype), cls_labels) / cls_target_scores_sum
+        elif getattr(self.hyp, "cls_iou_target", False) and assigned_iou is not None:
+            with torch.no_grad():
+                cls_target_scores = target_scores.clone()
+                cls_target_scores[fg_mask] = torch.where(
+                    target_scores[fg_mask] > 0,
+                    assigned_iou.unsqueeze(-1),
+                    target_scores[fg_mask],
+                )
+                cls_target_scores_sum = max(cls_target_scores.sum(), 1)
+            bce_loss = self.bce(pred_scores, cls_target_scores.to(dtype))  # (bs, num_anchors, nc)
+            if self.class_weights is not None:
+                bce_loss *= self.class_weights
+            loss[1] = bce_loss.sum() / cls_target_scores_sum  # BCE
+        else:
+            bce_loss = self.bce(pred_scores, cls_target_scores.to(dtype))  # (bs, num_anchors, nc)
+            if self.class_weights is not None:
+                bce_loss *= self.class_weights
+            loss[1] = bce_loss.sum() / cls_target_scores_sum  # BCE
 
         # Bbox loss
         if fg_mask.sum():
+            quality_weights = None
+            if bool(getattr(self.hyp, "vfl_weight_box_by_q", False)):
+                if assigned_iou is None:
+                    with torch.no_grad():
+                        assigned_iou = bbox_iou(
+                            pred_bboxes.detach()[fg_mask],
+                            (target_bboxes / stride_tensor)[fg_mask],
+                            xywh=False,
+                            CIoU=False,
+                        ).squeeze(-1).clamp(0)
+                quality_weights = assigned_iou.detach().clamp_min(float(getattr(self.hyp, "box_q_weight_min", 0.25)))
             loss[0], loss[2] = self.bbox_loss(
                 pred_distri,
                 pred_bboxes,
@@ -864,6 +929,7 @@ class v8DetectionLoss:
                 fg_mask,
                 imgsz,
                 stride_tensor,
+                quality_weights,
             )
 
         loss[0] *= self.hyp.box  # box gain

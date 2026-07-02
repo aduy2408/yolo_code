@@ -118,9 +118,8 @@ class Detect(nn.Module):
             )
         )
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
-        # EXPERIMENTAL: train-only localization quality map heads. These
-        # parameters live on the model so the optimizer can update them, but
-        # loc_maps are emitted only when the loss enables loc_quality.
+        # EXPERIMENTAL: localization quality map heads. These parameters live
+        # on the model so the optimizer can update them during LQM training.
         self.loc_quality_enabled = False
         self.loc_cv = nn.ModuleList(nn.Conv2d(x, 1, 1) for x in ch)
 
@@ -158,9 +157,8 @@ class Detect(nn.Module):
         boxes = torch.cat([box_head[i](x[i]).view(bs, 4 * self.reg_max, -1) for i in range(self.nl)], dim=-1)
         scores = torch.cat([cls_head[i](x[i]).view(bs, self.nc, -1) for i in range(self.nl)], dim=-1)
         out = dict(boxes=boxes, scores=scores, feats=x)
-        # EXPERIMENTAL: LQM supervision is train-only and does not alter
-        # detection outputs, inference decoding, or export graphs.
-        if self.training and self.loc_quality_enabled:
+        # EXPERIMENTAL: LQM maps are train-time auxiliary outputs only.
+        if self.training and getattr(self, "loc_quality_enabled", False):
             out["loc_maps"] = [self.loc_cv[i](x[i]) for i in range(self.nl)]
         return out
 
@@ -191,7 +189,8 @@ class Detect(nn.Module):
         """
         # Inference path
         dbox = self._get_decode_boxes(x)
-        return torch.cat((dbox, x["scores"].sigmoid()), 1)
+        scores = x["scores"].sigmoid()
+        return torch.cat((dbox, scores), 1)
 
     def _get_decode_boxes(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         """Get decoded boxes based on anchors and strides."""

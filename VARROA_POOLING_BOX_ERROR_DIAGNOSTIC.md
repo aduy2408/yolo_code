@@ -522,6 +522,263 @@ The ablations above suggest the ranking-aware version is the more direct fix.
 Auxiliary-only may help features, but it will not by itself guarantee that NMS
 chooses the tighter P3 box over the overconfident P4 box.
 
+### Follow-up: P2/P3-only Detect + `loc_quality` Ranking
+
+A follow-up experiment tested a P2/P3-only Detect model with localization-quality
+ranking enabled.
+
+Run:
+
+```text
+/marimo/yolo_code/runs/detect/yolo_related/runs/train/yolov8n_varroa_p2p3_only_detect_dfl25_lqrank/weights/best.pt
+```
+
+Architecture/config:
+
+```text
+/marimo/yolo_code/models_related/models_config/yolov8/yolov8n_varroa_p2p3_only_detect_dfl25_lqrank.yaml
+Detect strides: [4, 8]
+```
+
+Training settings:
+
+```text
+bbox_iou_loss=wiou
+wiou_monotonous=False
+box=10.0
+dfl=2.5
+cls=0.25
+loc_quality=0.05
+loc_quality_levels=2
+loc_quality_sigma=0.45
+loc_quality_loss=mse
+loc_quality_rank=True
+loc_quality_rank_weight=0.5
+loc_quality_rank_levels=2
+```
+
+Inference ranking used:
+
+```text
+score = cls_score * quality_score ** 0.5
+```
+
+Test split results:
+
+| NMS method | Precision | Recall | mAP50 | mAP50-95 |
+|---|---:|---:|---:|---:|
+| hard | 0.893768 | 0.848717 | 0.883971 | 0.332500 |
+| soft-linear, min_score=0.001 | 0.893768 | 0.848717 | 0.885345 | 0.337002 |
+
+Output folders:
+
+```text
+/marimo/yolo_code/runs/detect/yolo_related/runs/test_lqrank_nms/hard
+/marimo/yolo_code/runs/detect/yolo_related/runs/test_lqrank_nms/soft_linear_min001
+```
+
+Interpretation:
+
+- The current `loc_quality` head did not improve the result; it is a negative
+  ablation.
+- Soft-NMS linear gave only a small gain over hard NMS on the same checkpoint
+  (`mAP50-95 +0.0045`), not a meaningful fix.
+- The likely reason is that the current `loc_quality` target is a Gaussian
+  center map, not a direct predicted-box IoU or assignment-quality target. It
+  can learn "near object center" without learning "this anchor's decoded box is
+  the tightest one."
+- Future localization-quality work should use an IoU/alignment target for the
+  quality score, or a Varifocal/QFL-style classification target, rather than
+  the current center-map target.
+
+### Follow-up: P2/P3-only Detect Error Shape Without `loc_quality`
+
+The original P2/P3-only Detect run was probed without `loc_quality`,
+`loc_quality_rank`, or `cls_iou_target`.
+
+Run:
+
+```text
+/marimo/yolo_code/runs/detect/yolo_related/runs/train/yolov8n_varroa_p2p3_only_detect_dfl25/weights/best.pt
+```
+
+Config:
+
+```text
+/marimo/yolo_code/models_related/models_config/yolov8/yolov8n_varroa_p2p3_only_detect_dfl25.yaml
+Detect strides: [4, 8]
+```
+
+Probe output:
+
+```text
+/marimo/yolo_code/runs/detect/yolo_related/runs/diagnostics/p2p3_only_detect_dfl25_error_probe_val.json
+```
+
+Post-NMS GT best-IoU buckets on val:
+
+| Best IoU bucket | Count |
+|---|---:|
+| < 0.50 | 8 |
+| 0.50-0.75 | 333 |
+| 0.75-0.90 | 319 |
+| >= 0.90 | 25 |
+
+Best-IoU quantiles:
+
+| Quantile | Best GT IoU |
+|---:|---:|
+| p10 | 0.6373 |
+| p25 | 0.6866 |
+| p50 | 0.7503 |
+| p75 | 0.8051 |
+| p90 | 0.8554 |
+| p95 | 0.8892 |
+
+Absolute post-NMS error in the AP50-but-not-AP75 bucket (`0.50-0.75`) was:
+
+| Error | p50 | p75 | p90 |
+|---|---:|---:|---:|
+| center x | 5.38 | 8.15 | 10.93 |
+| center y | 4.36 | 7.53 | 10.00 |
+| left edge | 6.68 | 11.11 | 15.36 |
+| top edge | 6.03 | 10.70 | 14.76 |
+| right edge | 7.01 | 11.04 | 14.76 |
+| bottom edge | 5.73 | 9.17 | 13.79 |
+| width | 9.46 | 14.93 | 21.16 |
+| height | 8.40 | 14.63 | 20.90 |
+
+These values are in model input / letterbox pixels. For the current val images
+(`160x280` letterboxed to the model input), divide by about `2.29` to compare
+roughly to original-image pixels. That still leaves median edge errors around
+`2.5-3.1` original pixels in the `0.50-0.75` bucket.
+
+Pre-NMS best candidate by level:
+
+| Level | Stride | Best-level GT count | Highest-score GT count |
+|---:|---:|---:|---:|
+| 0 | 4 | 114 | 0 |
+| 1 | 8 | 571 | 685 |
+
+Per-level pre-NMS candidate quality:
+
+| Level | Stride | Best IoU p50 | Best IoU p75 | Top-score IoU p50 | Top-score IoU p75 | Best score p50 | Top score p50 |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 4 | 0.6217 | 0.7324 | 0.5234 | 0.6546 | 0.0059 | 0.0755 |
+| 1 | 8 | 0.8118 | 0.8628 | 0.6701 | 0.7437 | 0.0457 | 0.5326 |
+
+Within P3/stride-8:
+
+- `349 / 685` GTs had a P3 candidate with IoU `>= 0.75`, but the top-scoring
+  P3 anchor for that GT had IoU `< 0.75`.
+- `525 / 685` GTs had P3 best-candidate IoU at least `0.05` higher than
+  P3 top-score-anchor IoU.
+- This means removing P4/P5 did not solve the ranking problem; the mismatch
+  now happens inside P3 itself.
+
+DFL expected-bin error for the best pre-NMS candidate:
+
+| Level | Stride | Side | abs p50 | abs p75 | abs p90 | signed median | signed mean |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 0 | 4 | left | 2.378 | 4.047 | 5.481 | -2.378 | -2.615 |
+| 0 | 4 | top | 1.761 | 3.545 | 5.069 | -1.761 | -2.153 |
+| 0 | 4 | right | 1.210 | 2.843 | 4.778 | -1.089 | -1.655 |
+| 0 | 4 | bottom | 1.291 | 2.748 | 4.486 | -1.151 | -1.595 |
+| 1 | 8 | left | 0.403 | 0.840 | 1.408 | +0.043 | +0.082 |
+| 1 | 8 | top | 0.324 | 0.694 | 1.069 | +0.080 | +0.120 |
+| 1 | 8 | right | 0.381 | 0.719 | 1.208 | +0.035 | +0.030 |
+| 1 | 8 | bottom | 0.375 | 0.758 | 1.248 | +0.078 | +0.167 |
+
+Interpretation:
+
+- P2/stride-4 is not useful here despite higher spatial resolution. Its best
+  boxes have low IoU and near-zero best-candidate scores. The DFL side-distance
+  errors are very large in bin units and have a consistent negative signed
+  bias, meaning the selected P2 boxes are badly mis-sized/mis-positioned.
+- P3/stride-8 has genuinely good raw candidates. Median best IoU is about
+  `0.812`, and the DFL expected-bin error is moderate (`~0.32-0.40` median
+  bins).
+- The failure after removing P4/P5 is mostly **ranking within P3**, not lack of
+  a good P3 box. The top-scoring P3 anchor has median IoU only `0.670`, while
+  the best P3 candidate has median IoU `0.812`.
+- This supports an IoU/quality-aware classification target more than another
+  global level penalty or P4/P5 removal.
+
+### Follow-up: `cls_iou_target_set`
+
+This experiment tested a Quality-Focal/Varifocal-style classification target
+without adding a new inference head.
+
+Run:
+
+```text
+/marimo/yolo_code/runs/detect/yolo_related/runs/train/yolov8n_varroa_p2p3_only_detect_dfl25_cls_iou_target_set/weights/best.pt
+```
+
+Probe output:
+
+```text
+/marimo/yolo_code/runs/detect/yolo_related/runs/diagnostics/cls_iou_target_set_p3_score_probe.json
+```
+
+What `cls_iou_target_set` changes:
+
+- Default YOLOv8 classification target comes from the TaskAlignedAssigner
+  target score. In this repo that target is already a soft alignment score,
+  not just hard `1`.
+- The first attempted version multiplied that target by IoU
+  (`target_scores *= IoU`). That was too aggressive because it double-softened
+  an already-soft target. That early run was stopped at epoch 6.
+- The `set` version replaces the positive class target with the detached IoU
+  between the currently decoded assigned box and the assigned GT:
+
+```text
+positive cls target = IoU(pred_box.detach(), gt_box)
+```
+
+- Negative anchors stay `0`.
+- Box loss and DFL loss are unchanged.
+- This does not change decoded box geometry at inference. It only tries to make
+  class confidence mean "object exists and this anchor's box is tight."
+
+Test split results:
+
+| Inference | mAP50 | mAP50-95 |
+|---|---:|---:|
+| hard NMS, conf=0.001, iou=0.7 | 0.89304 | 0.35220 |
+| soft-linear NMS, conf=0.001, iou=0.5, min_score=0.0001 | 0.91070 | 0.35750 |
+
+P3/stride-8 score probe on val:
+
+| P3 statistic | Best candidate | Top-score anchor |
+|---|---:|---:|
+| IoU p50 | 0.8046 | 0.6653 |
+| IoU p75 | 0.8608 | 0.7470 |
+| score p50 | 0.2217 | 0.5796 |
+| score p75 | 0.4096 | 0.6269 |
+
+Compared with the P2/P3-only baseline:
+
+| P3 statistic | Baseline | `cls_iou_target_set` |
+|---|---:|---:|
+| best-candidate score p50 | 0.0457 | 0.2217 |
+| top-score anchor score p50 | 0.5326 | 0.5796 |
+| best-candidate IoU p50 | 0.8118 | 0.8046 |
+| top-score anchor IoU p50 | 0.6701 | 0.6653 |
+| P3 candidate >=0.75 but top-score <0.75 | 349 / 685 | 327 / 685 |
+| P3 best IoU exceeds top-score IoU by >=0.05 | 525 / 685 | 508 / 685 |
+
+Interpretation:
+
+- The IoU-aware classification target did raise the score of the better P3
+  candidates substantially (`0.0457 -> 0.2217` median).
+- But it did not fix which P3 anchor becomes the top-scoring one. The top-score
+  P3 IoU stayed roughly the same (`0.6701 -> 0.6653` median).
+- AP75-critical mismatch improved only slightly (`349 -> 327` cases), so this
+  is not a strong fix.
+- The best observed test result was `mAP50-95 = 0.35750` with soft-linear NMS,
+  only a small gain over the P2/P3-only baseline.
+
 ## Conclusion
 
 The model is not mainly failing to detect varroa. It is detecting them at AP50,

@@ -105,6 +105,16 @@ warmup_bias_lr: 0.1 # (float) bias learning rate during warmup
 box: 7.5 # (float) box loss gain
 bbox_iou_loss: ciou # (str) bbox regression IoU loss: ciou, wiou, iou, giou, diou, eiou, siou
 wiou_monotonous: false # (bool) Wise-IoU focusing mode: false=non-monotonic, true=monotonic
+cls_iou_target: false # (bool) EXPERIMENTAL use assigned box IoU as positive classification target
+vfl: false # (bool) EXPERIMENTAL use Varifocal Loss with assigned IoU as positive classification target
+vfl_alpha: 0.75 # (float) EXPERIMENTAL Varifocal Loss negative alpha
+vfl_gamma: 2.0 # (float) EXPERIMENTAL Varifocal Loss focusing gamma
+vfl_iou_detach: true # (bool) EXPERIMENTAL detach assigned IoU before using it as VFL classification target
+vfl_pos_q_weight: true # (bool) EXPERIMENTAL weight positive VFL examples by IoU quality target
+tal_topk: 10 # (int) EXPERIMENTAL TaskAlignedAssigner top-k positive candidates
+tal_beta: 6.0 # (float) EXPERIMENTAL TaskAlignedAssigner IoU exponent
+vfl_weight_box_by_q: false # (bool) EXPERIMENTAL weight positive box/DFL loss by assigned IoU target
+box_q_weight_min: 0.25 # (float) EXPERIMENTAL minimum quality weight for VFL box/DFL weighting
 boundary_contrast: 0.0 # (float) EXPERIMENTAL boundary-aware contrastive loss gain for tiny-object localization
 boundary_levels: 2 # (int) EXPERIMENTAL number of Detect feature levels to use for boundary contrast
 boundary_ring: 1.0 # (float) EXPERIMENTAL boundary ring thickness in feature-cell units
