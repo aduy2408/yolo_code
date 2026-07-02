@@ -162,6 +162,7 @@ CFG_FLOAT_KEYS = frozenset(
         "cls_pw",
         "vfl_alpha",
         "vfl_gamma",
+        "tal_alpha",
         "tal_beta",
         "box_q_weight_min",
         "boundary_contrast",

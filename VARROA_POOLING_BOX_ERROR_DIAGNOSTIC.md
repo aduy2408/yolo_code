@@ -807,6 +807,253 @@ IoU materially better than the classification-side feature, that supports the
 current interpretation: VFL target construction is correct, but the YOLOv8
 classification branch is not sufficiently localization-aware for IoU ranking.
 
+Probe sanity checks and results:
+
+- Hook/flatten alignment was verified by reconstructing Detect outputs from the
+  hooked branch features:
+  - `cv2[i][:-1] -> cv2[i][-1]` exactly reproduced `preds["boxes"]`.
+  - `cv3[i][:-1] -> cv3[i][-1]` exactly reproduced `preds["scores"]`.
+  - Max difference was `0.0` for all levels, so the weak probe result was not
+    caused by a wrong layer or anchor flattening order.
+- The actual YOLOv8n varroa cls feature dimensions are small:
+  - cls pre-logit feature: `32` channels at every level.
+  - reg pre-logit feature: `64` channels at every level.
+- A larger probe with `12000` train positives and all `6850` val positives
+  still showed weak linear IoU signal:
+
+| Model | Branch | Train R2 | Train Pearson | Val R2 | Val Pearson | Val Spearman |
+|---|---|---:|---:|---:|---:|---:|
+| BASE diff | cls | 0.030 | 0.173 | -0.220 | 0.100 | 0.182 |
+| BASE diff | reg | 0.035 | 0.187 | -0.163 | 0.181 | 0.187 |
+| VFL stage2-2 | cls | 0.040 | 0.199 | -0.050 | 0.173 | 0.180 |
+| VFL stage2-2 | reg | 0.054 | 0.232 | -0.082 | 0.149 | 0.203 |
+
+Interpretation:
+
+- The negative validation R2 is partly due to train/val target mean shift, but
+  train R2 is also very low. A linear readout from pre-final cls/reg features
+  does not strongly predict assigned IoU.
+- Since decoded IoU appears only after `bbox logits -> DFL softmax/expected
+  distance -> decoded box -> compare to assigned GT`, the failure of a linear
+  `feature -> IoU` probe does not prove the reg branch lacks localization
+  information. It does show that IoU is not linearly exposed in the pre-final
+  feature.
+
+### Follow-up: anchor-level Grad-CAM
+
+An anchor-level Grad-CAM diagnostic was added in the running marimo notebook.
+It selected TAL-positive anchors in three groups:
+
+- high IoU + low cls
+- high IoU + high cls
+- low IoU + high cls
+
+For each selected anchor, the notebook renders:
+
+- original image with assigned GT and decoded anchor box
+- Grad-CAM for the scalar class logit at that exact anchor
+- Grad-CAM for the anchor-local regression objective, using CIoU between that
+  decoded anchor box and assigned GT
+
+Outputs were saved in marimo:
+
+```text
+/marimo/yolo_code/runs/diagnostics/anchor_gradcam/base_diff/
+/marimo/yolo_code/runs/diagnostics/anchor_gradcam/vfl_stage2_2/
+/marimo/yolo_code/runs/diagnostics/anchor_gradcam/metadata_all.json
+/marimo/yolo_code/runs/diagnostics/anchor_gradcam/metadata_all.csv
+```
+
+The run generated `24` figures total: `12` for BASE diff and `12` for VFL
+stage2-2, balanced as `4` examples per group per model. The first display cell
+used base64 HTML and exceeded marimo's output limit, so it was replaced with a
+matplotlib contact-sheet cell that reads the generated PNGs from disk.
+
+Interpretation rule:
+
+- If cls Grad-CAM is diffuse/off-object while reg Grad-CAM focuses on
+  object/boundary, that supports the hypothesis that the classification branch
+  is not localization-aware enough for VFL to learn IoU ranking.
+- If both CAMs are similar or noisy, do not overclaim; keep the linear probe
+  and score-vs-IoU bin correlation as the stronger evidence.
+
+### Follow-up: geometry-aware classification head
+
+Because VFL target construction is correct but loss-only VFL did not make cls
+scores rank IoU well, a Muc 2 geometry-aware cls head was implemented as an
+opt-in `Detect` experiment. This is not a separate quality head and does not
+change NMS or output tensor shape.
+
+New config flags:
+
+```yaml
+cls_geometry_fuse: false
+cls_geometry_mode: add   # add or concat
+cls_geometry_detach: true
+cls_deform_geometry: false
+```
+
+Implementation:
+
+- `cv2[i]` still predicts DFL bbox logits.
+- The bbox logits are reshaped to `(B, 4, reg_max, H, W)`.
+- Softmax over `reg_max` gives the DFL distribution for each side.
+- Expected distances `[l, t, r, b]` are computed and normalized by
+  `reg_max - 1`, so with `reg_max=16` the cue is approximately in `[0, 1]`.
+- The normalized 4-channel geometry map is embedded with a per-level
+  `Conv2d(4 -> cls_channels, 1x1)`.
+- `cls_geometry_mode=add` uses:
+
+```text
+cls_feat + geometry_embed -> final cls conv
+```
+
+- `cls_geometry_mode=concat` uses:
+
+```text
+concat(cls_feat, geometry_embed) -> Conv(2C -> C, 1x1) -> final cls conv
+```
+
+The per-level geometry embed is intentional: even though distances are in DFL
+bin-space, P2/P3/P4/P5 have different object-size and assignment
+distributions. The geometry cue is detached by default so classification
+gradients do not flow back into bbox logits through this auxiliary path during
+the first experiment.
+
+The current geometry-aware cls head is Muc 2 only. It does **not** use
+deformable convolution, learned offsets, star-shaped sampling points, or a
+VFNet-style feature sampler. `cls_deform_geometry` is reserved and raises
+`NotImplementedError` if enabled.
+
+Experiment YAMLs:
+
+```text
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl_clsgeom_add.yaml
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl_clsgeom_concat.yaml
+```
+
+Both YAMLs were copied from the VFL pooling-edge config, then the P2 API
+box-gradient layer was removed so the geometry-fusion ablation is not mixed
+with the earlier API box-gradient block. The final Detect inputs are:
+
+```yaml
+[[28, 29, 24, 27], 1, Detect, [nc]]
+```
+
+Current cls head shape in the concat YAML:
+
+```text
+P2/stride 4:   Conv(32 -> 32, 3x3)  -> Conv(32 -> 32, 3x3) -> Conv2d(32 -> 1, 1x1)
+P3/stride 8:   Conv(64 -> 32, 3x3)  -> Conv(32 -> 32, 3x3) -> Conv2d(32 -> 1, 1x1)
+P4/stride 16:  Conv(128 -> 32, 3x3) -> Conv(32 -> 32, 3x3) -> Conv2d(32 -> 1, 1x1)
+P5/stride 32:  Conv(256 -> 32, 3x3) -> Conv(32 -> 32, 3x3) -> Conv2d(32 -> 1, 1x1)
+```
+
+For `cls_geometry_mode=concat`, the actual cls path is:
+
+```text
+cls feature -> cv3[i][0] -> cv3[i][1]
+bbox logits -> expected DFL [l,t,r,b] / (reg_max - 1) -> Conv2d(4 -> 32, 1x1)
+concat -> Conv(64 -> 32, 1x1) -> cv3[i][2] -> cls logit
+```
+
+Validation:
+
+- Python compile passed for the modified Ultralytics files.
+- Build/forward smoke passed for baseline, `clsgeom_add`, and
+  `clsgeom_concat`.
+- Output shape remained unchanged:
+  - training boxes: `(B, 64, A)`
+  - training scores: `(B, 1, A)`
+  - inference output: `(B, 5, A)` for `nc=1`
+- Synthetic loss smoke passed for `add` and `concat`, both with GT and empty-GT
+  batches, with finite losses.
+- A real marimo smoke train completed for the concat YAML:
+
+```text
+Run name: yolov8n_varroa_vfl_clsgeom_concat_smoke3
+Weights: /marimo/yolo_code/runs/detect/yolo_related/runs/train/yolov8n_varroa_vfl_clsgeom_concat_smoke3/weights/best.pt
+Log: /marimo/yolo_code/runs/detect/yolo_related/runs/train_logs/clsgeom_concat_smoke3.log
+Epochs: 3
+Batch: 16
+Device: cuda
+```
+
+Final smoke validation result:
+
+| Metric | Value |
+|---|---:|
+| Precision | 0.638 |
+| Recall | 0.753 |
+| mAP50 | 0.705 |
+| mAP50-95 | 0.226 |
+
+This smoke result only verifies that the geometry-aware concat path trains
+without crashing. It is too short to judge final accuracy.
+
+### Follow-up: VFL and TAL assignment feedback
+
+The current strongest hypothesis is that the VFL implementation is target-correct
+but mismatched with YOLOv8's TaskAlignedAssigner.
+
+Current YOLOv8 assignment path:
+
+```text
+assignment score = sigmoid(cls)^0.5 * IoU^6
+```
+
+This comes from `v8DetectionLoss`, which passes
+`pred_scores.detach().sigmoid()` into `TaskAlignedAssigner`, and the assigner
+computes:
+
+```text
+align_metric = bbox_scores^alpha * overlaps^beta
+```
+
+With VFL enabled, positive classification targets are then replaced with the
+assigned box IoU. This creates a plausible optimization feedback loop:
+
+```text
+cls score low -> TAL metric low -> different/weaker positives -> changed cls
+gradient -> cls score remains low
+```
+
+The `detach()` prevents direct assignment gradients through cls, but it does not
+remove the cross-iteration feedback because the next assignment still uses the
+current classification score.
+
+A minimal ablation knob was added:
+
+```yaml
+tal_alpha: 0.5  # default, preserves current behavior
+```
+
+Setting `tal_alpha: 0.0` removes classification from the TAL ranking while
+keeping TAL's top-k, in-GT, and IoU-weighted target logic:
+
+```text
+assignment score = IoU^beta
+```
+
+Initial ablation YAMLs:
+
+```text
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl_tal_a0_b6.yaml
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl_tal_a0_b4.yaml
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl_tal_a0_b2.yaml
+```
+
+These use the existing non-geometry VFL architecture. No quality head, quality
+loss, inference multiplier, NMS change, or ATSS assigner has been added.
+
+Interpretation rule:
+
+- If `tal_alpha=0` improves positive cls logits, score-vs-IoU monotonicity, or
+  AP75/AP50-95 versus VFL with default TAL, this supports the assignment
+  feedback hypothesis.
+- If `tal_alpha=0` still fails, test lower `tal_beta` values and then consider
+  a true ATSS-style assigner using the `VarifocalNet` reference.
+
 ## Conclusion
 
 The model is not mainly failing to detect varroa. It is detecting them at AP50,

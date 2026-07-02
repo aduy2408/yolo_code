@@ -112,6 +112,7 @@ vfl_gamma: 2.0 # (float) EXPERIMENTAL Varifocal Loss focusing gamma
 vfl_iou_detach: true # (bool) EXPERIMENTAL detach assigned IoU before using it as VFL classification target
 vfl_pos_q_weight: true # (bool) EXPERIMENTAL weight positive VFL examples by IoU quality target
 tal_topk: 10 # (int) EXPERIMENTAL TaskAlignedAssigner top-k positive candidates
+tal_alpha: 0.5 # (float) EXPERIMENTAL TaskAlignedAssigner classification score exponent
 tal_beta: 6.0 # (float) EXPERIMENTAL TaskAlignedAssigner IoU exponent
 vfl_weight_box_by_q: false # (bool) EXPERIMENTAL weight positive box/DFL loss by assigned IoU target
 box_q_weight_min: 0.25 # (float) EXPERIMENTAL minimum quality weight for VFL box/DFL weighting

@@ -755,7 +755,7 @@ class v8DetectionLoss:
         self.assigner = TaskAlignedAssigner(
             topk=int(getattr(h, "tal_topk", tal_topk)),
             num_classes=self.nc,
-            alpha=0.5,
+            alpha=float(getattr(h, "tal_alpha", 0.5)),
             beta=float(getattr(h, "tal_beta", 6.0)),
             stride=self.stride.tolist(),
             topk2=tal_topk2,
@@ -1484,8 +1484,8 @@ class v8OBBLoss(v8DetectionLoss):
         self.assigner = RotatedTaskAlignedAssigner(
             topk=tal_topk,
             num_classes=self.nc,
-            alpha=0.5,
-            beta=6.0,
+            alpha=float(getattr(self.hyp, "tal_alpha", 0.5)),
+            beta=float(getattr(self.hyp, "tal_beta", 6.0)),
             stride=self.stride.tolist(),
             topk2=tal_topk2,
         )
