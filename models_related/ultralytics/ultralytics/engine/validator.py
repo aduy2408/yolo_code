@@ -232,7 +232,14 @@ class BaseValidator:
             with autocast(self.training and self.args.half, device=self.device.type):
                 # Inference
                 with dt[1]:
-                    preds = model(batch["img"], augment=augment)
+                    quality_score_mode = getattr(self.args, "quality_score_mode", None)
+                    if hasattr(model, "backend"):
+                        preds = model(batch["img"], augment=augment, quality_score_mode=quality_score_mode)
+                    else:
+                        head = getattr(unwrap_model(model), "model", [None])[-1]
+                        if quality_score_mode is not None and getattr(head, "quality_head", False):
+                            head.quality_score_mode = str(quality_score_mode)
+                        preds = model(batch["img"], augment=augment)
 
                 # Loss
                 with dt[2]:

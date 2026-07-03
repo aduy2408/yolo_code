@@ -66,7 +66,79 @@ objects in the val split.
 | Match IoU | TP | FP | FN | Precision | Recall |
 |---:|---:|---:|---:|---:|---:|
 | 0.50 | 677 | 3530 | 8 | 0.161 | 0.988 |
-| 0.75 | 350 | 3857 | 335 | 0.083 | 0.511 |
+| 0.75 | 350 | 3857 | 335 | 0.Làm quality head thật, không dùng Gaussian loc_quality cũ.
+
+Target đúng phải là:
+
+quality_target = IoU(decoded_pred_box, matched_gt_box).detach()
+
+Không phải Gaussian center map.
+
+Hướng implement nên chọn
+Option A — nhanh và đúng nhất: IoU quality branch
+
+Trong Detect head, thêm một nhánh predict q cho mỗi anchor/grid:
+
+box branch → pred box
+cls branch → pred cls
+quality branch → pred IoU quality
+
+Training:
+
+positive anchors:
+    target_q = IoU(pred_box, assigned_gt).detach()
+
+negative anchors:
+    target_q = 0
+
+Loss:
+
+loss_q = BCEWithLogitsLoss(q_logits, target_q)
+
+hoặc smooth L1/MSE trên sigmoid output:
+
+q = q_logits.sigmoid()
+loss_q = F.l1_loss(q[pos], target_iou[pos])
+
+Inference:
+
+score = cls_score * quality_score
+
+hoặc theo oracle của mày, thử thêm:
+
+score = cls_score.sqrt() * quality_score
+score = cls_score * quality_score ** 2
+
+Vì oracle cho thấy hai cái này đang tốt nhất:
+
+sqrt(conf) * q
+conf * q^2
+Không nên làm lại cái loc_quality cũ
+
+Cái Gaussian center map cũ học kiểu:
+
+center high / boundary low
+
+Nó không học trực tiếp:
+
+box này tight hay loose
+
+Trong khi diagnostic của mày đang chỉ ra đúng vấn đề:
+
+box tốt tồn tại nhưng score không chọn nó
+
+Nên quality target phải bám vào IoU của decoded predicted box, không phải heatmap center.
+
+Experiment tiếp theo nên là
+
+Chạy ablation nhỏ:
+
+B0: baseline standard NMS
+B1: baseline Soft-NMS
+Q1: quality head, score = cls * q
+Q2: quality head, score = sqrt(cls) * q
+Q3: quality head, score = cls * q^2
+Q4: quality head + Soft-NMS083 | 0.511 |
 | 0.90 | 14 | 4193 | 671 | 0.003 | 0.020 |
 
 Interpretation:
@@ -1087,336 +1159,118 @@ Recommended next checks:
 - Compare against a baseline model using the same diagnostic to see whether
   this architecture specifically worsens edge precision.
 
-## 2026-07-03 Pairwise Ranking Loss Follow-Up
+## Post-hoc Quality and Oracle Scoring Diagnostics
 
-### Motivation
+These diagnostics were run in the live marimo notebook after the earlier
+box-localization analysis.
 
-Pairwise ranking loss was tested because the current failure mode includes weak
-score-vs-localization alignment: many detections are confident even when their
-boxes are not tight enough for high-IoU AP.
-
-The intended pairwise rule was:
-
-```text
-For positive candidates assigned to the same GT:
-better IoU box should have higher class score than worse IoU box.
-```
-
-The suspected risk was that this objective can damage class-score calibration:
-it ranks positives against positives, but it does not explicitly teach negatives
-to be low. If the ranking loss is too strong or noisy, it can raise scores for
-many positive candidates around each GT and reduce precision.
-
-### Current Pairwise Ranking Implementation
-
-The ranking loss lives in:
-
-```text
-models_related/ultralytics/ultralytics/utils/loss.py
-```
-
-Core behavior:
-
-```python
-rank_pred_bboxes = pred_bboxes.detach()[fg_mask]
-rank_target_bboxes = target_bboxes.detach()[fg_mask]
-rank_iou = bbox_iou(rank_pred_bboxes, rank_target_bboxes, xywh=False, CIoU=False).squeeze(-1).clamp(0)
-
-class_indices = target_scores[fg_mask].argmax(-1)
-assigned_logits = pred_scores[batch_indices, anchor_indices, class_indices]
-group_ids = batch_indices * (target_gt_idx.max() + 1).clamp_min(1) + target_gt_idx[fg_mask]
-
-for group_id in group_ids.unique():
-    group_mask = group_ids == group_id
-    group_iou = rank_iou[group_mask]
-    group_logits = assigned_logits[group_mask]
-    topk = min(self.rank_topk, int(group_iou.numel()))
-    order = group_iou.argsort(descending=True)[:topk]
-    group_iou = group_iou[order]
-    group_logits = group_logits[order]
-
-    iou_gap = group_iou[:, None] - group_iou[None, :]
-    pair_mask = iou_gap > self.rank_iou_margin
-    score_gap = group_logits[:, None] - group_logits[None, :]
-    weights = iou_gap[pair_mask].detach()
-    rank_losses.append(F.softplus(-score_gap[pair_mask] / tau) * weights)
-```
-
-For the follow-up tests, a runtime monkey patch added:
-
-```python
-pair_mask = (iou_gap > self.rank_iou_margin) & (group_iou[:, None] > rank_iou_hi_min)
-```
-
-so only pairs whose better box has IoU above the threshold are used.
-
-### IoU Scale Debug
-
-The debug print was added around the rank IoU calculation:
-
-```python
-print(
-    "[rank debug]",
-    "fg", int(fg_mask.sum()),
-    "pred", float(rank_pred_bboxes.min()), float(rank_pred_bboxes.max()),
-    "target", float(rank_target_bboxes.min()), float(rank_target_bboxes.max()),
-    "iou_mean", float(rank_iou.mean()) if rank_iou.numel() else -1,
-    "iou_max", float(rank_iou.max()) if rank_iou.numel() else -1,
-    "iou_hi_min", float(rank_iou_hi_min),
-)
-```
-
-Observed logs:
-
-```text
-[rank debug] fg 180 pred 13.9140625 120.5859375 target 17.762069702148438 116.6993637084961 iou_mean 0.6278674006462097 iou_max 0.9187124371528625 iou_hi_min 0.6
-[rank debug] fg 370 pred 10.8671875 112.03125 target 12.5625 110.85714721679688 iou_mean 0.6693977117538452 iou_max 0.9366804957389832 iou_hi_min 0.6
-[rank debug] fg 180 pred 13.97265625 119.1953125 target 17.762069702148438 116.6993637084961 iou_mean 0.6589277386665344 iou_max 0.8697048425674438 iou_hi_min 0.6
-[rank debug] fg 370 pred 11.94921875 113.05859375 target 12.5625 110.85714721679688 iou_mean 0.7128806710243225 iou_max 0.9152914881706238 iou_hi_min 0.6
-```
-
-Interpretation:
-
-- The IoU scale is not broken.
-- Predicted and target boxes are in the same coordinate scale.
-- `iou_max` is high enough; the ranking failure is not caused by all-zero or
-  badly scaled IoU.
-
-### Ablation 1: Baseline P2/P3 Edge Pooling Checkpoint
-
-Seed checkpoint:
-
-```text
-/marimo/runs/detect/rank_loss_staged/baseline_p2p3_edge_pooling_rank0_40ep/weights/best.pt
-```
-
-Original source run:
-
-```text
-/marimo/runs/detect/rank_loss_staged/baseline_p2p3_edge_pooling_rank0_40ep
-best epoch: 36
-best precision: 0.88858
-best recall: 0.89647
-best mAP50: 0.90603
-last epoch: 40
-last precision: 0.88133
-last recall: 0.87822
-last mAP50: 0.89932
-```
-
-All ablations were run for 10 epochs from the same checkpoint with:
-
-```text
-rank_iou_margin=0.1
-rank_tau=0.25
-rank_topk=10
-```
-
-Results:
-
-| Run | rank_loss | rank_iou_hi_min | Precision | Recall | mAP50 | mAP50-95 |
-|---|---:|---:|---:|---:|---:|---:|
-| A | 0.0 | 0.0 | 0.80190 | 0.76232 | 0.82516 | 0.28457 |
-| B | 0.025 | 0.6 | 0.63715 | 0.67931 | 0.68362 | 0.25003 |
-| C | 0.05 | 0.6 | 0.45912 | 0.51387 | 0.48777 | 0.17840 |
-
-Run directories:
-
-```text
-/marimo/runs/detect/rank_loss_ablation_hi06/A_rank0_from_map90_10ep
-/marimo/runs/detect/rank_loss_ablation_hi06/B_rank0025_iouhi06_from_map90_10ep
-/marimo/runs/detect/rank_loss_ablation_hi06/C_rank005_iouhi06_from_map90_10ep
-```
-
-Result:
-
-- `rank_loss=0.025` already hurts precision and mAP50 heavily.
-- `rank_loss=0.05` is substantially worse.
-- Filtering pairs with `rank_iou_hi_min=0.6` does not prevent the damage.
-
-### Ablation 2: `/marimo/best_api_pooledge_p2p3.pt`
-
-Available P2/P3 edge-pooling related checkpoints found under `/marimo`:
-
-| Checkpoint | Notes |
-|---|---|
-| `/marimo/runs/detect/rank_loss_staged/baseline_p2p3_edge_pooling_rank0_40ep/weights/best.pt` | Best source mAP50 0.90603 |
-| `/marimo/runs/detect/rank_loss_staged/baseline_p2p3_edge_pooling_rank0_40ep/weights/last.pt` | Last mAP50 0.89932 |
-| `/marimo/runs/detect/rank_loss_staged/rank005_p2p3_edge_pooling_from_baseline40_80ep/weights/best.pt` | Best source mAP50 0.80299 |
-| `/marimo/runs/detect/rank_loss_staged/rank005_p2p3_edge_pooling_from_baseline40_80ep/weights/last.pt` | Last mAP50 0.68852 |
-| `/marimo/runs/detect/rank_loss_real/rank005_p2p3_edge_pooling_scratch/weights/best.pt` | Best source mAP50 0.71145 |
-| `/marimo/best_api_pooledge_p2p3.pt` | No adjacent results.csv |
-| `/marimo/best_api_pooledge_p2p3_vlf.pt` | No adjacent results.csv |
-
-The requested checkpoint was tested:
+Evaluated checkpoint:
 
 ```text
 /marimo/best_api_pooledge_p2p3.pt
 ```
 
-Same 10-epoch settings:
+Dataset:
 
 ```text
-rank_iou_margin=0.1
-rank_tau=0.25
-rank_topk=10
+/marimo/data/yolo_code/datasets/varroa_yolo/varroa.yaml
+split: test
+nc: 1
+class: varroa
 ```
 
-Results:
-
-| Run | rank_loss | rank_iou_hi_min | Precision | Recall | mAP50 | mAP50-95 |
-|---|---:|---:|---:|---:|---:|---:|
-| A | 0.0 | 0.0 | 0.76916 | 0.72555 | 0.80460 | 0.28666 |
-| B | 0.025 | 0.6 | 0.53296 | 0.62305 | 0.59009 | 0.22629 |
-| C | 0.05 | 0.6 | 0.46191 | 0.65547 | 0.55932 | 0.21858 |
-
-Run directories:
+Prediction setup:
 
 ```text
-/marimo/runs/detect/rank_loss_ablation_pooledge_hi06/A_rank0_from_pooledge_10ep
-/marimo/runs/detect/rank_loss_ablation_pooledge_hi06/B_rank0025_iouhi06_from_pooledge_10ep
-/marimo/runs/detect/rank_loss_ablation_pooledge_hi06/C_rank005_iouhi06_from_pooledge_10ep
+loose predictions: conf=0.001, nms_iou=0.95
+strict predictions: conf=0.001, nms_iou=0.50
+oracle re-NMS: greedy NMS at IoU 0.50 after score replacement
 ```
 
-Result:
+### Loose-vs-strict box-quality check
 
-- The same pattern repeats.
-- A rank-free continuation is best.
-- `rank_loss=0.025` and `rank_loss=0.05` both damage precision and mAP.
-- The damage remains even with `rank_iou_hi_min=0.6`.
+For each GT, loose predictions were searched for the prediction with highest
+IoU. This asks whether the model can produce a good box before ranking and NMS
+discard it.
 
-### Why `rank_iou_hi_min=0.6` Still Fails
+| Metric | Value |
+|---|---:|
+| Images | 592 |
+| GT boxes | 684 |
+| Loose predictions | 13543 |
+| Strict predictions | 1394 |
+| Loose GT recall@0.50 | 0.9912 |
+| Loose GT recall@0.75 | 0.6447 |
+| Loose GT recall@0.90 | 0.0716 |
+| Mean best IoU per GT | 0.7703 |
+| Median best IoU per GT | 0.7839 |
+| Spearman(conf, pred best IoU) | 0.4580 |
+| Killed-good-box rate@0.75 | 0.3392 |
+| Killed-good-box count@0.75 | 232 |
 
-The filter only says that the higher-IoU box in a pair must be reasonably good.
-It does not solve the calibration problem.
+Best-IoU box vs top-confidence box summary:
 
-Main failure reasons:
+| Metric | Value |
+|---|---:|
+| Mean IoU gap, best-IoU minus top-conf | 0.1228 |
+| Median IoU gap, best-IoU minus top-conf | 0.0720 |
+| Mean confidence gap, top-conf minus best-IoU | 0.3360 |
+| Best-IoU box has lower confidence rate | 0.9342 |
+| Strong score mismatch rate | 0.1696 |
 
-1. The objective ranks positives against positives only.
-   It does not explicitly suppress negatives or duplicate low-quality
-   candidates. BCE/VFL still does that separately, but the rank term can distort
-   the positive score distribution enough to hurt precision.
+Interpretation:
 
-2. A valid pair can still be noisy.
-   With `rank_iou_hi_min=0.6`, pairs like `0.62 > 0.50` are valid. This is true
-   in ranking terms, but it may not help NMS or thresholded detection quality.
+- The model often can produce a decent box: median best IoU is about 0.784 and
+  loose recall@0.75 is about 0.645.
+- Strict NMS/ranking removes many good boxes: 232 of 684 GTs have loose best
+  IoU >= 0.75 but strict best IoU < 0.75.
+- Confidence is only moderately aligned with localization quality
+  (Spearman about 0.458).
+- The failure is not purely localization; score quality and NMS ordering are a
+  major part of the AP75/AP50-95 collapse.
 
-3. The rank term is not tiny in practice.
-   Observed rank losses were roughly:
+### Oracle quality upper-bound
 
-   ```text
-   rank_loss=0.025 run: train/rank_loss about 0.126, val/rank_loss about 0.133
-   rank_loss=0.05 run:  train/rank_loss about 0.187, val/rank_loss about 0.209
-   ```
-
-   Even after multiplying by the gain, this is enough to push class logits and
-   disrupt calibration.
-
-4. It optimizes local ordering, not global confidence.
-   The metric needs a calibrated score that separates true detections,
-   duplicates, loose boxes, and background. Pairwise positive-only ranking does
-   not directly optimize that global ordering.
-
-5. The continuation LR schedule is itself destabilizing.
-   Even `rank_loss=0.0` drops below the original checkpoint's best mAP50 after
-   10 continuation epochs. However, the rank-loss runs drop much more than A,
-   so rank loss remains the primary additional harm.
-
-Conclusion:
+Loose predictions were assigned an oracle localization quality:
 
 ```text
-Current pairwise ranking loss should stay disabled for this model family.
+pred_best_iou = max IoU(prediction, all GT boxes in same image)
 ```
 
-If it is tested again, use a much smaller gain and safer scheduling:
+The same loose predictions were then rescored, greedy NMS was reapplied at IoU
+0.50, and AP/mAP was recomputed. This tests the upper bound of a perfect
+quality-aware score.
 
-```text
-rank_loss: 0.005 or 0.01
-enable only after warmup / late fine-tune
-low LR continuation
-possibly require iou_hi > 0.7 and iou_lo < 0.5, not just iou_gap > margin
-```
+| Score used for re-NMS/eval | Preds after NMS | mAP50-95 | Delta vs conf | AP50 | AP75 | AP90 | AP95 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `conf` | 1393 | 0.362845 | 0.000000 | 0.918310 | 0.163331 | 0.004645 | 0.000000 |
+| `pred_best_iou` | 1529 | 0.618834 | 0.255989 | 0.986548 | 0.694205 | 0.093829 | 0.011841 |
+| `conf * pred_best_iou` | 1380 | 0.443725 | 0.080880 | 0.960831 | 0.312238 | 0.009913 | 0.000000 |
+| `sqrt(conf) * pred_best_iou` | 1393 | 0.472530 | 0.109685 | 0.964433 | 0.372696 | 0.021764 | 0.000000 |
+| `conf * pred_best_iou^2` | 1393 | 0.472530 | 0.109685 | 0.964433 | 0.372696 | 0.021764 | 0.000000 |
 
-### Current Quality Head Status
+Interpretation:
 
-There is a train-only localization quality map auxiliary head, but no inference
-quality head yet.
+- Oracle quality raises mAP50-95 from 0.362845 to 0.618834
+  (`+0.255989`). This is far above the 0.40+ threshold for "quality-aware
+  scoring is worth doing".
+- AP75 jumps from 0.163331 to 0.694205 under the perfect quality score, so
+  ranking/NMS is a major failure mode.
+- AP90 and AP95 remain low even with oracle ranking. Quality scoring can rescue
+  AP75-level ordering, but edge/boundary/localization still limits very tight
+  boxes.
+- The next model change should be a true IoU quality head with target
+  `IoU(decoded_pred_box, matched_gt_box).detach()`, not the old Gaussian
+  center-map quality proxy.
 
-Detect head code:
+Recommended next experiment:
 
-```text
-models_related/ultralytics/ultralytics/nn/modules/head.py
-```
-
-Current auxiliary head:
-
-```python
-# EXPERIMENTAL: localization quality map heads. These parameters live
-# on the model so the optimizer can update them during LQM training.
-self.loc_quality_enabled = False
-self.loc_cv = nn.ModuleList(nn.Conv2d(x, 1, 1) for x in ch)
-```
-
-Forward path:
-
-```python
-out = dict(boxes=boxes, scores=scores, feats=x)
-# EXPERIMENTAL: LQM maps are train-time auxiliary outputs only.
-if self.training and getattr(self, "loc_quality_enabled", False):
-    out["loc_maps"] = [self.loc_cv[i](x[i]) for i in range(self.nl)]
-return out
-```
-
-Loss code:
-
-```text
-models_related/ultralytics/ultralytics/utils/loss.py
-```
-
-Current objective:
-
-```python
-class LocalizationQualityLoss(nn.Module):
-    """Gaussian localization quality map supervision over Detect feature maps."""
-```
-
-It creates a smooth center-high Gaussian target inside each GT box and applies
-MSE or SmoothL1 to `sigmoid(loc_map)`.
-
-Config knobs:
-
-```yaml
-loc_quality: 0.0
-loc_quality_levels: 2
-loc_quality_sigma: 0.45
-loc_quality_loss: mse
-```
-
-Important limitation:
-
-```text
-loc_quality is train-only auxiliary supervision.
-It is not used at inference and it is not multiplied into class confidence.
-```
-
-`cls_iou_target` and `vfl` use assigned IoU as a classification target, but they
-do not add a separate quality prediction head.
-
-### Updated Recommendation
-
-Given the ranking-loss results, the next more plausible direction is not
-positive-only pairwise ranking. Better candidates:
-
-- Keep rank loss off.
-- If using quality, prefer a true IoU/quality prediction branch whose output is
-  supervised by assigned IoU and used at inference as:
-
-  ```text
-  final_score = cls_score * quality_score
-  ```
-
-- Alternatively, test VFL/quality-target classification with careful TAL
-  assignment tuning, especially `tal_alpha=0.0`, to avoid classification-score
-  feedback loops during assignment.
-- Continue focusing on localization: DFL/box loss, assignment scale, P2/P3
-  positive distribution, and high-IoU box refinement.
+- Add an IoU quality branch to the detection head.
+- Train positive anchors with IoU-to-assigned-GT as the quality target and
+  negatives with quality target 0.
+- Evaluate score variants:
+  - `cls * q`
+  - `sqrt(cls) * q`
+  - `cls * q^2`
+- Compare against baseline hard NMS, baseline Soft-NMS, quality head hard NMS,
+  and quality head plus Soft-NMS.

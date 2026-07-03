@@ -72,6 +72,9 @@ class DetectionTrainer(BaseTrainer):
         # EXPERIMENTAL: loc_quality_loss is logged only when LQM supervision is enabled.
         if float(getattr(self.args, "loc_quality", 0.0)) > 0:
             names += ("loc_quality_loss",)
+        # EXPERIMENTAL: quality_loss is logged only when the IoU quality head is enabled.
+        if bool(getattr(self.args, "quality_head", False)):
+            names += ("quality_loss",)
         # EXPERIMENTAL: rank_loss is logged only when pairwise localization ranking is enabled.
         if float(getattr(self.args, "rank_loss", 0.0)) > 0:
             names += ("rank_loss",)

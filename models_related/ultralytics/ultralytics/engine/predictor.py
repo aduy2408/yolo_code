@@ -183,6 +183,7 @@ class BasePredictor:
             if self.args.visualize and (not self.source_type.tensor)
             else False
         )
+        kwargs.setdefault("quality_score_mode", getattr(self.args, "quality_score_mode", None))
         return self.model(im, augment=self.args.augment, visualize=visualize, embed=self.args.embed, *args, **kwargs)
 
     def pre_transform(self, im: list[np.ndarray]) -> list[np.ndarray]:

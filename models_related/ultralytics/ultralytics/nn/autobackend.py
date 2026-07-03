@@ -274,6 +274,12 @@ class AutoBackend(nn.Module):
         # Build forward kwargs based on backend type
         forward_kwargs = {}
         if self.format == "pt":
+            quality_score_mode = kwargs.pop("quality_score_mode", None)
+            if quality_score_mode is not None and hasattr(self.backend, "model"):
+                model = self.backend.model
+                head = getattr(model, "model", [None])[-1]
+                if getattr(head, "quality_head", False):
+                    head.quality_score_mode = str(quality_score_mode)
             forward_kwargs = {"augment": augment, "visualize": visualize, "embed": embed, **kwargs}
 
         y = self.backend.forward(im, **forward_kwargs)

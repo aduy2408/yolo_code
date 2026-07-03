@@ -96,6 +96,8 @@ class Detect(nn.Module):
         cls_geometry_mode: str = "add",
         cls_geometry_detach: bool = True,
         cls_deform_geometry: bool = False,
+        quality_head: bool = False,
+        quality_score_mode: str = "cls_mul_q",
     ):
         """Initialize the YOLO detection layer with specified number of classes and channels.
 
@@ -108,6 +110,8 @@ class Detect(nn.Module):
             cls_geometry_mode (str): Geometry fusion mode, "add" or "concat".
             cls_geometry_detach (bool): Detach geometry cue before feeding classification branch.
             cls_deform_geometry (bool): Reserved flag for future VFNet-like deformable classification.
+            quality_head (bool): Add an IoU-quality prediction branch for score calibration.
+            quality_score_mode (str): How to combine class confidence and predicted quality at inference.
         """
         super().__init__()
         self.nc = nc  # number of classes
@@ -123,6 +127,10 @@ class Detect(nn.Module):
         self.cls_deform_geometry = bool(cls_deform_geometry)
         if self.cls_deform_geometry:
             raise NotImplementedError("cls_deform_geometry is reserved for a future VFNet-like experiment.")
+        self.quality_head = bool(quality_head)
+        self.quality_score_mode = str(quality_score_mode)
+        if self.quality_score_mode not in {"cls_mul_q", "sqrt_cls_mul_q", "cls_mul_q2"}:
+            raise ValueError("quality_score_mode must be 'cls_mul_q', 'sqrt_cls_mul_q', or 'cls_mul_q2'.")
         c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels
         self.cv2 = nn.ModuleList(
             nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
@@ -155,6 +163,9 @@ class Detect(nn.Module):
         # on the model so the optimizer can update them during LQM training.
         self.loc_quality_enabled = False
         self.loc_cv = nn.ModuleList(nn.Conv2d(x, 1, 1) for x in ch)
+        # EXPERIMENTAL: true IoU quality heads. Unlike loc_quality, this branch
+        # is inference-visible and learns assigned predicted-box IoU.
+        self.cvq = nn.ModuleList(nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 1, 1)) for x in ch)
 
         if end2end:
             self.one2one_cv2 = copy.deepcopy(self.cv2)
@@ -167,6 +178,8 @@ class Detect(nn.Module):
     def one2many(self):
         """Returns the one-to-many head components, here for v3/v5/v8/v9/v11 backward compatibility."""
         out = dict(box_head=self.cv2, cls_head=self.cv3)
+        if getattr(self, "quality_head", False):
+            out.update(quality_head=self.cvq)
         if getattr(self, "cls_geometry_fuse", False):
             out.update(geom_embed=self.cls_geometry_embed, geom_fuse=self.cls_geometry_fuse_conv)
         return out
@@ -222,6 +235,7 @@ class Detect(nn.Module):
         x: list[torch.Tensor],
         box_head: torch.nn.Module = None,
         cls_head: torch.nn.Module = None,
+        quality_head: torch.nn.Module = None,
         geom_embed: torch.nn.Module = None,
         geom_fuse: torch.nn.Module = None,
     ) -> dict[str, torch.Tensor]:
@@ -243,6 +257,8 @@ class Detect(nn.Module):
             boxes = torch.cat(boxes_per_level, dim=-1)
             scores = torch.cat(scores_per_level, dim=-1)
         out = dict(boxes=boxes, scores=scores, feats=x)
+        if getattr(self, "quality_head", False) and quality_head is not None:
+            out["quality_logits"] = torch.cat([quality_head[i](x[i]).view(bs, 1, -1) for i in range(self.nl)], dim=-1)
         # EXPERIMENTAL: LQM maps are train-time auxiliary outputs only.
         if self.training and getattr(self, "loc_quality_enabled", False):
             out["loc_maps"] = [self.loc_cv[i](x[i]) for i in range(self.nl)]
@@ -276,6 +292,14 @@ class Detect(nn.Module):
         # Inference path
         dbox = self._get_decode_boxes(x)
         scores = x["scores"].sigmoid()
+        if getattr(self, "quality_head", False) and "quality_logits" in x:
+            quality = x["quality_logits"].sigmoid()
+            if self.quality_score_mode == "sqrt_cls_mul_q":
+                scores = scores.clamp_min(0).sqrt() * quality
+            elif self.quality_score_mode == "cls_mul_q2":
+                scores = scores * quality.square()
+            else:
+                scores = scores * quality
         return torch.cat((dbox, scores), 1)
 
     def _get_decode_boxes(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
@@ -295,6 +319,9 @@ class Detect(nn.Module):
             b[-1].bias.data[: self.nc] = math.log(
                 5 / self.nc / (640 / self.stride[i]) ** 2
             )  # cls (.01 objects, 80 classes, 640 img)
+        if getattr(self, "quality_head", False):
+            for q in self.cvq:
+                q[-1].bias.data[:] = math.log(0.01 / 0.99)
         if self.end2end:
             for i, (a, b) in enumerate(zip(self.one2one["box_head"], self.one2one["cls_head"])):  # from
                 a[-1].bias.data[:] = 2.0  # box

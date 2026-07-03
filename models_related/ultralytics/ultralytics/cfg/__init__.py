@@ -214,6 +214,8 @@ CFG_FRACTION_KEYS = frozenset(
 CFG_CHOICE_KEYS = {
     "nms_method": {"hard", "soft-linear", "soft-gaussian"},
     "cls_geometry_mode": {"add", "concat"},
+    "quality_loss": {"bce", "l1"},
+    "quality_score_mode": {"cls_mul_q", "sqrt_cls_mul_q", "cls_mul_q2"},
 }
 CFG_INT_KEYS = frozenset(
     {  # integer-only arguments
@@ -249,6 +251,8 @@ CFG_BOOL_KEYS = frozenset(
         "cls_geometry_fuse",
         "cls_geometry_detach",
         "cls_deform_geometry",
+        "quality_head",
+        "quality_detach_target",
         "wiou_monotonous",
         "single_cls",
         "rect",

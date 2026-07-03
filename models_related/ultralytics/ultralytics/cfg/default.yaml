@@ -126,6 +126,10 @@ loc_quality: 0.0 # (float) EXPERIMENTAL localization quality map loss gain for t
 loc_quality_levels: 2 # (int) EXPERIMENTAL number of Detect feature levels to supervise with LQM
 loc_quality_sigma: 0.45 # (float) EXPERIMENTAL Gaussian sigma scale for localization quality targets
 loc_quality_loss: mse # (str) EXPERIMENTAL LQM loss type: mse or smoothl1
+quality_head: false # (bool) EXPERIMENTAL predict IoU quality per anchor for score calibration
+quality_loss: bce # (str) EXPERIMENTAL quality-head loss: bce or l1
+quality_score_mode: cls_mul_q # (str) EXPERIMENTAL quality score mode: cls_mul_q, sqrt_cls_mul_q, or cls_mul_q2
+quality_detach_target: true # (bool) EXPERIMENTAL detach IoU target for quality-head supervision
 rank_loss: 0.0 # (float) EXPERIMENTAL pairwise localization ranking loss gain
 rank_tau: 0.25 # (float) EXPERIMENTAL pairwise ranking temperature
 rank_iou_margin: 0.10 # (float) EXPERIMENTAL minimum IoU gap for ranking pairs

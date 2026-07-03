@@ -793,6 +793,11 @@ class v8DetectionLoss:
             if self.loc_quality_gain > 0
             else None
         )
+        self.quality_head = bool(getattr(m, "quality_head", getattr(h, "quality_head", False)))
+        self.quality_loss_type = str(getattr(h, "quality_loss", "bce")).lower()
+        if self.quality_loss_type not in {"bce", "l1"}:
+            raise ValueError("quality_loss must be 'bce' or 'l1'.")
+        self.quality_detach_target = bool(getattr(h, "quality_detach_target", True))
         self.rank_gain = float(getattr(h, "rank_loss", 0.0))
         self.rank_tau = float(getattr(h, "rank_tau", 0.25))
         self.rank_iou_margin = float(getattr(h, "rank_iou_margin", 0.10))
@@ -888,9 +893,10 @@ class v8DetectionLoss:
             3
             + int(self.boundary_loss is not None)
             + int(self.loc_quality_loss is not None)
+            + int(self.quality_head)
             + int(self.rank_gain > 0),
             device=self.device,
-        )  # box, cls, dfl[, boundary][, loc_quality][, rank]
+        )  # box, cls, dfl[, boundary][, loc_quality][, quality][, rank]
         pred_distri, pred_scores = (
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
@@ -1009,8 +1015,37 @@ class v8DetectionLoss:
             if loc_maps is None:
                 loc_maps = [self.loc_quality_heads[i](x) for i, x in enumerate(preds["feats"])]
             loss[loc_idx] = self.loc_quality_loss(loc_maps, gt_bboxes, mask_gt, self.stride) * self.loc_quality_gain
+        if self.quality_head:
+            quality_idx = 3 + int(self.boundary_loss is not None) + int(self.loc_quality_loss is not None)
+            quality_logits = preds.get("quality_logits")
+            if quality_logits is None:
+                raise KeyError("quality_head=True but model predictions do not contain 'quality_logits'.")
+            quality_logits = quality_logits.permute(0, 2, 1).contiguous().squeeze(-1)
+            quality_target = torch.zeros_like(quality_logits)
+            if fg_mask.sum():
+                quality_iou = bbox_iou(
+                    pred_bboxes.detach()[fg_mask] if self.quality_detach_target else pred_bboxes[fg_mask],
+                    target_bboxes_scaled[fg_mask],
+                    xywh=False,
+                    CIoU=False,
+                ).squeeze(-1).clamp(0)
+                if self.quality_detach_target:
+                    quality_iou = quality_iou.detach()
+                quality_target[fg_mask] = quality_iou.to(dtype=quality_target.dtype)
+            if self.quality_loss_type == "l1":
+                pos_loss = (
+                    F.l1_loss(quality_logits.sigmoid()[fg_mask], quality_target[fg_mask], reduction="sum")
+                    if fg_mask.sum()
+                    else quality_logits.sum() * 0.0
+                )
+                neg_loss = self.bce(quality_logits, quality_target).masked_fill(fg_mask, 0).sum()
+                loss[quality_idx] = (pos_loss + neg_loss) / fg_mask.sum().clamp_min(1)
+            else:
+                loss[quality_idx] = self.bce(quality_logits, quality_target).sum() / fg_mask.sum().clamp_min(1)
         if self.rank_gain > 0:
-            rank_idx = 3 + int(self.boundary_loss is not None) + int(self.loc_quality_loss is not None)
+            rank_idx = (
+                3 + int(self.boundary_loss is not None) + int(self.loc_quality_loss is not None) + int(self.quality_head)
+            )
             loss[rank_idx] = (
                 self.pairwise_ranking_loss(
                     pred_scores,
@@ -1026,7 +1061,7 @@ class v8DetectionLoss:
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,
             loss.detach(),
-        )  # loss(box, cls, dfl[, boundary][, loc_quality][, rank])
+        )  # loss(box, cls, dfl[, boundary][, loc_quality][, quality][, rank])
 
     def parse_output(
         self, preds: dict[str, torch.Tensor] | tuple[torch.Tensor, dict[str, torch.Tensor]]

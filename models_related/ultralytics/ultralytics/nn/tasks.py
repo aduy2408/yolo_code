@@ -2037,6 +2037,8 @@ def parse_model(d, ch, verbose=True):
     cls_geometry_mode = d.get("cls_geometry_mode", "add")
     cls_geometry_detach = d.get("cls_geometry_detach", True)
     cls_deform_geometry = d.get("cls_deform_geometry", False)
+    quality_head = d.get("quality_head", False)
+    quality_score_mode = d.get("quality_score_mode", "cls_mul_q")
     depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
     scale = d.get("scale")
     if scales:
@@ -2226,7 +2228,16 @@ def parse_model(d, ch, verbose=True):
         ):
             args.extend([reg_max, end2end, [ch[x] for x in f]])
             if m is Detect:
-                args.extend([cls_geometry_fuse, cls_geometry_mode, cls_geometry_detach, cls_deform_geometry])
+                args.extend(
+                    [
+                        cls_geometry_fuse,
+                        cls_geometry_mode,
+                        cls_geometry_detach,
+                        cls_deform_geometry,
+                        quality_head,
+                        quality_score_mode,
+                    ]
+                )
             if m is Segment or m is YOLOESegment or m is Segment26 or m is YOLOESegment26:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
             if m in {Detect, YOLOEDetect, Segment, Segment26, YOLOESegment, YOLOESegment26, Pose, Pose26, OBB, OBB26}:
