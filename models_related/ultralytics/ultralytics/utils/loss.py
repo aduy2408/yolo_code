@@ -793,6 +793,10 @@ class v8DetectionLoss:
             if self.loc_quality_gain > 0
             else None
         )
+        self.rank_gain = float(getattr(h, "rank_loss", 0.0))
+        self.rank_tau = float(getattr(h, "rank_tau", 0.25))
+        self.rank_iou_margin = float(getattr(h, "rank_iou_margin", 0.10))
+        self.rank_topk = int(getattr(h, "rank_topk", 10))
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
@@ -822,14 +826,71 @@ class v8DetectionLoss:
             # pred_dist = (pred_dist.view(b, a, c // 4, 4).softmax(2) * self.proj.type(pred_dist.dtype).view(1, 1, -1, 1)).sum(2)
         return dist2bbox(pred_dist, anchor_points, xywh=False)
 
+    def pairwise_ranking_loss(
+        self,
+        pred_scores: torch.Tensor,
+        pred_bboxes: torch.Tensor,
+        target_bboxes: torch.Tensor,
+        target_scores: torch.Tensor,
+        target_gt_idx: torch.Tensor,
+        fg_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Rank TAL foreground candidates so higher-IoU boxes receive higher assigned-class logits."""
+        if not fg_mask.any() or self.rank_topk < 2:
+            return pred_scores.sum() * 0.0
+
+        fg_indices = fg_mask.nonzero(as_tuple=False)
+        batch_indices, anchor_indices = fg_indices[:, 0], fg_indices[:, 1]
+        rank_pred_bboxes = pred_bboxes.detach()[fg_mask]
+        rank_target_bboxes = target_bboxes.detach()[fg_mask]
+        rank_iou = bbox_iou(rank_pred_bboxes, rank_target_bboxes, xywh=False, CIoU=False).squeeze(-1).clamp(0)
+
+        class_indices = target_scores[fg_mask].argmax(-1)
+        assigned_logits = pred_scores[batch_indices, anchor_indices, class_indices]
+        group_ids = batch_indices * (target_gt_idx.max() + 1).clamp_min(1) + target_gt_idx[fg_mask]
+
+        rank_losses = []
+        rank_weights = []
+        tau = max(self.rank_tau, 1e-6)
+        for group_id in group_ids.unique():
+            group_mask = group_ids == group_id
+            if group_mask.sum() < 2:
+                continue
+
+            group_iou = rank_iou[group_mask]
+            group_logits = assigned_logits[group_mask]
+            topk = min(self.rank_topk, int(group_iou.numel()))
+            order = group_iou.argsort(descending=True)[:topk]
+            group_iou = group_iou[order]
+            group_logits = group_logits[order]
+
+            iou_gap = group_iou[:, None] - group_iou[None, :]
+            pair_mask = iou_gap > self.rank_iou_margin
+            if not pair_mask.any():
+                continue
+
+            score_gap = group_logits[:, None] - group_logits[None, :]
+            weights = iou_gap[pair_mask].detach()
+            rank_losses.append(F.softplus(-score_gap[pair_mask] / tau) * weights)
+            rank_weights.append(weights)
+
+        if not rank_losses:
+            return pred_scores.sum() * 0.0
+        rank_losses = torch.cat(rank_losses)
+        rank_weights = torch.cat(rank_weights)
+        return rank_losses.sum() / (rank_weights.sum() + 1e-9)
+
     def get_assigned_targets_and_loss(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> tuple:
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size and return foreground mask and
         target indices.
         """
         loss = torch.zeros(
-            3 + int(self.boundary_loss is not None) + int(self.loc_quality_loss is not None),
+            3
+            + int(self.boundary_loss is not None)
+            + int(self.loc_quality_loss is not None)
+            + int(self.rank_gain > 0),
             device=self.device,
-        )  # box, cls, dfl[, boundary][, loc_quality]
+        )  # box, cls, dfl[, boundary][, loc_quality][, rank]
         pred_distri, pred_scores = (
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
@@ -862,6 +923,9 @@ class v8DetectionLoss:
         cls_target_scores = target_scores
         cls_target_scores_sum = target_scores_sum
         assigned_iou = None
+        # Use the same coordinate scale as bbox loss. If target_bboxes has already been divided by stride_tensor,
+        # do not divide again.
+        target_bboxes_scaled = target_bboxes / stride_tensor
 
         # Cls loss with optional class weighting
         if (self.vfl is not None or getattr(self.hyp, "cls_iou_target", False)) and fg_mask.sum():
@@ -870,7 +934,7 @@ class v8DetectionLoss:
                 iou_pred_bboxes = iou_pred_bboxes.detach()
             assigned_iou = bbox_iou(
                 iou_pred_bboxes,
-                (target_bboxes / stride_tensor)[fg_mask],
+                target_bboxes_scaled[fg_mask],
                 xywh=False,
                 CIoU=False,
             ).squeeze(-1).clamp(0)
@@ -914,7 +978,7 @@ class v8DetectionLoss:
                     with torch.no_grad():
                         assigned_iou = bbox_iou(
                             pred_bboxes.detach()[fg_mask],
-                            (target_bboxes / stride_tensor)[fg_mask],
+                            target_bboxes_scaled[fg_mask],
                             xywh=False,
                             CIoU=False,
                         ).squeeze(-1).clamp(0)
@@ -923,7 +987,7 @@ class v8DetectionLoss:
                 pred_distri,
                 pred_bboxes,
                 anchor_points,
-                target_bboxes / stride_tensor,
+                target_bboxes_scaled,
                 target_scores,
                 target_scores_sum,
                 fg_mask,
@@ -945,11 +1009,24 @@ class v8DetectionLoss:
             if loc_maps is None:
                 loc_maps = [self.loc_quality_heads[i](x) for i, x in enumerate(preds["feats"])]
             loss[loc_idx] = self.loc_quality_loss(loc_maps, gt_bboxes, mask_gt, self.stride) * self.loc_quality_gain
+        if self.rank_gain > 0:
+            rank_idx = 3 + int(self.boundary_loss is not None) + int(self.loc_quality_loss is not None)
+            loss[rank_idx] = (
+                self.pairwise_ranking_loss(
+                    pred_scores,
+                    pred_bboxes,
+                    target_bboxes_scaled,
+                    target_scores,
+                    target_gt_idx,
+                    fg_mask,
+                )
+                * self.rank_gain
+            )
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,
             loss.detach(),
-        )  # loss(box, cls, dfl[, boundary][, loc_quality])
+        )  # loss(box, cls, dfl[, boundary][, loc_quality][, rank])
 
     def parse_output(
         self, preds: dict[str, torch.Tensor] | tuple[torch.Tensor, dict[str, torch.Tensor]]

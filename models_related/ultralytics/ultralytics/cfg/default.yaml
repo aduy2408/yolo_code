@@ -126,6 +126,10 @@ loc_quality: 0.0 # (float) EXPERIMENTAL localization quality map loss gain for t
 loc_quality_levels: 2 # (int) EXPERIMENTAL number of Detect feature levels to supervise with LQM
 loc_quality_sigma: 0.45 # (float) EXPERIMENTAL Gaussian sigma scale for localization quality targets
 loc_quality_loss: mse # (str) EXPERIMENTAL LQM loss type: mse or smoothl1
+rank_loss: 0.0 # (float) EXPERIMENTAL pairwise localization ranking loss gain
+rank_tau: 0.25 # (float) EXPERIMENTAL pairwise ranking temperature
+rank_iou_margin: 0.10 # (float) EXPERIMENTAL minimum IoU gap for ranking pairs
+rank_topk: 10 # (int) EXPERIMENTAL foreground candidates per GT for ranking loss
 cls_geometry_fuse: false # (bool) EXPERIMENTAL fuse DFL expected box distances into Detect cls head
 cls_geometry_mode: add # (str) EXPERIMENTAL cls geometry fusion mode: add or concat
 cls_geometry_detach: true # (bool) EXPERIMENTAL detach geometry cue before cls fusion
