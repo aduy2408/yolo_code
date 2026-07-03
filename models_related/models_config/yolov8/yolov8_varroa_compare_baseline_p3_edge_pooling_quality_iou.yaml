@@ -9,9 +9,11 @@ quality_neg_gain: 0.10
 quality_pos_iou_thr: 0.5
 quality_hard_neg_iou_thr: 0.3
 quality_hard_neg_score_thr: 0.05
-quality_target_power: 2.0
+quality_target_mode: ap75_ramp
+quality_ramp_low: 0.50
+quality_ramp_high: 0.75
 quality_neg_mode: hard
-quality_score_mode: cls_mul_q
+quality_score_mode: sqrt_cls_mul_q
 quality_detach_target: true
 
 scales:

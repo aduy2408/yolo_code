@@ -1274,3 +1274,216 @@ Recommended next experiment:
   - `cls * q^2`
 - Compare against baseline hard NMS, baseline Soft-NMS, quality head hard NMS,
   and quality head plus Soft-NMS.
+## 2026-07-03 Quality-Head Update Log
+
+Scope: fix ranking/localization quality, not change TAL detection assignment.
+
+### What changed
+
+- Added balanced quality loss for IoU quality head:
+  - `quality_loss: bce_balanced`
+  - `quality_gain: 0.5`
+  - `quality_neg_gain`
+  - loss = positive BCE mean + weighted negative BCE mean.
+- Added quality debug knobs:
+  - `quality_debug`
+  - `quality_debug_batches`
+  - `quality_debug_export`
+  - `quality_debug_max_preds`
+- Added validation debug export:
+  - `quality_debug_predictions.csv`
+  - `quality_debug_summary.json`
+  - exports cls score, q score, final score modes, best IoU to GT, Spearman, q-by-IoU bins, cluster gap.
+- Removed API block from the quality-head experiment config.
+- Added P3 backbone edge-pooling with `PoolingEdgeRepC2f`.
+- Added P3/P4-only quality config:
+  - `models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p3_edge_pooling_quality_iou.yaml`
+  - Detect inputs are P3 and P4 only: strides `[8, 16]`.
+
+### Current quality loss behavior
+
+Implemented in `models_related/ultralytics/ultralytics/utils/loss.py`.
+
+For `quality_loss == bce_balanced`:
+
+```text
+max_iou_to_gt = max IoU(decoded_pred_box, GT box in same image)
+q_pos_mask = fg_mask | (max_iou_to_gt > quality_pos_iou_thr)
+quality_target[q_pos_mask] = max_iou_to_gt[q_pos_mask] ** quality_target_power
+```
+
+Hard negative mode:
+
+```text
+cls_score = sigmoid(pred_scores).amax(-1)
+neg_mask = (
+    ~q_pos_mask
+    & (max_iou_to_gt < quality_hard_neg_iou_thr)
+    & (cls_score > quality_hard_neg_score_thr)
+)
+```
+
+Important: `fg_mask` still belongs to TAL and still drives cls/box/dfl. The
+expanded `q_pos_mask` is only for the quality head.
+
+### Current recommended config
+
+Use this for next run:
+
+```yaml
+quality_head: true
+quality_loss: bce_balanced
+quality_gain: 0.5
+quality_neg_gain: 0.10
+quality_pos_iou_thr: 0.5
+quality_hard_neg_iou_thr: 0.3
+quality_hard_neg_score_thr: 0.05
+quality_target_power: 2.0
+quality_neg_mode: hard
+quality_score_mode: sqrt_cls_mul_q
+quality_detach_target: true
+```
+
+Reason for `quality_target_power: 2.0`: previous q separated background from
+object-near candidates, but did not separate `IoU 0.5-0.75` from `IoU 0.75+`.
+Power target makes tight boxes get much higher targets:
+
+```text
+0.50 -> 0.25
+0.65 -> 0.42
+0.80 -> 0.64
+0.90 -> 0.81
+```
+
+### Previous debug result interpretation
+
+One downloaded debug summary from the quality-head run showed:
+
+```text
+Spearman(cls, IoU)          = 0.4934
+Spearman(q, IoU)            = 0.1375
+Spearman(cls*q, IoU)        = 0.4982
+Spearman(sqrt(cls)*q, IoU)  = 0.5027
+Spearman(cls*q^2, IoU)      = 0.5027
+```
+
+`q_by_iou_bin` was too flat. q was not tight-box quality yet; it was mostly
+objectness-like. Cluster gap also did not improve enough.
+
+Conclusion: balanced loss alone was not enough. Need:
+
+1. q positive expansion for high-IoU non-TAL candidates.
+2. hard negatives for high-cls bad boxes.
+3. target power to spread medium/tight IoU targets.
+
+### Train command shape
+
+Use P3/P4 config, not old P2 config:
+
+```python
+model_yaml = ROOT / "models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p3_edge_pooling_quality_iou.yaml"
+data = "/marimo/data/datasets/varroa_yolo/varroa.yaml"
+
+model = YOLO(str(model_yaml))
+model.load("yolov8n.pt", smart_transfer=True)
+
+model.train(
+    data=data,
+    epochs=200,
+    imgsz=640,
+    batch=16,
+    workers=4,
+    device="cuda",
+    patience=25,
+    bbox_iou_loss="wiou",
+    wiou_monotonous=False,
+    quality_head=True,
+    quality_loss="bce_balanced",
+    quality_gain=0.5,
+    quality_neg_gain=0.10,
+    quality_pos_iou_thr=0.5,
+    quality_hard_neg_iou_thr=0.3,
+    quality_hard_neg_score_thr=0.05,
+    quality_target_power=2.0,
+    quality_neg_mode="hard",
+    quality_detach_target=True,
+    quality_score_mode="sqrt_cls_mul_q",
+    quality_debug=True,
+    quality_debug_batches=5,
+    project=str(ROOT / "runs/detect/yolo_related/runs/train"),
+    name="yolov8_varroa_p3p4_edgepool_quality_iou_hardneg_power2",
+)
+```
+
+### Eval after train
+
+Run same checkpoint with all score modes:
+
+```python
+run_name = "yolov8_varroa_p3p4_edgepool_quality_iou_hardneg_power2"
+best_path = f"/marimo/yolo_code/runs/detect/yolo_related/runs/train/{run_name}/weights/best.pt"
+model2 = YOLO(best_path)
+
+for mode in ["cls_mul_q", "sqrt_cls_mul_q", "cls_mul_q2"]:
+    model2.val(
+        data=data,
+        imgsz=640,
+        batch=16,
+        workers=0,
+        device="cuda",
+        quality_score_mode=mode,
+        quality_debug_export=True,
+        quality_debug_max_preds=30000,
+        project=str(ROOT / "runs/detect/yolo_related/runs/val"),
+        name=f"{run_name}_{mode}_debug",
+        exist_ok=True,
+    )
+```
+
+Use `workers=0` for val in marimo to avoid `BrokenPipeError`.
+
+### What to check next
+
+From training debug:
+
+```text
+num_q_pos vs num_tal_pos
+num_neg / num_hard_neg
+max_iou_to_gt min/mean/max for q positives
+```
+
+From validation debug JSON:
+
+```text
+spearman.q_iou
+spearman.sqrt_cls_mul_q_iou
+q_by_iou_bin
+cluster_iou_gap.mean_best_minus_top_final
+cluster_iou_gap.mean_best_minus_top_cls
+```
+
+Pass condition:
+
+```text
+q_by_iou_bin monotonic increasing
+Spearman(q, IoU) improves
+Spearman(final, IoU) improves over cls
+mean_best_minus_top_final < mean_best_minus_top_cls
+```
+
+### Known gotcha
+
+If marimo says `quality_neg_mode` or `quality_target_power` is not a valid YOLO
+argument, it is running an older checkout/import path. Check:
+
+```python
+import ultralytics
+from ultralytics.cfg import DEFAULT_CFG_DICT
+
+print(ultralytics.__file__)
+print(DEFAULT_CFG_DICT.get("quality_neg_mode"))
+print(DEFAULT_CFG_DICT.get("quality_target_power"))
+```
+
+Need the notebook to import the patched `models_related/ultralytics`, not a stale
+package or stale SSH checkout.
