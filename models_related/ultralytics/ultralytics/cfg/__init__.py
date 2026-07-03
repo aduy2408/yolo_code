@@ -176,6 +176,7 @@ CFG_FLOAT_KEYS = frozenset(
         "quality_pos_iou_thr",
         "quality_hard_neg_iou_thr",
         "quality_hard_neg_score_thr",
+        "quality_target_power",
         "rank_loss",
         "rank_tau",
         "rank_iou_margin",

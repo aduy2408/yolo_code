@@ -133,6 +133,7 @@ quality_neg_gain: 0.10 # (float) EXPERIMENTAL negative term gain for balanced qu
 quality_pos_iou_thr: 0.5 # (float) EXPERIMENTAL IoU threshold for quality-head positive expansion
 quality_hard_neg_iou_thr: 0.3 # (float) EXPERIMENTAL max IoU for quality-head hard negatives
 quality_hard_neg_score_thr: 0.05 # (float) EXPERIMENTAL min class score for quality-head hard negatives
+quality_target_power: 1.0 # (float) EXPERIMENTAL power applied to IoU targets for quality-head BCE
 quality_neg_mode: hard # (str) EXPERIMENTAL quality-head negatives: hard or all
 quality_score_mode: cls_mul_q # (str) EXPERIMENTAL quality score mode: cls_mul_q, sqrt_cls_mul_q, or cls_mul_q2
 quality_detach_target: true # (bool) EXPERIMENTAL detach IoU target for quality-head supervision

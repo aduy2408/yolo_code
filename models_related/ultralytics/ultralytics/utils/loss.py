@@ -803,6 +803,7 @@ class v8DetectionLoss:
         self.quality_pos_iou_thr = float(getattr(h, "quality_pos_iou_thr", 0.5))
         self.quality_hard_neg_iou_thr = float(getattr(h, "quality_hard_neg_iou_thr", 0.3))
         self.quality_hard_neg_score_thr = float(getattr(h, "quality_hard_neg_score_thr", 0.05))
+        self.quality_target_power = float(getattr(h, "quality_target_power", 1.0))
         self.quality_neg_mode = str(getattr(h, "quality_neg_mode", "hard")).lower()
         if self.quality_neg_mode not in {"hard", "all"}:
             raise ValueError("quality_neg_mode must be 'hard' or 'all'.")
@@ -1056,7 +1057,9 @@ class v8DetectionLoss:
                 if self.quality_detach_target:
                     max_iou_to_gt = max_iou_to_gt.detach()
                 q_pos_mask = fg_mask | (max_iou_to_gt > self.quality_pos_iou_thr)
-                quality_target[q_pos_mask] = max_iou_to_gt[q_pos_mask].to(dtype=quality_target.dtype)
+                quality_target[q_pos_mask] = max_iou_to_gt[q_pos_mask].pow(self.quality_target_power).to(
+                    dtype=quality_target.dtype
+                )
                 pos_loss = (
                     F.binary_cross_entropy_with_logits(
                         quality_logits[q_pos_mask],
@@ -1130,7 +1133,7 @@ class v8DetectionLoss:
                     "quality_debug batch=%s/%s num_tal_pos=%s num_q_pos=%s num_neg=%s "
                     "iou_min/mean/max=(%.6g, %.6g, %.6g) max_iou_min/mean/max=(%.6g, %.6g, %.6g) "
                     "pos_loss=%.6g neg_loss=%.6g quality_gain=%.6g quality_neg_gain=%.6g loss_q=%.6g "
-                    "quality_neg_mode=%s pos_thr=%.6g hard_neg_iou_thr=%.6g hard_neg_score_thr=%.6g",
+                    "quality_neg_mode=%s pos_thr=%.6g hard_neg_iou_thr=%.6g hard_neg_score_thr=%.6g target_power=%.6g",
                     self.quality_debug_seen,
                     self.quality_debug_batches,
                     num_tal_pos,
@@ -1147,6 +1150,7 @@ class v8DetectionLoss:
                     self.quality_pos_iou_thr,
                     self.quality_hard_neg_iou_thr,
                     self.quality_hard_neg_score_thr,
+                    self.quality_target_power,
                 )
                 LOGGER.info("quality_debug pred_bboxes_sample=%s", pred_sample)
                 LOGGER.info("quality_debug quality_target_sample=%s", target_sample)
