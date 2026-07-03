@@ -167,7 +167,7 @@ class Detect(nn.Module):
     def one2many(self):
         """Returns the one-to-many head components, here for v3/v5/v8/v9/v11 backward compatibility."""
         out = dict(box_head=self.cv2, cls_head=self.cv3)
-        if self.cls_geometry_fuse:
+        if getattr(self, "cls_geometry_fuse", False):
             out.update(geom_embed=self.cls_geometry_embed, geom_fuse=self.cls_geometry_fuse_conv)
         return out
 
@@ -175,7 +175,7 @@ class Detect(nn.Module):
     def one2one(self):
         """Returns the one-to-one head components."""
         out = dict(box_head=self.one2one_cv2, cls_head=self.one2one_cv3)
-        if self.cls_geometry_fuse:
+        if getattr(self, "cls_geometry_fuse", False):
             out.update(geom_embed=self.one2one_cls_geometry_embed, geom_fuse=self.one2one_cls_geometry_fuse_conv)
         return out
 
@@ -229,7 +229,7 @@ class Detect(nn.Module):
         if box_head is None or cls_head is None:  # for fused inference
             return dict()
         bs = x[0].shape[0]  # batch size
-        if not self.cls_geometry_fuse:
+        if not getattr(self, "cls_geometry_fuse", False):
             boxes = torch.cat([box_head[i](x[i]).view(bs, 4 * self.reg_max, -1) for i in range(self.nl)], dim=-1)
             scores = torch.cat([cls_head[i](x[i]).view(bs, self.nc, -1) for i in range(self.nl)], dim=-1)
         else:
