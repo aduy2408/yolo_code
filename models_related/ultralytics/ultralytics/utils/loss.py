@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ultralytics.utils import LOGGER
-from ultralytics.utils.metrics import CITYSCAPES_WEIGHT, OKS_SIGMA, RLE_WEIGHT
+from ultralytics.utils.metrics import CITYSCAPES_WEIGHT, OKS_SIGMA, RLE_WEIGHT, box_iou
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import autocast
@@ -799,7 +799,13 @@ class v8DetectionLoss:
         if self.quality_loss_type not in {"bce", "bce_balanced", "l1"}:
             raise ValueError("quality_loss must be 'bce', 'bce_balanced', or 'l1'.")
         self.quality_gain = float(getattr(h, "quality_gain", 0.5))
-        self.quality_neg_gain = float(getattr(h, "quality_neg_gain", 0.05))
+        self.quality_neg_gain = float(getattr(h, "quality_neg_gain", 0.10))
+        self.quality_pos_iou_thr = float(getattr(h, "quality_pos_iou_thr", 0.5))
+        self.quality_hard_neg_iou_thr = float(getattr(h, "quality_hard_neg_iou_thr", 0.3))
+        self.quality_hard_neg_score_thr = float(getattr(h, "quality_hard_neg_score_thr", 0.05))
+        self.quality_neg_mode = str(getattr(h, "quality_neg_mode", "hard")).lower()
+        if self.quality_neg_mode not in {"hard", "all"}:
+            raise ValueError("quality_neg_mode must be 'hard' or 'all'.")
         self.quality_detach_target = bool(getattr(h, "quality_detach_target", True))
         self.quality_debug = bool(getattr(h, "quality_debug", False))
         self.quality_debug_batches = int(getattr(h, "quality_debug_batches", 1))
@@ -930,6 +936,7 @@ class v8DetectionLoss:
             gt_bboxes,
             mask_gt,
         )
+        fg_mask = fg_mask.bool()
 
         target_scores_sum = max(target_scores.sum(), 1)
         cls_target_scores = target_scores
@@ -1028,6 +1035,13 @@ class v8DetectionLoss:
                 raise KeyError("quality_head=True but model predictions do not contain 'quality_logits'.")
             quality_logits = quality_logits.permute(0, 2, 1).contiguous().squeeze(-1)
             quality_target = torch.zeros_like(quality_logits)
+            max_iou_to_gt = torch.zeros_like(quality_logits)
+            pred_bboxes_for_quality = pred_bboxes.detach() if self.quality_detach_target else pred_bboxes
+            for bi in range(batch_size):
+                valid_gt = mask_gt[bi].squeeze(-1).bool()
+                if valid_gt.any():
+                    pred_pixel = pred_bboxes_for_quality[bi] * stride_tensor
+                    max_iou_to_gt[bi] = box_iou(pred_pixel, gt_bboxes[bi, valid_gt]).clamp(0).amax(-1)
             if fg_mask.sum():
                 quality_iou = bbox_iou(
                     pred_bboxes.detach()[fg_mask] if self.quality_detach_target else pred_bboxes[fg_mask],
@@ -1039,16 +1053,28 @@ class v8DetectionLoss:
                     quality_iou = quality_iou.detach()
                 quality_target[fg_mask] = quality_iou.to(dtype=quality_target.dtype)
             if self.quality_loss_type == "bce_balanced":
+                if self.quality_detach_target:
+                    max_iou_to_gt = max_iou_to_gt.detach()
+                q_pos_mask = fg_mask | (max_iou_to_gt > self.quality_pos_iou_thr)
+                quality_target[q_pos_mask] = max_iou_to_gt[q_pos_mask].to(dtype=quality_target.dtype)
                 pos_loss = (
                     F.binary_cross_entropy_with_logits(
-                        quality_logits[fg_mask],
-                        quality_target[fg_mask],
+                        quality_logits[q_pos_mask],
+                        quality_target[q_pos_mask],
                         reduction="mean",
                     )
-                    if fg_mask.any()
+                    if q_pos_mask.any()
                     else quality_logits.sum() * 0.0
                 )
-                neg_mask = ~fg_mask
+                if self.quality_neg_mode == "hard":
+                    cls_score = pred_scores.detach().sigmoid().amax(-1)
+                    neg_mask = (
+                        (~q_pos_mask)
+                        & (max_iou_to_gt < self.quality_hard_neg_iou_thr)
+                        & (cls_score > self.quality_hard_neg_score_thr)
+                    )
+                else:
+                    neg_mask = ~q_pos_mask
                 neg_loss = (
                     F.binary_cross_entropy_with_logits(
                         quality_logits[neg_mask],
@@ -1060,6 +1086,7 @@ class v8DetectionLoss:
                 )
                 loss[quality_idx] = self.quality_gain * (pos_loss + self.quality_neg_gain * neg_loss)
                 debug_pos_loss, debug_neg_loss = pos_loss, neg_loss
+                debug_q_pos_mask, debug_neg_mask = q_pos_mask, neg_mask
             elif self.quality_loss_type == "l1":
                 pos_loss = (
                     F.l1_loss(quality_logits.sigmoid()[fg_mask], quality_target[fg_mask], reduction="sum")
@@ -1069,42 +1096,60 @@ class v8DetectionLoss:
                 neg_loss = self.bce(quality_logits, quality_target).masked_fill(fg_mask, 0).sum()
                 loss[quality_idx] = (pos_loss + neg_loss) / fg_mask.sum().clamp_min(1)
                 debug_pos_loss, debug_neg_loss = pos_loss, neg_loss
+                debug_q_pos_mask, debug_neg_mask = fg_mask, ~fg_mask
             else:
                 loss[quality_idx] = self.bce(quality_logits, quality_target).sum() / fg_mask.sum().clamp_min(1)
                 debug_pos_loss = loss[quality_idx]
                 debug_neg_loss = quality_logits.sum() * 0.0
+                debug_q_pos_mask, debug_neg_mask = fg_mask, ~fg_mask
             if self.quality_debug and self.quality_debug_seen < self.quality_debug_batches:
                 self.quality_debug_seen += 1
-                num_pos = int(fg_mask.sum().item())
-                num_neg = int((~fg_mask).sum().item())
-                if fg_mask.any():
-                    q_iou_dbg = quality_target[fg_mask].detach().float()
+                num_tal_pos = int(fg_mask.sum().item())
+                num_q_pos = int(debug_q_pos_mask.sum().item())
+                num_neg = int(debug_neg_mask.sum().item())
+                if debug_q_pos_mask.any():
+                    q_iou_dbg = quality_target[debug_q_pos_mask].detach().float()
                     iou_stats = (
                         float(q_iou_dbg.min().item()),
                         float(q_iou_dbg.mean().item()),
                         float(q_iou_dbg.max().item()),
                     )
-                    pred_sample = pred_bboxes.detach()[fg_mask][:5].float().cpu().tolist()
-                    target_sample = target_bboxes_scaled.detach()[fg_mask][:5].float().cpu().tolist()
+                    max_iou_dbg = max_iou_to_gt[debug_q_pos_mask].detach().float()
+                    max_iou_stats = (
+                        float(max_iou_dbg.min().item()),
+                        float(max_iou_dbg.mean().item()),
+                        float(max_iou_dbg.max().item()),
+                    )
+                    pred_sample = pred_bboxes.detach()[debug_q_pos_mask][:5].float().cpu().tolist()
+                    target_sample = quality_target.detach()[debug_q_pos_mask][:5].float().cpu().tolist()
                 else:
                     iou_stats = (float("nan"), float("nan"), float("nan"))
+                    max_iou_stats = (float("nan"), float("nan"), float("nan"))
                     pred_sample, target_sample = [], []
                 LOGGER.info(
-                    "quality_debug batch=%s/%s num_pos=%s num_neg=%s iou_min/mean/max=(%.6g, %.6g, %.6g) "
-                    "pos_loss=%.6g neg_loss=%.6g quality_gain=%.6g quality_neg_gain=%.6g loss_q=%.6g",
+                    "quality_debug batch=%s/%s num_tal_pos=%s num_q_pos=%s num_neg=%s "
+                    "iou_min/mean/max=(%.6g, %.6g, %.6g) max_iou_min/mean/max=(%.6g, %.6g, %.6g) "
+                    "pos_loss=%.6g neg_loss=%.6g quality_gain=%.6g quality_neg_gain=%.6g loss_q=%.6g "
+                    "quality_neg_mode=%s pos_thr=%.6g hard_neg_iou_thr=%.6g hard_neg_score_thr=%.6g",
                     self.quality_debug_seen,
                     self.quality_debug_batches,
-                    num_pos,
+                    num_tal_pos,
+                    num_q_pos,
                     num_neg,
                     *iou_stats,
+                    *max_iou_stats,
                     float(debug_pos_loss.detach().item()),
                     float(debug_neg_loss.detach().item()),
                     self.quality_gain,
                     self.quality_neg_gain,
                     float(loss[quality_idx].detach().item()),
+                    self.quality_neg_mode,
+                    self.quality_pos_iou_thr,
+                    self.quality_hard_neg_iou_thr,
+                    self.quality_hard_neg_score_thr,
                 )
                 LOGGER.info("quality_debug pred_bboxes_sample=%s", pred_sample)
-                LOGGER.info("quality_debug target_bboxes_scaled_sample=%s", target_sample)
+                LOGGER.info("quality_debug quality_target_sample=%s", target_sample)
         if self.rank_gain > 0:
             rank_idx = (
                 3 + int(self.boundary_loss is not None) + int(self.loc_quality_loss is not None) + int(self.quality_head)

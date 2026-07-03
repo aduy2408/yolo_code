@@ -173,6 +173,9 @@ CFG_FLOAT_KEYS = frozenset(
         "loc_quality_sigma",
         "quality_gain",
         "quality_neg_gain",
+        "quality_pos_iou_thr",
+        "quality_hard_neg_iou_thr",
+        "quality_hard_neg_score_thr",
         "rank_loss",
         "rank_tau",
         "rank_iou_margin",
@@ -217,6 +220,7 @@ CFG_CHOICE_KEYS = {
     "nms_method": {"hard", "soft-linear", "soft-gaussian"},
     "cls_geometry_mode": {"add", "concat"},
     "quality_loss": {"bce", "bce_balanced", "l1"},
+    "quality_neg_mode": {"hard", "all"},
     "quality_score_mode": {"cls_mul_q", "sqrt_cls_mul_q", "cls_mul_q2"},
 }
 CFG_INT_KEYS = frozenset(

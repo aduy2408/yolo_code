@@ -1,0 +1,46 @@
+# YOLOv8 Varroa compare baseline+P3 pooling edge with IoU quality head.
+# Detects on P3/P4 only. No P2 Detect branch and no API block.
+
+nc: 1
+quality_head: true
+quality_loss: bce_balanced
+quality_gain: 0.5
+quality_neg_gain: 0.10
+quality_pos_iou_thr: 0.5
+quality_hard_neg_iou_thr: 0.3
+quality_hard_neg_score_thr: 0.05
+quality_neg_mode: hard
+quality_score_mode: cls_mul_q
+quality_detach_target: true
+
+scales:
+  n: [0.33, 0.25, 1024]
+  s: [0.33, 0.50, 1024]
+  m: [0.67, 0.75, 768]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.25, 512]
+
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]       # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]      # 1-P2/4
+  - [-1, 3, PoolingEdgeRepC2f, [128, True]]    # 2-P2/4
+  - [-1, 1, Conv, [256, 3, 2]]      # 3-P3/8
+  - [-1, 6, PoolingEdgeRepC2f, [256, True]] # 4-P3/8
+  - [-1, 1, Conv, [512, 3, 2]]      # 5-P4/16
+  - [-1, 6, RepC2f, [512, True]]    # 6-P4/16
+  - [-1, 1, Conv, [1024, 3, 2]]     # 7-P5/32
+  - [-1, 3, RepC2f, [1024, True]]   # 8-P5/32
+  - [-1, 1, SPPF, [1024, 5]]        # 9-P5/32
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, nearest]]
+  - [[-1, 6], 1, Concat, [1]]
+  - [-1, 3, RepC2f, [512]]          # 12-P4/16
+
+  - [-1, 1, nn.Upsample, [None, 2, nearest]]
+  - [[-1, 4], 1, Concat, [1]]
+  - [-1, 3, PoolingEdgeRepC2f, [256]] # 15-P3/8
+
+  - [15, 1, EnSimAM, []]            # 16-P3 final
+
+  - [[16, 12], 1, Detect, [nc]]

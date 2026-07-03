@@ -129,7 +129,11 @@ loc_quality_loss: mse # (str) EXPERIMENTAL LQM loss type: mse or smoothl1
 quality_head: false # (bool) EXPERIMENTAL predict IoU quality per anchor for score calibration
 quality_loss: bce # (str) EXPERIMENTAL quality-head loss: bce, bce_balanced, or l1
 quality_gain: 0.5 # (float) EXPERIMENTAL quality-head loss gain for balanced BCE
-quality_neg_gain: 0.05 # (float) EXPERIMENTAL negative term gain for balanced quality-head BCE
+quality_neg_gain: 0.10 # (float) EXPERIMENTAL negative term gain for balanced quality-head BCE
+quality_pos_iou_thr: 0.5 # (float) EXPERIMENTAL IoU threshold for quality-head positive expansion
+quality_hard_neg_iou_thr: 0.3 # (float) EXPERIMENTAL max IoU for quality-head hard negatives
+quality_hard_neg_score_thr: 0.05 # (float) EXPERIMENTAL min class score for quality-head hard negatives
+quality_neg_mode: hard # (str) EXPERIMENTAL quality-head negatives: hard or all
 quality_score_mode: cls_mul_q # (str) EXPERIMENTAL quality score mode: cls_mul_q, sqrt_cls_mul_q, or cls_mul_q2
 quality_detach_target: true # (bool) EXPERIMENTAL detach IoU target for quality-head supervision
 quality_debug: false # (bool) EXPERIMENTAL print quality-head training diagnostics
