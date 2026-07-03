@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -60,6 +62,10 @@ class DetectionValidator(BaseValidator):
         self.iouv = torch.linspace(0.5, 0.95, 10)  # IoU vector for mAP@0.5:0.95
         self.niou = self.iouv.numel()
         self.metrics = DetMetrics()
+        self.quality_debug_rows = []
+        self.quality_debug_clusters = []
+        self._quality_debug_candidates = None
+        self._quality_debug_mode_logged = False
 
     def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Preprocess batch of images for YOLO validation.
@@ -100,6 +106,10 @@ class DetectionValidator(BaseValidator):
         self.metrics.clear_stats()
         self.metrics.clear_image_metrics()
         self.confusion_matrix = ConfusionMatrix(names=model.names, save_matches=self.args.plots and self.args.visualize)
+        self.quality_debug_rows = []
+        self.quality_debug_clusters = []
+        self._quality_debug_candidates = None
+        self._quality_debug_mode_logged = False
 
     def get_desc(self) -> str:
         """Return a formatted string summarizing class metrics of YOLO model."""
@@ -115,6 +125,7 @@ class DetectionValidator(BaseValidator):
             (list[dict[str, torch.Tensor]]): Processed predictions after NMS, where each dict contains 'bboxes', 'conf',
                 'cls', and 'extra' tensors.
         """
+        self._cache_quality_debug_candidates(preds)
         outputs = nms.non_max_suppression(
             preds,
             self.args.conf,
@@ -130,6 +141,80 @@ class DetectionValidator(BaseValidator):
             soft_nms_min_score=self.args.soft_nms_min_score,
         )
         return [{"bboxes": x[:, :4], "conf": x[:, 4], "cls": x[:, 5], "extra": x[:, 6:]} for x in outputs]
+
+    @staticmethod
+    def _quality_scores_by_mode(cls_score: torch.Tensor, q_score: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Return quality-composed scores for all supported quality score modes."""
+        return {
+            "cls_mul_q": cls_score * q_score,
+            "sqrt_cls_mul_q": cls_score.clamp_min(0).sqrt() * q_score,
+            "cls_mul_q2": cls_score * q_score.square(),
+        }
+
+    def _cache_quality_debug_candidates(self, preds: torch.Tensor | tuple) -> None:
+        """Cache pre-NMS quality-head candidates for later GT-aware diagnostics."""
+        self._quality_debug_candidates = None
+        if not bool(getattr(self.args, "quality_debug_export", False)):
+            return
+        if not isinstance(preds, (list, tuple)) or len(preds) < 2 or not isinstance(preds[1], dict):
+            return
+
+        pred_tensor, raw = preds[0], preds[1]
+        if "scores" not in raw or "quality_logits" not in raw:
+            return
+        if pred_tensor.ndim != 3:
+            return
+
+        quality_mode = str(getattr(self.args, "quality_score_mode", "cls_mul_q") or "cls_mul_q")
+        if not self._quality_debug_mode_logged:
+            LOGGER.info("quality_debug_export active; quality_score_mode=%s", quality_mode)
+            self._quality_debug_mode_logged = True
+
+        boxes = ops.xywh2xyxy(pred_tensor[:, :4, :].permute(0, 2, 1).contiguous())
+        cls_scores_all = raw["scores"].sigmoid().permute(0, 2, 1).contiguous()
+        cls_score, pred_cls = cls_scores_all.max(-1)
+        q_score = raw["quality_logits"].sigmoid().permute(0, 2, 1).contiguous().squeeze(-1)
+        mode_scores = self._quality_scores_by_mode(cls_score, q_score)
+        active_score = mode_scores.get(quality_mode, mode_scores["cls_mul_q"])
+        filt = active_score > float(getattr(self.args, "conf", 0.001))
+        max_preds = int(getattr(self.args, "quality_debug_max_preds", 30000))
+
+        cached = []
+        remaining = max(max_preds, 0)
+        for si in range(boxes.shape[0]):
+            idx = filt[si].nonzero(as_tuple=False).squeeze(-1)
+            if remaining and idx.numel() > remaining:
+                idx = idx[active_score[si, idx].argsort(descending=True)[:remaining]]
+            if max_preds > 0:
+                remaining = max(remaining - int(idx.numel()), 0)
+            cached.append(
+                {
+                    "bboxes": boxes[si, idx].detach(),
+                    "cls_score": cls_score[si, idx].detach(),
+                    "q_score": q_score[si, idx].detach(),
+                    "cls_mul_q": mode_scores["cls_mul_q"][si, idx].detach(),
+                    "sqrt_cls_mul_q": mode_scores["sqrt_cls_mul_q"][si, idx].detach(),
+                    "cls_mul_q2": mode_scores["cls_mul_q2"][si, idx].detach(),
+                    "active_score": active_score[si, idx].detach(),
+                    "cls": pred_cls[si, idx].detach(),
+                }
+            )
+            if max_preds > 0 and remaining <= 0:
+                cached.extend(
+                    {
+                        "bboxes": boxes.new_zeros((0, 4)),
+                        "cls_score": boxes.new_zeros((0,)),
+                        "q_score": boxes.new_zeros((0,)),
+                        "cls_mul_q": boxes.new_zeros((0,)),
+                        "sqrt_cls_mul_q": boxes.new_zeros((0,)),
+                        "cls_mul_q2": boxes.new_zeros((0,)),
+                        "active_score": boxes.new_zeros((0,)),
+                        "cls": boxes.new_zeros((0,), dtype=torch.long),
+                    }
+                    for _ in range(si + 1, boxes.shape[0])
+                )
+                break
+        self._quality_debug_candidates = cached
 
     def _prepare_batch(self, si: int, batch: dict[str, Any]) -> dict[str, Any]:
         """Prepare a batch of images and annotations for validation.
@@ -195,6 +280,7 @@ class DetectionValidator(BaseValidator):
                     "im_name": Path(pbatch["im_file"]).name,
                 }
             )
+            self._update_quality_debug(predn, pbatch, si)
             # Evaluate
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, pbatch, conf=self.args.conf)
@@ -276,8 +362,169 @@ class DetectionValidator(BaseValidator):
             (dict[str, Any]): Dictionary containing metrics results.
         """
         self.metrics.process(save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot)
+        self._save_quality_debug()
         self.metrics.clear_stats()
         return self.metrics.results_dict
+
+    @staticmethod
+    def _rankdata(x: np.ndarray) -> np.ndarray:
+        """Return average ranks for a 1D array without requiring SciPy."""
+        x = np.asarray(x)
+        order = np.argsort(x, kind="mergesort")
+        ranks = np.empty(x.shape[0], dtype=np.float64)
+        sorted_x = x[order]
+        i = 0
+        while i < x.shape[0]:
+            j = i + 1
+            while j < x.shape[0] and sorted_x[j] == sorted_x[i]:
+                j += 1
+            ranks[order[i:j]] = (i + j - 1) / 2.0
+            i = j
+        return ranks
+
+    @classmethod
+    def _spearman(cls, x: list[float], y: list[float]) -> float | None:
+        """Compute Spearman rank correlation, returning None when undefined."""
+        if len(x) < 2 or len(y) < 2:
+            return None
+        xr, yr = cls._rankdata(np.asarray(x, dtype=np.float64)), cls._rankdata(np.asarray(y, dtype=np.float64))
+        if np.isclose(xr.std(), 0) or np.isclose(yr.std(), 0):
+            return None
+        return float(np.corrcoef(xr, yr)[0, 1])
+
+    def _update_quality_debug(self, predn: dict[str, torch.Tensor], pbatch: dict[str, Any], si: int) -> None:
+        """Accumulate per-prediction and per-GT quality diagnostics."""
+        if not bool(getattr(self.args, "quality_debug_export", False)) or self._quality_debug_candidates is None:
+            return
+        if si >= len(self._quality_debug_candidates):
+            return
+        cand = self._quality_debug_candidates[si]
+        boxes = cand["bboxes"]
+        if boxes.numel() == 0:
+            return
+
+        gt_boxes = pbatch["bboxes"]
+        if gt_boxes.numel():
+            ious = box_iou(gt_boxes, boxes)
+            best_iou = ious.max(0).values
+        else:
+            ious = boxes.new_zeros((0, boxes.shape[0]))
+            best_iou = boxes.new_zeros((boxes.shape[0],))
+
+        im_name = Path(pbatch["im_file"]).name
+        quality_mode = str(getattr(self.args, "quality_score_mode", "cls_mul_q") or "cls_mul_q")
+        for i in range(boxes.shape[0]):
+            self.quality_debug_rows.append(
+                {
+                    "image": im_name,
+                    "x1": float(boxes[i, 0].item()),
+                    "y1": float(boxes[i, 1].item()),
+                    "x2": float(boxes[i, 2].item()),
+                    "y2": float(boxes[i, 3].item()),
+                    "cls": int(cand["cls"][i].item()),
+                    "cls_score": float(cand["cls_score"][i].item()),
+                    "q_score": float(cand["q_score"][i].item()),
+                    "final_cls_mul_q": float(cand["cls_mul_q"][i].item()),
+                    "final_sqrt_cls_mul_q": float(cand["sqrt_cls_mul_q"][i].item()),
+                    "final_cls_mul_q2": float(cand["cls_mul_q2"][i].item()),
+                    "active_quality_score_mode": quality_mode,
+                    "active_final_score": float(cand["active_score"][i].item()),
+                    "best_iou_to_gt": float(best_iou[i].item()),
+                }
+            )
+
+        for gi in range(ious.shape[0]):
+            candidate_mask = ious[gi] > 0.1
+            if not candidate_mask.any():
+                continue
+            gt_iou = ious[gi, candidate_mask]
+            cls_scores = cand["cls_score"][candidate_mask]
+            q_scores = cand["q_score"][candidate_mask]
+            active_scores = cand["active_score"][candidate_mask]
+            best = float(gt_iou.max().item())
+            self.quality_debug_clusters.append(
+                {
+                    "best_iou": best,
+                    "top_cls_iou": float(gt_iou[cls_scores.argmax()].item()),
+                    "top_q_iou": float(gt_iou[q_scores.argmax()].item()),
+                    "top_final_iou": float(gt_iou[active_scores.argmax()].item()),
+                }
+            )
+
+    def _save_quality_debug(self) -> None:
+        """Write quality-head validation diagnostics to CSV/JSON."""
+        if not bool(getattr(self.args, "quality_debug_export", False)) or RANK not in {-1, 0}:
+            return
+        csv_path = self.save_dir / "quality_debug_predictions.csv"
+        json_path = self.save_dir / "quality_debug_summary.json"
+        fieldnames = [
+            "image",
+            "x1",
+            "y1",
+            "x2",
+            "y2",
+            "cls",
+            "cls_score",
+            "q_score",
+            "final_cls_mul_q",
+            "final_sqrt_cls_mul_q",
+            "final_cls_mul_q2",
+            "active_quality_score_mode",
+            "active_final_score",
+            "best_iou_to_gt",
+        ]
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(self.quality_debug_rows)
+
+        cls_scores = [r["cls_score"] for r in self.quality_debug_rows]
+        q_scores = [r["q_score"] for r in self.quality_debug_rows]
+        ious = [r["best_iou_to_gt"] for r in self.quality_debug_rows]
+        summary = {
+            "num_predictions": len(self.quality_debug_rows),
+            "num_gt_clusters": len(self.quality_debug_clusters),
+            "active_quality_score_mode": str(getattr(self.args, "quality_score_mode", "cls_mul_q") or "cls_mul_q"),
+            "spearman": {
+                "cls_iou": self._spearman(cls_scores, ious),
+                "q_iou": self._spearman(q_scores, ious),
+                "cls_mul_q_iou": self._spearman([r["final_cls_mul_q"] for r in self.quality_debug_rows], ious),
+                "sqrt_cls_mul_q_iou": self._spearman(
+                    [r["final_sqrt_cls_mul_q"] for r in self.quality_debug_rows], ious
+                ),
+                "cls_mul_q2_iou": self._spearman([r["final_cls_mul_q2"] for r in self.quality_debug_rows], ious),
+            },
+            "q_by_iou_bin": {},
+            "cluster_iou_gap": {},
+        }
+        bins = [
+            ("0.0-0.3", 0.0, 0.3),
+            ("0.3-0.5", 0.3, 0.5),
+            ("0.5-0.75", 0.5, 0.75),
+            ("0.75-1.0", 0.75, 1.0000001),
+        ]
+        for name, lo, hi in bins:
+            vals = [r["q_score"] for r in self.quality_debug_rows if lo <= r["best_iou_to_gt"] < hi]
+            summary["q_by_iou_bin"][name] = {
+                "count": len(vals),
+                "mean_q": float(np.mean(vals)) if vals else None,
+            }
+        if self.quality_debug_clusters:
+            summary["cluster_iou_gap"] = {
+                "mean_best_minus_top_cls": float(
+                    np.mean([c["best_iou"] - c["top_cls_iou"] for c in self.quality_debug_clusters])
+                ),
+                "mean_best_minus_top_q": float(
+                    np.mean([c["best_iou"] - c["top_q_iou"] for c in self.quality_debug_clusters])
+                ),
+                "mean_best_minus_top_final": float(
+                    np.mean([c["best_iou"] - c["top_final_iou"] for c in self.quality_debug_clusters])
+                ),
+                "count": len(self.quality_debug_clusters),
+            }
+        with open(json_path, "w") as f:
+            json.dump(summary, f, indent=2)
+        LOGGER.info("quality_debug_export saved %s and %s", csv_path, json_path)
 
     def print_results(self) -> None:
         """Print training/validation set metrics per class."""

@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ultralytics.utils import LOGGER
 from ultralytics.utils.metrics import CITYSCAPES_WEIGHT, OKS_SIGMA, RLE_WEIGHT
 from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
@@ -795,9 +796,14 @@ class v8DetectionLoss:
         )
         self.quality_head = bool(getattr(m, "quality_head", getattr(h, "quality_head", False)))
         self.quality_loss_type = str(getattr(h, "quality_loss", "bce")).lower()
-        if self.quality_loss_type not in {"bce", "l1"}:
-            raise ValueError("quality_loss must be 'bce' or 'l1'.")
+        if self.quality_loss_type not in {"bce", "bce_balanced", "l1"}:
+            raise ValueError("quality_loss must be 'bce', 'bce_balanced', or 'l1'.")
+        self.quality_gain = float(getattr(h, "quality_gain", 0.5))
+        self.quality_neg_gain = float(getattr(h, "quality_neg_gain", 0.05))
         self.quality_detach_target = bool(getattr(h, "quality_detach_target", True))
+        self.quality_debug = bool(getattr(h, "quality_debug", False))
+        self.quality_debug_batches = int(getattr(h, "quality_debug_batches", 1))
+        self.quality_debug_seen = 0
         self.rank_gain = float(getattr(h, "rank_loss", 0.0))
         self.rank_tau = float(getattr(h, "rank_tau", 0.25))
         self.rank_iou_margin = float(getattr(h, "rank_iou_margin", 0.10))
@@ -1032,7 +1038,29 @@ class v8DetectionLoss:
                 if self.quality_detach_target:
                     quality_iou = quality_iou.detach()
                 quality_target[fg_mask] = quality_iou.to(dtype=quality_target.dtype)
-            if self.quality_loss_type == "l1":
+            if self.quality_loss_type == "bce_balanced":
+                pos_loss = (
+                    F.binary_cross_entropy_with_logits(
+                        quality_logits[fg_mask],
+                        quality_target[fg_mask],
+                        reduction="mean",
+                    )
+                    if fg_mask.any()
+                    else quality_logits.sum() * 0.0
+                )
+                neg_mask = ~fg_mask
+                neg_loss = (
+                    F.binary_cross_entropy_with_logits(
+                        quality_logits[neg_mask],
+                        torch.zeros_like(quality_logits[neg_mask]),
+                        reduction="mean",
+                    )
+                    if neg_mask.any()
+                    else quality_logits.sum() * 0.0
+                )
+                loss[quality_idx] = self.quality_gain * (pos_loss + self.quality_neg_gain * neg_loss)
+                debug_pos_loss, debug_neg_loss = pos_loss, neg_loss
+            elif self.quality_loss_type == "l1":
                 pos_loss = (
                     F.l1_loss(quality_logits.sigmoid()[fg_mask], quality_target[fg_mask], reduction="sum")
                     if fg_mask.sum()
@@ -1040,8 +1068,43 @@ class v8DetectionLoss:
                 )
                 neg_loss = self.bce(quality_logits, quality_target).masked_fill(fg_mask, 0).sum()
                 loss[quality_idx] = (pos_loss + neg_loss) / fg_mask.sum().clamp_min(1)
+                debug_pos_loss, debug_neg_loss = pos_loss, neg_loss
             else:
                 loss[quality_idx] = self.bce(quality_logits, quality_target).sum() / fg_mask.sum().clamp_min(1)
+                debug_pos_loss = loss[quality_idx]
+                debug_neg_loss = quality_logits.sum() * 0.0
+            if self.quality_debug and self.quality_debug_seen < self.quality_debug_batches:
+                self.quality_debug_seen += 1
+                num_pos = int(fg_mask.sum().item())
+                num_neg = int((~fg_mask).sum().item())
+                if fg_mask.any():
+                    q_iou_dbg = quality_target[fg_mask].detach().float()
+                    iou_stats = (
+                        float(q_iou_dbg.min().item()),
+                        float(q_iou_dbg.mean().item()),
+                        float(q_iou_dbg.max().item()),
+                    )
+                    pred_sample = pred_bboxes.detach()[fg_mask][:5].float().cpu().tolist()
+                    target_sample = target_bboxes_scaled.detach()[fg_mask][:5].float().cpu().tolist()
+                else:
+                    iou_stats = (float("nan"), float("nan"), float("nan"))
+                    pred_sample, target_sample = [], []
+                LOGGER.info(
+                    "quality_debug batch=%s/%s num_pos=%s num_neg=%s iou_min/mean/max=(%.6g, %.6g, %.6g) "
+                    "pos_loss=%.6g neg_loss=%.6g quality_gain=%.6g quality_neg_gain=%.6g loss_q=%.6g",
+                    self.quality_debug_seen,
+                    self.quality_debug_batches,
+                    num_pos,
+                    num_neg,
+                    *iou_stats,
+                    float(debug_pos_loss.detach().item()),
+                    float(debug_neg_loss.detach().item()),
+                    self.quality_gain,
+                    self.quality_neg_gain,
+                    float(loss[quality_idx].detach().item()),
+                )
+                LOGGER.info("quality_debug pred_bboxes_sample=%s", pred_sample)
+                LOGGER.info("quality_debug target_bboxes_scaled_sample=%s", target_sample)
         if self.rank_gain > 0:
             rank_idx = (
                 3 + int(self.boundary_loss is not None) + int(self.loc_quality_loss is not None) + int(self.quality_head)

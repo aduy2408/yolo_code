@@ -3,7 +3,9 @@
 
 nc: 1
 quality_head: true
-quality_loss: bce
+quality_loss: bce_balanced
+quality_gain: 0.5
+quality_neg_gain: 0.05
 quality_score_mode: cls_mul_q
 quality_detach_target: true
 

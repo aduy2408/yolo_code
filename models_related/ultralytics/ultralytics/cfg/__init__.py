@@ -171,6 +171,8 @@ CFG_FLOAT_KEYS = frozenset(
         "boundary_shrinkage",
         "loc_quality",
         "loc_quality_sigma",
+        "quality_gain",
+        "quality_neg_gain",
         "rank_loss",
         "rank_tau",
         "rank_iou_margin",
@@ -214,7 +216,7 @@ CFG_FRACTION_KEYS = frozenset(
 CFG_CHOICE_KEYS = {
     "nms_method": {"hard", "soft-linear", "soft-gaussian"},
     "cls_geometry_mode": {"add", "concat"},
-    "quality_loss": {"bce", "l1"},
+    "quality_loss": {"bce", "bce_balanced", "l1"},
     "quality_score_mode": {"cls_mul_q", "sqrt_cls_mul_q", "cls_mul_q2"},
 }
 CFG_INT_KEYS = frozenset(
@@ -234,6 +236,8 @@ CFG_INT_KEYS = frozenset(
         "boundary_levels",
         "boundary_samples",
         "loc_quality_levels",
+        "quality_debug_batches",
+        "quality_debug_max_preds",
         "rank_topk",
     }
 )
@@ -253,6 +257,8 @@ CFG_BOOL_KEYS = frozenset(
         "cls_deform_geometry",
         "quality_head",
         "quality_detach_target",
+        "quality_debug",
+        "quality_debug_export",
         "wiou_monotonous",
         "single_cls",
         "rect",

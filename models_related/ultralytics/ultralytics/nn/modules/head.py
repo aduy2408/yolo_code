@@ -280,7 +280,9 @@ class Detect(nn.Module):
             y = self.postprocess(y.permute(0, 2, 1))
         return y if self.export else (y, preds)
 
-    def _inference(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
+    def _inference(
+        self, x: dict[str, torch.Tensor], return_quality_debug: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Decode predicted bounding boxes and class probabilities based on multiple-level feature maps.
 
         Args:
@@ -292,6 +294,7 @@ class Detect(nn.Module):
         # Inference path
         dbox = self._get_decode_boxes(x)
         scores = x["scores"].sigmoid()
+        quality = None
         if getattr(self, "quality_head", False) and "quality_logits" in x:
             quality = x["quality_logits"].sigmoid()
             if self.quality_score_mode == "sqrt_cls_mul_q":
@@ -300,7 +303,14 @@ class Detect(nn.Module):
                 scores = scores * quality.square()
             else:
                 scores = scores * quality
-        return torch.cat((dbox, scores), 1)
+        out = torch.cat((dbox, scores), 1)
+        if return_quality_debug:
+            debug = {"boxes": dbox, "final_scores": scores}
+            if quality is not None:
+                cls_scores = x["scores"].sigmoid()
+                debug.update(cls_scores=cls_scores, q_scores=quality)
+            return out, debug
+        return out
 
     def _get_decode_boxes(self, x: dict[str, torch.Tensor]) -> torch.Tensor:
         """Get decoded boxes based on anchors and strides."""

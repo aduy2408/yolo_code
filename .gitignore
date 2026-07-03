@@ -220,3 +220,5 @@ models_related/ultralytics/**/__pycache__/
 models_related/ultralytics/**/*.py[cod]
 SET-VIT-TINY-DET/
 VarifocalNet/
+.understand-anything/
+Understand-Anything/
