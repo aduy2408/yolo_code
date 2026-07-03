@@ -1086,3 +1086,337 @@ Recommended next checks:
   stricter label quality checks, and NMS/duplicate analysis.
 - Compare against a baseline model using the same diagnostic to see whether
   this architecture specifically worsens edge precision.
+
+## 2026-07-03 Pairwise Ranking Loss Follow-Up
+
+### Motivation
+
+Pairwise ranking loss was tested because the current failure mode includes weak
+score-vs-localization alignment: many detections are confident even when their
+boxes are not tight enough for high-IoU AP.
+
+The intended pairwise rule was:
+
+```text
+For positive candidates assigned to the same GT:
+better IoU box should have higher class score than worse IoU box.
+```
+
+The suspected risk was that this objective can damage class-score calibration:
+it ranks positives against positives, but it does not explicitly teach negatives
+to be low. If the ranking loss is too strong or noisy, it can raise scores for
+many positive candidates around each GT and reduce precision.
+
+### Current Pairwise Ranking Implementation
+
+The ranking loss lives in:
+
+```text
+models_related/ultralytics/ultralytics/utils/loss.py
+```
+
+Core behavior:
+
+```python
+rank_pred_bboxes = pred_bboxes.detach()[fg_mask]
+rank_target_bboxes = target_bboxes.detach()[fg_mask]
+rank_iou = bbox_iou(rank_pred_bboxes, rank_target_bboxes, xywh=False, CIoU=False).squeeze(-1).clamp(0)
+
+class_indices = target_scores[fg_mask].argmax(-1)
+assigned_logits = pred_scores[batch_indices, anchor_indices, class_indices]
+group_ids = batch_indices * (target_gt_idx.max() + 1).clamp_min(1) + target_gt_idx[fg_mask]
+
+for group_id in group_ids.unique():
+    group_mask = group_ids == group_id
+    group_iou = rank_iou[group_mask]
+    group_logits = assigned_logits[group_mask]
+    topk = min(self.rank_topk, int(group_iou.numel()))
+    order = group_iou.argsort(descending=True)[:topk]
+    group_iou = group_iou[order]
+    group_logits = group_logits[order]
+
+    iou_gap = group_iou[:, None] - group_iou[None, :]
+    pair_mask = iou_gap > self.rank_iou_margin
+    score_gap = group_logits[:, None] - group_logits[None, :]
+    weights = iou_gap[pair_mask].detach()
+    rank_losses.append(F.softplus(-score_gap[pair_mask] / tau) * weights)
+```
+
+For the follow-up tests, a runtime monkey patch added:
+
+```python
+pair_mask = (iou_gap > self.rank_iou_margin) & (group_iou[:, None] > rank_iou_hi_min)
+```
+
+so only pairs whose better box has IoU above the threshold are used.
+
+### IoU Scale Debug
+
+The debug print was added around the rank IoU calculation:
+
+```python
+print(
+    "[rank debug]",
+    "fg", int(fg_mask.sum()),
+    "pred", float(rank_pred_bboxes.min()), float(rank_pred_bboxes.max()),
+    "target", float(rank_target_bboxes.min()), float(rank_target_bboxes.max()),
+    "iou_mean", float(rank_iou.mean()) if rank_iou.numel() else -1,
+    "iou_max", float(rank_iou.max()) if rank_iou.numel() else -1,
+    "iou_hi_min", float(rank_iou_hi_min),
+)
+```
+
+Observed logs:
+
+```text
+[rank debug] fg 180 pred 13.9140625 120.5859375 target 17.762069702148438 116.6993637084961 iou_mean 0.6278674006462097 iou_max 0.9187124371528625 iou_hi_min 0.6
+[rank debug] fg 370 pred 10.8671875 112.03125 target 12.5625 110.85714721679688 iou_mean 0.6693977117538452 iou_max 0.9366804957389832 iou_hi_min 0.6
+[rank debug] fg 180 pred 13.97265625 119.1953125 target 17.762069702148438 116.6993637084961 iou_mean 0.6589277386665344 iou_max 0.8697048425674438 iou_hi_min 0.6
+[rank debug] fg 370 pred 11.94921875 113.05859375 target 12.5625 110.85714721679688 iou_mean 0.7128806710243225 iou_max 0.9152914881706238 iou_hi_min 0.6
+```
+
+Interpretation:
+
+- The IoU scale is not broken.
+- Predicted and target boxes are in the same coordinate scale.
+- `iou_max` is high enough; the ranking failure is not caused by all-zero or
+  badly scaled IoU.
+
+### Ablation 1: Baseline P2/P3 Edge Pooling Checkpoint
+
+Seed checkpoint:
+
+```text
+/marimo/runs/detect/rank_loss_staged/baseline_p2p3_edge_pooling_rank0_40ep/weights/best.pt
+```
+
+Original source run:
+
+```text
+/marimo/runs/detect/rank_loss_staged/baseline_p2p3_edge_pooling_rank0_40ep
+best epoch: 36
+best precision: 0.88858
+best recall: 0.89647
+best mAP50: 0.90603
+last epoch: 40
+last precision: 0.88133
+last recall: 0.87822
+last mAP50: 0.89932
+```
+
+All ablations were run for 10 epochs from the same checkpoint with:
+
+```text
+rank_iou_margin=0.1
+rank_tau=0.25
+rank_topk=10
+```
+
+Results:
+
+| Run | rank_loss | rank_iou_hi_min | Precision | Recall | mAP50 | mAP50-95 |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 0.0 | 0.0 | 0.80190 | 0.76232 | 0.82516 | 0.28457 |
+| B | 0.025 | 0.6 | 0.63715 | 0.67931 | 0.68362 | 0.25003 |
+| C | 0.05 | 0.6 | 0.45912 | 0.51387 | 0.48777 | 0.17840 |
+
+Run directories:
+
+```text
+/marimo/runs/detect/rank_loss_ablation_hi06/A_rank0_from_map90_10ep
+/marimo/runs/detect/rank_loss_ablation_hi06/B_rank0025_iouhi06_from_map90_10ep
+/marimo/runs/detect/rank_loss_ablation_hi06/C_rank005_iouhi06_from_map90_10ep
+```
+
+Result:
+
+- `rank_loss=0.025` already hurts precision and mAP50 heavily.
+- `rank_loss=0.05` is substantially worse.
+- Filtering pairs with `rank_iou_hi_min=0.6` does not prevent the damage.
+
+### Ablation 2: `/marimo/best_api_pooledge_p2p3.pt`
+
+Available P2/P3 edge-pooling related checkpoints found under `/marimo`:
+
+| Checkpoint | Notes |
+|---|---|
+| `/marimo/runs/detect/rank_loss_staged/baseline_p2p3_edge_pooling_rank0_40ep/weights/best.pt` | Best source mAP50 0.90603 |
+| `/marimo/runs/detect/rank_loss_staged/baseline_p2p3_edge_pooling_rank0_40ep/weights/last.pt` | Last mAP50 0.89932 |
+| `/marimo/runs/detect/rank_loss_staged/rank005_p2p3_edge_pooling_from_baseline40_80ep/weights/best.pt` | Best source mAP50 0.80299 |
+| `/marimo/runs/detect/rank_loss_staged/rank005_p2p3_edge_pooling_from_baseline40_80ep/weights/last.pt` | Last mAP50 0.68852 |
+| `/marimo/runs/detect/rank_loss_real/rank005_p2p3_edge_pooling_scratch/weights/best.pt` | Best source mAP50 0.71145 |
+| `/marimo/best_api_pooledge_p2p3.pt` | No adjacent results.csv |
+| `/marimo/best_api_pooledge_p2p3_vlf.pt` | No adjacent results.csv |
+
+The requested checkpoint was tested:
+
+```text
+/marimo/best_api_pooledge_p2p3.pt
+```
+
+Same 10-epoch settings:
+
+```text
+rank_iou_margin=0.1
+rank_tau=0.25
+rank_topk=10
+```
+
+Results:
+
+| Run | rank_loss | rank_iou_hi_min | Precision | Recall | mAP50 | mAP50-95 |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 0.0 | 0.0 | 0.76916 | 0.72555 | 0.80460 | 0.28666 |
+| B | 0.025 | 0.6 | 0.53296 | 0.62305 | 0.59009 | 0.22629 |
+| C | 0.05 | 0.6 | 0.46191 | 0.65547 | 0.55932 | 0.21858 |
+
+Run directories:
+
+```text
+/marimo/runs/detect/rank_loss_ablation_pooledge_hi06/A_rank0_from_pooledge_10ep
+/marimo/runs/detect/rank_loss_ablation_pooledge_hi06/B_rank0025_iouhi06_from_pooledge_10ep
+/marimo/runs/detect/rank_loss_ablation_pooledge_hi06/C_rank005_iouhi06_from_pooledge_10ep
+```
+
+Result:
+
+- The same pattern repeats.
+- A rank-free continuation is best.
+- `rank_loss=0.025` and `rank_loss=0.05` both damage precision and mAP.
+- The damage remains even with `rank_iou_hi_min=0.6`.
+
+### Why `rank_iou_hi_min=0.6` Still Fails
+
+The filter only says that the higher-IoU box in a pair must be reasonably good.
+It does not solve the calibration problem.
+
+Main failure reasons:
+
+1. The objective ranks positives against positives only.
+   It does not explicitly suppress negatives or duplicate low-quality
+   candidates. BCE/VFL still does that separately, but the rank term can distort
+   the positive score distribution enough to hurt precision.
+
+2. A valid pair can still be noisy.
+   With `rank_iou_hi_min=0.6`, pairs like `0.62 > 0.50` are valid. This is true
+   in ranking terms, but it may not help NMS or thresholded detection quality.
+
+3. The rank term is not tiny in practice.
+   Observed rank losses were roughly:
+
+   ```text
+   rank_loss=0.025 run: train/rank_loss about 0.126, val/rank_loss about 0.133
+   rank_loss=0.05 run:  train/rank_loss about 0.187, val/rank_loss about 0.209
+   ```
+
+   Even after multiplying by the gain, this is enough to push class logits and
+   disrupt calibration.
+
+4. It optimizes local ordering, not global confidence.
+   The metric needs a calibrated score that separates true detections,
+   duplicates, loose boxes, and background. Pairwise positive-only ranking does
+   not directly optimize that global ordering.
+
+5. The continuation LR schedule is itself destabilizing.
+   Even `rank_loss=0.0` drops below the original checkpoint's best mAP50 after
+   10 continuation epochs. However, the rank-loss runs drop much more than A,
+   so rank loss remains the primary additional harm.
+
+Conclusion:
+
+```text
+Current pairwise ranking loss should stay disabled for this model family.
+```
+
+If it is tested again, use a much smaller gain and safer scheduling:
+
+```text
+rank_loss: 0.005 or 0.01
+enable only after warmup / late fine-tune
+low LR continuation
+possibly require iou_hi > 0.7 and iou_lo < 0.5, not just iou_gap > margin
+```
+
+### Current Quality Head Status
+
+There is a train-only localization quality map auxiliary head, but no inference
+quality head yet.
+
+Detect head code:
+
+```text
+models_related/ultralytics/ultralytics/nn/modules/head.py
+```
+
+Current auxiliary head:
+
+```python
+# EXPERIMENTAL: localization quality map heads. These parameters live
+# on the model so the optimizer can update them during LQM training.
+self.loc_quality_enabled = False
+self.loc_cv = nn.ModuleList(nn.Conv2d(x, 1, 1) for x in ch)
+```
+
+Forward path:
+
+```python
+out = dict(boxes=boxes, scores=scores, feats=x)
+# EXPERIMENTAL: LQM maps are train-time auxiliary outputs only.
+if self.training and getattr(self, "loc_quality_enabled", False):
+    out["loc_maps"] = [self.loc_cv[i](x[i]) for i in range(self.nl)]
+return out
+```
+
+Loss code:
+
+```text
+models_related/ultralytics/ultralytics/utils/loss.py
+```
+
+Current objective:
+
+```python
+class LocalizationQualityLoss(nn.Module):
+    """Gaussian localization quality map supervision over Detect feature maps."""
+```
+
+It creates a smooth center-high Gaussian target inside each GT box and applies
+MSE or SmoothL1 to `sigmoid(loc_map)`.
+
+Config knobs:
+
+```yaml
+loc_quality: 0.0
+loc_quality_levels: 2
+loc_quality_sigma: 0.45
+loc_quality_loss: mse
+```
+
+Important limitation:
+
+```text
+loc_quality is train-only auxiliary supervision.
+It is not used at inference and it is not multiplied into class confidence.
+```
+
+`cls_iou_target` and `vfl` use assigned IoU as a classification target, but they
+do not add a separate quality prediction head.
+
+### Updated Recommendation
+
+Given the ranking-loss results, the next more plausible direction is not
+positive-only pairwise ranking. Better candidates:
+
+- Keep rank loss off.
+- If using quality, prefer a true IoU/quality prediction branch whose output is
+  supervised by assigned IoU and used at inference as:
+
+  ```text
+  final_score = cls_score * quality_score
+  ```
+
+- Alternatively, test VFL/quality-target classification with careful TAL
+  assignment tuning, especially `tal_alpha=0.0`, to avoid classification-score
+  feedback loops during assignment.
+- Continue focusing on localization: DFL/box loss, assignment scale, P2/P3
+  positive distribution, and high-IoU box refinement.
