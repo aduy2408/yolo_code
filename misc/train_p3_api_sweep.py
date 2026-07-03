@@ -288,16 +288,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def prepare_dataset(skip: bool) -> None:
-    if skip:
-        return
-    try:
-        from misc.prepare_dataset import prepare_dataset as build_varroa_dataset
-        DATA_ROOT = Path(os.environ.get("VARROA_DATA_ROOT", "/marimo/data"))
-        print(f"Preparing dataset from {DATA_ROOT} -> {DATA_PATH.parent}")
-        build_varroa_dataset(str(DATA_ROOT), str(DATA_PATH.parent))
-    except Exception as e:
-        print(f"[WARN] Dataset preparation skipped or failed: {e}")
+DATA_ROOT = Path(os.environ.get("VARROA_DATA_ROOT", "/marimo/data"))
+
+
+def prepare_data() -> None:
+    """Prepare the Varroa YOLO dataset."""
+    from misc.prepare_dataset import prepare_dataset
+
+    print(f"Preparing dataset from {DATA_ROOT} -> {DATA_PATH.parent}")
+    prepare_dataset(str(DATA_ROOT), str(DATA_PATH.parent))
 
 
 # Machine split indices
@@ -308,7 +307,11 @@ _MACHINE_SPLIT = 7  # first index of Machine B
 
 def main() -> None:
     args = parse_args()
-    prepare_dataset(args.skip_prepare)
+
+    if not args.skip_prepare:
+        prepare_data()
+    if not DATA_PATH.is_file():
+        raise FileNotFoundError(f"Dataset YAML not found: {DATA_PATH}")
 
     # Priority: --only > --machine
     if args.only:
