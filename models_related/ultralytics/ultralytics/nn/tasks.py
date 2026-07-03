@@ -214,6 +214,60 @@ class BaseModel(torch.nn.Module):
                     return torch.unbind(torch.cat(embeddings, 1), dim=0)
         return x
 
+    def _predict_once_full_y(self, x):
+        """Like _predict_once but also returns the save-filtered y-list for partial forward caching.
+
+        Returns:
+            (torch.Tensor, list): Final prediction tensor and the y-list where y[i] is the
+                output of self.model[i] when i is in self.save, else None.
+        """
+        y = []
+        for m in self.model:
+            if m.f != -1:
+                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]
+            x = m(x)
+            y.append(x if m.i in self.save else None)
+        return x, y
+
+    def _predict_perturbed_partial(self, api) -> torch.Tensor:
+        """Run the perturbed forward pass only from api.layer_idx onward.
+
+        All layers before api.layer_idx are skipped; their outputs are sourced from the
+        clean y-list cached in ``api._cached_clean_y``.  The API layer itself is run in
+        perturb mode (``api._clean_input`` feeds its input unchanged, and the module adds
+        the stored perturbation).  Subsequent layers are run normally using either the
+        cached (pre-API) or freshly computed (post-API) y entries.
+
+        Args:
+            api (AdversarialPerturbationInjection): The API module, which must have
+                ``layer_idx``, ``_clean_input``, and ``_cached_clean_y`` populated.
+
+        Returns:
+            (torch.Tensor): Model output from the partial perturbed forward pass.
+        """
+        assert api._cached_clean_y is not None, "Partial forward requires api._cached_clean_y (set in _api_adversarial_loss)."
+        assert api._clean_input is not None, "Partial forward requires api._clean_input (set in API capture forward)."
+        assert api.layer_idx is not None, "api.layer_idx must be bound during model initialisation."
+
+        # Start from the clean y-list; we overwrite entries from api.layer_idx onward.
+        y = list(api._cached_clean_y)  # shallow copy; length == len(self.model)
+        x = api._clean_input  # clean input to the API layer (identical to clean pass)
+
+        for m in self.model:
+            if m.i < api.layer_idx:
+                continue  # skip backbone and early neck — already in y
+            if m.i == api.layer_idx:
+                # API module is in perturb mode: returns x + perturbation (+ optional FGSM dropout)
+                x = m(x)
+            else:
+                if m.f != -1:
+                    x = (y[m.f] if isinstance(m.f, int)
+                         else [x if j == -1 else y[j] for j in m.f])
+                x = m(x)
+            if m.i in self.save:
+                y[m.i] = x  # overwrite with freshly computed output
+        return x
+
     def _predict_augment(self, x):
         """Perform augmentations on input image x and return augmented inference."""
         LOGGER.warning(
@@ -445,7 +499,7 @@ class BaseModel(torch.nn.Module):
         if not api_modules or not self.training or not torch.is_grad_enabled():
             return None
 
-        api = api_modules[0]  # API is intentionally applied to one P2 feature in the compare YAML.
+        api = api_modules[0]  # API is intentionally applied to one P2/P3 feature in the compare YAML.
         if api.rho == 0 or api.api_weight == 0:
             return None
 
@@ -455,7 +509,11 @@ class BaseModel(torch.nn.Module):
 
             set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
             try:
-                clean_preds = self.forward(batch["img"])
+                if api.use_partial_forward:
+                    clean_preds, cached_y = self._predict_once_full_y(batch["img"])
+                    api._cached_clean_y = cached_y
+                else:
+                    clean_preds = self.forward(batch["img"])
             finally:
                 clear_boundary_context()
 
@@ -474,7 +532,11 @@ class BaseModel(torch.nn.Module):
                     create_graph=False,
                     allow_unused=True,
                 )[0]
-                if not api.set_perturbation_from_grad(grad):
+                if not api.set_perturbation_from_grad(
+                    grad,
+                    bboxes=batch.get("bboxes") if api.use_per_box_norm else None,
+                    batch_idx=batch.get("batch_idx") if api.use_per_box_norm else None,
+                ):
                     return clean_loss, clean_items
 
                 for module in api_modules:
@@ -482,17 +544,21 @@ class BaseModel(torch.nn.Module):
 
                 set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
                 try:
-                    perturbed_preds = self.forward(batch["img"])
+                    if api.use_partial_forward:
+                        perturbed_preds = self._predict_perturbed_partial(api)
+                    else:
+                        perturbed_preds = self.forward(batch["img"])
                 finally:
                     clear_boundary_context()
 
                 perturbed_loss, perturbed_items = self.criterion(perturbed_preds, batch)
                 total_loss = clean_loss.clone()
                 total_items = clean_items.clone()
-                total_loss[0] = total_loss[0] + api.api_weight * perturbed_loss[0]
-                total_loss[2] = total_loss[2] + api.api_weight * perturbed_loss[2]
-                total_items[0] = total_items[0] + api.api_weight * perturbed_items[0].detach()
-                total_items[2] = total_items[2] + api.api_weight * perturbed_items[2].detach()
+                w = api.current_api_weight
+                total_loss[0] = total_loss[0] + w * perturbed_loss[0]
+                total_loss[2] = total_loss[2] + w * perturbed_loss[2]
+                total_items[0] = total_items[0] + w * perturbed_items[0].detach()
+                total_items[2] = total_items[2] + w * perturbed_items[2].detach()
                 return total_loss, total_items.detach()
 
             target = self._api_target(batch, api)
@@ -509,9 +575,9 @@ class BaseModel(torch.nn.Module):
 
             aux_loss = api.adversarial_auxiliary_loss(target)
             total_loss = clean_loss.clone()
-            total_loss[1] = total_loss[1] + api.api_weight * aux_loss
+            total_loss[1] = total_loss[1] + api.current_api_weight * aux_loss
             total_items = clean_items.clone()
-            total_items[1] = total_items[1] + api.api_weight * aux_loss.detach()
+            total_items[1] = total_items[1] + api.current_api_weight * aux_loss.detach()
             return total_loss, total_items.detach()
         finally:
             self._clear_api_modules()
@@ -600,6 +666,11 @@ class DetectionModel(BaseModel):
         """
         super().__init__()
         _initialize_yolo_model(self, cfg, ch, nc, verbose)
+
+        # Bind API layer indices so partial forward can skip backbone layers.
+        for m in self.model:
+            if isinstance(m, AdversarialPerturbationInjection):
+                m.layer_idx = m.i
 
         # Build strides
         m = self.model[-1]  # Detect()

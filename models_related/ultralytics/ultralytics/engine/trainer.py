@@ -526,6 +526,11 @@ class BaseTrainer:
 
             self.lr = {f"lr/pg{ir}": x["lr"] for ir, x in enumerate(self.optimizer.param_groups)}  # for loggers
 
+            # Sync current epoch to all API modules for rho/weight warm-up scheduling.
+            for _m in unwrap_model(self.model).modules():
+                if isinstance(_m, AdversarialPerturbationInjection):
+                    _m._epoch = epoch
+
             self.run_callbacks("on_train_epoch_end")
             if RANK in {-1, 0}:
                 self.ema.update_attr(self.model, include=["yaml", "nc", "args", "names", "stride", "class_weights"])

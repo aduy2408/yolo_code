@@ -294,12 +294,34 @@ class AdversarialPerturbationInjection(nn.Module):
         api_weight: float = 0.25,
         target_mode: str = "foreground",
         eps: float = 1e-6,
+        use_partial_forward: bool = False,
+        use_rho_warmup: bool = False,
+        warmup_epochs: int = 10,
+        use_per_box_norm: bool = False,
+        use_fgsm_dropout: bool = False,
+        fgsm_drop_rate: float = 0.1,
     ) -> None:
         """Initialize SET-style API parameters.
 
         The perturbation is supplied by the training loss path from the
         auxiliary-loss gradient w.r.t. the captured feature. A small auxiliary
         head scores the perturbed P2 feature without a second full detector forward.
+
+        Flags (all default False = original behavior):
+            use_partial_forward: Re-run only layers from this layer onward for perturbed
+                forward, skipping the backbone. Requires tasks.py to cache clean y-list
+                and set ``_cached_clean_y`` before the perturbed pass.
+            use_rho_warmup: Linearly warm-up ``rho`` and ``api_weight`` from 10 % of their
+                target values over ``warmup_epochs`` epochs. Set ``_epoch`` each epoch from
+                the trainer.
+            warmup_epochs: Number of epochs for the rho/weight warm-up schedule.
+            use_per_box_norm: Normalize the adversarial gradient per GT bounding-box region
+                rather than globally, amplifying the perturbation for small objects.
+            use_fgsm_dropout: In perturb mode, zero out the ``fgsm_drop_rate`` fraction of
+                channels with the highest perturbation magnitude, forcing the model to learn
+                redundant representations for robust detection.
+            fgsm_drop_rate: Fraction of channels to drop (0.0-1.0). Active only when
+                ``use_fgsm_dropout=True`` and in training perturb mode.
         """
 
         super().__init__()
@@ -307,18 +329,64 @@ class AdversarialPerturbationInjection(nn.Module):
         self.api_weight = max(float(api_weight), 0.0)
         self.target_mode = str(target_mode)
         self.eps = max(float(eps), 1e-12)
+
+        # --- Feature flags (all off = original behavior) ---
+        self.use_partial_forward = bool(use_partial_forward)
+        self.use_rho_warmup = bool(use_rho_warmup)
+        self.warmup_epochs = max(1, int(warmup_epochs))
+        self.use_per_box_norm = bool(use_per_box_norm)
+        self.use_fgsm_dropout = bool(use_fgsm_dropout)
+        self.fgsm_drop_rate = float(max(0.0, min(1.0, fgsm_drop_rate)))
+
+        # --- Aux head (used only in foreground/boundary target_mode) ---
         self.aux_head = nn.Conv2d(c1, 1, kernel_size=1)
+
+        # --- Runtime state ---
         self.mode = "off"
         self.captured: torch.Tensor | None = None
         self.perturbation: torch.Tensor | None = None
         self.last_perturbation_norm: torch.Tensor | None = None
 
+        # Partial forward state (populated from tasks.py)
+        self.layer_idx: int | None = None          # position of this module in self.model
+        self._clean_input: torch.Tensor | None = None     # input tensor to this layer in clean pass
+        self._cached_clean_y: list | None = None   # full y-list from clean _predict_once
+
+        # Rho warmup state (epoch synced from trainer)
+        self._epoch: int = 0
+
+    # ------------------------------------------------------------------
+    # Scheduled hyper-parameters
+    # ------------------------------------------------------------------
+
+    @property
+    def current_rho(self) -> float:
+        """Return rho after applying linear warm-up if enabled."""
+        if not self.use_rho_warmup or self._epoch >= self.warmup_epochs:
+            return self.rho
+        t = self._epoch / self.warmup_epochs  # 0 -> 1 over warmup_epochs
+        return self.rho * (0.1 + 0.9 * t)
+
+    @property
+    def current_api_weight(self) -> float:
+        """Return api_weight after applying linear warm-up if enabled."""
+        if not self.use_rho_warmup or self._epoch >= self.warmup_epochs:
+            return self.api_weight
+        t = self._epoch / self.warmup_epochs
+        return self.api_weight * (0.1 + 0.9 * t)
+
+    # ------------------------------------------------------------------
+    # State control
+    # ------------------------------------------------------------------
+
     def clear_state(self) -> None:
-        """Clear captured feature and perturbation state."""
+        """Clear captured feature, perturbation, and partial-forward cache."""
 
         self.mode = "off"
         self.captured = None
         self.perturbation = None
+        self._clean_input = None
+        self._cached_clean_y = None
 
     def capture(self) -> None:
         """Capture the next forward feature without perturbing it."""
@@ -331,19 +399,72 @@ class AdversarialPerturbationInjection(nn.Module):
 
         self.mode = "perturb"
 
-    def set_perturbation_from_grad(self, grad: torch.Tensor | None) -> bool:
-        """Create an L2-normalized adversarial perturbation from a feature gradient."""
+    # ------------------------------------------------------------------
+    # Perturbation construction
+    # ------------------------------------------------------------------
 
-        if grad is None or self.rho == 0 or self.api_weight == 0:
+    def set_perturbation_from_grad(
+        self,
+        grad: torch.Tensor | None,
+        bboxes: torch.Tensor | None = None,
+        batch_idx: torch.Tensor | None = None,
+    ) -> bool:
+        """Create an adversarial perturbation from a feature gradient.
+
+        When ``use_per_box_norm`` is enabled and valid bboxes are provided, the
+        gradient is weighted per GT box region before L2 normalisation.  Small
+        boxes receive a higher weight (proportional to 1/sqrt(area)) so that the
+        perturbation is not diluted by large background regions.
+
+        Args:
+            grad: Gradient tensor [B, C, H, W] w.r.t. the captured feature.
+            bboxes: Normalised xywh GT boxes [N, 4] (optional, for per-box norm).
+            batch_idx: Integer sample indices [N] matching each box to a batch item.
+
+        Returns:
+            True if the perturbation is finite and was stored; False otherwise.
+        """
+
+        if grad is None or self.current_rho == 0 or self.current_api_weight == 0:
             self.perturbation = None
             return False
 
-        flat = grad.detach().float().flatten(1)
-        norm = flat.norm(p=2, dim=1).clamp(min=self.eps).view(-1, 1, 1, 1)
-        perturbation = grad.detach().float() / norm * self.rho
+        if self.use_per_box_norm and bboxes is not None and bboxes.numel() > 0 and batch_idx is not None:
+            B, C, H, W = grad.shape
+            weight_map = torch.ones(B, 1, H, W, device=grad.device, dtype=torch.float32)
+            _batch_idx = batch_idx.to(device=grad.device, dtype=torch.long).view(-1)
+            _bboxes = bboxes.to(device=grad.device, dtype=torch.float32)
+            for b_idx, box in zip(_batch_idx.tolist(), _bboxes.tolist()):
+                if b_idx < 0 or b_idx >= B:
+                    continue
+                xc, yc, bw, bh = box
+                x1 = int((xc - bw / 2) * W)
+                x2 = max(x1 + 1, int((xc + bw / 2) * W))
+                y1 = int((yc - bh / 2) * H)
+                y2 = max(y1 + 1, int((yc + bh / 2) * H))
+                x1, x2 = max(0, x1), min(W, x2)
+                y1, y2 = max(0, y1), min(H, y2)
+                box_area = max(1, (x2 - x1) * (y2 - y1))
+                # Small objects get amplified (inversely proportional to sqrt(area))
+                scale = float(H * W / box_area) ** 0.5
+                weight_map[b_idx, :, y1:y2, x1:x2] *= scale
+            weighted_grad = grad.detach().float() * weight_map
+            flat = weighted_grad.flatten(1)
+            norm = flat.norm(p=2, dim=1).clamp(min=self.eps).view(-1, 1, 1, 1)
+            perturbation = weighted_grad / norm * self.current_rho
+        else:
+            # Default: global L2 norm (original behavior)
+            flat = grad.detach().float().flatten(1)
+            norm = flat.norm(p=2, dim=1).clamp(min=self.eps).view(-1, 1, 1, 1)
+            perturbation = grad.detach().float() / norm * self.current_rho
+
         self.perturbation = perturbation.to(dtype=grad.dtype, device=grad.device)
         self.last_perturbation_norm = self.perturbation.detach().float().flatten(1).norm(p=2, dim=1)
         return bool(torch.isfinite(self.perturbation).all())
+
+    # ------------------------------------------------------------------
+    # Forward
+    # ------------------------------------------------------------------
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Capture or perturb a feature during training; stay identity otherwise."""
@@ -351,13 +472,30 @@ class AdversarialPerturbationInjection(nn.Module):
         if not self.training:
             return x
         if self.mode == "capture":
+            self._clean_input = x   # cache for partial forward
             self.captured = x
             if x.requires_grad:
                 x.retain_grad()
             return x
         if self.mode == "perturb" and self.perturbation is not None:
-            return x + self.perturbation.to(device=x.device, dtype=x.dtype)
+            out = x + self.perturbation.to(device=x.device, dtype=x.dtype)
+            if self.use_fgsm_dropout:
+                # Channel-wise structured dropout: suppress top-fgsm_drop_rate channels
+                # that have the highest perturbation magnitude.  Forces the model to
+                # learn redundant, attack-resistant feature representations.
+                ch_mag = self.perturbation.abs().mean(dim=(2, 3))  # [B, C]
+                k = max(1, int(ch_mag.shape[1] * self.fgsm_drop_rate))
+                # Per-sample threshold: top-k channel magnitude
+                thresh = ch_mag.topk(k, dim=1).values[:, -1].view(-1, 1, 1, 1)  # [B,1,1,1]
+                keep_mask = (ch_mag.unsqueeze(-1).unsqueeze(-1) < thresh).to(dtype=out.dtype)  # [B,C,1,1]
+                keep_frac = max(1.0 - self.fgsm_drop_rate, 1e-3)
+                out = out * keep_mask / keep_frac
+            return out
         return x
+
+    # ------------------------------------------------------------------
+    # Auxiliary head (used only in foreground / boundary target_mode)
+    # ------------------------------------------------------------------
 
     def auxiliary_logits(self, feature: torch.Tensor | None = None) -> torch.Tensor:
         """Return auxiliary objectness logits for a captured or supplied feature."""
