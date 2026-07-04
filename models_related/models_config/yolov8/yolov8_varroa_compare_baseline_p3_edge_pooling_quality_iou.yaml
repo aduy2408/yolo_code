@@ -3,6 +3,8 @@
 
 nc: 1
 quality_head: true
+quality_box_features: true
+quality_box_detach: true
 quality_loss: bce_balanced
 quality_gain: 0.5
 quality_neg_gain: 0.10

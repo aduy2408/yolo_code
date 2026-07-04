@@ -98,6 +98,8 @@ class Detect(nn.Module):
         cls_deform_geometry: bool = False,
         quality_head: bool = False,
         quality_score_mode: str = "cls_mul_q",
+        quality_box_features: bool = False,
+        quality_box_detach: bool = True,
     ):
         """Initialize the YOLO detection layer with specified number of classes and channels.
 
@@ -112,6 +114,8 @@ class Detect(nn.Module):
             cls_deform_geometry (bool): Reserved flag for future VFNet-like deformable classification.
             quality_head (bool): Add an IoU-quality prediction branch for score calibration.
             quality_score_mode (str): How to combine class confidence and predicted quality at inference.
+            quality_box_features (bool): Feed DFL/box summary channels into the quality head.
+            quality_box_detach (bool): Detach DFL/box summary before the quality head.
         """
         super().__init__()
         self.nc = nc  # number of classes
@@ -131,6 +135,8 @@ class Detect(nn.Module):
         self.quality_score_mode = str(quality_score_mode)
         if self.quality_score_mode not in {"cls_mul_q", "sqrt_cls_mul_q", "cls_mul_q2"}:
             raise ValueError("quality_score_mode must be 'cls_mul_q', 'sqrt_cls_mul_q', or 'cls_mul_q2'.")
+        self.quality_box_features = bool(quality_box_features)
+        self.quality_box_detach = bool(quality_box_detach)
         c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels
         self.cv2 = nn.ModuleList(
             nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
@@ -165,7 +171,10 @@ class Detect(nn.Module):
         self.loc_cv = nn.ModuleList(nn.Conv2d(x, 1, 1) for x in ch)
         # EXPERIMENTAL: true IoU quality heads. Unlike loc_quality, this branch
         # is inference-visible and learns assigned predicted-box IoU.
-        self.cvq = nn.ModuleList(nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 1, 1)) for x in ch)
+        quality_ch = 14 if self.quality_box_features else 0
+        self.cvq = nn.ModuleList(
+            nn.Sequential(Conv(x + quality_ch, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 1, 1)) for x in ch
+        )
 
         if end2end:
             self.one2one_cv2 = copy.deepcopy(self.cv2)
@@ -211,6 +220,29 @@ class Detect(nn.Module):
         dist = dist / max(self.reg_max - 1, 1)
         return dist.detach() if self.cls_geometry_detach else dist
 
+    def _quality_box_summary(self, box_logits: torch.Tensor) -> torch.Tensor:
+        """Return expected l/t/r/b, entropy, peakness, width, and height maps for the quality head."""
+        bs, _, h, w = box_logits.shape
+        prob = box_logits.view(bs, 4, self.reg_max, h, w).softmax(2)
+        proj = torch.arange(self.reg_max, device=box_logits.device, dtype=box_logits.dtype).view(1, 1, -1, 1, 1)
+        expected = (prob * proj).sum(2) / max(self.reg_max - 1, 1)
+        entropy = -(prob * prob.clamp_min(1e-9).log()).sum(2) / max(math.log(self.reg_max), 1e-9)
+        peak = prob.max(2).values
+        width = (expected[:, 0:1] + expected[:, 2:3]) * 0.5
+        height = (expected[:, 1:2] + expected[:, 3:4]) * 0.5
+        summary = torch.cat((expected, entropy, peak, width, height), dim=1)
+        return summary.detach() if self.quality_box_detach else summary
+
+    def _quality_logits(
+        self, quality_branch: torch.nn.Module, feature: torch.Tensor, box_logits: torch.Tensor | None
+    ) -> torch.Tensor:
+        """Return quality logits, optionally conditioned on DFL/box summary maps."""
+        if getattr(self, "quality_box_features", False):
+            if box_logits is None:
+                raise ValueError("quality_box_features=True requires box logits for the quality head.")
+            feature = torch.cat((feature, self._quality_box_summary(box_logits)), dim=1)
+        return quality_branch(feature)
+
     def _geometry_cls_logits(
         self,
         cls_branch: torch.nn.Module,
@@ -244,21 +276,25 @@ class Detect(nn.Module):
             return dict()
         bs = x[0].shape[0]  # batch size
         if not getattr(self, "cls_geometry_fuse", False):
-            boxes = torch.cat([box_head[i](x[i]).view(bs, 4 * self.reg_max, -1) for i in range(self.nl)], dim=-1)
+            boxes_per_level = [box_head[i](x[i]) for i in range(self.nl)]
+            boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
             scores = torch.cat([cls_head[i](x[i]).view(bs, self.nc, -1) for i in range(self.nl)], dim=-1)
         else:
             boxes_per_level, scores_per_level = [], []
             for i in range(self.nl):
                 box_logits = box_head[i](x[i])
-                boxes_per_level.append(box_logits.view(bs, 4 * self.reg_max, -1))
+                boxes_per_level.append(box_logits)
                 dist_map = self._geometry_dist_map(box_logits)
                 cls_logits = self._geometry_cls_logits(cls_head[i], x[i], dist_map, geom_embed[i], geom_fuse[i])
                 scores_per_level.append(cls_logits.view(bs, self.nc, -1))
-            boxes = torch.cat(boxes_per_level, dim=-1)
+            boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
             scores = torch.cat(scores_per_level, dim=-1)
         out = dict(boxes=boxes, scores=scores, feats=x)
         if getattr(self, "quality_head", False) and quality_head is not None:
-            out["quality_logits"] = torch.cat([quality_head[i](x[i]).view(bs, 1, -1) for i in range(self.nl)], dim=-1)
+            out["quality_logits"] = torch.cat(
+                [self._quality_logits(quality_head[i], x[i], boxes_per_level[i]).view(bs, 1, -1) for i in range(self.nl)],
+                dim=-1,
+            )
         # EXPERIMENTAL: LQM maps are train-time auxiliary outputs only.
         if self.training and getattr(self, "loc_quality_enabled", False):
             out["loc_maps"] = [self.loc_cv[i](x[i]) for i in range(self.nl)]

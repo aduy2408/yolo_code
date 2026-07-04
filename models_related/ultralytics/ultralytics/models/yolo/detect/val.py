@@ -64,6 +64,7 @@ class DetectionValidator(BaseValidator):
         self.metrics = DetMetrics()
         self.quality_debug_rows = []
         self.quality_debug_clusters = []
+        self.quality_probe_rows = []
         self._quality_debug_candidates = None
         self._quality_debug_mode_logged = False
 
@@ -108,6 +109,7 @@ class DetectionValidator(BaseValidator):
         self.confusion_matrix = ConfusionMatrix(names=model.names, save_matches=self.args.plots and self.args.visualize)
         self.quality_debug_rows = []
         self.quality_debug_clusters = []
+        self.quality_probe_rows = []
         self._quality_debug_candidates = None
         self._quality_debug_mode_logged = False
 
@@ -154,7 +156,10 @@ class DetectionValidator(BaseValidator):
     def _cache_quality_debug_candidates(self, preds: torch.Tensor | tuple) -> None:
         """Cache pre-NMS quality-head candidates for later GT-aware diagnostics."""
         self._quality_debug_candidates = None
-        if not bool(getattr(self.args, "quality_debug_export", False)):
+        if not (
+            bool(getattr(self.args, "quality_debug_export", False))
+            or bool(getattr(self.args, "quality_probe_export", False))
+        ):
             return
         if not isinstance(preds, (list, tuple)) or len(preds) < 2 or not isinstance(preds[1], dict):
             return
@@ -167,17 +172,31 @@ class DetectionValidator(BaseValidator):
 
         quality_mode = str(getattr(self.args, "quality_score_mode", "cls_mul_q") or "cls_mul_q")
         if not self._quality_debug_mode_logged:
-            LOGGER.info("quality_debug_export active; quality_score_mode=%s", quality_mode)
+            LOGGER.info("quality candidate export active; quality_score_mode=%s", quality_mode)
             self._quality_debug_mode_logged = True
 
         boxes = ops.xywh2xyxy(pred_tensor[:, :4, :].permute(0, 2, 1).contiguous())
         cls_scores_all = raw["scores"].sigmoid().permute(0, 2, 1).contiguous()
         cls_score, pred_cls = cls_scores_all.max(-1)
         q_score = raw["quality_logits"].sigmoid().permute(0, 2, 1).contiguous().squeeze(-1)
+        dfl_prob = raw["boxes"].permute(0, 2, 1).contiguous()
+        dfl_prob = dfl_prob.view(dfl_prob.shape[0], dfl_prob.shape[1], 4, dfl_prob.shape[2] // 4).softmax(-1)
+        dfl_entropy = -(dfl_prob * dfl_prob.clamp_min(1e-9).log()).sum(-1)
+        dfl_peak = dfl_prob.amax(-1)
+        proj = torch.arange(dfl_prob.shape[-1], device=dfl_prob.device, dtype=dfl_prob.dtype)
+        dfl_expect = (dfl_prob * proj).sum(-1)
         mode_scores = self._quality_scores_by_mode(cls_score, q_score)
         active_score = mode_scores.get(quality_mode, mode_scores["cls_mul_q"])
         filt = active_score > float(getattr(self.args, "conf", 0.001))
-        max_preds = int(getattr(self.args, "quality_debug_max_preds", 30000))
+        max_preds = int(
+            getattr(
+                self.args,
+                "quality_probe_max_preds"
+                if bool(getattr(self.args, "quality_probe_export", False))
+                else "quality_debug_max_preds",
+                30000,
+            )
+        )
 
         cached = []
         remaining = max(max_preds, 0)
@@ -197,6 +216,9 @@ class DetectionValidator(BaseValidator):
                     "cls_mul_q2": mode_scores["cls_mul_q2"][si, idx].detach(),
                     "active_score": active_score[si, idx].detach(),
                     "cls": pred_cls[si, idx].detach(),
+                    "dfl_entropy": dfl_entropy[si, idx].detach(),
+                    "dfl_peak": dfl_peak[si, idx].detach(),
+                    "dfl_expect": dfl_expect[si, idx].detach(),
                 }
             )
             if max_preds > 0 and remaining <= 0:
@@ -210,6 +232,9 @@ class DetectionValidator(BaseValidator):
                         "cls_mul_q2": boxes.new_zeros((0,)),
                         "active_score": boxes.new_zeros((0,)),
                         "cls": boxes.new_zeros((0,), dtype=torch.long),
+                        "dfl_entropy": boxes.new_zeros((0, 4)),
+                        "dfl_peak": boxes.new_zeros((0, 4)),
+                        "dfl_expect": boxes.new_zeros((0, 4)),
                     }
                     for _ in range(si + 1, boxes.shape[0])
                 )
@@ -363,6 +388,7 @@ class DetectionValidator(BaseValidator):
         """
         self.metrics.process(save_dir=self.save_dir, plot=self.args.plots, on_plot=self.on_plot)
         self._save_quality_debug()
+        self._save_quality_probe()
         self.metrics.clear_stats()
         return self.metrics.results_dict
 
@@ -450,6 +476,55 @@ class DetectionValidator(BaseValidator):
                     "top_final_iou": float(gt_iou[active_scores.argmax()].item()),
                 }
             )
+        if bool(getattr(self.args, "quality_probe_export", False)):
+            width = (boxes[:, 2] - boxes[:, 0]).clamp_min(0)
+            height = (boxes[:, 3] - boxes[:, 1]).clamp_min(0)
+            area = width * height
+            aspect = width / height.clamp_min(1e-9)
+            for i in range(boxes.shape[0]):
+                ent = cand["dfl_entropy"][i]
+                peak = cand["dfl_peak"][i]
+                exp = cand["dfl_expect"][i]
+                self.quality_probe_rows.append(
+                    {
+                        "cls_score": float(cand["cls_score"][i].item()),
+                        "q_score": float(cand["q_score"][i].item()),
+                        "final_cls_mul_q": float(cand["cls_mul_q"][i].item()),
+                        "final_sqrt_cls_mul_q": float(cand["sqrt_cls_mul_q"][i].item()),
+                        "final_cls_mul_q2": float(cand["cls_mul_q2"][i].item()),
+                        "x1": float(boxes[i, 0].item()),
+                        "y1": float(boxes[i, 1].item()),
+                        "x2": float(boxes[i, 2].item()),
+                        "y2": float(boxes[i, 3].item()),
+                        "width": float(width[i].item()),
+                        "height": float(height[i].item()),
+                        "area": float(area[i].item()),
+                        "aspect": float(aspect[i].item()),
+                        "dfl_entropy_l": float(ent[0].item()),
+                        "dfl_entropy_t": float(ent[1].item()),
+                        "dfl_entropy_r": float(ent[2].item()),
+                        "dfl_entropy_b": float(ent[3].item()),
+                        "dfl_entropy_mean": float(ent.mean().item()),
+                        "dfl_entropy_min": float(ent.min().item()),
+                        "dfl_entropy_max": float(ent.max().item()),
+                        "dfl_peak_l": float(peak[0].item()),
+                        "dfl_peak_t": float(peak[1].item()),
+                        "dfl_peak_r": float(peak[2].item()),
+                        "dfl_peak_b": float(peak[3].item()),
+                        "dfl_peak_mean": float(peak.mean().item()),
+                        "dfl_peak_min": float(peak.min().item()),
+                        "dfl_peak_max": float(peak.max().item()),
+                        "dfl_expect_l": float(exp[0].item()),
+                        "dfl_expect_t": float(exp[1].item()),
+                        "dfl_expect_r": float(exp[2].item()),
+                        "dfl_expect_b": float(exp[3].item()),
+                        "dfl_expect_mean": float(exp.mean().item()),
+                        "dfl_expect_min": float(exp.min().item()),
+                        "dfl_expect_max": float(exp.max().item()),
+                        "best_iou_to_gt": float(best_iou[i].item()),
+                        "ap75_label": float(best_iou[i].item() >= 0.75),
+                    }
+                )
 
     def _save_quality_debug(self) -> None:
         """Write quality-head validation diagnostics to CSV/JSON."""
@@ -525,6 +600,34 @@ class DetectionValidator(BaseValidator):
         with open(json_path, "w") as f:
             json.dump(summary, f, indent=2)
         LOGGER.info("quality_debug_export saved %s and %s", csv_path, json_path)
+
+    def _save_quality_probe(self) -> None:
+        """Write box/DFL-conditioned quality probe features to NPZ."""
+        if not bool(getattr(self.args, "quality_probe_export", False)) or RANK not in {-1, 0}:
+            return
+        npz_path = self.save_dir / "quality_probe_features.npz"
+        if not self.quality_probe_rows:
+            np.savez(
+                npz_path,
+                feature_names=np.array([], dtype=object),
+                X=np.zeros((0, 0), dtype=np.float32),
+                y_iou=np.zeros(0, dtype=np.float32),
+                y_ap75=np.zeros(0, dtype=np.float32),
+            )
+            LOGGER.info("quality_probe_export saved empty %s", npz_path)
+            return
+        feature_names = [k for k in self.quality_probe_rows[0] if k not in {"best_iou_to_gt", "ap75_label"}]
+        X = np.asarray([[r[k] for k in feature_names] for r in self.quality_probe_rows], dtype=np.float32)
+        y_iou = np.asarray([r["best_iou_to_gt"] for r in self.quality_probe_rows], dtype=np.float32)
+        y_ap75 = np.asarray([r["ap75_label"] for r in self.quality_probe_rows], dtype=np.float32)
+        np.savez(
+            npz_path,
+            feature_names=np.asarray(feature_names, dtype=object),
+            X=X,
+            y_iou=y_iou,
+            y_ap75=y_ap75,
+        )
+        LOGGER.info("quality_probe_export saved %s rows to %s", X.shape[0], npz_path)
 
     def print_results(self) -> None:
         """Print training/validation set metrics per class."""

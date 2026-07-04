@@ -241,6 +241,31 @@ class Model(torch.nn.Module):
         self.cfg = cfg
         self.task = task or guess_model_task(cfg_dict)
         self.model = (model or self._smart_load("model"))(cfg_dict, verbose=verbose and RANK == -1)  # build model
+        model_arg_keys = {
+            "quality_head",
+            "quality_loss",
+            "quality_gain",
+            "quality_neg_gain",
+            "quality_pos_iou_thr",
+            "quality_hard_neg_iou_thr",
+            "quality_hard_neg_score_thr",
+            "quality_target_mode",
+            "quality_target_power",
+            "quality_ramp_low",
+            "quality_ramp_high",
+            "quality_neg_mode",
+            "quality_score_mode",
+            "quality_box_features",
+            "quality_box_detach",
+            "quality_detach_target",
+            "quality_debug",
+            "quality_debug_batches",
+            "quality_debug_export",
+            "quality_debug_max_preds",
+            "quality_probe_export",
+            "quality_probe_max_preds",
+        }
+        self.overrides.update({k: cfg_dict[k] for k in model_arg_keys if k in cfg_dict})
         self.overrides["model"] = self.cfg
         self.overrides["task"] = self.task
 

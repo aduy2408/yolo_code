@@ -246,6 +246,7 @@ CFG_INT_KEYS = frozenset(
         "loc_quality_levels",
         "quality_debug_batches",
         "quality_debug_max_preds",
+        "quality_probe_max_preds",
         "rank_topk",
     }
 )
@@ -264,9 +265,12 @@ CFG_BOOL_KEYS = frozenset(
         "cls_geometry_detach",
         "cls_deform_geometry",
         "quality_head",
+        "quality_box_features",
+        "quality_box_detach",
         "quality_detach_target",
         "quality_debug",
         "quality_debug_export",
+        "quality_probe_export",
         "wiou_monotonous",
         "single_cls",
         "rect",

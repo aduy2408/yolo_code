@@ -139,11 +139,15 @@ quality_ramp_low: 0.50 # (float) EXPERIMENTAL lower IoU bound for ap75_ramp qual
 quality_ramp_high: 0.75 # (float) EXPERIMENTAL upper IoU bound for ap75_ramp quality targets
 quality_neg_mode: hard # (str) EXPERIMENTAL quality-head negatives: hard or all
 quality_score_mode: cls_mul_q # (str) EXPERIMENTAL quality score mode: cls_mul_q, sqrt_cls_mul_q, or cls_mul_q2
+quality_box_features: false # (bool) EXPERIMENTAL feed DFL/box summary maps into quality head
+quality_box_detach: true # (bool) EXPERIMENTAL detach DFL/box summary before quality head
 quality_detach_target: true # (bool) EXPERIMENTAL detach IoU target for quality-head supervision
 quality_debug: false # (bool) EXPERIMENTAL print quality-head training diagnostics
 quality_debug_batches: 1 # (int) EXPERIMENTAL number of quality-head training batches to log
 quality_debug_export: false # (bool) EXPERIMENTAL export validation quality-head diagnostics
 quality_debug_max_preds: 30000 # (int) EXPERIMENTAL max pre-NMS quality debug candidates to export
+quality_probe_export: false # (bool) EXPERIMENTAL export box/DFL features for quality-head probing
+quality_probe_max_preds: 30000 # (int) EXPERIMENTAL max pre-NMS quality probe candidates to export
 rank_loss: 0.0 # (float) EXPERIMENTAL pairwise localization ranking loss gain
 rank_tau: 0.25 # (float) EXPERIMENTAL pairwise ranking temperature
 rank_iou_margin: 0.10 # (float) EXPERIMENTAL minimum IoU gap for ranking pairs

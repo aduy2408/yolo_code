@@ -2039,6 +2039,8 @@ def parse_model(d, ch, verbose=True):
     cls_deform_geometry = d.get("cls_deform_geometry", False)
     quality_head = d.get("quality_head", False)
     quality_score_mode = d.get("quality_score_mode", "cls_mul_q")
+    quality_box_features = d.get("quality_box_features", False)
+    quality_box_detach = d.get("quality_box_detach", True)
     depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
     scale = d.get("scale")
     if scales:
@@ -2236,6 +2238,8 @@ def parse_model(d, ch, verbose=True):
                         cls_deform_geometry,
                         quality_head,
                         quality_score_mode,
+                        quality_box_features,
+                        quality_box_detach,
                     ]
                 )
             if m is Segment or m is YOLOESegment or m is Segment26 or m is YOLOESegment26:
