@@ -29,6 +29,9 @@ def non_max_suppression(
     nms_method: str = "hard",
     soft_nms_sigma: float = 0.5,
     soft_nms_min_score: float = 0.001,
+    box_voting: bool = False,
+    box_voting_iou: float = 0.5,
+    box_voting_weight: str = "score_iou",
 ):
     """Perform non-maximum suppression (NMS) on prediction results.
 
@@ -55,6 +58,9 @@ def non_max_suppression(
         nms_method (str): NMS method to use: "hard", "soft-linear", or "soft-gaussian".
         soft_nms_sigma (float): Sigma value for Gaussian Soft-NMS.
         soft_nms_min_score (float): Minimum score to keep after Soft-NMS decay.
+        box_voting (bool): Whether to refine kept box coordinates using overlapping pre-NMS boxes.
+        box_voting_iou (float): Minimum IoU for boxes that vote on a kept box.
+        box_voting_weight (str): Box voting weight mode, either "score_iou" or "score_iou2".
 
     Returns:
         (list[torch.Tensor] | tuple[list[torch.Tensor], list[torch.Tensor]]): List of detections per image with shape
@@ -64,8 +70,14 @@ def non_max_suppression(
     # Checks
     assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
     assert 0 <= iou_thres <= 1, f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"
+    assert 0 <= box_voting_iou <= 1, (
+        f"Invalid box voting IoU {box_voting_iou}, valid values are between 0.0 and 1.0"
+    )
     assert nms_method in {"hard", "soft-linear", "soft-gaussian"}, (
         f"Invalid NMS method {nms_method}, valid values are 'hard', 'soft-linear', or 'soft-gaussian'"
+    )
+    assert box_voting_weight in {"score_iou", "score_iou2"}, (
+        f"Invalid box voting weight {box_voting_weight}, valid values are 'score_iou' or 'score_iou2'"
     )
     assert soft_nms_sigma > 0, f"Invalid Soft-NMS sigma {soft_nms_sigma}, valid values are greater than 0.0"
     assert 0 <= soft_nms_min_score <= 1, (
@@ -180,6 +192,15 @@ def non_max_suppression(
         i = i[:max_det]  # limit detections
 
         output[xi] = x[i]
+        if box_voting and not rotated and i.numel():
+            output[xi][:, :4] = TorchNMS.box_voting(
+                x[:, :4],
+                x[:, 4],
+                x[:, 5],
+                i,
+                box_voting_iou,
+                box_voting_weight,
+            )
         if return_idxs:
             keepi[xi] = xk[i].view(-1)
         if (time.time() - t) > time_limit:
@@ -206,6 +227,33 @@ class TorchNMS:
         >>> scores = torch.tensor([0.9, 0.8])
         >>> keep = TorchNMS.nms(boxes, scores, 0.5)
     """
+
+    @staticmethod
+    def box_voting(
+        boxes: torch.Tensor,
+        scores: torch.Tensor,
+        classes: torch.Tensor,
+        keep: torch.Tensor,
+        iou_threshold: float = 0.5,
+        weight_mode: str = "score_iou",
+    ) -> torch.Tensor:
+        """Refine kept box coordinates as score/IoU-weighted averages of same-class pre-NMS boxes."""
+        if keep.numel() == 0:
+            return boxes.new_zeros((0, 4))
+
+        kept_boxes = boxes[keep]
+        refined = kept_boxes.clone()
+        ious = box_iou(kept_boxes, boxes)
+        for row in range(keep.numel()):
+            same_class = classes == classes[keep[row]]
+            mask = same_class & (ious[row] >= iou_threshold)
+            weights = scores[mask] * ious[row, mask]
+            if weight_mode == "score_iou2":
+                weights = weights * ious[row, mask]
+            denom = weights.sum()
+            if denom > 0:
+                refined[row] = (weights[:, None] * boxes[mask]).sum(0) / denom
+        return refined
 
     @staticmethod
     def fast_nms(

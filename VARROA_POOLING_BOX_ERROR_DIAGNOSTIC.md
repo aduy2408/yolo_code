@@ -101,9 +101,74 @@ These are not enough:
 - Old `loc_quality` Gaussian center-map target.
 - `cls_iou_target_set` alone.
 - VFL loss-only change with current YOLOv8 classification branch.
-- Soft-NMS alone.
+- Soft-NMS alone is useful, but still not enough.
+- True IoU quality head as currently implemented.
+- Box voting / WBF-style coordinate averaging as currently implemented.
 
 Reason: they do not make final score reliably rank tight boxes above loose boxes.
+
+## Latest Postprocess Results
+
+Checkpoint:
+
+```text
+/marimo/best_api_pooledge_p2p3.pt
+```
+
+Data:
+
+```text
+/marimo/data/datasets/varroa_yolo/varroa.yaml
+```
+
+Run:
+
+```text
+runs/detect/box_voting_ablation_repo_patch/summary.json
+```
+
+| Method | mAP50 | mAP50-95 | AP75 | Precision | Recall |
+|---|---:|---:|---:|---:|---:|
+| hard NMS | 0.91663 | 0.33392 | 0.11303 | 0.91357 | 0.90936 |
+| Soft-NMS linear | 0.91417 | 0.35385 | 0.15676 | 0.91357 | 0.90936 |
+| hard NMS + box voting `score_iou` | 0.91020 | 0.33926 | 0.12920 | 0.91681 | 0.91228 |
+| Soft-NMS linear + box voting `score_iou` | 0.89862 | 0.32861 | 0.11521 | 0.91357 | 0.90936 |
+| hard NMS + box voting `score_iou2` | 0.91040 | 0.34058 | 0.13100 | 0.91681 | 0.91228 |
+| Soft-NMS linear + box voting `score_iou2` | 0.90079 | 0.33008 | 0.11733 | 0.91357 | 0.90936 |
+
+Interpretation:
+
+- Soft-NMS linear is still the best postprocess result: `mAP50-95 +0.01993`,
+  AP75 `+0.04374` vs hard NMS.
+- Box voting helps hard NMS slightly, best case `0.33392 -> 0.34058`, but is
+  much weaker than Soft-NMS.
+- Soft-NMS plus box voting is worse than Soft-NMS alone. Do not continue this
+  combined direction unless the voting rule changes substantially.
+- Current box voting averages coordinates from neighboring candidates. It can
+  improve hard-NMS AP75 a little, but it also drags good boxes toward looser
+  neighbors and hurts mAP50.
+
+## Quality Head Result
+
+Current true-IoU quality head attempt did not solve the ranking problem.
+
+Observed outcome from quality-head validation/debug:
+
+- `q` did not rank tight boxes reliably enough to beat class confidence.
+- `cls * q`, `sqrt(cls) * q`, and `cls * q^2` did not close the gap to oracle
+  pre-NMS ranking.
+- If a simple post-hoc probe using `cls`, `q`, DFL entropy/peak, width, height,
+  level, and area also fails to improve ranking, stop training new q heads with
+  the same features/loss. The signal is likely missing or too weak.
+- If that probe succeeds, the issue is likely q-head training/loss calibration,
+  not feature availability.
+
+Practical guardrail:
+
+- Do not keep cycling quality-head configs blindly.
+- Next quality-head work must first show post-hoc probe signal on exported
+  candidates.
+- Keep Soft-NMS linear as the current deployable postprocess baseline.
 
 ## Correct Target
 

@@ -141,6 +141,9 @@ class DetectionValidator(BaseValidator):
             nms_method=self.args.nms_method,
             soft_nms_sigma=self.args.soft_nms_sigma,
             soft_nms_min_score=self.args.soft_nms_min_score,
+            box_voting=self.args.box_voting,
+            box_voting_iou=self.args.box_voting_iou,
+            box_voting_weight=self.args.box_voting_weight,
         )
         return [{"bboxes": x[:, :4], "conf": x[:, 4], "cls": x[:, 5], "extra": x[:, 6:]} for x in outputs]
 
@@ -185,6 +188,16 @@ class DetectionValidator(BaseValidator):
         dfl_peak = dfl_prob.amax(-1)
         proj = torch.arange(dfl_prob.shape[-1], device=dfl_prob.device, dtype=dfl_prob.dtype)
         dfl_expect = (dfl_prob * proj).sum(-1)
+        if "feats" in raw:
+            level_parts = [
+                torch.full((feat.shape[2] * feat.shape[3],), level, device=pred_tensor.device, dtype=torch.long)
+                for level, feat in enumerate(raw["feats"])
+            ]
+            levels = torch.cat(level_parts).unsqueeze(0).expand(pred_tensor.shape[0], -1)
+            if levels.shape != cls_score.shape:
+                levels = torch.full(cls_score.shape, -1, device=pred_tensor.device, dtype=torch.long)
+        else:
+            levels = torch.full(cls_score.shape, -1, device=pred_tensor.device, dtype=torch.long)
         mode_scores = self._quality_scores_by_mode(cls_score, q_score)
         active_score = mode_scores.get(quality_mode, mode_scores["cls_mul_q"])
         filt = active_score > float(getattr(self.args, "conf", 0.001))
@@ -216,6 +229,7 @@ class DetectionValidator(BaseValidator):
                     "cls_mul_q2": mode_scores["cls_mul_q2"][si, idx].detach(),
                     "active_score": active_score[si, idx].detach(),
                     "cls": pred_cls[si, idx].detach(),
+                    "level": levels[si, idx].detach(),
                     "dfl_entropy": dfl_entropy[si, idx].detach(),
                     "dfl_peak": dfl_peak[si, idx].detach(),
                     "dfl_expect": dfl_expect[si, idx].detach(),
@@ -232,6 +246,7 @@ class DetectionValidator(BaseValidator):
                         "cls_mul_q2": boxes.new_zeros((0,)),
                         "active_score": boxes.new_zeros((0,)),
                         "cls": boxes.new_zeros((0,), dtype=torch.long),
+                        "level": boxes.new_zeros((0,), dtype=torch.long),
                         "dfl_entropy": boxes.new_zeros((0, 4)),
                         "dfl_peak": boxes.new_zeros((0, 4)),
                         "dfl_expect": boxes.new_zeros((0, 4)),
@@ -420,7 +435,9 @@ class DetectionValidator(BaseValidator):
 
     def _update_quality_debug(self, predn: dict[str, torch.Tensor], pbatch: dict[str, Any], si: int) -> None:
         """Accumulate per-prediction and per-GT quality diagnostics."""
-        if not bool(getattr(self.args, "quality_debug_export", False)) or self._quality_debug_candidates is None:
+        debug_export = bool(getattr(self.args, "quality_debug_export", False))
+        probe_export = bool(getattr(self.args, "quality_probe_export", False))
+        if not (debug_export or probe_export) or self._quality_debug_candidates is None:
             return
         if si >= len(self._quality_debug_candidates):
             return
@@ -439,25 +456,26 @@ class DetectionValidator(BaseValidator):
 
         im_name = Path(pbatch["im_file"]).name
         quality_mode = str(getattr(self.args, "quality_score_mode", "cls_mul_q") or "cls_mul_q")
-        for i in range(boxes.shape[0]):
-            self.quality_debug_rows.append(
-                {
-                    "image": im_name,
-                    "x1": float(boxes[i, 0].item()),
-                    "y1": float(boxes[i, 1].item()),
-                    "x2": float(boxes[i, 2].item()),
-                    "y2": float(boxes[i, 3].item()),
-                    "cls": int(cand["cls"][i].item()),
-                    "cls_score": float(cand["cls_score"][i].item()),
-                    "q_score": float(cand["q_score"][i].item()),
-                    "final_cls_mul_q": float(cand["cls_mul_q"][i].item()),
-                    "final_sqrt_cls_mul_q": float(cand["sqrt_cls_mul_q"][i].item()),
-                    "final_cls_mul_q2": float(cand["cls_mul_q2"][i].item()),
-                    "active_quality_score_mode": quality_mode,
-                    "active_final_score": float(cand["active_score"][i].item()),
-                    "best_iou_to_gt": float(best_iou[i].item()),
-                }
-            )
+        if debug_export:
+            for i in range(boxes.shape[0]):
+                self.quality_debug_rows.append(
+                    {
+                        "image": im_name,
+                        "x1": float(boxes[i, 0].item()),
+                        "y1": float(boxes[i, 1].item()),
+                        "x2": float(boxes[i, 2].item()),
+                        "y2": float(boxes[i, 3].item()),
+                        "cls": int(cand["cls"][i].item()),
+                        "cls_score": float(cand["cls_score"][i].item()),
+                        "q_score": float(cand["q_score"][i].item()),
+                        "final_cls_mul_q": float(cand["cls_mul_q"][i].item()),
+                        "final_sqrt_cls_mul_q": float(cand["sqrt_cls_mul_q"][i].item()),
+                        "final_cls_mul_q2": float(cand["cls_mul_q2"][i].item()),
+                        "active_quality_score_mode": quality_mode,
+                        "active_final_score": float(cand["active_score"][i].item()),
+                        "best_iou_to_gt": float(best_iou[i].item()),
+                    }
+                )
 
         for gi in range(ious.shape[0]):
             candidate_mask = ious[gi] > 0.1
@@ -468,15 +486,16 @@ class DetectionValidator(BaseValidator):
             q_scores = cand["q_score"][candidate_mask]
             active_scores = cand["active_score"][candidate_mask]
             best = float(gt_iou.max().item())
-            self.quality_debug_clusters.append(
-                {
-                    "best_iou": best,
-                    "top_cls_iou": float(gt_iou[cls_scores.argmax()].item()),
-                    "top_q_iou": float(gt_iou[q_scores.argmax()].item()),
-                    "top_final_iou": float(gt_iou[active_scores.argmax()].item()),
-                }
-            )
-        if bool(getattr(self.args, "quality_probe_export", False)):
+            if debug_export:
+                self.quality_debug_clusters.append(
+                    {
+                        "best_iou": best,
+                        "top_cls_iou": float(gt_iou[cls_scores.argmax()].item()),
+                        "top_q_iou": float(gt_iou[q_scores.argmax()].item()),
+                        "top_final_iou": float(gt_iou[active_scores.argmax()].item()),
+                    }
+                )
+        if probe_export:
             width = (boxes[:, 2] - boxes[:, 0]).clamp_min(0)
             height = (boxes[:, 3] - boxes[:, 1]).clamp_min(0)
             area = width * height
@@ -500,6 +519,7 @@ class DetectionValidator(BaseValidator):
                         "height": float(height[i].item()),
                         "area": float(area[i].item()),
                         "aspect": float(aspect[i].item()),
+                        "level": int(cand["level"][i].item()),
                         "dfl_entropy_l": float(ent[0].item()),
                         "dfl_entropy_t": float(ent[1].item()),
                         "dfl_entropy_r": float(ent[2].item()),

@@ -215,12 +215,14 @@ CFG_FRACTION_KEYS = frozenset(
         "iou",
         "soft_nms_sigma",
         "soft_nms_min_score",
+        "box_voting_iou",
         "fraction",
         "multi_scale",
     }
 )
 CFG_CHOICE_KEYS = {
     "nms_method": {"hard", "soft-linear", "soft-gaussian"},
+    "box_voting_weight": {"score_iou", "score_iou2"},
     "cls_geometry_mode": {"add", "concat"},
     "quality_loss": {"bce", "bce_balanced", "l1"},
     "quality_target_mode": {"iou_power", "ap75_ramp"},
@@ -271,6 +273,7 @@ CFG_BOOL_KEYS = frozenset(
         "quality_debug",
         "quality_debug_export",
         "quality_probe_export",
+        "box_voting",
         "wiou_monotonous",
         "single_cls",
         "rect",

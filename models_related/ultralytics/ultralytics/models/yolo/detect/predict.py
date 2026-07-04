@@ -66,6 +66,9 @@ class DetectionPredictor(BasePredictor):
             nms_method=self.args.nms_method,
             soft_nms_sigma=self.args.soft_nms_sigma,
             soft_nms_min_score=self.args.soft_nms_min_score,
+            box_voting=self.args.box_voting,
+            box_voting_iou=self.args.box_voting_iou,
+            box_voting_weight=self.args.box_voting_weight,
         )
 
         if not isinstance(orig_imgs, list):  # input images are a torch.Tensor, not a list

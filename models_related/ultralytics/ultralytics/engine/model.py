@@ -264,6 +264,9 @@ class Model(torch.nn.Module):
             "quality_debug_max_preds",
             "quality_probe_export",
             "quality_probe_max_preds",
+            "box_voting",
+            "box_voting_iou",
+            "box_voting_weight",
         }
         self.overrides.update({k: cfg_dict[k] for k in model_arg_keys if k in cfg_dict})
         self.overrides["model"] = self.cfg

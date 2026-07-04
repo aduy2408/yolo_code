@@ -56,6 +56,9 @@ max_det: 300 # (int) maximum number of detections per image
 nms_method: hard # (str) NMS method: hard, soft-linear, or soft-gaussian
 soft_nms_sigma: 0.5 # (float) sigma for Gaussian Soft-NMS
 soft_nms_min_score: 0.001 # (float) minimum score to keep after Soft-NMS decay
+box_voting: false # (bool) EXPERIMENTAL refine NMS-kept boxes with same-class overlapping candidates
+box_voting_iou: 0.5 # (float) EXPERIMENTAL minimum IoU for box voting candidates
+box_voting_weight: score_iou # (str) EXPERIMENTAL box voting weight: score_iou or score_iou2
 half: False # (bool) use half precision (FP16) if supported
 dnn: False # (bool) use OpenCV DNN for ONNX inference
 plots: True # (bool) save plots and images during train/val
