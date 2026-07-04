@@ -26,6 +26,29 @@ AP collapses as IoU threshold rises:
 Meaning: detection/classification is mostly fine; localization and ranking are
 the bottlenecks.
 
+## Capacity Check
+
+A very small P3-only/no-P5 model is already close to the best known result:
+
+```text
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only_nop5.yaml
+```
+
+| Model | Approx cost | mAP50 | mAP50-95 |
+|---|---:|---:|---:|
+| P3-only no-P5 small model | 0.688M params / 5.9 GFLOPs | 0.907 | 0.352 |
+| Current best SOTA variant | ~20 GFLOPs | 0.917 | 0.357 |
+
+Interpretation:
+
+- The remaining gap is too small to blame mostly on model capacity.
+- More semantic depth / heavier heads are unlikely to be the main lever now.
+- The active bottleneck is more likely data resolution/cropping, label
+  consistency, localization target, or ranking/postprocess calibration.
+- This is not a proof that architecture cannot help, but architecture-only
+  changes should now be treated as low-priority unless they directly target
+  edge localization.
+
 ## Main Evidence
 
 Validation has `685` GT objects. Best matched IoU quantiles:

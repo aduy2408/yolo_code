@@ -129,6 +129,13 @@ loc_quality: 0.0 # (float) EXPERIMENTAL localization quality map loss gain for t
 loc_quality_levels: 2 # (int) EXPERIMENTAL number of Detect feature levels to supervise with LQM
 loc_quality_sigma: 0.45 # (float) EXPERIMENTAL Gaussian sigma scale for localization quality targets
 loc_quality_loss: mse # (str) EXPERIMENTAL LQM loss type: mse or smoothl1
+dgfe_rec_gain: 0.0 # (float) EXPERIMENTAL SR-DGFE reconstruction loss gain
+dgfe_spatial_gain: 0.0 # (float) EXPERIMENTAL SR-DGFE spatial filtration loss gain
+dgfe_boundary_ring: 1.0 # (float) EXPERIMENTAL SR-DGFE boundary ring thickness in P2 cells
+dgfe_inner_value: 0.3 # (float) EXPERIMENTAL SR-DGFE bbox interior target value
+dgfe_tiny_area: 4.0 # (float) EXPERIMENTAL SR-DGFE boxes at or below this P2-cell area use target 1.0
+dgfe_neg_pos_ratio: 3 # (int) EXPERIMENTAL SR-DGFE hard-negative background samples per positive
+dgfe_neg_gain: 0.25 # (float) EXPERIMENTAL SR-DGFE hard-negative loss gain
 quality_head: false # (bool) EXPERIMENTAL predict IoU quality per anchor for score calibration
 quality_loss: bce # (str) EXPERIMENTAL quality-head loss: bce, bce_balanced, or l1
 quality_gain: 0.5 # (float) EXPERIMENTAL quality-head loss gain for balanced BCE

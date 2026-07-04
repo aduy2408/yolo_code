@@ -43,6 +43,7 @@ from ultralytics.nn.modules import (
     C2fPSA,
     EnSimAM,
     EnSimAMEdgeRepC2f,
+    FeatureDGFE,
     C3CBAM,
     C3Ghost,
     C3k2,
@@ -184,6 +185,17 @@ class BaseModel(torch.nn.Module):
             return self._predict_augment(x)
         return self._predict_once(x, profile, visualize, embed)
 
+    @staticmethod
+    def _attach_dgfe_aux(x, dgfe_aux):
+        """Attach collected DGFE auxiliary tensors to raw Detect predictions."""
+        if not dgfe_aux:
+            return x
+        if isinstance(x, dict):
+            x["dgfe_aux"] = dgfe_aux
+        elif isinstance(x, tuple) and len(x) > 1 and isinstance(x[1], dict):
+            x[1]["dgfe_aux"] = dgfe_aux
+        return x
+
     def _predict_once(self, x, profile=False, visualize=False, embed=None):
         """Perform a forward pass through the network.
 
@@ -196,15 +208,21 @@ class BaseModel(torch.nn.Module):
         Returns:
             (torch.Tensor): The last output of the model.
         """
-        y, dt, embeddings = [], [], []  # outputs
+        img0 = x
+        y, dt, embeddings, dgfe_aux = [], [], [], []  # outputs
         embed = frozenset(embed) if embed is not None else {-1}
         max_idx = max(embed)
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
-            if profile:
+            if profile and not isinstance(m, FeatureDGFE):
                 self._profile_one_layer(m, x, dt)
-            x = m(x)  # run
+            if isinstance(m, FeatureDGFE):
+                x = m(x, img0)
+                if m.last_aux is not None:
+                    dgfe_aux.append(m.last_aux)
+            else:
+                x = m(x)  # run
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
@@ -212,7 +230,7 @@ class BaseModel(torch.nn.Module):
                 embeddings.append(torch.nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
                 if m.i == max_idx:
                     return torch.unbind(torch.cat(embeddings, 1), dim=0)
-        return x
+        return self._attach_dgfe_aux(x, dgfe_aux)
 
     def _predict_once_full_y(self, x):
         """Like _predict_once but also returns the save-filtered y-list for partial forward caching.
@@ -221,15 +239,21 @@ class BaseModel(torch.nn.Module):
             (torch.Tensor, list): Final prediction tensor and the y-list where y[i] is the
                 output of self.model[i] when i is in self.save, else None.
         """
-        y = []
+        img0 = x
+        y, dgfe_aux = [], []
         for m in self.model:
             if m.f != -1:
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]
-            x = m(x)
+            if isinstance(m, FeatureDGFE):
+                x = m(x, img0)
+                if m.last_aux is not None:
+                    dgfe_aux.append(m.last_aux)
+            else:
+                x = m(x)
             y.append(x if m.i in self.save else None)
-        return x, y
+        return self._attach_dgfe_aux(x, dgfe_aux), y
 
-    def _predict_perturbed_partial(self, api) -> torch.Tensor:
+    def _predict_perturbed_partial(self, api, img0) -> torch.Tensor:
         """Run the perturbed forward pass only from api.layer_idx onward.
 
         All layers before api.layer_idx are skipped; their outputs are sourced from the
@@ -253,6 +277,7 @@ class BaseModel(torch.nn.Module):
         y = list(api._cached_clean_y)  # shallow copy; length == len(self.model)
         x = api._clean_input  # clean input to the API layer (identical to clean pass)
 
+        dgfe_aux = []
         for m in self.model:
             if m.i < api.layer_idx:
                 continue  # skip backbone and early neck — already in y
@@ -263,10 +288,15 @@ class BaseModel(torch.nn.Module):
                 if m.f != -1:
                     x = (y[m.f] if isinstance(m.f, int)
                          else [x if j == -1 else y[j] for j in m.f])
-                x = m(x)
+                if isinstance(m, FeatureDGFE):
+                    x = m(x, img0)
+                    if m.last_aux is not None:
+                        dgfe_aux.append(m.last_aux)
+                else:
+                    x = m(x)
             if m.i in self.save:
                 y[m.i] = x  # overwrite with freshly computed output
-        return x
+        return self._attach_dgfe_aux(x, dgfe_aux)
 
     def _predict_augment(self, x):
         """Perform augmentations on input image x and return augmented inference."""
@@ -545,7 +575,7 @@ class BaseModel(torch.nn.Module):
                 set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
                 try:
                     if api.use_partial_forward:
-                        perturbed_preds = self._predict_perturbed_partial(api)
+                        perturbed_preds = self._predict_perturbed_partial(api, batch["img"])
                     else:
                         perturbed_preds = self.forward(batch["img"])
                 finally:
@@ -2192,7 +2222,7 @@ def parse_model(d, ch, verbose=True):
         elif m is ASFAttention:
             c2 = ch[f]
             args = [c2, *args]
-        elif m in frozenset({AdversarialPerturbationInjection, BoundaryFeatureBlock}):
+        elif m in frozenset({AdversarialPerturbationInjection, BoundaryFeatureBlock, FeatureDGFE}):
             c2 = ch[f]
             args = [c2, *args]
         elif m is EnSimAM:

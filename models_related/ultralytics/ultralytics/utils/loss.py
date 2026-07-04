@@ -818,6 +818,13 @@ class v8DetectionLoss:
         self.quality_debug = bool(getattr(h, "quality_debug", False))
         self.quality_debug_batches = int(getattr(h, "quality_debug_batches", 1))
         self.quality_debug_seen = 0
+        self.dgfe_rec_gain = float(getattr(h, "dgfe_rec_gain", 0.0))
+        self.dgfe_spatial_gain = float(getattr(h, "dgfe_spatial_gain", 0.0))
+        self.dgfe_boundary_ring = float(getattr(h, "dgfe_boundary_ring", 1.0))
+        self.dgfe_inner_value = float(getattr(h, "dgfe_inner_value", 0.3))
+        self.dgfe_tiny_area = float(getattr(h, "dgfe_tiny_area", 4.0))
+        self.dgfe_neg_pos_ratio = int(getattr(h, "dgfe_neg_pos_ratio", 3))
+        self.dgfe_neg_gain = float(getattr(h, "dgfe_neg_gain", 0.25))
         self.rank_gain = float(getattr(h, "rank_loss", 0.0))
         self.rank_tau = float(getattr(h, "rank_tau", 0.25))
         self.rank_iou_margin = float(getattr(h, "rank_iou_margin", 0.10))
@@ -905,6 +912,111 @@ class v8DetectionLoss:
         rank_weights = torch.cat(rank_weights)
         return rank_losses.sum() / (rank_weights.sum() + 1e-9)
 
+    @staticmethod
+    def _slice_from_box(start: float, end: float, limit: int) -> tuple[int, int]:
+        start_i = max(0, min(limit - 1, int(math.floor(start))))
+        end_i = max(start_i + 1, min(limit, int(math.ceil(end))))
+        return start_i, end_i
+
+    @staticmethod
+    def _dgfe_aux_list(preds: dict[str, Any]) -> list[dict[str, torch.Tensor]]:
+        aux = preds.get("dgfe_aux")
+        if aux is None:
+            return []
+        return aux if isinstance(aux, list) else [aux]
+
+    def _dgfe_reconstruction_loss(self, preds: dict[str, Any], batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        aux_list = self._dgfe_aux_list(preds)
+        if not aux_list or "img" not in batch:
+            return preds["boxes"].sum() * 0.0
+
+        losses = []
+        for aux in aux_list:
+            recon = aux.get("recon")
+            if recon is None:
+                continue
+            target = batch["img"].to(device=recon.device, dtype=recon.dtype)
+            if target.shape[-2:] != recon.shape[-2:]:
+                target = F.interpolate(target, size=recon.shape[-2:], mode="bilinear", align_corners=False)
+            losses.append(F.smooth_l1_loss(recon, target))
+        return torch.stack(losses).mean() if losses else preds["boxes"].sum() * 0.0
+
+    def _dgfe_spatial_target(
+        self,
+        logits: torch.Tensor,
+        gt_bboxes: torch.Tensor,
+        mask_gt: torch.Tensor,
+        imgsz: torch.Tensor,
+    ) -> torch.Tensor:
+        target = torch.zeros_like(logits)
+        batch_size, _, h, w = logits.shape
+        image_h = max(float(imgsz[0]), 1.0)
+        image_w = max(float(imgsz[1]), 1.0)
+        ring = max(self.dgfe_boundary_ring, 0.0)
+        inner_value = max(min(self.dgfe_inner_value, 1.0), 0.0)
+
+        for bi in range(batch_size):
+            boxes = gt_bboxes[bi][mask_gt[bi, :, 0].bool()]
+            for box in boxes:
+                x1, y1, x2, y2 = [float(v) for v in box]
+                fx1, fx2 = x1 * w / image_w, x2 * w / image_w
+                fy1, fy2 = y1 * h / image_h, y2 * h / image_h
+                if fx2 <= fx1 or fy2 <= fy1:
+                    continue
+
+                ix1, ix2 = self._slice_from_box(fx1, fx2, w)
+                iy1, iy2 = self._slice_from_box(fy1, fy2, h)
+                if (ix2 - ix1) * (iy2 - iy1) <= self.dgfe_tiny_area:
+                    target[bi, :, iy1:iy2, ix1:ix2] = 1.0
+                    continue
+
+                target[bi, :, iy1:iy2, ix1:ix2] = inner_value
+                edge = max(int(math.ceil(ring)), 1)
+                target[bi, :, iy1:min(iy1 + edge, iy2), ix1:ix2] = 1.0
+                target[bi, :, max(iy2 - edge, iy1):iy2, ix1:ix2] = 1.0
+                target[bi, :, iy1:iy2, ix1:min(ix1 + edge, ix2)] = 1.0
+                target[bi, :, iy1:iy2, max(ix2 - edge, ix1):ix2] = 1.0
+
+                ox1, ox2 = self._slice_from_box(fx1 - ring, fx2 + ring, w)
+                oy1, oy2 = self._slice_from_box(fy1 - ring, fy2 + ring, h)
+                target[bi, :, oy1:iy1, ox1:ox2] = 1.0
+                target[bi, :, iy2:oy2, ox1:ox2] = 1.0
+                target[bi, :, iy1:iy2, ox1:ix1] = 1.0
+                target[bi, :, iy1:iy2, ix2:ox2] = 1.0
+        return target
+
+    def _dgfe_spatial_loss(
+        self,
+        preds: dict[str, Any],
+        gt_bboxes: torch.Tensor,
+        mask_gt: torch.Tensor,
+        imgsz: torch.Tensor,
+    ) -> torch.Tensor:
+        aux_list = self._dgfe_aux_list(preds)
+        if not aux_list:
+            return preds["boxes"].sum() * 0.0
+
+        losses = []
+        for aux in aux_list:
+            logits = aux.get("spatial_logits")
+            if logits is None:
+                continue
+            target = self._dgfe_spatial_target(logits, gt_bboxes, mask_gt, imgsz).to(dtype=logits.dtype)
+            bce = F.binary_cross_entropy_with_logits(logits, target, reduction="none")
+            pos_mask = target > 0
+            if not pos_mask.any():
+                losses.append(logits.sum() * 0.0)
+                continue
+
+            pos_loss = bce[pos_mask].mean()
+            neg_loss = logits.sum() * 0.0
+            neg = bce[~pos_mask]
+            if neg.numel():
+                k = min(int(pos_mask.sum().item()) * max(self.dgfe_neg_pos_ratio, 1), neg.numel())
+                neg_loss = neg.topk(k).values.mean()
+            losses.append(pos_loss + self.dgfe_neg_gain * neg_loss)
+        return torch.stack(losses).mean() if losses else preds["boxes"].sum() * 0.0
+
     def get_assigned_targets_and_loss(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> tuple:
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size and return foreground mask and
         target indices.
@@ -914,9 +1026,11 @@ class v8DetectionLoss:
             + int(self.boundary_loss is not None)
             + int(self.loc_quality_loss is not None)
             + int(self.quality_head)
-            + int(self.rank_gain > 0),
+            + int(self.rank_gain > 0)
+            + int(self.dgfe_rec_gain > 0)
+            + int(self.dgfe_spatial_gain > 0),
             device=self.device,
-        )  # box, cls, dfl[, boundary][, loc_quality][, quality][, rank]
+        )  # box, cls, dfl[, boundary][, loc_quality][, quality][, rank][, dgfe_rec][, dgfe_spatial]
         pred_distri, pred_scores = (
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
@@ -1187,11 +1301,23 @@ class v8DetectionLoss:
                 )
                 * self.rank_gain
             )
+        dgfe_idx = (
+            3
+            + int(self.boundary_loss is not None)
+            + int(self.loc_quality_loss is not None)
+            + int(self.quality_head)
+            + int(self.rank_gain > 0)
+        )
+        if self.dgfe_rec_gain > 0:
+            loss[dgfe_idx] = self._dgfe_reconstruction_loss(preds, batch) * self.dgfe_rec_gain
+            dgfe_idx += 1
+        if self.dgfe_spatial_gain > 0:
+            loss[dgfe_idx] = self._dgfe_spatial_loss(preds, gt_bboxes, mask_gt, imgsz) * self.dgfe_spatial_gain
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,
             loss.detach(),
-        )  # loss(box, cls, dfl[, boundary][, loc_quality][, quality][, rank])
+        )  # loss(box, cls, dfl[, boundary][, loc_quality][, quality][, rank][, dgfe_rec][, dgfe_spatial])
 
     def parse_output(
         self, preds: dict[str, torch.Tensor] | tuple[torch.Tensor, dict[str, torch.Tensor]]

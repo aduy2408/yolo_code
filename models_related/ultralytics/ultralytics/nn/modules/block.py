@@ -46,6 +46,7 @@ __all__ = (
     "C2fPSA",
     "EnSimAM",
     "EnSimAMEdgeRepC2f",
+    "FeatureDGFE",
     "C3CBAM",
     "C3Ghost",
     "C3k2",
@@ -233,6 +234,97 @@ def _build_boundary_background_mask(
         mask[idx, :, iy1:iy2, ix1:ix2] = 0.0
 
     return mask
+
+
+class UpBlock(nn.Module):
+    """SR-TOD reconstruction upsample block."""
+
+    def __init__(self, c1: int, c2: int) -> None:
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.ConvTranspose2d(c1, c2, kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(c2, c2, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c2, c2, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.block(x)
+
+
+class FeatureDGFE(nn.Module):
+    """Image-space SR-DGFE for P2 feature enhancement."""
+
+    def __init__(
+        self,
+        c1: int,
+        reduction: int = 8,
+        threshold_init: float = 0.0156862,
+        sharpness: float = 10.0,
+        alpha_init: float = 1e-3,
+        alpha_max: float = 1.0,
+        recon_ratio: float = 0.5,
+        upsample_steps: int = 2,
+    ) -> None:
+        super().__init__()
+        upsample_steps = max(int(upsample_steps), 1)
+        channel_hidden = max(c1 // max(int(reduction), 1), 8)
+
+        up_blocks = []
+        in_channels = c1
+        out_channels = max(int(c1 * float(recon_ratio)), 8)
+        for _ in range(upsample_steps):
+            up_blocks.append(UpBlock(in_channels, out_channels))
+            in_channels = out_channels
+            out_channels = max(out_channels // 2, 8)
+        self.upsample = nn.Sequential(*up_blocks)
+        self.reconstruct = nn.Sequential(nn.Conv2d(in_channels, 3, kernel_size=3, padding=1), nn.Sigmoid())
+        self.channel_mlp = nn.Sequential(
+            nn.Conv2d(c1, channel_hidden, kernel_size=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channel_hidden, c1, kernel_size=1),
+        )
+        self.threshold = nn.Parameter(torch.tensor(float(threshold_init)))
+        self.sharpness = float(sharpness)
+        self.alpha_max = max(float(alpha_max), 0.0)
+        p = max(min(float(alpha_init) / max(self.alpha_max, 1e-12), 1.0 - 1e-6), 1e-6)
+        self.alpha_logit = nn.Parameter(torch.logit(torch.tensor(p)))
+        self.last_aux: dict[str, torch.Tensor] | None = None
+
+    @property
+    def alpha(self) -> torch.Tensor:
+        return torch.sigmoid(self.alpha_logit) * self.alpha_max
+
+    def forward(self, x: torch.Tensor, img: torch.Tensor) -> torch.Tensor:
+        recon = self.reconstruct(self.upsample(x))
+        if recon.shape[-2:] != img.shape[-2:]:
+            recon = F.interpolate(recon, size=img.shape[-2:], mode="bilinear", align_corners=False)
+
+        diff = (recon - img).abs().mean(dim=1, keepdim=True)
+        spatial_logits_img = self.sharpness * (diff - self.threshold.to(dtype=diff.dtype, device=diff.device))
+        spatial_logits = F.interpolate(spatial_logits_img, size=x.shape[-2:], mode="bilinear", align_corners=False)
+        spatial_gate = 1.0 + torch.sigmoid(spatial_logits)
+
+        avg_gate = self.channel_mlp(F.adaptive_avg_pool2d(x, 1))
+        max_gate = self.channel_mlp(F.adaptive_max_pool2d(x, 1))
+        channel_gate = torch.sigmoid(avg_gate + max_gate)
+
+        attention = channel_gate * spatial_gate
+        alpha = self.alpha.to(dtype=x.dtype, device=x.device)
+        out = x * (1.0 + alpha * (attention - 1.0))
+        self.last_aux = (
+            {
+                "recon": recon,
+                "spatial_logits": spatial_logits,
+                "spatial_gate": spatial_gate,
+                "alpha": alpha.reshape(1),
+            }
+            if self.training
+            else None
+        )
+        return out
+
 
 class MS_Scharr_EnSimAM(nn.Module):
     """Multi-scale local-variance EnSimAM with Scharr edge attention."""

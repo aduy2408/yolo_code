@@ -78,6 +78,11 @@ class DetectionTrainer(BaseTrainer):
         # EXPERIMENTAL: rank_loss is logged only when pairwise localization ranking is enabled.
         if float(getattr(self.args, "rank_loss", 0.0)) > 0:
             names += ("rank_loss",)
+        # EXPERIMENTAL: SR-DGFE losses are logged only when their gains are enabled.
+        if float(getattr(self.args, "dgfe_rec_gain", 0.0)) > 0:
+            names += ("dgfe_rec_loss",)
+        if float(getattr(self.args, "dgfe_spatial_gain", 0.0)) > 0:
+            names += ("dgfe_spatial_loss",)
         return names
 
     def build_dataset(self, img_path: str, mode: str = "train", batch: int | None = None):
