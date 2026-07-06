@@ -276,6 +276,8 @@ class Model(torch.nn.Module):
             "loc_assign_max_stride",
             "loc_assign_center_radius",
             "loc_assign_weight",
+            "dfl_residual",
+            "dfl_residual_scale",
             "box_voting",
             "box_voting_iou",
             "box_voting_weight",

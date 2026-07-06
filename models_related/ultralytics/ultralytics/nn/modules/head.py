@@ -147,10 +147,7 @@ class Detect(nn.Module):
         self.cv2 = nn.ModuleList(
             nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
         )
-        self.cv2_residual = nn.ModuleList(nn.Conv2d(x, 4, 1) for x in ch)
-        for residual_head in self.cv2_residual:
-            nn.init.zeros_(residual_head.weight)
-            nn.init.zeros_(residual_head.bias)
+        self.cv2_residual = self.init_dfl_residual_heads(ch) if self.dfl_residual else nn.ModuleList()
         self.cv3 = (
             nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
             if self.legacy
@@ -189,9 +186,20 @@ class Detect(nn.Module):
         if end2end:
             self.one2one_cv2 = copy.deepcopy(self.cv2)
             self.one2one_cv3 = copy.deepcopy(self.cv3)
+            if self.dfl_residual:
+                self.one2one_cv2_residual = copy.deepcopy(self.cv2_residual)
             if self.cls_geometry_fuse:
                 self.one2one_cls_geometry_embed = copy.deepcopy(self.cls_geometry_embed)
                 self.one2one_cls_geometry_fuse_conv = copy.deepcopy(self.cls_geometry_fuse_conv)
+
+    @staticmethod
+    def init_dfl_residual_heads(ch: tuple) -> nn.ModuleList:
+        """Create zero-initialized DFL residual heads."""
+        heads = nn.ModuleList(nn.Conv2d(x, 4, 1) for x in ch)
+        for head in heads:
+            nn.init.zeros_(head.weight)
+            nn.init.zeros_(head.bias)
+        return heads
 
     @property
     def one2many(self):
@@ -209,6 +217,8 @@ class Detect(nn.Module):
     def one2one(self):
         """Returns the one-to-one head components."""
         out = dict(box_head=self.one2one_cv2, cls_head=self.one2one_cv3)
+        if getattr(self, "dfl_residual", False):
+            out.update(box_residual_head=self.one2one_cv2_residual)
         if getattr(self, "cls_geometry_fuse", False):
             out.update(geom_embed=self.one2one_cls_geometry_embed, geom_fuse=self.one2one_cls_geometry_fuse_conv)
         return out
