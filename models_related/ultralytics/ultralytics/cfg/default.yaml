@@ -164,10 +164,17 @@ rank_loss: 0.0 # (float) EXPERIMENTAL pairwise localization ranking loss gain
 rank_tau: 0.25 # (float) EXPERIMENTAL pairwise ranking temperature
 rank_iou_margin: 0.10 # (float) EXPERIMENTAL minimum IoU gap for ranking pairs
 rank_topk: 10 # (int) EXPERIMENTAL foreground candidates per GT for ranking loss
+loc_assign: false # (bool) EXPERIMENTAL use localization-only positive mining for box/DFL loss
+loc_assign_topk: 3 # (int) EXPERIMENTAL extra local anchors per GT for box/DFL loss
+loc_assign_max_stride: 8.0 # (float) EXPERIMENTAL only mine anchors up to this stride, e.g. P2/P3
+loc_assign_center_radius: 2.5 # (float) EXPERIMENTAL GT-center radius in stride units for loc-positive mining
+loc_assign_weight: 0.5 # (float) EXPERIMENTAL box/DFL target weight for mined loc positives
 cls_geometry_fuse: false # (bool) EXPERIMENTAL fuse DFL expected box distances into Detect cls head
 cls_geometry_mode: add # (str) EXPERIMENTAL cls geometry fusion mode: add or concat
 cls_geometry_detach: true # (bool) EXPERIMENTAL detach geometry cue before cls fusion
 cls_deform_geometry: false # (bool) EXPERIMENTAL reserved VFNet-like deformable cls geometry path
+dfl_residual: false # (bool) EXPERIMENTAL add 4-channel DFL residual branch in Detect head
+dfl_residual_scale: 0.25 # (float) EXPERIMENTAL max residual offset in DFL-bin units
 cls: 0.5 # (float) classification loss gain
 cls_pw: 0.0 # (float) class weights power for handling class imbalance (0.0=disable, 1.0=full inverse frequency)
 dfl: 1.5 # (float) distribution focal loss gain

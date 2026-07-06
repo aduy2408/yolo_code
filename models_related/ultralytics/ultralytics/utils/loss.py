@@ -833,6 +833,13 @@ class v8DetectionLoss:
         self.rank_tau = float(getattr(h, "rank_tau", 0.25))
         self.rank_iou_margin = float(getattr(h, "rank_iou_margin", 0.10))
         self.rank_topk = int(getattr(h, "rank_topk", 10))
+        self.loc_assign = bool(getattr(h, "loc_assign", False))
+        self.loc_assign_topk = int(getattr(h, "loc_assign_topk", 3))
+        self.loc_assign_max_stride = float(getattr(h, "loc_assign_max_stride", 8.0))
+        self.loc_assign_center_radius = float(getattr(h, "loc_assign_center_radius", 2.5))
+        self.loc_assign_weight = float(getattr(h, "loc_assign_weight", 0.5))
+        self.dfl_residual = bool(getattr(m, "dfl_residual", False))
+        self.dfl_residual_scale = float(getattr(m, "dfl_residual_scale", getattr(h, "dfl_residual_scale", 0.25)))
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
@@ -853,13 +860,22 @@ class v8DetectionLoss:
             out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor))
         return out
 
-    def bbox_decode(self, anchor_points: torch.Tensor, pred_dist: torch.Tensor) -> torch.Tensor:
+    def bbox_decode(
+        self,
+        anchor_points: torch.Tensor,
+        pred_dist: torch.Tensor,
+        pred_residual: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Decode predicted object bounding box coordinates from anchor points and distribution."""
         if self.use_dfl:
             b, a, c = pred_dist.shape  # batch, anchors, channels
             pred_dist = pred_dist.view(b, a, 4, c // 4).softmax(3).matmul(self.proj.type(pred_dist.dtype))
             # pred_dist = pred_dist.view(b, a, c // 4, 4).transpose(2,3).softmax(3).matmul(self.proj.type(pred_dist.dtype))
             # pred_dist = (pred_dist.view(b, a, c // 4, 4).softmax(2) * self.proj.type(pred_dist.dtype).view(1, 1, -1, 1)).sum(2)
+            if pred_residual is not None:
+                pred_dist = (pred_dist + pred_residual.tanh() * self.dfl_residual_scale).clamp(
+                    min=0, max=max(self.reg_max - 1, 0)
+                )
         return dist2bbox(pred_dist, anchor_points, xywh=False)
 
     def pairwise_ranking_loss(
@@ -915,6 +931,65 @@ class v8DetectionLoss:
         rank_losses = torch.cat(rank_losses)
         rank_weights = torch.cat(rank_weights)
         return rank_losses.sum() / (rank_weights.sum() + 1e-9)
+
+    def build_localization_targets(
+        self,
+        anchor_points: torch.Tensor,
+        stride_tensor: torch.Tensor,
+        gt_labels: torch.Tensor,
+        gt_bboxes: torch.Tensor,
+        mask_gt: torch.Tensor,
+        target_bboxes: torch.Tensor,
+        target_scores: torch.Tensor,
+        fg_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Expand box/DFL positives with GT-center local anchors without changing cls targets."""
+        if not self.loc_assign or self.loc_assign_topk <= 0:
+            return target_bboxes, target_scores, fg_mask
+
+        loc_bboxes = target_bboxes.clone()
+        loc_scores = target_scores.clone()
+        loc_mask = fg_mask.clone()
+        anchor_pixel = anchor_points * stride_tensor
+        stride_flat = stride_tensor.squeeze(-1)
+        stride_ok = stride_flat <= self.loc_assign_max_stride if self.loc_assign_max_stride > 0 else torch.ones_like(
+            stride_flat, dtype=torch.bool
+        )
+        if not stride_ok.any():
+            return loc_bboxes, loc_scores, loc_mask
+
+        nc = loc_scores.shape[-1]
+        for bi in range(target_bboxes.shape[0]):
+            valid = mask_gt[bi].squeeze(-1).bool()
+            if not valid.any():
+                continue
+            valid_indices = valid.nonzero(as_tuple=False).squeeze(1)
+            for gi in valid_indices:
+                gt_box = gt_bboxes[bi, gi]
+                gt_c = (gt_box[:2] + gt_box[2:]) * 0.5
+                dist = (anchor_pixel - gt_c).pow(2).sum(-1).sqrt()
+                radius = self.loc_assign_center_radius * stride_flat
+                cand = stride_ok & (dist <= radius)
+                if not cand.any():
+                    continue
+                cand_idx = cand.nonzero(as_tuple=False).squeeze(1)
+                norm_dist = dist[cand_idx] / stride_flat[cand_idx].clamp_min(1e-6)
+                topk = min(self.loc_assign_topk, int(norm_dist.numel()))
+                if topk <= 0:
+                    continue
+                chosen = cand_idx[norm_dist.topk(topk, largest=False).indices]
+                cls_idx = int(gt_labels[bi, gi, 0].clamp(0, nc - 1).item())
+                new_only = ~loc_mask[bi, chosen]
+                if not new_only.any():
+                    continue
+                chosen = chosen[new_only]
+                loc_mask[bi, chosen] = True
+                loc_bboxes[bi, chosen] = gt_box
+                loc_scores[bi, chosen, cls_idx] = torch.maximum(
+                    loc_scores[bi, chosen, cls_idx],
+                    loc_scores.new_full((chosen.numel(),), self.loc_assign_weight),
+                )
+        return loc_bboxes, loc_scores, loc_mask
 
     @staticmethod
     def _slice_from_box(start: float, end: float, limit: int) -> tuple[int, int]:
@@ -1102,6 +1177,8 @@ class v8DetectionLoss:
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
         )
+        pred_residual = preds.get("dfl_residual")
+        pred_residual = pred_residual.permute(0, 2, 1).contiguous() if pred_residual is not None else None
         anchor_points, stride_tensor = make_anchors(preds["feats"], self.stride, 0.5)
 
         dtype = pred_scores.dtype
@@ -1115,7 +1192,7 @@ class v8DetectionLoss:
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
 
         # Pboxes
-        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri, pred_residual)  # xyxy, (b, h*w, 4)
 
         _, target_bboxes, target_scores, fg_mask, target_gt_idx = self.assigner(
             pred_scores.detach().sigmoid(),
@@ -1134,6 +1211,18 @@ class v8DetectionLoss:
         # Use the same coordinate scale as bbox loss. If target_bboxes has already been divided by stride_tensor,
         # do not divide again.
         target_bboxes_scaled = target_bboxes / stride_tensor
+        loc_target_bboxes, loc_target_scores, loc_fg_mask = self.build_localization_targets(
+            anchor_points,
+            stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
+            target_bboxes,
+            target_scores,
+            fg_mask,
+        )
+        loc_target_bboxes_scaled = loc_target_bboxes / stride_tensor
+        loc_target_scores_sum = max(loc_target_scores.sum(), 1)
 
         # Cls loss with optional class weighting
         if (self.vfl is not None or getattr(self.hyp, "cls_iou_target", False)) and fg_mask.sum():
@@ -1178,27 +1267,26 @@ class v8DetectionLoss:
                 bce_loss *= self.class_weights
             loss[1] = bce_loss.sum() / cls_target_scores_sum  # BCE
 
-        # Bbox loss
-        if fg_mask.sum():
+        # Bbox loss. Optionally use a localization-only positive set that does not affect cls targets.
+        if loc_fg_mask.sum():
             quality_weights = None
             if bool(getattr(self.hyp, "vfl_weight_box_by_q", False)):
-                if assigned_iou is None:
-                    with torch.no_grad():
-                        assigned_iou = bbox_iou(
-                            pred_bboxes.detach()[fg_mask],
-                            target_bboxes_scaled[fg_mask],
-                            xywh=False,
-                            CIoU=False,
-                        ).squeeze(-1).clamp(0)
-                quality_weights = assigned_iou.detach().clamp_min(float(getattr(self.hyp, "box_q_weight_min", 0.25)))
+                with torch.no_grad():
+                    box_assigned_iou = bbox_iou(
+                        pred_bboxes.detach()[loc_fg_mask],
+                        loc_target_bboxes_scaled[loc_fg_mask],
+                        xywh=False,
+                        CIoU=False,
+                    ).squeeze(-1).clamp(0)
+                quality_weights = box_assigned_iou.detach().clamp_min(float(getattr(self.hyp, "box_q_weight_min", 0.25)))
             loss[0], loss[2] = self.bbox_loss(
                 pred_distri,
                 pred_bboxes,
                 anchor_points,
-                target_bboxes_scaled,
-                target_scores,
-                target_scores_sum,
-                fg_mask,
+                loc_target_bboxes_scaled,
+                loc_target_scores,
+                loc_target_scores_sum,
+                loc_fg_mask,
                 imgsz,
                 stride_tensor,
                 quality_weights,

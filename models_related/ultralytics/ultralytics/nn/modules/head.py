@@ -100,6 +100,8 @@ class Detect(nn.Module):
         quality_score_mode: str = "cls_mul_q",
         quality_box_features: bool = False,
         quality_box_detach: bool = True,
+        dfl_residual: bool = False,
+        dfl_residual_scale: float = 0.25,
     ):
         """Initialize the YOLO detection layer with specified number of classes and channels.
 
@@ -116,6 +118,8 @@ class Detect(nn.Module):
             quality_score_mode (str): How to combine class confidence and predicted quality at inference.
             quality_box_features (bool): Feed DFL/box summary channels into the quality head.
             quality_box_detach (bool): Detach DFL/box summary before the quality head.
+            dfl_residual (bool): Add a 4-channel residual branch to refine DFL expected distances.
+            dfl_residual_scale (float): Maximum residual offset in DFL-bin units before box decoding.
         """
         super().__init__()
         self.nc = nc  # number of classes
@@ -137,10 +141,16 @@ class Detect(nn.Module):
             raise ValueError("quality_score_mode must be 'cls_mul_q', 'sqrt_cls_mul_q', or 'cls_mul_q2'.")
         self.quality_box_features = bool(quality_box_features)
         self.quality_box_detach = bool(quality_box_detach)
+        self.dfl_residual = bool(dfl_residual)
+        self.dfl_residual_scale = float(dfl_residual_scale)
         c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels
         self.cv2 = nn.ModuleList(
             nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
         )
+        self.cv2_residual = nn.ModuleList(nn.Conv2d(x, 4, 1) for x in ch)
+        for residual_head in self.cv2_residual:
+            nn.init.zeros_(residual_head.weight)
+            nn.init.zeros_(residual_head.bias)
         self.cv3 = (
             nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
             if self.legacy
@@ -187,6 +197,8 @@ class Detect(nn.Module):
     def one2many(self):
         """Returns the one-to-many head components, here for v3/v5/v8/v9/v11 backward compatibility."""
         out = dict(box_head=self.cv2, cls_head=self.cv3)
+        if getattr(self, "dfl_residual", False):
+            out.update(box_residual_head=self.cv2_residual)
         if getattr(self, "quality_head", False):
             out.update(quality_head=self.cvq)
         if getattr(self, "cls_geometry_fuse", False):
@@ -268,6 +280,7 @@ class Detect(nn.Module):
         box_head: torch.nn.Module = None,
         cls_head: torch.nn.Module = None,
         quality_head: torch.nn.Module = None,
+        box_residual_head: torch.nn.Module = None,
         geom_embed: torch.nn.Module = None,
         geom_fuse: torch.nn.Module = None,
     ) -> dict[str, torch.Tensor]:
@@ -290,6 +303,8 @@ class Detect(nn.Module):
             boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
             scores = torch.cat(scores_per_level, dim=-1)
         out = dict(boxes=boxes, scores=scores, feats=x)
+        if getattr(self, "dfl_residual", False) and box_residual_head is not None:
+            out["dfl_residual"] = torch.cat([box_residual_head[i](x[i]).view(bs, 4, -1) for i in range(self.nl)], dim=-1)
         if getattr(self, "quality_head", False) and quality_head is not None:
             out["quality_logits"] = torch.cat(
                 [self._quality_logits(quality_head[i], x[i], boxes_per_level[i]).view(bs, 1, -1) for i in range(self.nl)],
@@ -355,7 +370,11 @@ class Detect(nn.Module):
             self.anchors, self.strides = (a.transpose(0, 1) for a in make_anchors(x["feats"], self.stride, 0.5))
             self.shape = shape
 
-        dbox = self.decode_bboxes(self.dfl(x["boxes"]), self.anchors.unsqueeze(0)) * self.strides
+        dist = self.dfl(x["boxes"])
+        if getattr(self, "dfl_residual", False) and "dfl_residual" in x:
+            residual = x["dfl_residual"].tanh() * self.dfl_residual_scale
+            dist = (dist + residual).clamp(min=0, max=max(self.reg_max - 1, 0))
+        dbox = self.decode_bboxes(dist, self.anchors.unsqueeze(0)) * self.strides
         return dbox
 
     def bias_init(self):
