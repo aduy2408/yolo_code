@@ -177,6 +177,7 @@ CFG_FLOAT_KEYS = frozenset(
         "dgfe_inner_value",
         "dgfe_tiny_area",
         "dgfe_neg_gain",
+        "dgfe_edge_error_norm",
         "quality_gain",
         "quality_neg_gain",
         "quality_pos_iou_thr",
@@ -234,6 +235,7 @@ CFG_CHOICE_KEYS = {
     "quality_target_mode": {"iou_power", "ap75_ramp"},
     "quality_neg_mode": {"hard", "all"},
     "quality_score_mode": {"cls_mul_q", "sqrt_cls_mul_q", "cls_mul_q2"},
+    "dgfe_spatial_target_mode": {"iou", "edge_error"},
 }
 CFG_INT_KEYS = frozenset(
     {  # integer-only arguments

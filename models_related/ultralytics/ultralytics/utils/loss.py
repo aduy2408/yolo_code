@@ -825,6 +825,10 @@ class v8DetectionLoss:
         self.dgfe_tiny_area = float(getattr(h, "dgfe_tiny_area", 4.0))
         self.dgfe_neg_pos_ratio = int(getattr(h, "dgfe_neg_pos_ratio", 3))
         self.dgfe_neg_gain = float(getattr(h, "dgfe_neg_gain", 0.25))
+        self.dgfe_spatial_target_mode = str(getattr(h, "dgfe_spatial_target_mode", "iou")).lower()
+        if self.dgfe_spatial_target_mode not in {"iou", "edge_error"}:
+            raise ValueError("dgfe_spatial_target_mode must be 'iou' or 'edge_error'.")
+        self.dgfe_edge_error_norm = max(float(getattr(h, "dgfe_edge_error_norm", 0.25)), 1e-9)
         self.rank_gain = float(getattr(h, "rank_loss", 0.0))
         self.rank_tau = float(getattr(h, "rank_tau", 0.25))
         self.rank_iou_margin = float(getattr(h, "rank_iou_margin", 0.10))
@@ -947,6 +951,7 @@ class v8DetectionLoss:
         gt_bboxes: torch.Tensor,
         mask_gt: torch.Tensor,
         imgsz: torch.Tensor,
+        q_by_gt: torch.Tensor | None = None,
     ) -> torch.Tensor:
         target = torch.zeros_like(logits)
         batch_size, _, h, w = logits.shape
@@ -955,9 +960,25 @@ class v8DetectionLoss:
         ring = max(self.dgfe_boundary_ring, 0.0)
         inner_value = max(min(self.dgfe_inner_value, 1.0), 0.0)
 
+        def write_max(region: torch.Tensor, value: float) -> None:
+            if region.numel():
+                region.copy_(torch.maximum(region, torch.full_like(region, value)))
+
         for bi in range(batch_size):
-            boxes = gt_bboxes[bi][mask_gt[bi, :, 0].bool()]
-            for box in boxes:
+            valid_gt = mask_gt[bi, :, 0].bool()
+            boxes = gt_bboxes[bi][valid_gt]
+            quality = q_by_gt[bi][valid_gt].clamp(0, 1) if q_by_gt is not None else None
+            for box_idx, box in enumerate(boxes):
+                if quality is None:
+                    q, left_value, top_value, right_value, bottom_value = 1.0, 1.0, 1.0, 1.0, 1.0
+                else:
+                    values = quality[box_idx]
+                    if values.ndim == 0:
+                        q = left_value = top_value = right_value = bottom_value = float(values)
+                    else:
+                        q, left_value, top_value, right_value, bottom_value = [float(v) for v in values[:5]]
+                inside_value = inner_value * q
+                boundary_value = max(left_value, top_value, right_value, bottom_value)
                 x1, y1, x2, y2 = [float(v) for v in box]
                 fx1, fx2 = x1 * w / image_w, x2 * w / image_w
                 fy1, fy2 = y1 * h / image_h, y2 * h / image_h
@@ -967,23 +988,68 @@ class v8DetectionLoss:
                 ix1, ix2 = self._slice_from_box(fx1, fx2, w)
                 iy1, iy2 = self._slice_from_box(fy1, fy2, h)
                 if (ix2 - ix1) * (iy2 - iy1) <= self.dgfe_tiny_area:
-                    target[bi, :, iy1:iy2, ix1:ix2] = 1.0
+                    write_max(target[bi, :, iy1:iy2, ix1:ix2], boundary_value)
                     continue
 
-                target[bi, :, iy1:iy2, ix1:ix2] = inner_value
+                write_max(target[bi, :, iy1:iy2, ix1:ix2], inside_value)
                 edge = max(int(math.ceil(ring)), 1)
-                target[bi, :, iy1:min(iy1 + edge, iy2), ix1:ix2] = 1.0
-                target[bi, :, max(iy2 - edge, iy1):iy2, ix1:ix2] = 1.0
-                target[bi, :, iy1:iy2, ix1:min(ix1 + edge, ix2)] = 1.0
-                target[bi, :, iy1:iy2, max(ix2 - edge, ix1):ix2] = 1.0
+                write_max(target[bi, :, iy1:min(iy1 + edge, iy2), ix1:ix2], top_value)
+                write_max(target[bi, :, max(iy2 - edge, iy1):iy2, ix1:ix2], bottom_value)
+                write_max(target[bi, :, iy1:iy2, ix1:min(ix1 + edge, ix2)], left_value)
+                write_max(target[bi, :, iy1:iy2, max(ix2 - edge, ix1):ix2], right_value)
 
                 ox1, ox2 = self._slice_from_box(fx1 - ring, fx2 + ring, w)
                 oy1, oy2 = self._slice_from_box(fy1 - ring, fy2 + ring, h)
-                target[bi, :, oy1:iy1, ox1:ox2] = 1.0
-                target[bi, :, iy2:oy2, ox1:ox2] = 1.0
-                target[bi, :, iy1:iy2, ox1:ix1] = 1.0
-                target[bi, :, iy1:iy2, ix2:ox2] = 1.0
+                write_max(target[bi, :, oy1:iy1, ox1:ox2], top_value)
+                write_max(target[bi, :, iy2:oy2, ox1:ox2], bottom_value)
+                write_max(target[bi, :, iy1:iy2, ox1:ix1], left_value)
+                write_max(target[bi, :, iy1:iy2, ix2:ox2], right_value)
         return target
+
+    def _dgfe_quality_by_gt(
+        self,
+        assigned_iou: torch.Tensor | None,
+        pred_bboxes: torch.Tensor,
+        target_bboxes: torch.Tensor,
+        target_gt_idx: torch.Tensor,
+        fg_mask: torch.Tensor,
+        mask_gt: torch.Tensor,
+    ) -> torch.Tensor | None:
+        if assigned_iou is None or not fg_mask.any():
+            return None
+        quality = torch.zeros((*mask_gt.shape[:2], 5), device=mask_gt.device, dtype=assigned_iou.dtype)
+        offset = 0
+        for bi in range(fg_mask.shape[0]):
+            fg = fg_mask[bi]
+            n = int(fg.sum().item())
+            if not n:
+                continue
+            gt_idx = target_gt_idx[bi, fg].long()
+            gt_iou = assigned_iou.detach()[offset : offset + n]
+            pred = pred_bboxes.detach()[bi, fg]
+            target = target_bboxes.detach()[bi, fg]
+            offset += n
+            for gi in gt_idx.unique():
+                group = gt_idx == gi
+                best = gt_iou[group].argmax()
+                q = gt_iou[group][best]
+                side_values = q.repeat(4)
+                if self.dgfe_spatial_target_mode == "edge_error":
+                    pred_box = pred[group][best]
+                    target_box = target[group][best]
+                    w = (target_box[2] - target_box[0]).clamp_min(1e-9)
+                    h = (target_box[3] - target_box[1]).clamp_min(1e-9)
+                    side_error = torch.stack(
+                        (
+                            (pred_box[0] - target_box[0]).abs() / w,
+                            (pred_box[1] - target_box[1]).abs() / h,
+                            (pred_box[2] - target_box[2]).abs() / w,
+                            (pred_box[3] - target_box[3]).abs() / h,
+                        )
+                    ).div(self.dgfe_edge_error_norm).clamp(0, 1)
+                    side_values = torch.maximum(side_values, side_error)
+                quality[bi, gi] = torch.cat((q.reshape(1), side_values))
+        return quality
 
     def _dgfe_spatial_loss(
         self,
@@ -991,6 +1057,7 @@ class v8DetectionLoss:
         gt_bboxes: torch.Tensor,
         mask_gt: torch.Tensor,
         imgsz: torch.Tensor,
+        q_by_gt: torch.Tensor | None = None,
     ) -> torch.Tensor:
         aux_list = self._dgfe_aux_list(preds)
         if not aux_list:
@@ -1001,7 +1068,7 @@ class v8DetectionLoss:
             logits = aux.get("spatial_logits")
             if logits is None:
                 continue
-            target = self._dgfe_spatial_target(logits, gt_bboxes, mask_gt, imgsz).to(dtype=logits.dtype)
+            target = self._dgfe_spatial_target(logits, gt_bboxes, mask_gt, imgsz, q_by_gt).to(dtype=logits.dtype)
             bce = F.binary_cross_entropy_with_logits(logits, target, reduction="none")
             pos_mask = target > 0
             if not pos_mask.any():
@@ -1312,7 +1379,18 @@ class v8DetectionLoss:
             loss[dgfe_idx] = self._dgfe_reconstruction_loss(preds, batch) * self.dgfe_rec_gain
             dgfe_idx += 1
         if self.dgfe_spatial_gain > 0:
-            loss[dgfe_idx] = self._dgfe_spatial_loss(preds, gt_bboxes, mask_gt, imgsz) * self.dgfe_spatial_gain
+            if fg_mask.sum() and assigned_iou is None:
+                with torch.no_grad():
+                    assigned_iou = bbox_iou(
+                        pred_bboxes.detach()[fg_mask],
+                        target_bboxes_scaled[fg_mask],
+                        xywh=False,
+                        CIoU=False,
+                    ).squeeze(-1).clamp(0)
+            q_by_gt = self._dgfe_quality_by_gt(
+                assigned_iou, pred_bboxes, target_bboxes_scaled, target_gt_idx, fg_mask, mask_gt
+            )
+            loss[dgfe_idx] = self._dgfe_spatial_loss(preds, gt_bboxes, mask_gt, imgsz, q_by_gt) * self.dgfe_spatial_gain
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,

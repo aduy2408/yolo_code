@@ -86,6 +86,7 @@ from .block import (
     set_boundary_context,
     set_boundary_enabled,
 )
+from .local_detail import LocalDetailRepC2f
 from .conv import (
     CBAM,
     ChannelAttention,
@@ -203,6 +204,7 @@ __all__ = (
     "LRPCHead",
     "LayerNorm2d",
     "LightConv",
+    "LocalDetailRepC2f",
     "M3NATFuse",
     "NATBlock",
     "MLPBlock",
