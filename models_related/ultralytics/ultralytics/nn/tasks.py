@@ -2074,6 +2074,11 @@ def parse_model(d, ch, verbose=True):
     quality_box_detach = d.get("quality_box_detach", True)
     dfl_residual = d.get("dfl_residual", False)
     dfl_residual_scale = d.get("dfl_residual_scale", 0.25)
+    box_detail_head = d.get("box_detail_head", False)
+    box_detail_levels = d.get("box_detail_levels", None)
+    box_detail_scale = d.get("box_detail_scale", 0.25)
+    box_detail_kernel = d.get("box_detail_kernel", 3)
+    box_detail_gate = d.get("box_detail_gate", True)
     depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
     scale = d.get("scale")
     if scales:
@@ -2277,6 +2282,11 @@ def parse_model(d, ch, verbose=True):
                         quality_box_detach,
                         dfl_residual,
                         dfl_residual_scale,
+                        box_detail_head,
+                        box_detail_levels,
+                        box_detail_scale,
+                        box_detail_kernel,
+                        box_detail_gate,
                     ]
                 )
             if m is Segment or m is YOLOESegment or m is Segment26 or m is YOLOESegment26:

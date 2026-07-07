@@ -34,6 +34,23 @@ __all__ = (
 )
 
 
+class BoxLocalDetail(nn.Module):
+    """Lightweight local-detail adapter for box regression features."""
+
+    def __init__(self, c: int, scale: float = 0.25, kernel: int = 3, gate: bool = True):
+        super().__init__()
+        self.pool = nn.AvgPool2d(kernel_size=kernel, stride=1, padding=kernel // 2)
+        self.edge = nn.Sequential(Conv(c, c, 3), Conv(c, c, 1))
+        self.use_gate = gate
+        self.gate = nn.Sequential(nn.Conv2d(c, c, 1), nn.Sigmoid()) if gate else nn.Identity()
+        self.scale = scale
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        detail = self.edge(x - self.pool(x))
+        gate = self.gate(x) if self.use_gate else 1.0
+        return x + self.scale * gate * detail
+
+
 class Detect(nn.Module):
     """YOLO Detect head for object detection models.
 
@@ -102,6 +119,11 @@ class Detect(nn.Module):
         quality_box_detach: bool = True,
         dfl_residual: bool = False,
         dfl_residual_scale: float = 0.25,
+        box_detail_head: bool = False,
+        box_detail_levels: list[int] | tuple[int, ...] | None = None,
+        box_detail_scale: float = 0.25,
+        box_detail_kernel: int = 3,
+        box_detail_gate: bool = True,
     ):
         """Initialize the YOLO detection layer with specified number of classes and channels.
 
@@ -120,6 +142,11 @@ class Detect(nn.Module):
             quality_box_detach (bool): Detach DFL/box summary before the quality head.
             dfl_residual (bool): Add a 4-channel residual branch to refine DFL expected distances.
             dfl_residual_scale (float): Maximum residual offset in DFL-bin units before box decoding.
+            box_detail_head (bool): Add a local-detail adapter before box regression only.
+            box_detail_levels (list[int] | tuple[int, ...] | None): Detect level indices that use box detail.
+            box_detail_scale (float): Residual scale for local-detail features.
+            box_detail_kernel (int): Average-pool kernel used for high-pass detail.
+            box_detail_gate (bool): Use a sigmoid channel gate for local-detail features.
         """
         super().__init__()
         self.nc = nc  # number of classes
@@ -143,9 +170,17 @@ class Detect(nn.Module):
         self.quality_box_detach = bool(quality_box_detach)
         self.dfl_residual = bool(dfl_residual)
         self.dfl_residual_scale = float(dfl_residual_scale)
+        self.box_detail_head = bool(box_detail_head)
+        self.box_detail_levels = set(range(self.nl) if box_detail_levels is None else box_detail_levels) if self.box_detail_head else set()
         c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels
         self.cv2 = nn.ModuleList(
             nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch
+        )
+        self.box_detail = nn.ModuleList(
+            BoxLocalDetail(x, box_detail_scale, box_detail_kernel, box_detail_gate)
+            if i in self.box_detail_levels
+            else nn.Identity()
+            for i, x in enumerate(ch)
         )
         self.cv2_residual = self.init_dfl_residual_heads(ch) if self.dfl_residual else nn.ModuleList()
         self.cv3 = (
@@ -298,14 +333,15 @@ class Detect(nn.Module):
         if box_head is None or cls_head is None:  # for fused inference
             return dict()
         bs = x[0].shape[0]  # batch size
+        box_features = [self.box_detail[i](x[i]) for i in range(self.nl)]
         if not getattr(self, "cls_geometry_fuse", False):
-            boxes_per_level = [box_head[i](x[i]) for i in range(self.nl)]
+            boxes_per_level = [box_head[i](box_features[i]) for i in range(self.nl)]
             boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
             scores = torch.cat([cls_head[i](x[i]).view(bs, self.nc, -1) for i in range(self.nl)], dim=-1)
         else:
             boxes_per_level, scores_per_level = [], []
             for i in range(self.nl):
-                box_logits = box_head[i](x[i])
+                box_logits = box_head[i](box_features[i])
                 boxes_per_level.append(box_logits)
                 dist_map = self._geometry_dist_map(box_logits)
                 cls_logits = self._geometry_cls_logits(cls_head[i], x[i], dist_map, geom_embed[i], geom_fuse[i])
@@ -314,7 +350,9 @@ class Detect(nn.Module):
             scores = torch.cat(scores_per_level, dim=-1)
         out = dict(boxes=boxes, scores=scores, feats=x)
         if getattr(self, "dfl_residual", False) and box_residual_head is not None:
-            out["dfl_residual"] = torch.cat([box_residual_head[i](x[i]).view(bs, 4, -1) for i in range(self.nl)], dim=-1)
+            out["dfl_residual"] = torch.cat(
+                [box_residual_head[i](box_features[i]).view(bs, 4, -1) for i in range(self.nl)], dim=-1
+            )
         if getattr(self, "quality_head", False) and quality_head is not None:
             out["quality_logits"] = torch.cat(
                 [self._quality_logits(quality_head[i], x[i], boxes_per_level[i]).view(bs, 1, -1) for i in range(self.nl)],
