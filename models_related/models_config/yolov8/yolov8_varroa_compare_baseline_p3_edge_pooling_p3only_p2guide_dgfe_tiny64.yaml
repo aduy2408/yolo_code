@@ -1,12 +1,12 @@
-# B3: P2-detail to P3-DGFE.
-# P2 detail is used as guidance for P3; Detect stays P3-only.
+# YOLOv8 Varroa baseline+P3 pooling edge+SR-DGFE, P3-only Detect with P2 detail guide.
+# Same as p2guide_dgfe, but treats up to 8x8 P3 cells as tiny for DGFE spatial targets.
 
 nc: 1
 dgfe_rec_gain: 0.03
 dgfe_spatial_gain: 0.20
 dgfe_boundary_ring: 1.0
 dgfe_inner_value: 0.3
-dgfe_tiny_area: 36.0
+dgfe_tiny_area: 64.0
 dgfe_neg_pos_ratio: 3
 dgfe_neg_gain: 0.25
 dgfe_spatial_target_mode: edge_error

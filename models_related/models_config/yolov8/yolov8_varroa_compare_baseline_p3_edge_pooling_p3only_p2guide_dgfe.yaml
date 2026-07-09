@@ -3,10 +3,10 @@
 
 nc: 1
 dgfe_rec_gain: 0.03
-dgfe_spatial_gain: 0.10
+dgfe_spatial_gain: 0.20
 dgfe_boundary_ring: 1.0
 dgfe_inner_value: 0.3
-dgfe_tiny_area: 4.0
+dgfe_tiny_area: 36.0
 dgfe_neg_pos_ratio: 3
 dgfe_neg_gain: 0.25
 dgfe_spatial_target_mode: edge_error
