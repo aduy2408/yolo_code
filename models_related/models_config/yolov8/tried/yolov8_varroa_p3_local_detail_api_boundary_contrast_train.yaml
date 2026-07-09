@@ -1,0 +1,25 @@
+# Train config for P3-only LocalDetailRepC2f + P3 API + boundary contrast loss.
+
+model: models_related/models_config/yolov8/tried/yolov8_varroa_p3_local_detail_api.yaml
+data: datasets/varroa_yolo/varroa.yaml
+task: detect
+mode: train
+
+epochs: 200
+imgsz: 640
+batch: 16
+workers: 4
+device: cuda
+patience: 30
+project: runs/detect/yolo_related/runs/train
+name: yolov8n_varroa_p3_local_detail_api_boundary_contrast
+
+bbox_iou_loss: wiou
+wiou_monotonous: false
+
+boundary_contrast: 0.03
+boundary_levels: 1
+boundary_ring: 0.75
+boundary_samples: 8
+boundary_tau: 0.2
+boundary_shrinkage: 0.35

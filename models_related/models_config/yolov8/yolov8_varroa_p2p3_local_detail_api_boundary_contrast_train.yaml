@@ -1,6 +1,6 @@
-# Train config for P2/P3 box-detail head with boundary contrast loss and boxgrad API.
+# Train config for P2/P3 LocalDetailRepC2f + boxgrad API + boundary contrast loss.
 
-model: models_related/models_config/yolov8/yolov8_varroa_p2p3_box_detail_head_boundary_api.yaml
+model: models_related/models_config/yolov8/yolov8_varroa_p2p3_local_detail_api.yaml
 data: datasets/varroa_yolo/varroa.yaml
 task: detect
 mode: train
@@ -12,7 +12,7 @@ workers: 4
 device: cuda
 patience: 40
 project: runs/detect/yolo_related/runs/train
-name: yolov8n_varroa_p2p3_box_detail_head_boundary_api
+name: yolov8n_varroa_p2p3_local_detail_api_boundary_contrast
 
 boundary_contrast: 0.05
 boundary_levels: 2

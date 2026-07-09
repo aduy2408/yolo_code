@@ -4,6 +4,72 @@ Raw long-form notes moved out of the main diagnostic file. Use
 [VARROA_POOLING_BOX_ERROR_DIAGNOSTIC.md](VARROA_POOLING_BOX_ERROR_DIAGNOSTIC.md)
 for the current short version.
 
+Reader note: this appendix is long because it preserves raw diagnostics and
+dead-end experiments. Each table now has a short "How to read" note so the
+numbers are useful without already knowing YOLO internals.
+
+Quick terms:
+
+- `GT` means ground-truth annotation: the human-labeled mite box from the
+  dataset label file. During validation, labels are known, so we can compare
+  each prediction to these boxes and compute IoU, pixel error, best match,
+  false positive, and false negative counts. In deployment GT is not available;
+  it is only for analysis/evaluation.
+- `Prediction` means a model box plus its confidence score.
+- `IoU` means box overlap with the GT. `1.0` is perfect, `0.50` is loose,
+  `0.75+` is much stricter.
+- `AP@X` means average precision when a prediction only counts if IoU is at
+  least `X`.
+- `p50`, `p75`, `p90` are percentiles. `p75 = 4 px` means 75% of examples are
+  at or below 4 px error, and 25% are worse.
+- `Stride 4/8/16/32` means one feature-map step covers 4/8/16/32 input pixels.
+  Smaller stride has finer spatial detail; larger stride has coarser but often
+  stronger semantic features.
+
+## Codebase Map
+
+This diagnostic refers to these repo features:
+
+| Feature | Where it lives | Plain meaning |
+|---|---|---|
+| Soft-NMS / box voting / `return_idxs` | `models_related/ultralytics/ultralytics/utils/nms.py`, `models_related/ultralytics/tests/test_nms.py` | Postprocess variants and debug indices used to see which raw anchor survived NMS. |
+| True IoU quality head | `models_related/ultralytics/ultralytics/nn/modules/head.py`, `models_related/ultralytics/ultralytics/utils/loss.py` | Extra `q` score trained to mean "this decoded box is tight." |
+| `quality_score_mode` validation | `models_related/ultralytics/ultralytics/engine/validator.py` | Lets validation try `cls*q`, `sqrt(cls)*q`, and `cls*q^2` without retraining. |
+| Old `loc_quality` | `models_related/ultralytics/ultralytics/utils/loss.py` | Gaussian center-map auxiliary loss; not the same as true decoded-box IoU. |
+| `cls_iou_target_set` / VFL | `models_related/ultralytics/ultralytics/utils/loss.py` | Makes class target more IoU-aware, but still uses class score as final ranking. |
+| `loc_assign` / DFL residual / box detail | `models_related/ultralytics/ultralytics/utils/loss.py`, `models_related/ultralytics/ultralytics/nn/modules/head.py` | Box/DFL-side changes: extra local positives for box loss, residual correction to expected DFL distances, and local-detail features for box regression. |
+| `box_detail_head` | `models_related/ultralytics/ultralytics/nn/modules/head.py` | Adds local-detail features before box regression only. |
+| `boundary_contrast` | `models_related/ultralytics/ultralytics/utils/loss.py` | Train-only loss that tries to separate object/boundary features. |
+| `AdversarialPerturbationInjection` / API | `models_related/ultralytics/ultralytics/nn/modules/block.py`, `models_related/ultralytics/ultralytics/nn/tasks.py` | Train-only feature perturbation block. In `boxgrad` mode it perturbs a P2/P3 feature along localization-loss gradient and trains box/DFL to survive it. |
+| `FeatureDGFE` / SR-DGFE | `models_related/ultralytics/ultralytics/nn/modules/block.py`, `models_related/ultralytics/ultralytics/utils/loss.py` | Image-space detail gate with reconstruction/spatial auxiliary losses. Tried as feature/detail help, not a proven ranking fix. |
+| Pairwise/ranking loss | `models_related/ultralytics/ultralytics/utils/loss.py` | Intended fix for "AP75-quality box exists but lower score": directly penalize cases where a lower-IoU candidate scores above a higher-IoU candidate for the same GT. No completed positive run is recorded here yet. |
+| `PoolingEdgeRepC2f` | `models_related/ultralytics/ultralytics/nn/modules/block.py` | Edge/detail-oriented block used in many P2/P3/P3-only configs. |
+| `LocalDetailRepC2f` | `models_related/ultralytics/ultralytics/nn/modules/local_detail.py` | Local-detail block used by the newer box-detail/boundary configs. |
+
+Active or recent configs connected to this appendix:
+
+```text
+models_related/models_config/yolov8/yolov8_varroa_p2p3_box_detail_head_boundary_api_train.yaml
+models_related/models_config/yolov8/yolov8_varroa_p2p3_box_detail_head_boundary_api.yaml
+models_related/models_config/yolov8/yolov8_varroa_p2p3_local_detail_loc_assign_dfl_residual.yaml
+models_related/models_config/yolov8/yolov8_varroa_p2p3_box_detail_head_noapi.yaml
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only_nop5.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_p3_local_detail_boundary_api_nodgfe.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_p3_local_detail_boundary_api_nodgfe_train.yaml
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p3_edge_pooling_quality_iou.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only.yaml
+models_related/models_config/yolov8/yolov8_varroa_b1_iou_dgfe.yaml
+models_related/models_config/yolov8/yolov8_varroa_b2_error_aware_dgfe.yaml
+models_related/models_config/yolov8/yolov8_varroa_b3_p2guide_dgfe.yaml
+```
+
+Why this map exists: the appendix mixes diagnostics, YAML experiments, and
+patched Ultralytics features. This table shows which code path each idea refers
+to, so "quality head", "loc_quality", "boundary", and "box detail" do not get
+collapsed into one vague localization fix.
+
 Run analyzed:
 
 ```text
@@ -33,6 +99,10 @@ nms_method=hard
 
 The reproduced validation metrics are:
 
+How to read this table: precision/recall describe object discovery. `mAP50`
+allows loose boxes. `mAP50-95` averages strict thresholds and drops when the
+box edges are not precise.
+
 | Metric | Value |
 |---|---:|
 | Precision | 0.922 |
@@ -40,11 +110,15 @@ The reproduced validation metrics are:
 | mAP50 | 0.925 |
 | mAP50-95 | 0.352 |
 
-The key symptom is that `mAP50` is good, but `mAP50-95` is low. This means the
-model usually finds the mite, but the predicted boxes are not tight enough for
-strict IoU thresholds.
+The key symptom is that `mAP50` is high (`0.925`), but `mAP50-95` is low
+(`0.352`). This means the model usually finds the mite, but the predicted boxes
+are not tight enough for strict IoU thresholds.
 
 ## AP Collapse By IoU Threshold
+
+How to read this table: each row raises the required overlap between prediction
+and GT. If AP drops fast as the threshold rises, the model is finding mites but
+not drawing tight enough boxes.
 
 | IoU threshold | AP |
 |---:|---:|
@@ -67,82 +141,15 @@ falls sharply once the metric requires tighter box alignment.
 For each GT object, the best prediction was matched by IoU. There are 685 GT
 objects in the val split.
 
+How to read this table: `TP` means GT objects that have a matched prediction at
+that IoU threshold. `FN` means GT objects with no prediction reaching that IoU
+threshold. `FP` is high because this diagnostic intentionally kept very low-confidence
+predictions (`conf=0.001`) to inspect raw behavior.
+
 | Match IoU | TP | FP | FN | Precision | Recall |
 |---:|---:|---:|---:|---:|---:|
 | 0.50 | 677 | 3530 | 8 | 0.161 | 0.988 |
-| 0.75 | 350 | 3857 | 335 | 0.Làm quality head thật, không dùng Gaussian loc_quality cũ.
-
-Target đúng phải là:
-
-quality_target = IoU(decoded_pred_box, matched_gt_box).detach()
-
-Không phải Gaussian center map.
-
-Hướng implement nên chọn
-Option A — nhanh và đúng nhất: IoU quality branch
-
-Trong Detect head, thêm một nhánh predict q cho mỗi anchor/grid:
-
-box branch → pred box
-cls branch → pred cls
-quality branch → pred IoU quality
-
-Training:
-
-positive anchors:
-    target_q = IoU(pred_box, assigned_gt).detach()
-
-negative anchors:
-    target_q = 0
-
-Loss:
-
-loss_q = BCEWithLogitsLoss(q_logits, target_q)
-
-hoặc smooth L1/MSE trên sigmoid output:
-
-q = q_logits.sigmoid()
-loss_q = F.l1_loss(q[pos], target_iou[pos])
-
-Inference:
-
-score = cls_score * quality_score
-
-hoặc theo oracle của mày, thử thêm:
-
-score = cls_score.sqrt() * quality_score
-score = cls_score * quality_score ** 2
-
-Vì oracle cho thấy hai cái này đang tốt nhất:
-
-sqrt(conf) * q
-conf * q^2
-Không nên làm lại cái loc_quality cũ
-
-Cái Gaussian center map cũ học kiểu:
-
-center high / boundary low
-
-Nó không học trực tiếp:
-
-box này tight hay loose
-
-Trong khi diagnostic của mày đang chỉ ra đúng vấn đề:
-
-box tốt tồn tại nhưng score không chọn nó
-
-Nên quality target phải bám vào IoU của decoded predicted box, không phải heatmap center.
-
-Experiment tiếp theo nên là
-
-Chạy ablation nhỏ:
-
-B0: baseline standard NMS
-B1: baseline Soft-NMS
-Q1: quality head, score = cls * q
-Q2: quality head, score = sqrt(cls) * q
-Q3: quality head, score = cls * q^2
-Q4: quality head + Soft-NMS083 | 0.511 |
+| 0.75 | 350 | 3857 | 335 | 0.083 | 0.511 |
 | 0.90 | 14 | 4193 | 671 | 0.003 | 0.020 |
 
 Interpretation:
@@ -156,6 +163,15 @@ Interpretation:
 
 Best-GT-IoU quantiles:
 
+How to read this table: there are `685` labeled mite boxes in validation. For
+each labeled mite, find the prediction that overlaps it the most, then record
+that IoU. Sort those `685` IoU values from low to high. `p50 = 0.753` is the
+middle value: about half of the labeled mites have no prediction better than
+`0.753` IoU. Since AP75 requires IoU `>= 0.75`, the median labeled mite is only
+`0.003` IoU above the AP75 cutoff even when using its best-overlap prediction.
+`p25 = 0.690` means 25% of mites cannot reach AP75 even with their best
+prediction. `p90 = 0.854` means only the top 10% get above `0.854` IoU.
+
 | Quantile | Best GT IoU |
 |---:|---:|
 | min | 0.000 |
@@ -166,8 +182,9 @@ Best-GT-IoU quantiles:
 | p90 | 0.854 |
 | max | 0.967 |
 
-The median best IoU is only about 0.753. That is exactly why `mAP50` looks fine
-but `mAP50-95` is weak.
+The median best IoU is about `0.753`, so many GTs sit right on the AP75
+boundary and far below AP90. That is why `mAP50` stays high while
+`mAP50-95` stays low.
 
 ## DFL/Box Regression Error Shape
 
@@ -179,6 +196,10 @@ Model strides:
 
 GT objects by best-IoU bucket:
 
+How to read this table: each GT mite is grouped by the IoU of its best matched
+prediction. The `0.50-0.75` bucket is the important one: detected at AP50, but
+not tight enough for AP75.
+
 | Best IoU bucket | Count |
 |---|---:|
 | < 0.50 | 8 |
@@ -186,10 +207,14 @@ GT objects by best-IoU bucket:
 | 0.75-0.90 | 336 |
 | >= 0.90 | 14 |
 
-The most important failure bucket is `0.50-0.75`: boxes are good enough to count
-at AP50, but too loose or shifted for AP75+.
+The most important failure bucket is `0.50-0.75`: boxes pass AP50 because IoU
+is at least `0.50`, but fail AP75 because IoU is below `0.75`.
 
 ### Absolute Pixel Error, All GT
+
+How to read this table: errors are measured in input-image pixels after
+letterboxing/resizing. `center x/y` are center shifts. `left/top/right/bottom
+edge` are side-position errors. `width/height` are box-size errors.
 
 | Error | p50 | p75 | p90 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
@@ -206,6 +231,10 @@ at AP50, but too loose or shifted for AP75+.
 
 This bucket explains most of the AP50-to-AP75 collapse.
 
+How to read this table: this is the same pixel-error breakdown, but only for
+boxes that pass IoU `0.50` and fail IoU `0.75`. These are not complete misses;
+they are almost-right boxes whose edges are a few pixels off.
+
 | Error | p50 | p75 | p90 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
 | center x | 2.30 | 3.44 | 4.48 | 5.08 | 6.45 |
@@ -218,6 +247,10 @@ This bucket explains most of the AP50-to-AP75 collapse.
 | height | 3.81 | 6.29 | 8.82 | 10.69 | 14.07 |
 
 Relative error in the same bucket:
+
+How to read this table: these errors are normalized by GT box size. For example,
+`width / GT width = 0.129` means the predicted width is off by about 13% of the
+true mite width at the median.
 
 | Error | p50 | p75 | p90 | p95 | p99 |
 |---|---:|---:|---:|---:|---:|
@@ -233,6 +266,11 @@ around 0.75-1.5 stride units, and the p90 tail can exceed 2 stride units.
 ## Signed Bias
 
 Signed errors for detected GTs with IoU >= 0.50:
+
+How to read this table: positive/negative signs show direction. For center
+errors, positive x means shifted right and negative y means shifted upward in
+image coordinates. The key point is that the average sign is small; there is no
+single huge one-direction bias.
 
 | Error | Mean px | Median px |
 |---|---:|---:|
@@ -252,6 +290,10 @@ noise across all edges.
 ## Which Errors Hurt IoU Most
 
 Correlation with GT best IoU:
+
+How to read this table: negative correlation means larger error usually gives
+lower IoU. Values closer to `-1` are stronger damage signals. Confidence being
+near zero means confidence does not reliably tell whether a box is tight.
 
 | Feature | Corr with IoU |
 |---|---:|
@@ -288,6 +330,10 @@ shifted, or wrong-sized. The issue is not only low-confidence noise from using
 ## Training Loss Context
 
 Best epoch by mAP50-95:
+
+How to read these two tables: compare the best-scoring epoch with the final
+logged epoch. If class loss improves while box/DFL loss worsens and mAP50-95
+falls, the model is not mainly limited by class recognition.
 
 | Field | Value |
 |---|---:|
@@ -336,6 +382,10 @@ which gives invalid attribution.
 
 Exact post-NMS attribution:
 
+How to read this table: after NMS, each kept detection is traced back to the
+feature level that produced it. The count shows which stride actually survives
+postprocess.
+
 | Level | Stride | Count |
 |---:|---:|---:|
 | 0 | 4 | 12 |
@@ -345,6 +395,9 @@ Exact post-NMS attribution:
 
 All post-NMS detections at `conf=0.001`:
 
+How to read this table: this includes low-confidence detections kept for debug.
+It shows candidate volume per level, not normal deploy-time detections.
+
 | Level | Stride | Detection count |
 |---:|---:|---:|
 | 0 | 4 | 675 |
@@ -353,6 +406,10 @@ All post-NMS detections at `conf=0.001`:
 | 3 | 32 | 0 |
 
 Matched GT level by IoU bucket:
+
+How to read this table: for GTs in each IoU bucket, this shows which stride
+produced the matched final box. If loose boxes mostly come from one stride, that
+stride/ranking path deserves inspection.
 
 | Best-IoU bucket | stride 4 | stride 8 | stride 16 |
 |---|---:|---:|---:|
@@ -369,6 +426,10 @@ from stride 16, even though the model has a P2/stride-4 head.
 
 Absolute error is measured in DFL bin units, where one bin corresponds to one
 grid unit at that level.
+
+How to read these DFL tables: YOLO predicts each side distance as a distribution
+over bins. Error is in bin units, not pixels. Convert roughly by multiplying by
+stride: `0.5` bin at stride 16 is about `8` input pixels.
 
 All GTs:
 
@@ -424,6 +485,11 @@ Interpretation:
 Median peak probability of the selected DFL side distributions is around
 0.52-0.55:
 
+How to read this table: peak probability measures how strongly the side-distance
+distribution prefers its top bin. Similar values for the `0.50-0.75` and
+`0.75-0.90` buckets mean the problem is not just "DFL is uncertain"; it is
+often centered on the wrong side distance.
+
 | Bucket | left | top | right | bottom |
 |---|---:|---:|---:|---:|
 | all | 0.526 | 0.531 | 0.522 | 0.546 |
@@ -431,11 +497,15 @@ Median peak probability of the selected DFL side distributions is around
 | IoU 0.75-0.90 | 0.536 | 0.532 | 0.525 | 0.547 |
 
 Entropy is around 1.0-1.1 nats, so distributions are moderately peaked, not
-uniformly flat. Bad and good boxes have similar peak sharpness. The difference
-is the expected bin location, not the number of bins or a completely flat DFL
-distribution.
+uniformly flat. Loose boxes (`0.50-0.75`) and tighter boxes (`0.75-0.90`) have
+similar peak sharpness. The difference is the expected bin location, not the
+number of bins or a completely flat DFL distribution.
 
 Correlation with matched IoU:
+
+How to read this table: side-distance bin error has much stronger correlation
+with IoU than entropy/peak-sharpness. That points to wrong expected side
+position, not merely a blurry DFL distribution.
 
 | DFL stat | Corr with IoU |
 |---|---:|
@@ -458,6 +528,10 @@ the best localizing level differs from the highest-scoring level.
 
 Best-IoU level per GT:
 
+How to read the next two tables together: the first table asks which level has
+the tightest candidate for each GT. The second asks which level has the highest
+score. A mismatch means scoring does not choose the best-localized level.
+
 | Level | Stride | GT count |
 |---:|---:|---:|
 | 0 | 4 | 15 |
@@ -473,6 +547,10 @@ Highest-score level per GT:
 
 Per-level best-IoU quantiles:
 
+How to read this table: each level is judged by its best raw candidate per GT.
+Stride 8 and stride 16 both have median best IoU near the AP75 threshold;
+stride 4 and 32 are far below it in this run.
+
 | Level | p50 | p75 | p90 | p95 |
 |---|---:|---:|---:|---:|
 | stride 4 | 0.422 | 0.522 | 0.613 | 0.688 |
@@ -482,6 +560,10 @@ Per-level best-IoU quantiles:
 
 Median score at the best-IoU box for each level:
 
+How to read this table: this checks whether the tightest candidate at each
+level also receives enough score to survive NMS. Low score on the best-IoU box
+means NMS may discard it.
+
 | Level | Median score |
 |---|---:|
 | stride 4 | 0.000011 |
@@ -490,6 +572,9 @@ Median score at the best-IoU box for each level:
 | stride 32 | 0.000001 |
 
 Median IoU at the top-scoring anchor of each level:
+
+How to read this table: this asks the reverse question: if the model picks by
+score within a level, how tight is that selected anchor?
 
 | Level | Median IoU at top score |
 |---|---:|
@@ -502,6 +587,10 @@ Critical finding: in 253 GT cases, stride 4/8 had a better best-IoU box than
 stride 16 by at least 0.05, but stride 16 still had the highest score.
 
 For those 253 cases:
+
+How to read this table: these are cases where stride 8 has the higher-IoU box
+but stride 16 wins by score. The score columns show why NMS prefers the
+lower-IoU box.
 
 | Field | Mean | Median |
 |---|---:|---:|
@@ -521,6 +610,10 @@ AP50 relatively high.
 Inference-only score scaling was tested to check whether a simple level penalty
 fixes the problem:
 
+How to read this table: each policy manually boosts or penalizes scores from a
+whole stride level. If this were enough, Recall@0.75 would improve. It does
+not, so the needed score must be per-anchor/per-box, not just per-level.
+
 | Policy | Pred | Recall@0.50 | Recall@0.75 | Recall@0.90 | stride4 det | stride8 det | stride16 det |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | baseline | 4204 | 0.988 | 0.518 | 0.020 | 675 | 1483 | 2046 |
@@ -537,6 +630,10 @@ localization-quality score.
 
 Oracle pre-NMS upper bound:
 
+How to read this table: oracle means the diagnostic is allowed to pick the best
+candidate before NMS. This is not deployable; it measures how much ranking could
+improve if it selected the right raw boxes.
+
 | Candidate source | Recall@0.50 | Recall@0.75 | Recall@0.90 | Median best IoU |
 |---|---:|---:|---:|---:|
 | stride4 only | 0.314 | 0.025 | 0.000 | 0.422 |
@@ -546,8 +643,9 @@ Oracle pre-NMS upper bound:
 | stride8/16 oracle | 0.999 | 0.753 | 0.111 | 0.811 |
 | stride4/8/16 oracle | 1.000 | 0.761 | 0.111 | 0.812 |
 
-This is decisive: the raw candidates contain much better AP75-quality boxes.
-The problem is selecting/ranking them, not the absence of a good box candidate.
+This is decisive: the raw candidates contain AP75-quality boxes much more often
+than final NMS output shows. The problem is selecting/ranking them, not the
+absence of a high-IoU candidate.
 
 Additional inversion counts:
 
@@ -557,6 +655,9 @@ Additional inversion counts:
   but stride16 still has higher top score.
 
 For those 180 AP75-critical inversions:
+
+How to read this table: these are the most damaging cases: stride 8 has an
+AP75-passing candidate, stride 16 does not, but stride 16 gets the higher score.
 
 | Field | Mean | Median |
 |---|---:|---:|
@@ -582,6 +683,19 @@ loc_quality_levels: 2
 loc_quality_sigma: 0.45
 loc_quality_loss: mse
 ```
+
+Loss shape:
+
+```text
+q_map = sigmoid(loc_head(feature_map))
+target(cell) = exp(-0.5 * normalized_distance_to_gt_center^2 / sigma^2)
+loss_loc_quality = MSE(q_map, target) or SmoothL1(q_map, target)
+total += loc_quality * loss_loc_quality
+```
+
+Plain meaning: cells near the GT center get high target values and cells farther
+away get low values. This is why it is a center-map objective, not a decoded-box
+IoU objective.
 
 Important caveat: the current implementation says this objective has **no
 inference path**. It trains localization-quality maps as an auxiliary signal,
@@ -641,6 +755,10 @@ score = cls_score * quality_score ** 0.5
 
 Test split results:
 
+How to read this table: this compares the same `loc_quality` checkpoint under
+standard NMS and Soft-NMS. The metric to watch is `mAP50-95`; if it stays below
+the baseline family, this branch is not solving tight-box localization.
+
 | NMS method | Precision | Recall | mAP50 | mAP50-95 |
 |---|---:|---:|---:|---:|
 | hard | 0.893768 | 0.848717 | 0.883971 | 0.332500 |
@@ -693,6 +811,10 @@ Probe output:
 
 Post-NMS GT best-IoU buckets on val:
 
+How to read these P2/P3-only tables: this removes P4/P5 from final Detect, so
+any remaining mismatch cannot be blamed on high-stride boxes winning over P3.
+The same AP50-not-AP75 bucket still dominates.
+
 | Best IoU bucket | Count |
 |---|---:|
 | < 0.50 | 8 |
@@ -713,6 +835,10 @@ Best-IoU quantiles:
 
 Absolute post-NMS error in the AP50-but-not-AP75 bucket (`0.50-0.75`) was:
 
+How to read this table: these are letterboxed input-pixel errors, so they are
+larger than original-image pixel errors. The paragraph below gives the rough
+conversion.
+
 | Error | p50 | p75 | p90 |
 |---|---:|---:|---:|
 | center x | 5.38 | 8.15 | 10.93 |
@@ -731,12 +857,20 @@ roughly to original-image pixels. That still leaves median edge errors around
 
 Pre-NMS best candidate by level:
 
+How to read this table: `Best-level GT count` asks which level had the tightest
+candidate. `Highest-score GT count` asks which level won by confidence. Here P3
+has all highest-score anchors, but many of those are not the tightest P3 boxes.
+
 | Level | Stride | Best-level GT count | Highest-score GT count |
 |---:|---:|---:|---:|
 | 0 | 4 | 114 | 0 |
 | 1 | 8 | 571 | 685 |
 
 Per-level pre-NMS candidate quality:
+
+How to read this table: `Best IoU` describes the best raw candidate available
+at a level. `Top-score IoU` describes the candidate the model would actually
+prefer by score. Large gaps mean ranking inside that level is broken.
 
 | Level | Stride | Best IoU p50 | Best IoU p75 | Top-score IoU p50 | Top-score IoU p75 | Best score p50 | Top score p50 |
 |---:|---:|---:|---:|---:|---:|---:|---:|
@@ -754,6 +888,10 @@ Within P3/stride-8:
 
 DFL expected-bin error for the best pre-NMS candidate:
 
+How to read this table: `abs` columns are magnitude of side-distance bin error.
+`signed` columns show direction. Big stride-4 negative signed errors mean P2
+side distances are systematically wrong in this run, not merely low-scored.
+
 | Level | Stride | Side | abs p50 | abs p75 | abs p90 | signed median | signed mean |
 |---:|---:|---|---:|---:|---:|---:|---:|
 | 0 | 4 | left | 2.378 | 4.047 | 5.481 | -2.378 | -2.615 |
@@ -767,16 +905,17 @@ DFL expected-bin error for the best pre-NMS candidate:
 
 Interpretation:
 
-- P2/stride-4 is not useful here despite higher spatial resolution. Its best
-  boxes have low IoU and near-zero best-candidate scores. The DFL side-distance
-  errors are very large in bin units and have a consistent negative signed
-  bias, meaning the selected P2 boxes are badly mis-sized/mis-positioned.
-- P3/stride-8 has genuinely good raw candidates. Median best IoU is about
+- P2/stride-4 does not help this run despite higher spatial resolution. Its
+  best boxes have low IoU and near-zero best-candidate scores. The DFL
+  side-distance errors are very large in bin units and have a consistent
+  negative signed bias, meaning the selected P2 boxes are badly
+  mis-sized/mis-positioned.
+- P3/stride-8 has AP75-quality raw candidates. Median best IoU is about
   `0.812`, and the DFL expected-bin error is moderate (`~0.32-0.40` median
   bins).
 - The failure after removing P4/P5 is mostly **ranking within P3**, not lack of
-  a good P3 box. The top-scoring P3 anchor has median IoU only `0.670`, while
-  the best P3 candidate has median IoU `0.812`.
+  an AP75-quality P3 box. The top-scoring P3 anchor has median IoU only
+  `0.670`, while the best P3 candidate has median IoU `0.812`.
 - This supports an IoU/quality-aware classification target more than another
   global level penalty or P4/P5 removal.
 
@@ -817,7 +956,36 @@ positive cls target = IoU(pred_box.detach(), gt_box)
 - This does not change decoded box geometry at inference. It only tries to make
   class confidence mean "object exists and this anchor's box is tight."
 
+Loss shape for `cls_iou_target_set`:
+
+```text
+y_cls = IoU(decoded_pred_box.detach(), assigned_gt_box)  for positive anchors
+y_cls = 0                                                for negative anchors
+loss_cls = BCEWithLogits(cls_logit, y_cls)
+```
+
+VFL mode uses the same IoU-style positive target, but weights BCE differently:
+
+```text
+p = sigmoid(cls_logit)
+q = IoU(decoded_pred_box.detach(), assigned_gt_box)
+y = q for positives, 0 for negatives
+label = 1 for positives, 0 for negatives
+
+weight = alpha * p^gamma * (1 - label) + q * label
+loss_vfl = BCEWithLogits(cls_logit, y) * weight
+```
+
+Plain meaning: negatives are down/up-weighted by their current predicted score
+(`p^gamma`), and positives are weighted by IoU quality `q`. The goal is that a
+tighter positive box should learn a stronger class score than a loose positive
+box.
+
 Test split results:
+
+How to read this table: `cls_iou_target_set` changes classification targets,
+not the decoded boxes. Improvement here means scoring got slightly better; it
+does not prove localization geometry improved.
 
 | Inference | mAP50 | mAP50-95 |
 |---|---:|---:|
@@ -825,6 +993,10 @@ Test split results:
 | soft-linear NMS, conf=0.001, iou=0.5, min_score=0.0001 | 0.91070 | 0.35750 |
 
 P3/stride-8 score probe on val:
+
+How to read this table: compare the best-localized P3 candidate with the
+top-scoring P3 anchor. If the best candidate has much lower score, NMS/ranking
+still prefers the wrong anchor.
 
 | P3 statistic | Best candidate | Top-score anchor |
 |---|---:|---:|
@@ -834,6 +1006,10 @@ P3/stride-8 score probe on val:
 | score p75 | 0.4096 | 0.6269 |
 
 Compared with the P2/P3-only baseline:
+
+How to read this table: this is the before/after for the same P3 ranking
+problem. The key rows are the mismatch counts; they show whether the change
+actually reduces cases where score chooses a lower-IoU anchor.
 
 | P3 statistic | Baseline | `cls_iou_target_set` |
 |---|---:|---:|
@@ -854,6 +1030,8 @@ Interpretation:
   is not a strong fix.
 - The best observed test result was `mAP50-95 = 0.35750` with soft-linear NMS,
   only a small gain over the P2/P3-only baseline.
+- Therefore `cls_iou_target_set` alone is not counted as solving or materially
+  helping the final AP75/mAP50-95 result in this report.
 
 ### Follow-up: VFL target correctness vs learned ranking
 
@@ -868,6 +1046,8 @@ Latest VFL diagnostics separate target construction from learned ranking:
   That means the failure is not that VFL receives the wrong target; it is that
   the classification branch representation/head is not learning an IoU-ranking
   signal strongly enough from the loss-only change.
+- Therefore VFL loss-only is not counted as increasing/helping the final result
+  in this report.
 
 Diagnostic added:
 
@@ -896,6 +1076,11 @@ Probe sanity checks and results:
   - reg pre-logit feature: `64` channels at every level.
 - A larger probe with `12000` train positives and all `6850` val positives
   still showed weak linear IoU signal:
+
+How to read this table: `R2`, Pearson, and Spearman test whether a simple
+linear model can read IoU quality from branch features. Higher positive values
+would mean the feature already exposes box quality. Values near zero or
+negative mean the signal is weak or not linearly available.
 
 | Model | Branch | Train R2 | Train Pearson | Val R2 | Val Pearson | Val Spearman |
 |---|---|---:|---:|---:|---:|---:|
@@ -1057,6 +1242,10 @@ Device: cuda
 
 Final smoke validation result:
 
+How to read this table: this is a 3-epoch smoke test, not a final accuracy
+claim. Passing means the new geometry-aware classification path builds, trains,
+and validates without shape/loss crashes.
+
 | Metric | Value |
 |---|---:|
 | Precision | 0.638 |
@@ -1066,6 +1255,8 @@ Final smoke validation result:
 
 This smoke result only verifies that the geometry-aware concat path trains
 without crashing. It is too short to judge final accuracy.
+Therefore this smoke run is not counted as increasing/helping the final result
+in this report.
 
 ### Follow-up: VFL and TAL assignment feedback
 
@@ -1122,6 +1313,24 @@ models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p2_api_boxgra
 These use the existing non-geometry VFL architecture. No quality head, quality
 loss, inference multiplier, NMS change, or ATSS assigner has been added.
 
+Loss/assignment formula in this branch:
+
+```text
+TAL assignment score = sigmoid(cls)^tal_alpha * IoU^tal_beta
+
+tal_alpha = 0.5  -> default YOLOv8-style assignment uses cls and IoU
+tal_alpha = 0.0  -> assignment ignores cls and ranks candidates by IoU^beta
+```
+
+Plain meaning: this tests whether VFL is failing because low class scores stop
+higher-IoU boxes from becoming positives in later iterations.
+
+Warning note: TAL already focuses very strongly on IoU because the default
+formula uses `IoU^6`. So the problem is not simply "positive anchor selection
+ignores IoU." Even with this strong IoU term, better-localized candidates can
+still be left behind because the final class score/ranking path does not
+reliably keep the tightest candidate.
+
 Interpretation rule:
 
 - If `tal_alpha=0` improves positive cls logits, score-vs-IoU monotonicity, or
@@ -1129,6 +1338,416 @@ Interpretation rule:
   feedback hypothesis.
 - If `tal_alpha=0` still fails, test lower `tal_beta` values and then consider
   a true ATSS-style assigner using the `VarifocalNet` reference.
+
+### Follow-up: Box/DFL-Side Detail Experiments
+
+This is the direction that specifically tries to help DFL/box regression, not
+classification score. It includes `loc_assign`, `dfl_residual`, and
+`box_detail_head`.
+
+Implemented pieces:
+
+- `loc_assign` adds extra local positives for box/DFL loss around the GT center
+  on low-stride levels, without changing class targets.
+- `dfl_residual` adds a small 4-channel residual correction to decoded DFL
+  expected distances.
+- `box_detail_head` adds local high-pass/detail features before the box
+  regression branch only.
+
+Representative configs:
+
+```text
+models_related/models_config/yolov8/yolov8_varroa_p2p3_local_detail_loc_assign_dfl_residual.yaml
+models_related/models_config/yolov8/yolov8_varroa_p2p3_local_detail_loc_assign_dfl_residual_noapi.yaml
+models_related/models_config/yolov8/yolov8_varroa_p2p3_box_detail_head_noapi.yaml
+models_related/models_config/yolov8/yolov8_varroa_p2p3_box_detail_head_boundary_api.yaml
+```
+
+`loc_assign` loss behavior:
+
+```text
+normal TAL positives -> cls + box + DFL loss
+
+loc_assign extra positives:
+  choose anchors near each GT center
+  only use strides <= loc_assign_max_stride
+  keep top loc_assign_topk closest anchors
+  assign GT box to those anchors for box/DFL loss
+  give them loc_assign_weight target score
+
+important:
+  these extra positives expand box/DFL supervision
+  they do not directly make class score rank tighter boxes higher
+```
+
+Key settings:
+
+```text
+loc_assign: true
+loc_assign_topk: 2 or 3
+loc_assign_max_stride: 8.0
+loc_assign_center_radius: 2.5
+loc_assign_weight: 0.25 or 0.5
+```
+
+`dfl_residual` formula:
+
+```text
+dist = expectation(softmax(DFL_logits) over bins)
+residual = tanh(residual_head(feature)) * dfl_residual_scale
+dist_refined = clamp(dist + residual, 0, reg_max - 1)
+box = dist2bbox(dist_refined, anchor_point)
+```
+
+With current configs:
+
+```text
+dfl_residual: true
+dfl_residual_scale: 0.25
+```
+
+Plain meaning: the residual can move each side distance by at most about
+`0.25` DFL bin. At stride 8 this is about `2` input pixels; at stride 16 it is
+about `4` input pixels.
+
+`box_detail_head` formula:
+
+```text
+detail = Conv(Conv(feature - AvgPool(feature)))
+gate = sigmoid(Conv(feature))
+box_feature = feature + box_detail_scale * gate * detail
+```
+
+With current configs:
+
+```text
+box_detail_head: true
+box_detail_levels: [0, 1]
+box_detail_scale: 0.25
+box_detail_kernel: 3
+box_detail_gate: true
+```
+
+How to read this experiment: these changes directly target box geometry and DFL
+side-distance precision. They are reasonable for the pixel-edge-error problem,
+but they still do not directly solve the ranking mismatch where a tighter box
+exists but receives lower class score.
+
+Current status:
+
+- Keep these as DFL/box-side attempts.
+- As recorded here, this appendix does not contain a run where these changes
+  improve the target metrics (`mAP50-95` and AP75) beyond the current
+  Soft-NMS/quality baselines.
+- Therefore this direction is not counted as increasing/helping the final
+  result in this report.
+- If a future run improves pixel edge error but not AP75/mAP50-95, the likely
+  remaining blocker is still final score ranking/NMS.
+
+### Follow-up: Boundary Contrast + Box Detail
+
+This is the current boundary/detail direction in the codebase. It is meant to
+improve edge features, not directly fix final score ranking.
+
+Implemented pieces:
+
+- `box_detail_head` in `Detect` adds a local-detail adapter before box
+  regression only.
+- `LocalDetailRepC2f` replaces some normal/edge-pooling blocks with a more
+  local-detail-oriented block.
+- `boundary_contrast` adds a train-only boundary-aware contrastive loss. It
+  samples Detect feature maps around each GT box, pulls object-interior features
+  together, and pushes boundary/background features away.
+- There is no inference path for `boundary_contrast`; at inference it only helps
+  if training learned better features/box edges.
+
+Active configs:
+
+```text
+models_related/models_config/yolov8/yolov8_varroa_p2p3_box_detail_head_boundary_api_train.yaml
+models_related/models_config/yolov8/yolov8_varroa_p2p3_box_detail_head_boundary_api.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_p3_local_detail_boundary_api_nodgfe_train.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_p3_local_detail_boundary_api_nodgfe.yaml
+```
+
+Key settings:
+
+```text
+P2/P3 box-detail boundary API:
+boundary_contrast=0.05
+boundary_levels=2
+boundary_ring=1.0
+boundary_samples=16
+boundary_tau=0.2
+boundary_shrinkage=0.25
+
+P3 local-detail boundary API no-DGFE:
+boundary_contrast=0.03
+boundary_levels=1
+boundary_ring=0.75
+boundary_samples=8
+boundary_tau=0.2
+boundary_shrinkage=0.35
+```
+
+Loss shape:
+
+```text
+f_obj = normalized feature sampled inside the GT box
+f_pos = another object-interior feature from the same GT
+f_neg = boundary-ring features + nearby background features
+
+logit_pos = dot(f_obj, f_pos) / tau
+logit_neg = dot(f_obj, f_neg) / tau
+loss_boundary = CrossEntropy([logit_pos, logit_neg...], class=positive)
+total += boundary_contrast * loss_boundary
+```
+
+Plain meaning: object-interior features should look more like each other than
+like boundary/background features. This can help edge representation, but it
+does not directly change the detection score formula.
+
+How to read this experiment: it targets the edge/localization side of the
+problem. It may reduce pixel edge error, but it does not by itself teach the
+class score to prefer the tightest candidate. Therefore it can still fail on
+AP75/AP50-95 if the ranking problem remains.
+
+Current status:
+
+- Add this direction to the experiment log, but do not treat it as solved.
+- This appendix does not contain a run where boundary/detail improves
+  `mAP50-95` or AP75 beyond the current Soft-NMS/quality baselines.
+- Therefore boundary/detail is not counted as increasing/helping the final
+  result in this report.
+- Until a run proves otherwise, mark boundary/detail as a feature-quality
+  attempt, not a confirmed fix for the score-vs-IoU ranking failure.
+
+### Follow-up: API / Adversarial Perturbation Injection
+
+API here means `AdversarialPerturbationInjection`, not an external service API.
+It is a train-only feature perturbation block used in many `*_api_*` configs.
+Most recent configs use `target_mode=boxgrad`, written in YAML as `boxgrad`.
+
+Implemented pieces:
+
+- During training, API captures one P2/P3 feature map.
+- A clean forward computes the normal detection loss.
+- In `boxgrad` mode, the gradient of localization loss with respect to the
+  captured feature is used to build a small adversarial perturbation.
+- The model is run again with that perturbed feature.
+- The perturbed box and DFL losses are added back into the clean loss.
+- At inference the API block is identity; it does not perturb features.
+
+Boxgrad loss shape:
+
+```text
+clean_loss = loss(model(image), targets)
+loc_loss = clean_box_loss + clean_dfl_loss
+
+g = grad(loc_loss, captured_feature)
+delta = rho * g / ||g||_2
+
+perturbed_feature = captured_feature + delta
+perturbed_loss = loss(model_from_api_layer(perturbed_feature), targets)
+
+loss_box_total = clean_box_loss + api_weight * perturbed_box_loss
+loss_dfl_total = clean_dfl_loss + api_weight * perturbed_dfl_loss
+```
+
+Non-boxgrad auxiliary mode also exists:
+
+```text
+aux_clean_loss = BCEWithLogits(api_aux_head(captured_feature), target_map)
+g = grad(aux_clean_loss, captured_feature)
+delta = rho * g / ||g||_2
+aux_perturbed_loss = BCEWithLogits(api_aux_head(captured_feature + delta), target_map)
+loss_cls_total = clean_cls_loss + api_weight * aux_perturbed_loss
+```
+
+Common settings in configs:
+
+```text
+AdversarialPerturbationInjection, [0.005, 0.05, boxgrad]
+
+rho = 0.005
+api_weight = 0.05
+target_mode = boxgrad
+partial_forward = optional True in some configs
+```
+
+Representative configs:
+
+```text
+models_related/models_config/yolov8/yolov8_varroa_p2p3_box_detail_head_boundary_api.yaml
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only_nop5.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl.yaml
+models_related/models_config/yolov8/tried/yolov8_varroa_p3_local_detail_boundary_api_nodgfe.yaml
+```
+
+How to read this experiment: API is a robustness/localization regularizer. It
+tries to make box regression stable under small feature perturbations. It does
+not directly change the final scoring rule, so it can improve feature
+robustness without fixing the measured "tight box loses by score" problem.
+
+Current status:
+
+- Keep API in the experiment log as a localization robustness attempt.
+- As recorded here, API variants have not shown a recorded improvement over the
+  current `mAP50-95`/AP75 baselines.
+- Therefore API is not counted as increasing/helping the final result in this
+  report.
+- Do not treat API as the main fix unless a run proves it improves AP75/mAP50-95
+  beyond the current Soft-NMS/quality baselines.
+
+### Follow-up: SR-DGFE / FeatureDGFE
+
+DGFE was another feature/detail direction. In this repo the module is
+`FeatureDGFE`; configs often call it `SR-DGFE`.
+
+Implemented pieces:
+
+- `FeatureDGFE` reconstructs the input image from an intermediate feature map.
+- The reconstruction error creates an image-space spatial gate.
+- A channel gate is computed from global average/max pooled features.
+- The original feature is multiplied by a small residual attention factor.
+- Optional losses supervise image reconstruction and spatial boundary/detail
+  targets.
+
+Forward shape:
+
+```text
+recon = reconstruct(upsample(feature))
+diff = mean_abs(recon - image)
+spatial_logits = sharpness * (diff - threshold)
+spatial_gate = 1 + sigmoid(spatial_logits)
+
+channel_gate = sigmoid(MLP(avgpool(feature)) + MLP(maxpool(feature)))
+attention = channel_gate * spatial_gate
+
+out = feature * (1 + alpha * (attention - 1))
+```
+
+Loss shape:
+
+```text
+loss_dgfe_rec = SmoothL1(recon, input_image)
+
+target_spatial = boundary/detail target made from GT boxes
+loss_dgfe_spatial =
+    BCEWithLogits(spatial_logits[pos], target_spatial[pos])
+    + dgfe_neg_gain * hard_negative_BCE(spatial_logits[neg], 0)
+
+total += dgfe_rec_gain * loss_dgfe_rec
+total += dgfe_spatial_gain * loss_dgfe_spatial
+```
+
+Spatial target modes:
+
+```text
+dgfe_spatial_target_mode = iou
+  target strength follows assigned IoU quality for the GT.
+
+dgfe_spatial_target_mode = edge_error
+  boundary side targets are boosted when the assigned prediction has large
+  normalized side error.
+```
+
+Key knobs used in configs:
+
+```text
+dgfe_rec_gain
+dgfe_spatial_gain
+dgfe_boundary_ring
+dgfe_inner_value
+dgfe_tiny_area
+dgfe_neg_pos_ratio
+dgfe_neg_gain
+dgfe_spatial_target_mode
+dgfe_edge_error_norm
+```
+
+Representative configs:
+
+```text
+models_related/models_config/yolov8/tried/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only.yaml
+models_related/models_config/yolov8/yolov8_varroa_b1_iou_dgfe.yaml
+models_related/models_config/yolov8/yolov8_varroa_b2_error_aware_dgfe.yaml
+models_related/models_config/yolov8/yolov8_varroa_b3_p2guide_dgfe.yaml
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p3_edge_pooling_srdgfe_noapi.yaml
+models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p2p3_edge_pooling_srdgfe_noapi.yaml
+```
+
+How to read this experiment: DGFE tries to improve feature/detail quality around
+object edges. It can change the feature map used by Detect, but it does not
+directly force final class score to rank tighter boxes above looser boxes.
+
+Current status:
+
+- Keep DGFE in the experiment log as a feature/detail attempt.
+- Do not treat it as a solved fix for the current AP75/AP90 problem.
+- As recorded here, DGFE has no run in this appendix that beats the current
+  Soft-NMS/quality baselines on `mAP50-95` or AP75; it still does not solve the
+  score/localization mismatch by itself.
+- Therefore DGFE is not counted as increasing/helping the final result in this
+  report.
+
+### Follow-up: Pairwise Score-Ranking Loss
+
+This direct-ranking loss exists in the codebase, but this appendix does not
+record a completed positive run for it. The diagnostics repeatedly show the
+same pattern: for one GT, a tighter candidate exists, but a looser candidate
+gets the higher score and survives NMS.
+
+Target behavior:
+
+```text
+If IoU(candidate_a, GT) > IoU(candidate_b, GT) + margin_iou,
+then score(candidate_a) should be higher than score(candidate_b) by margin_score.
+```
+
+Implemented loss shape:
+
+```text
+For TAL foreground candidates grouped by assigned GT:
+
+iou_gap = IoU(candidate_high_iou, GT) - IoU(candidate_low_iou, GT)
+score_gap = class_logit_high_iou - class_logit_low_iou
+
+use pair only if iou_gap > rank_iou_margin
+loss_pair = softplus(-score_gap / rank_tau) * iou_gap
+loss_rank = sum(loss_pair) / sum(iou_gap)
+total += rank_loss * loss_rank
+```
+
+Current knobs:
+
+```text
+rank_loss      # gain; 0 disables this loss
+rank_tau       # softness/temperature for score_gap
+rank_iou_margin
+rank_topk      # only compare top IoU candidates per assigned GT group
+```
+
+Candidate pairs are built within the same image and assigned GT group:
+
+- higher-IoU candidate: IoU `>= 0.75`, or the best-IoU candidate for that GT.
+- lower-IoU candidate: another candidate for the same GT whose IoU is lower
+  but whose current score is higher or equal.
+- focus on hard inversions, especially IoU gap `>= 0.05`.
+
+Why this belongs here: global stride scaling, `cls_iou_target_set`, VFL, and the
+current quality-head attempt all try to improve score calibration indirectly.
+Pairwise ranking loss attacks the measured failure directly: tight candidate
+must outrank loose candidate.
+
+Current status:
+
+- Implemented in the loss code, but not recorded as a completed/confirmed
+  positive run in this appendix.
+- Do not claim it improved results or helped the final metric yet.
+- It is the clean next scoring-loss idea if quality-head/debug still shows
+  `mean_best_minus_top_final` is not lower than the class-score baseline.
 
 ## Conclusion
 
@@ -1160,6 +1779,11 @@ Recommended next checks:
 - Try localization-focused changes before classification changes:
   higher DFL emphasis, different box loss settings, assignment tuning,
   stricter label quality checks, and NMS/duplicate analysis.
+- Keep boundary/detail experiments in the log, but mark them as not proven to
+  increase the result until a run beats the current Soft-NMS/quality baselines.
+- Pairwise score-ranking loss exists in code, but has not been validated here;
+  it remains the missing direct result for the "tight box loses by score"
+  failure mode.
 - Compare against a baseline model using the same diagnostic to see whether
   this architecture specifically worsens edge precision.
 
@@ -1194,8 +1818,13 @@ oracle re-NMS: greedy NMS at IoU 0.50 after score replacement
 ### Loose-vs-strict box-quality check
 
 For each GT, loose predictions were searched for the prediction with highest
-IoU. This asks whether the model can produce a good box before ranking and NMS
-discard it.
+IoU. This asks whether the model can produce an AP75-quality box before ranking
+and NMS discard it.
+
+How to read this table: `loose predictions` keeps many candidates by using a
+very permissive NMS setup. `strict predictions` is closer to normal final
+selection. `Killed-good-box` means an AP75-quality loose candidate existed but
+final ranking/NMS did not keep an AP75-quality box for that GT.
 
 | Metric | Value |
 |---|---:|
@@ -1214,6 +1843,11 @@ discard it.
 
 Best-IoU box vs top-confidence box summary:
 
+How to read this table: it compares the best-localized box against the
+highest-confidence box for the same GT. A positive IoU gap and high
+"best-IoU box has lower confidence rate" mean confidence often points to the
+wrong box.
+
 | Metric | Value |
 |---|---:|
 | Mean IoU gap, best-IoU minus top-conf | 0.1228 |
@@ -1226,8 +1860,8 @@ Interpretation:
 
 - The model often can produce a decent box: median best IoU is about 0.784 and
   loose recall@0.75 is about 0.645.
-- Strict NMS/ranking removes many good boxes: 232 of 684 GTs have loose best
-  IoU >= 0.75 but strict best IoU < 0.75.
+- Strict NMS/ranking removes many AP75-quality boxes: 232 of 684 GTs have loose
+  best IoU >= 0.75 but strict best IoU < 0.75.
 - Confidence is only moderately aligned with localization quality
   (Spearman about 0.458).
 - The failure is not purely localization; score quality and NMS ordering are a
@@ -1244,6 +1878,10 @@ pred_best_iou = max IoU(prediction, all GT boxes in same image)
 The same loose predictions were then rescored, greedy NMS was reapplied at IoU
 0.50, and AP/mAP was recomputed. This tests the upper bound of a perfect
 quality-aware score.
+
+How to read this table: each row replaces the score used before NMS. The
+`pred_best_iou` row is impossible at deployment because it uses GT labels, but
+it shows the upper bound if a learned quality score were perfect.
 
 | Score used for re-NMS/eval | Preds after NMS | mAP50-95 | Delta vs conf | AP50 | AP75 | AP90 | AP95 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -1278,6 +1916,7 @@ Recommended next experiment:
   - `cls * q^2`
 - Compare against baseline hard NMS, baseline Soft-NMS, quality head hard NMS,
   and quality head plus Soft-NMS.
+
 ## 2026-07-03 Quality-Head Update Log
 
 Scope: fix ranking/localization quality, not change TAL detection assignment.
@@ -1307,6 +1946,32 @@ Scope: fix ranking/localization quality, not change TAL detection assignment.
 ### Current quality loss behavior
 
 Implemented in `models_related/ultralytics/ultralytics/utils/loss.py`.
+
+Plain meaning: the quality head gets its own target. It is allowed to learn from
+high-IoU candidates even if TAL did not select them for normal box/class loss,
+and it treats confident low-IoU candidates as hard negatives.
+
+Loss shape:
+
+```text
+q = sigmoid(quality_logit)
+max_iou = max IoU(decoded_pred_box, any GT in same image)
+
+q_pos = TAL_positive OR max_iou > quality_pos_iou_thr
+target_q = max_iou ^ quality_target_power       # current mode: iou_power
+
+hard_neg = NOT q_pos
+           AND max_iou < quality_hard_neg_iou_thr
+           AND max_class_score > quality_hard_neg_score_thr
+
+pos_loss = BCEWithLogits(quality_logit[q_pos], target_q[q_pos])
+neg_loss = BCEWithLogits(quality_logit[hard_neg], 0)
+loss_quality = quality_gain * (pos_loss + quality_neg_gain * neg_loss)
+```
+
+Plain meaning: q is trained to be high for tight decoded boxes and low for
+confident boxes that are far from any GT. `quality_target_power=2.0` exaggerates
+the difference between medium IoU and tight IoU.
 
 For `quality_loss == bce_balanced`:
 
@@ -1363,6 +2028,10 @@ Power target makes tight boxes get much higher targets:
 
 One downloaded debug summary from the quality-head run showed:
 
+How to read this block: Spearman measures whether higher scores correspond to
+higher IoU. If `q` is a useful tight-box score, `Spearman(q, IoU)` and the final
+score modes should beat class confidence by a meaningful margin.
+
 ```text
 Spearman(cls, IoU)          = 0.4934
 Spearman(q, IoU)            = 0.1375
@@ -1374,7 +2043,8 @@ Spearman(cls*q^2, IoU)      = 0.5027
 `q_by_iou_bin` was too flat. q was not tight-box quality yet; it was mostly
 objectness-like. Cluster gap also did not improve enough.
 
-Conclusion: balanced loss alone was not enough. Need:
+Conclusion: balanced loss alone did not make `q` track tight-box IoU better
+than class confidence. Need:
 
 1. q positive expansion for high-IoU non-TAL candidates.
 2. hard negatives for high-cls bad boxes.
