@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -52,11 +53,19 @@ from ultralytics import YOLO  # noqa: E402
 from ultralytics.utils import DEFAULT_CFG_DICT  # noqa: E402
 
 
-def prepare_data() -> None:
+def train_project(args: argparse.Namespace) -> Path:
+    return Path(args.train_project).expanduser().resolve()
+
+
+def test_project(args: argparse.Namespace) -> Path:
+    return Path(args.test_project).expanduser().resolve()
+
+
+def prepare_data(seed: int = 42) -> None:
     from misc.prepare_dataset import prepare_dataset
 
-    print(f"Preparing dataset from {DATA_ROOT} -> {DATASET_OUT_DIR}")
-    prepare_dataset(str(DATA_ROOT), str(DATASET_OUT_DIR))
+    print(f"Preparing dataset from {DATA_ROOT} -> {DATASET_OUT_DIR} (seed={seed})")
+    prepare_dataset(str(DATA_ROOT), str(DATASET_OUT_DIR), seed=seed)
 
 
 def candidate_configs(exclude_tried: bool) -> list[Path]:
@@ -190,14 +199,52 @@ def train_config(config: Path, model_yaml: Path, seed: int, args: argparse.Names
         seed=seed,
         bbox_iou_loss="wiou",
         wiou_monotonous=False,
-        project=str(PROJECT),
+        project=str(train_project(args)),
         name=run_name,
     )
 
 
 def find_best_weights(configs: list[tuple[Path, Path, int]], args: argparse.Namespace) -> list[Path]:
+    if args.test_only:
+        return sorted(train_project(args).glob("*/weights/best.pt"))
+
     run_names = {run_name_for(config, args.scale, seed) for config, _, _ in configs for seed in args.seeds}
-    return sorted(path for path in PROJECT.glob("*/weights/best.pt") if path.parents[1].name in run_names)
+    return sorted(path for path in train_project(args).glob("*/weights/best.pt") if path.parents[1].name in run_names)
+
+
+def seed_from_run_name(run_name: str) -> int:
+    match = re.search(r"_seed(\d+)(?:-\d+)?$", run_name)
+    if not match:
+        raise ValueError(f"Cannot infer seed from run name: {run_name}")
+    return int(match.group(1))
+
+
+def test_summary_path(args: argparse.Namespace) -> Path:
+    return test_project(args) / f"test_summary_shard{args.machine_index}_of_{args.num_machines}.csv"
+
+
+def append_test_summary(row: dict[str, object], args: argparse.Namespace) -> None:
+    test_project(args).mkdir(parents=True, exist_ok=True)
+    path = test_summary_path(args)
+    fieldnames = [
+        "run_name",
+        "seed",
+        "nms_method",
+        "weight",
+        "dataset_yaml",
+        "mAP50",
+        "mAP50-95",
+        "precision",
+        "recall",
+    ]
+    write_header = not path.exists()
+    with path.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def run_test_inference(configs: list[tuple[Path, Path, int]], args: argparse.Namespace) -> Path | None:
@@ -206,14 +253,19 @@ def run_test_inference(configs: list[tuple[Path, Path, int]], args: argparse.Nam
     if not best_paths:
         return None
 
-    rows = []
     for best_path in best_paths:
         run_name = best_path.parents[1].name
+        seed = seed_from_run_name(run_name)
 
         print("\n" + "=" * 60)
         print(f"Testing: {run_name}")
+        print(f"Seed:    {seed}")
         print(f"Weight:  {best_path}")
         print("=" * 60)
+
+        prepare_data(seed=seed)
+        if not DATA_PATH.is_file():
+            raise FileNotFoundError(f"Dataset YAML not found: {DATA_PATH}")
 
         model = YOLO(str(best_path))
         metrics = model.val(
@@ -224,31 +276,33 @@ def run_test_inference(configs: list[tuple[Path, Path, int]], args: argparse.Nam
             device=args.device,
             conf=0.001,
             iou=0.5,
-            project=str(TEST_PROJECT),
+            nms_method="soft-linear",
+            soft_nms_min_score=0.001,
+            project=str(test_project(args)),
             name=run_name,
             exist_ok=True,
         )
 
-        row = (
-            run_name,
-            float(metrics.box.map50),
-            float(metrics.box.map),
-            float(metrics.box.mp),
-            float(metrics.box.mr),
+        row = {
+            "run_name": run_name,
+            "seed": seed,
+            "nms_method": "soft-linear",
+            "weight": str(best_path),
+            "dataset_yaml": str(DATA_PATH),
+            "mAP50": float(metrics.box.map50),
+            "mAP50-95": float(metrics.box.map),
+            "precision": float(metrics.box.mp),
+            "recall": float(metrics.box.mr),
+        }
+        append_test_summary(row, args)
+        print(
+            f"mAP50={row['mAP50']:.4f} | mAP50-95={row['mAP50-95']:.4f} | "
+            f"P={row['precision']:.4f} | R={row['recall']:.4f}"
         )
-        rows.append(row)
-        print(f"mAP50={row[1]:.4f} | mAP50-95={row[2]:.4f} | P={row[3]:.4f} | R={row[4]:.4f}")
 
-    rows.sort(key=lambda x: x[1], reverse=True)
-    TEST_PROJECT.mkdir(parents=True, exist_ok=True)
-    summary_path = TEST_PROJECT / f"test_summary_shard{args.machine_index}_of_{args.num_machines}.csv"
-    with summary_path.open("w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["run_name", "mAP50", "mAP50-95", "precision", "recall"])
-        writer.writerows(rows)
-
+    summary_path = test_summary_path(args)
     print(f"\nSaved test summary: {summary_path}")
-    return TEST_PROJECT
+    return test_project(args)
 
 
 def upload_runs_to_hf(args: argparse.Namespace) -> None:
@@ -296,9 +350,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS))
     parser.add_argument("--num-machines", type=int, default=1)
     parser.add_argument("--machine-index", type=int, default=0)
+    parser.add_argument("--train-project", default=str(PROJECT), help="Folder containing/receiving train runs with */weights/best.pt.")
+    parser.add_argument("--test-project", default=str(TEST_PROJECT), help="Folder for Soft-NMS test outputs and summary CSV.")
     parser.add_argument("--exclude-tried", action="store_true", help="Skip archived configs under tried/.")
-    parser.add_argument("--skip-prepare-data", action="store_true")
+    parser.add_argument("--skip-prepare-data", action="store_true", help="Skip dataset preparation before training. Test inference always rebuilds by checkpoint seed.")
     parser.add_argument("--check-only", action="store_true", help="Only discover configs and run dummy forwards.")
+    parser.add_argument("--test-only", action="store_true", help="Skip training and run test inference on existing best.pt files.")
     parser.add_argument("--hf-token", default=None, help="Hugging Face token for upload. Falls back to HF_TOKEN env var.")
     parser.add_argument("--hf-repo-id", default=None, help="Target Hugging Face repo id. Falls back to HF_REPO_ID or auto name.")
     parser.add_argument("--no-upload", action="store_true", help="Skip uploading train/test outputs to Hugging Face.")
@@ -319,14 +376,14 @@ def main() -> None:
     if args.check_only:
         return
 
-    if not args.skip_prepare_data:
-        prepare_data()
-    if not DATA_PATH.is_file():
-        raise FileNotFoundError(f"Dataset YAML not found: {DATA_PATH}")
-
-    for config, model_yaml, _ in configs:
-        for seed in args.seeds:
-            train_config(config, model_yaml, seed, args)
+    if not args.test_only:
+        for config, model_yaml, _ in configs:
+            for seed in args.seeds:
+                if not args.skip_prepare_data:
+                    prepare_data(seed=seed)
+                if not DATA_PATH.is_file():
+                    raise FileNotFoundError(f"Dataset YAML not found: {DATA_PATH}")
+                train_config(config, model_yaml, seed, args)
 
     if run_test_inference(configs, args) is not None:
         upload_runs_to_hf(args)
