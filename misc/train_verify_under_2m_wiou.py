@@ -13,22 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import misc.train_under_2m_wiou as base
 
 
-VERIFY_CONFIGS = (
-    "tried/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only.yaml",
-    "tried/yolov8_varroa_p3_local_detail_api.yaml",
-    "yolov8_varroa_b3_p2guide_dgfe.yaml",
-    "yolov8_varroa_compare_baseline_p3_edge_pooling_p3only_p2guide_dgfe.yaml",
-    "yolov8_varroa_p2p3_local_detail_api.yaml",
-    "yolov8_varroa_p2p3_local_detail_boundary_contrast.yaml",
-    "yolov8_varroa_compare_baseline_p3_edge_pooling_p3only_p2guide_dgfe_tiny64.yaml",
-    "tried/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only_p2inject.yaml",
-    "yolov8_varroa_compare_baseline_p3_edge_pooling_p3only_nop5.yaml",
-)
+VERIFY_CONFIGS = ("tried/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only.yaml",)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--seed", type=int, default=69, help="Seed that passed mAP50-95 > 0.36 for all selected configs.")
+    parser.add_argument("--seed", type=int, default=69, help="Strong seed to verify for the top config.")
     parser.add_argument("--scale", default=base.MODEL_SCALE, choices=("n", "s", "m", "l", "x"))
     parser.add_argument("--epochs", type=int, default=base.EPOCHS)
     parser.add_argument("--imgsz", type=int, default=base.IMGSZ)
@@ -59,6 +49,15 @@ def selected_configs(args: argparse.Namespace) -> list[tuple[Path, Path, int]]:
     return configs
 
 
+def print_dataset_seed() -> None:
+    if not base.DATA_PATH.is_file():
+        return
+    for line in base.DATA_PATH.read_text(encoding="utf-8").splitlines():
+        if line.startswith("seed:"):
+            print(line)
+            return
+
+
 def main() -> None:
     args = parse_args()
     args.seeds = [args.seed]
@@ -82,6 +81,7 @@ def main() -> None:
     for config, model_yaml, _ in configs:
         if not args.skip_prepare_data:
             base.prepare_data(seed=args.seed)
+            print_dataset_seed()
         if not base.DATA_PATH.is_file():
             raise FileNotFoundError(f"Dataset YAML not found: {base.DATA_PATH}")
         base.train_config(config, model_yaml, args.seed, args)
