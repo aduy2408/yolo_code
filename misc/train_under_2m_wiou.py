@@ -26,7 +26,7 @@ BATCH = 16
 WORKERS = 4
 DEVICE = "cuda"
 PATIENCE = 30
-SEEDS = (42, 69)
+SEEDS = (42, 43, 69)
 
 DATA_ROOT = Path(os.environ.get("VARROA_DATA_ROOT", "/marimo/data"))
 DATASET_OUT_DIR = ROOT / "datasets" / "varroa_yolo"
@@ -36,6 +36,12 @@ CONFIG_ROOT = ROOT / "models_related" / "models_config" / "yolov8"
 PROJECT = ROOT / "runs" / "detect" / "yolo_related" / "runs" / "train_under_2m_wiou"
 TEST_PROJECT = ROOT / "runs" / "detect" / "yolo_related" / "runs" / "test_under_2m_wiou"
 GENERATED_CONFIG_DIR = Path("/tmp") / "varroa_under_2m_wiou_scaled_configs"
+SELECTED_CONFIGS = (
+    "yolov8_varroa_p2p3_local_detail_boundary_contrast.yaml",
+    "tried/yolov8_varroa_p3_local_detail_api.yaml",
+    "tried/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only.yaml",
+    "yolov8_varroa_p2p3_local_detail_api.yaml",
+)
 
 
 def prefer_local_ultralytics() -> None:
@@ -69,14 +75,12 @@ def prepare_data(seed: int = 42) -> None:
 
 
 def candidate_configs(exclude_tried: bool) -> list[Path]:
-    configs = []
-    for config in sorted(CONFIG_ROOT.rglob("yolov8*.yaml")):
-        if config.stem.endswith("_train"):
-            continue
-        rel = config.relative_to(CONFIG_ROOT)
-        if exclude_tried and "tried" in rel.parts:
-            continue
-        configs.append(config)
+    configs = [CONFIG_ROOT / rel_path for rel_path in SELECTED_CONFIGS]
+    if exclude_tried:
+        configs = [config for config in configs if "tried" not in config.relative_to(CONFIG_ROOT).parts]
+    missing = [config for config in configs if not config.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Missing selected configs: {', '.join(str(path) for path in missing)}")
     return configs
 
 

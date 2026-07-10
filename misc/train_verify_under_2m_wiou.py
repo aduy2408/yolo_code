@@ -13,7 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import misc.train_under_2m_wiou as base
 
 
-VERIFY_CONFIGS = ("tried/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only.yaml",)
+VERIFY_CONFIGS = (
+    "yolov8_varroa_p2p3_local_detail_boundary_contrast.yaml",
+    "tried/yolov8_varroa_p3_local_detail_api.yaml",
+    "tried/yolov8_varroa_compare_baseline_p3_edge_pooling_p3only.yaml",
+    "yolov8_varroa_p2p3_local_detail_api.yaml",
+)
 
 
 def parse_args() -> argparse.Namespace:
