@@ -19,6 +19,7 @@ CONFIGS = (
     "yolov8_varroa_local_detail_p3only_dgfe_ultra.yaml",
     "yolov8_varroa_local_detail_p3only_dgfe_max.yaml",
     "yolov8_varroa_local_detail_p3only_dgfe_extreme.yaml",
+    "yolov8_varroa_local_detail_p3only_dgfe_extreme_noapi.yaml",
 )
 CONFIG_ALIASES = {Path(config).stem.rsplit("_", 1)[-1]: config for config in CONFIGS}
 
