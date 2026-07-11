@@ -62,6 +62,29 @@ At smaller training sizes:
 - `imgsz=320`: median min side about `32.6 px`; P3 sees about 4 cells.
 - `imgsz=160`: median min side about `16.3 px`; P3 sees about 2 cells, P2 sees about 4 cells.
 
+## Raw Class 3 Tightness Check
+
+- In the raw `gt_one.csv` files, the second column contains labels/states `0`, `1`, and `3`.
+- `gt_filtered.csv` keeps only positive class `1`.
+- The YOLO-converted dataset uses `nc: 1`, so raw class `3` is not represented as a separate YOLO class. It is collapsed or omitted depending on the converter path.
+
+Raw `gt_one.csv` counts across `data/{train,val,test}`:
+
+| Raw label/state | Count |
+| --- | ---: |
+| `0` | 9,562 |
+| `1` | 3,083 |
+| `3` | 864 |
+
+Bbox tightness was measured with a dark-pixel proxy inside each annotated box, not with segmentation masks:
+
+| Raw label/state | Mean box size | Mean proxy margin |
+| --- | ---: | ---: |
+| `1` | `33.1 x 31.9 px` | `0.50 px` |
+| `3` | `32.3 x 31.5 px` | `0.36 px` |
+
+By this heuristic, raw class `3` boxes are at least as tight as class `1` boxes, and likely slightly tighter. Re-run the read-only check after any dataset converter changes, verify counts against `data/{train,val,test}/gt_one.csv`, and spot-check several class `3` images visually before treating the proxy metric as final evidence.
+
 ## Data Quality Notes
 
 - The first line in many original label files does not match the number of parsed boxes.

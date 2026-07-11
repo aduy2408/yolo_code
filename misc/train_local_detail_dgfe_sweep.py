@@ -19,6 +19,7 @@ CONFIGS = (
     "yolov8_varroa_local_detail_p3only_dgfe_ultra.yaml",
     "yolov8_varroa_local_detail_p3only_dgfe_max.yaml",
 )
+CONFIG_ALIASES = {Path(config).stem.rsplit("_", 1)[-1]: config for config in CONFIGS}
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +33,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default=base.DEVICE)
     parser.add_argument("--patience", type=int, default=base.PATIENCE)
     parser.add_argument("--seeds", type=int, nargs="+", default=list(base.SEEDS))
+    parser.add_argument(
+        "--configs",
+        nargs="+",
+        choices=tuple(CONFIG_ALIASES),
+        default=tuple(CONFIG_ALIASES),
+        help="DGFE strength configs to run.",
+    )
     parser.add_argument("--num-machines", type=int, default=1)
     parser.add_argument("--machine-index", type=int, default=0)
     parser.add_argument("--train-project", default=str(base.PROJECT.parent / "train_local_detail_dgfe_sweep"))
@@ -47,7 +55,8 @@ def parse_args() -> argparse.Namespace:
 
 def selected_configs(args: argparse.Namespace) -> list[tuple[Path, Path, int]]:
     configs = []
-    for config_name in CONFIGS:
+    for config_key in args.configs:
+        config_name = CONFIG_ALIASES[config_key]
         config = base.CONFIG_ROOT / config_name
         if not config.is_file():
             raise FileNotFoundError(config)
@@ -78,7 +87,7 @@ def main() -> None:
     print("ultralytics path:", base.ultralytics.__file__)
     print("train project:", args.train_project)
     print("test project:", args.test_project)
-    print("configs:", ", ".join(CONFIGS))
+    print("configs:", ", ".join(args.configs))
     print("seeds:", args.seeds)
 
     if base.GENERATED_CONFIG_DIR.exists():
