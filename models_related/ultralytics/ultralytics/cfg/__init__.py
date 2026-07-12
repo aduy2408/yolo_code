@@ -260,6 +260,7 @@ CFG_INT_KEYS = frozenset(
         "boundary_levels",
         "boundary_samples",
         "loc_quality_levels",
+        "dgfe_spatial_warmup_epochs",
         "dgfe_neg_pos_ratio",
         "quality_debug_batches",
         "quality_debug_max_preds",

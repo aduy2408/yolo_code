@@ -131,6 +131,8 @@ loc_quality_sigma: 0.45 # (float) EXPERIMENTAL Gaussian sigma scale for localiza
 loc_quality_loss: mse # (str) EXPERIMENTAL LQM loss type: mse or smoothl1
 dgfe_rec_gain: 0.0 # (float) EXPERIMENTAL SR-DGFE reconstruction loss gain
 dgfe_spatial_gain: 0.0 # (float) EXPERIMENTAL SR-DGFE spatial filtration loss gain
+dgfe_spatial_warmup_epochs: 0 # (int) EXPERIMENTAL epochs to linearly warm up SR-DGFE spatial loss gain
+dgfe_spatial_warmup_start: 0.1 # (float) EXPERIMENTAL starting fraction for SR-DGFE spatial warmup
 dgfe_boundary_ring: 1.0 # (float) EXPERIMENTAL SR-DGFE boundary ring thickness in P2 cells
 dgfe_inner_value: 0.3 # (float) EXPERIMENTAL SR-DGFE bbox interior target value
 dgfe_tiny_area: 4.0 # (float) EXPERIMENTAL SR-DGFE boxes at or below this P2-cell area use target 1.0
