@@ -266,6 +266,8 @@ class Model(torch.nn.Module):
             "quality_probe_max_preds",
             "dgfe_rec_gain",
             "dgfe_spatial_gain",
+            "dgfe_spatial_warmup_epochs",
+            "dgfe_spatial_warmup_start",
             "dgfe_boundary_ring",
             "dgfe_inner_value",
             "dgfe_tiny_area",

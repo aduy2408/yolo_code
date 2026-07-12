@@ -820,6 +820,10 @@ class v8DetectionLoss:
         self.quality_debug_seen = 0
         self.dgfe_rec_gain = float(getattr(h, "dgfe_rec_gain", 0.0))
         self.dgfe_spatial_gain = float(getattr(h, "dgfe_spatial_gain", 0.0))
+        self.dgfe_spatial_warmup_epochs = max(int(getattr(h, "dgfe_spatial_warmup_epochs", 0)), 0)
+        self.dgfe_spatial_warmup_start = max(
+            min(float(getattr(h, "dgfe_spatial_warmup_start", 0.1)), 1.0), 0.0
+        )
         self.dgfe_boundary_ring = float(getattr(h, "dgfe_boundary_ring", 1.0))
         self.dgfe_inner_value = float(getattr(h, "dgfe_inner_value", 0.3))
         self.dgfe_tiny_area = float(getattr(h, "dgfe_tiny_area", 4.0))
@@ -838,6 +842,7 @@ class v8DetectionLoss:
         self.loc_assign_max_stride = float(getattr(h, "loc_assign_max_stride", 8.0))
         self.loc_assign_center_radius = float(getattr(h, "loc_assign_center_radius", 2.5))
         self.loc_assign_weight = float(getattr(h, "loc_assign_weight", 0.5))
+        self.epoch = 0
         self.dfl_residual = bool(getattr(m, "dfl_residual", False))
         self.dfl_residual_scale = float(getattr(m, "dfl_residual_scale", getattr(h, "dfl_residual_scale", 0.25)))
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
@@ -1159,6 +1164,13 @@ class v8DetectionLoss:
             losses.append(pos_loss + self.dgfe_neg_gain * neg_loss)
         return torch.stack(losses).mean() if losses else preds["boxes"].sum() * 0.0
 
+    def _dgfe_spatial_gain(self) -> float:
+        if self.dgfe_spatial_warmup_epochs <= 0:
+            return self.dgfe_spatial_gain
+        t = min(max(float(self.epoch), 0.0) / max(float(self.dgfe_spatial_warmup_epochs), 1.0), 1.0)
+        factor = self.dgfe_spatial_warmup_start + (1.0 - self.dgfe_spatial_warmup_start) * t
+        return self.dgfe_spatial_gain * factor
+
     def get_assigned_targets_and_loss(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> tuple:
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size and return foreground mask and
         target indices.
@@ -1478,7 +1490,7 @@ class v8DetectionLoss:
             q_by_gt = self._dgfe_quality_by_gt(
                 assigned_iou, pred_bboxes, target_bboxes_scaled, target_gt_idx, fg_mask, mask_gt
             )
-            loss[dgfe_idx] = self._dgfe_spatial_loss(preds, gt_bboxes, mask_gt, imgsz, q_by_gt) * self.dgfe_spatial_gain
+            loss[dgfe_idx] = self._dgfe_spatial_loss(preds, gt_bboxes, mask_gt, imgsz, q_by_gt) * self._dgfe_spatial_gain()
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,

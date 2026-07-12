@@ -173,6 +173,8 @@ CFG_FLOAT_KEYS = frozenset(
         "loc_quality_sigma",
         "dgfe_rec_gain",
         "dgfe_spatial_gain",
+        "dgfe_spatial_warmup_epochs",
+        "dgfe_spatial_warmup_start",
         "dgfe_boundary_ring",
         "dgfe_inner_value",
         "dgfe_tiny_area",

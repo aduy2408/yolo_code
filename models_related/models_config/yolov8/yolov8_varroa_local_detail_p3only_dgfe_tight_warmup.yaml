@@ -1,9 +1,11 @@
-# YOLOv8 Varroa P3-only LocalDetail with tight DGFE and stronger boxgrad API.
-# Ultra-like DGFE with tighter boundary target plus a mild API increase.
+# YOLOv8 Varroa P3-only LocalDetail with tight DGFE, API, and spatial warmup.
+# Warmup ramps DGFE spatial loss to reduce early over-regularization variance.
 
 nc: 1
 dgfe_rec_gain: 0.04
 dgfe_spatial_gain: 0.55
+dgfe_spatial_warmup_epochs: 30
+dgfe_spatial_warmup_start: 0.1
 dgfe_boundary_ring: 1.5
 dgfe_inner_value: 0.10
 dgfe_tiny_area: 64.0
