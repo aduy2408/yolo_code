@@ -119,6 +119,14 @@ scale_temper_lambda: 0.5 # (float) EXPERIMENTAL interpolation strength for scale
 scale_temper_warmup_start: 5 # (int) EXPERIMENTAL epoch before target tempering starts
 scale_temper_warmup_end: 15 # (int) EXPERIMENTAL epoch where target tempering reaches full strength
 scale_temper_p2_only: true # (bool) EXPERIMENTAL apply scale-tempered targets only to P2 positives
+factorized_tal_target: false # (bool) EXPERIMENTAL factorized TAL classification target
+factorized_tal_tau: 0.75 # (float) EXPERIMENTAL exponent for TAL confidence ceiling
+factorized_tal_kappa: 1.5 # (float) EXPERIMENTAL exponent for TAL relative ranking
+factorized_tal_lambda: 0.5 # (float) EXPERIMENTAL interpolation strength for factorized TAL targets
+factorized_tal_s_max: 32.0 # (float) EXPERIMENTAL apply factorized TAL only below this GT size
+factorized_tal_warmup_start: 5 # (int) EXPERIMENTAL epoch before factorized TAL starts
+factorized_tal_warmup_end: 15 # (int) EXPERIMENTAL epoch where factorized TAL reaches full strength
+factorized_tal_p2_only: true # (bool) EXPERIMENTAL apply factorized TAL targets only to P2 positives
 vfl: false # (bool) EXPERIMENTAL use Varifocal Loss with assigned IoU as positive classification target
 vfl_alpha: 0.75 # (float) EXPERIMENTAL Varifocal Loss negative alpha
 vfl_gamma: 2.0 # (float) EXPERIMENTAL Varifocal Loss focusing gamma

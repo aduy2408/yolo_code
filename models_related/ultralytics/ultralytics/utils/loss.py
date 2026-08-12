@@ -943,7 +943,12 @@ class v8DetectionLoss:
         self.scale_temper_warmup_end = int(getattr(h, "scale_temper_warmup_end", 15))
         self.scale_temper_p2_only = bool(getattr(h, "scale_temper_p2_only", True))
         if self.scale_temper_target:
-            if self.vfl is not None or bool(getattr(h, "cls_iou_target", False)) or self.positive_confidence_rescue_gain > 0:
+            if (
+                self.vfl is not None
+                or bool(getattr(h, "cls_iou_target", False))
+                or self.positive_confidence_rescue_gain > 0
+                or bool(getattr(h, "factorized_tal_target", False))
+            ):
                 raise ValueError("scale-tempered targets require default TAL-BCE classification")
             if self.scale_temper_s2 <= self.scale_temper_s1:
                 raise ValueError("scale_temper_s2 must be greater than scale_temper_s1")
@@ -951,6 +956,26 @@ class v8DetectionLoss:
                 raise ValueError("scale_temper_tau_min must be in (0, 1]")
             if not 0 <= self.scale_temper_lambda <= 1:
                 raise ValueError("scale_temper_lambda must be in [0, 1]")
+        self.factorized_tal_target = bool(getattr(h, "factorized_tal_target", False))
+        self.factorized_tal_tau = float(getattr(h, "factorized_tal_tau", 0.75))
+        self.factorized_tal_kappa = float(getattr(h, "factorized_tal_kappa", 1.5))
+        self.factorized_tal_lambda = float(getattr(h, "factorized_tal_lambda", 0.5))
+        self.factorized_tal_s_max = float(getattr(h, "factorized_tal_s_max", 32.0))
+        self.factorized_tal_warmup_start = int(getattr(h, "factorized_tal_warmup_start", 5))
+        self.factorized_tal_warmup_end = int(getattr(h, "factorized_tal_warmup_end", 15))
+        self.factorized_tal_p2_only = bool(getattr(h, "factorized_tal_p2_only", True))
+        if self.factorized_tal_target:
+            if (
+                self.vfl is not None
+                or bool(getattr(h, "cls_iou_target", False))
+                or self.positive_confidence_rescue_gain > 0
+                or self.scale_temper_target
+            ):
+                raise ValueError("factorized TAL targets require default TAL-BCE classification")
+            if not 0 < self.factorized_tal_tau <= 1:
+                raise ValueError("factorized_tal_tau must be in (0, 1]")
+            if self.factorized_tal_kappa <= 0 or not 0 <= self.factorized_tal_lambda <= 1 or self.factorized_tal_s_max <= 0:
+                raise ValueError("factorized TAL kappa/s_max must be positive and lambda must be in [0, 1]")
         self.loc_assign = bool(getattr(h, "loc_assign", False))
         self.loc_assign_topk = int(getattr(h, "loc_assign_topk", 3))
         self.loc_assign_max_stride = float(getattr(h, "loc_assign_max_stride", 8.0))
@@ -1048,6 +1073,40 @@ class v8DetectionLoss:
             positive = q > 0
             tempered[b, mask_b] = torch.where(positive, q + lam * (q.clamp_min(1e-12).pow(tau[:, None]) - q), q)
         return tempered
+
+    def factorized_tal_cls_targets(
+        self, target_scores: torch.Tensor, gt_bboxes: torch.Tensor, target_gt_idx: torch.Tensor, fg_mask: torch.Tensor, n_p2: int
+    ) -> torch.Tensor:
+        """Boost each GT's TAL ceiling while sharpening its within-GT positive ranking."""
+        lam = self.factorized_tal_lambda
+        if getattr(self, "epoch", 0) < self.factorized_tal_warmup_start:
+            lam = 0.0
+        elif self.factorized_tal_warmup_end > self.factorized_tal_warmup_start:
+            ramp = (getattr(self, "epoch", 0) - self.factorized_tal_warmup_start) / (
+                self.factorized_tal_warmup_end - self.factorized_tal_warmup_start
+            )
+            lam *= min(max(float(ramp), 0.0), 1.0)
+        if lam <= 0 or not fg_mask.any():
+            return target_scores
+
+        out = target_scores.clone()
+        pos_mask = fg_mask.clone()
+        if self.factorized_tal_p2_only:
+            pos_mask[:, n_p2:] = False
+        for b in range(target_scores.shape[0]):
+            for gt_idx in target_gt_idx[b, pos_mask[b]].unique():
+                group = pos_mask[b] & (target_gt_idx[b] == gt_idx)
+                if not group.any():
+                    continue
+                box = gt_bboxes[b, gt_idx]
+                size = (box[2:] - box[:2]).clamp_min(1e-6).prod().sqrt()
+                if size >= self.factorized_tal_s_max:
+                    continue
+                q = target_scores[b, group]
+                u_max = q.max().clamp_min(1e-12)
+                q_new = u_max.pow(self.factorized_tal_tau) * (q / u_max).clamp(0, 1).pow(self.factorized_tal_kappa)
+                out[b, group] = torch.where(q > 0, q + lam * (q_new - q), q)
+        return out
 
     def bbox_decode(
         self,
@@ -1605,6 +1664,8 @@ class v8DetectionLoss:
         cls_target_scores_sum = target_scores_sum
         if self.scale_temper_target:
             cls_target_scores = self.scale_tempered_cls_targets(target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2)
+        elif self.factorized_tal_target:
+            cls_target_scores = self.factorized_tal_cls_targets(target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2)
         assigned_iou = None
         # Use the same coordinate scale as bbox loss. If target_bboxes has already been divided by stride_tensor,
         # do not divide again.
