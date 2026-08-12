@@ -111,6 +111,14 @@ wiou_monotonous: false # (bool) Wise-IoU focusing mode: false=non-monotonic, tru
 cls_iou_target: false # (bool) EXPERIMENTAL use assigned box IoU as positive classification target
 positive_confidence_rescue_gain: 0.0 # (float) EXPERIMENTAL TAL-positive confidence rescue gain
 positive_confidence_rescue_gamma: 1.0 # (float) EXPERIMENTAL low-target rescue focusing exponent
+scale_temper_target: false # (bool) EXPERIMENTAL scale-tempered TAL classification target
+scale_temper_s1: 16.0 # (float) EXPERIMENTAL GT size where minimum target tempering starts
+scale_temper_s2: 32.0 # (float) EXPERIMENTAL GT size where target tempering becomes identity
+scale_temper_tau_min: 0.5 # (float) EXPERIMENTAL minimum exponent for scale-tempered targets
+scale_temper_lambda: 0.5 # (float) EXPERIMENTAL interpolation strength for scale-tempered targets
+scale_temper_warmup_start: 5 # (int) EXPERIMENTAL epoch before target tempering starts
+scale_temper_warmup_end: 15 # (int) EXPERIMENTAL epoch where target tempering reaches full strength
+scale_temper_p2_only: true # (bool) EXPERIMENTAL apply scale-tempered targets only to P2 positives
 vfl: false # (bool) EXPERIMENTAL use Varifocal Loss with assigned IoU as positive classification target
 vfl_alpha: 0.75 # (float) EXPERIMENTAL Varifocal Loss negative alpha
 vfl_gamma: 2.0 # (float) EXPERIMENTAL Varifocal Loss focusing gamma

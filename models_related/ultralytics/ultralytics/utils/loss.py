@@ -934,6 +934,23 @@ class v8DetectionLoss:
         ):
             raise ValueError("positive confidence rescue requires default TAL-BCE classification")
         self.positive_confidence_rescue_metrics = {}
+        self.scale_temper_target = bool(getattr(h, "scale_temper_target", False))
+        self.scale_temper_s1 = float(getattr(h, "scale_temper_s1", 16.0))
+        self.scale_temper_s2 = float(getattr(h, "scale_temper_s2", 32.0))
+        self.scale_temper_tau_min = float(getattr(h, "scale_temper_tau_min", 0.5))
+        self.scale_temper_lambda = float(getattr(h, "scale_temper_lambda", 0.5))
+        self.scale_temper_warmup_start = int(getattr(h, "scale_temper_warmup_start", 5))
+        self.scale_temper_warmup_end = int(getattr(h, "scale_temper_warmup_end", 15))
+        self.scale_temper_p2_only = bool(getattr(h, "scale_temper_p2_only", True))
+        if self.scale_temper_target:
+            if self.vfl is not None or bool(getattr(h, "cls_iou_target", False)) or self.positive_confidence_rescue_gain > 0:
+                raise ValueError("scale-tempered targets require default TAL-BCE classification")
+            if self.scale_temper_s2 <= self.scale_temper_s1:
+                raise ValueError("scale_temper_s2 must be greater than scale_temper_s1")
+            if not 0 < self.scale_temper_tau_min <= 1:
+                raise ValueError("scale_temper_tau_min must be in (0, 1]")
+            if not 0 <= self.scale_temper_lambda <= 1:
+                raise ValueError("scale_temper_lambda must be in [0, 1]")
         self.loc_assign = bool(getattr(h, "loc_assign", False))
         self.loc_assign_topk = int(getattr(h, "loc_assign_topk", 3))
         self.loc_assign_max_stride = float(getattr(h, "loc_assign_max_stride", 8.0))
@@ -994,6 +1011,43 @@ class v8DetectionLoss:
         logits = positive_logits[fg_mask]
         raw = ((1.0 - target).pow(self.positive_confidence_rescue_gamma) * F.softplus(-logits)).sum()
         return raw / fg_mask.sum().clamp_min(1), target, logits
+
+    def scale_tempered_cls_targets(
+        self, target_scores: torch.Tensor, gt_bboxes: torch.Tensor, target_gt_idx: torch.Tensor, fg_mask: torch.Tensor, n_p2: int
+    ) -> torch.Tensor:
+        """Raise low TAL cls targets for assigned small GTs without changing negatives or localization targets."""
+        lam = self.scale_temper_lambda
+        if getattr(self, "epoch", 0) < self.scale_temper_warmup_start:
+            lam = 0.0
+        elif self.scale_temper_warmup_end > self.scale_temper_warmup_start:
+            ramp = (getattr(self, "epoch", 0) - self.scale_temper_warmup_start) / (
+                self.scale_temper_warmup_end - self.scale_temper_warmup_start
+            )
+            lam *= min(max(float(ramp), 0.0), 1.0)
+        if lam <= 0 or not fg_mask.any():
+            return target_scores
+
+        tempered = target_scores.clone()
+        pos_mask = fg_mask.clone()
+        if self.scale_temper_p2_only:
+            pos_mask[:, n_p2:] = False
+        if not pos_mask.any():
+            return tempered
+
+        for b in range(target_scores.shape[0]):
+            mask_b = pos_mask[b]
+            if not mask_b.any():
+                continue
+            boxes = gt_bboxes[b, target_gt_idx[b, mask_b]]
+            wh = (boxes[:, 2:] - boxes[:, :2]).clamp_min(1e-6)
+            size = wh.prod(-1).sqrt()
+            tau = self.scale_temper_tau_min + (1.0 - self.scale_temper_tau_min) * (
+                (size - self.scale_temper_s1) / (self.scale_temper_s2 - self.scale_temper_s1)
+            ).clamp(0.0, 1.0)
+            q = target_scores[b, mask_b]
+            positive = q > 0
+            tempered[b, mask_b] = torch.where(positive, q + lam * (q.clamp_min(1e-12).pow(tau[:, None]) - q), q)
+        return tempered
 
     def bbox_decode(
         self,
@@ -1549,6 +1603,8 @@ class v8DetectionLoss:
         target_scores_sum = max(target_scores.sum(), 1)
         cls_target_scores = target_scores
         cls_target_scores_sum = target_scores_sum
+        if self.scale_temper_target:
+            cls_target_scores = self.scale_tempered_cls_targets(target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2)
         assigned_iou = None
         # Use the same coordinate scale as bbox loss. If target_bboxes has already been divided by stride_tensor,
         # do not divide again.
