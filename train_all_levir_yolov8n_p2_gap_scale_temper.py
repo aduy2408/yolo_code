@@ -81,9 +81,17 @@ def complete(run_dir: Path, epochs: int) -> bool:
     return all((run_dir / path).is_file() for path in REQUIRED) and sum(1 for _ in results.open(encoding="utf-8")) - 1 == epochs
 
 
+def training_complete(run_dir: Path, epochs: int) -> bool:
+    results = run_dir / "results.csv"
+    return (
+        all((run_dir / path).is_file() for path in ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml"))
+        and sum(1 for _ in results.open(encoding="utf-8")) - 1 == epochs
+    )
+
+
 def train(variant: str, data_yaml: Path, seed: int, args: argparse.Namespace) -> Path:
     run_dir = args.project / variant / f"seed_{seed}"
-    if complete(run_dir, args.epochs):
+    if training_complete(run_dir, args.epochs):
         return run_dir
     seed_everything(seed)
     model_for(args.pretrained).train(
@@ -177,7 +185,7 @@ def ranking_summary(rows: list[dict], run_dir: Path, args: argparse.Namespace) -
         "protocol": {
             "seed": 42,
             "split": "test",
-            "images": len(images),
+            "images": len({row["image"] for row in rows}),
             "nms_iou": 0.5,
             "candidate_rule": "decoded P2 anchor center inside GT; overlapping anchors assigned to highest-IoU GT",
             "prediction_stage": "decoded P2 boxes and sigmoid class scores before threshold and NMS",
