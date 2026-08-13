@@ -12,6 +12,18 @@ import train_all_levir_yolov8n_p2_gap_scale_temper as base
 
 ROOT = Path(__file__).resolve().parent
 VARIANTS = {
+    "gap_factorized_ceiling": {
+        "factorized_tal_target": True,
+        "factorized_tal_tau": 0.75,
+        "factorized_tal_kappa": 1.0,
+        "factorized_tal_lambda": 0.5,
+    },
+    "gap_factorized_separation": {
+        "factorized_tal_target": True,
+        "factorized_tal_tau": 1.0,
+        "factorized_tal_kappa": 1.5,
+        "factorized_tal_lambda": 0.5,
+    },
     "gap_factorized_k15": {
         "factorized_tal_target": True,
         "factorized_tal_tau": 0.75,
@@ -25,7 +37,7 @@ VARIANTS = {
         "factorized_tal_lambda": 0.5,
     },
 }
-DEFAULT_VARIANTS = tuple(VARIANTS)
+DEFAULT_VARIANTS = ("gap_factorized_ceiling", "gap_factorized_separation")
 REQUIRED = (
     "weights/best.pt",
     "weights/last.pt",
