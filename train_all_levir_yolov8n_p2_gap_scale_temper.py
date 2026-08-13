@@ -69,7 +69,7 @@ def model_for(pretrained: str):
     model = YOLO(CONFIG)
     model.load(pretrained, smart_transfer=True)
     attention, head = model.model.model[19], model.model.model[-1]
-    if not isinstance(attention, ChannelAttention) or attention.descriptor != "avg":
+    if not isinstance(attention, ChannelAttention) or getattr(attention, "descriptor", "avg") != "avg":
         raise TypeError("GAP ChannelAttention did not resolve at layer 19")
     if head.f != [19] or head.stride.tolist() != [4.0]:
         raise ValueError(f"expected ChannelAttention -> Detect stride [4.0], got {head.f}, {head.stride.tolist()}")
