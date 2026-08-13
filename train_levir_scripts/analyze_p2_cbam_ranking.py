@@ -87,8 +87,9 @@ def gt_group(area: float) -> str:
 def inspect_model(name: str, checkpoint: Path, images: list[Path], args: argparse.Namespace) -> list[dict]:
     wrapper = YOLO(checkpoint)
     train_args = (getattr(wrapper, "ckpt", None) or {}).get("train_args", {})
-    if train_args.get("seed") != 42:
-        raise RuntimeError(f"{name}: expected checkpoint training seed 42, got {train_args.get('seed')!r}")
+    expected_seed = getattr(args, "expected_seed", 42)
+    if train_args.get("seed") != expected_seed:
+        raise RuntimeError(f"{name}: expected checkpoint training seed {expected_seed}, got {train_args.get('seed')!r}")
     trained_imgsz = train_args.get("imgsz")
     if trained_imgsz not in (args.imgsz, [args.imgsz], (args.imgsz,)):
         raise RuntimeError(f"{name}: expected training imgsz {args.imgsz}, got {trained_imgsz!r}")

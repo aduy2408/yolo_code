@@ -157,7 +157,7 @@ def raw_p2_rows(run_dir: Path, args: argparse.Namespace) -> list[dict]:
     images = sorted(path for path in images_dir.iterdir() if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"})
     if args.ranking_limit:
         images = images[: args.ranking_limit]
-    ns = argparse.Namespace(imgsz=args.imgsz, device=args.device)
+    ns = argparse.Namespace(imgsz=args.imgsz, device=args.device, expected_seed=int(run_dir.name.rsplit("_", 1)[1]))
     ranking.EXPECTED_LEVELS["gap_scale_temper"] = 1
     return ranking.inspect_model("gap_scale_temper", run_dir / "weights/best.pt", images, ns)
 
