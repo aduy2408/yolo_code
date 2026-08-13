@@ -21,6 +21,7 @@ CONFIGS = {
     "varroa_p2p3_plain": ROOT / "models_related/models_config/yolov8/varroa/yolov8n_varroa_p2p3_plain.yaml",
     "varroa_p2p3_plain_gap": ROOT / "models_related/models_config/yolov8/varroa/yolov8n_varroa_p2p3_plain_gap.yaml",
     "varroa_p2p3_plain_gap_factorized_k15": ROOT / "models_related/models_config/yolov8/varroa/yolov8n_varroa_p2p3_plain_gap.yaml",
+    "varroa_p2p3_plain_gap_factorized_k15_s128": ROOT / "models_related/models_config/yolov8/varroa/yolov8n_varroa_p2p3_plain_gap.yaml",
 }
 VARIANTS = {
     "varroa_p2p3_plain": {
