@@ -79,6 +79,24 @@ def validate_dataset(data_yaml: Path) -> None:
             raise ValueError(f"No images found for {split}: {image_dir}")
 
 
+def ensure_dataset(args: argparse.Namespace) -> None:
+    try:
+        validate_dataset(args.data_yaml)
+        return
+    except (FileNotFoundError, ValueError):
+        from misc.prepare_dataset import prepare_dataset
+
+        args.data_yaml = prepare_dataset(
+            args.data_root,
+            args.dataset_root / "varroa_yolo_seed42",
+            gt_source="gt_one",
+            only_positives=True,
+            class_policy="map-3-to-1",
+            seed=42,
+        ).resolve()
+        validate_dataset(args.data_yaml)
+
+
 def model_for(pretrained: str):
     local_ultralytics()
     from ultralytics import YOLO
@@ -227,6 +245,8 @@ def complete(run_dir: Path, epochs: int) -> bool:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-yaml", type=Path, default=ROOT / "datasets/varroa_yolo/varroa.yaml")
+    parser.add_argument("--data-root", type=Path, default=ROOT.parent / "varroa_data")
+    parser.add_argument("--dataset-root", type=Path, default=ROOT / "datasets")
     parser.add_argument("--project", type=Path, default=ROOT / "runs/varroa_yolov8n_p2_gap_factorized_tal")
     parser.add_argument("--pretrained", default="yolov8n.pt")
     parser.add_argument("--epochs", type=int, default=100)
@@ -243,8 +263,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    args.data_yaml, args.project = args.data_yaml.resolve(), args.project.resolve()
-    validate_dataset(args.data_yaml)
+    args.data_yaml, args.data_root, args.dataset_root, args.project = (
+        args.data_yaml.resolve(),
+        args.data_root.resolve(),
+        args.dataset_root.resolve(),
+        args.project.resolve(),
+    )
+    ensure_dataset(args)
     uploader = Uploader(args.hf_repo_id)
     for seed in args.seeds:
         for variant in args.variants:
