@@ -17,8 +17,15 @@ import train_all_levir_yolov8n_p2_gap_scale_temper as base
 
 ROOT = Path(__file__).resolve().parent
 ULTRALYTICS = ROOT / "models_related/ultralytics"
-CONFIG = ROOT / "models_related/models_config/yolov8/varroa/yolov8n_varroa_p2p3_plain_gap.yaml"
+CONFIGS = {
+    "varroa_p2p3_plain": ROOT / "models_related/models_config/yolov8/varroa/yolov8n_varroa_p2p3_plain.yaml",
+    "varroa_p2p3_plain_gap": ROOT / "models_related/models_config/yolov8/varroa/yolov8n_varroa_p2p3_plain_gap.yaml",
+    "varroa_p2p3_plain_gap_factorized_k15": ROOT / "models_related/models_config/yolov8/varroa/yolov8n_varroa_p2p3_plain_gap.yaml",
+}
 VARIANTS = {
+    "varroa_p2p3_plain": {
+        "factorized_tal_target": False,
+    },
     "varroa_p2p3_plain_gap": {
         "factorized_tal_target": False,
     },
@@ -97,11 +104,11 @@ def ensure_dataset(args: argparse.Namespace) -> None:
         validate_dataset(args.data_yaml)
 
 
-def model_for(pretrained: str):
+def model_for(variant: str, pretrained: str):
     local_ultralytics()
     from ultralytics import YOLO
 
-    model = YOLO(CONFIG)
+    model = YOLO(CONFIGS[variant])
     model.load(pretrained, smart_transfer=True)
     return model
 
@@ -122,7 +129,7 @@ def train(variant: str, seed: int, args: argparse.Namespace) -> Path:
         print(f"Reusing completed training: {run_dir}", flush=True)
         return run_dir
     seed_everything(seed)
-    model_for(args.pretrained).train(
+    model_for(variant, args.pretrained).train(
         data=str(args.data_yaml),
         epochs=args.epochs,
         imgsz=args.imgsz,
@@ -177,13 +184,13 @@ def write_metadata(variant: str, run_dir: Path, seed: int, args: argparse.Namesp
     from ultralytics import YOLO
     from ultralytics.utils.torch_utils import get_flops
 
-    shutil.copy2(CONFIG, run_dir / "config.yaml")
+    shutil.copy2(CONFIGS[variant], run_dir / "config.yaml")
     model = YOLO(run_dir / "weights/best.pt")
     head = model.model.model[-1]
     manifest = {
         "variant": variant,
         "seed": seed,
-        "config": CONFIG.name,
+        "config": CONFIGS[variant].name,
         "data_yaml": str(args.data_yaml),
         "topology": "P2/P3 plain RepC2f -> GAP ChannelAttention -> shared Detect",
         "detect_from": head.f,
