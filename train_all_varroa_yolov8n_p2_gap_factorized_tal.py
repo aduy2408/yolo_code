@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train/evaluate/upload Varroa YOLOv8n P2 GAP factorized TAL k=1.5."""
+"""Train/evaluate/upload Varroa YOLOv8n P2/P3 plain GAP target variants."""
 
 from __future__ import annotations
 
@@ -17,8 +17,22 @@ import train_all_levir_yolov8n_p2_gap_scale_temper as base
 
 ROOT = Path(__file__).resolve().parent
 ULTRALYTICS = ROOT / "models_related/ultralytics"
-CONFIG = ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_cbam_channel_only.yaml"
-VARIANT = "varroa_gap_factorized_k15"
+CONFIG = ROOT / "models_related/models_config/yolov8/varroa/yolov8n_varroa_p2p3_plain_gap.yaml"
+VARIANTS = {
+    "varroa_p2p3_plain_gap": {
+        "factorized_tal_target": False,
+    },
+    "varroa_p2p3_plain_gap_factorized_k15": {
+        "factorized_tal_target": True,
+        "factorized_tal_tau": 0.75,
+        "factorized_tal_kappa": 1.5,
+        "factorized_tal_lambda": 0.5,
+        "factorized_tal_s_max": 32.0,
+        "factorized_tal_warmup_start": 5,
+        "factorized_tal_warmup_end": 15,
+        "factorized_tal_p2_only": True,
+    },
+}
 REQUIRED = (
     "weights/best.pt",
     "weights/last.pt",
@@ -84,8 +98,8 @@ def training_complete(run_dir: Path, epochs: int) -> bool:
     )
 
 
-def train(seed: int, args: argparse.Namespace) -> Path:
-    run_dir = args.project / VARIANT / f"seed_{seed}"
+def train(variant: str, seed: int, args: argparse.Namespace) -> Path:
+    run_dir = args.project / variant / f"seed_{seed}"
     if training_complete(run_dir, args.epochs):
         print(f"Reusing completed training: {run_dir}", flush=True)
         return run_dir
@@ -102,17 +116,10 @@ def train(seed: int, args: argparse.Namespace) -> Path:
         deterministic=True,
         amp=True,
         plots=False,
-        project=str(args.project / VARIANT),
+        project=str(args.project / variant),
         name=f"seed_{seed}",
         exist_ok=True,
-        factorized_tal_target=True,
-        factorized_tal_tau=0.75,
-        factorized_tal_kappa=1.5,
-        factorized_tal_lambda=0.5,
-        factorized_tal_s_max=32.0,
-        factorized_tal_warmup_start=5,
-        factorized_tal_warmup_end=15,
-        factorized_tal_p2_only=True,
+        **VARIANTS[variant],
     )
     if not training_complete(run_dir, args.epochs):
         raise RuntimeError(f"Incomplete training artifacts: {run_dir}")
@@ -147,7 +154,7 @@ def evaluate(run_dir: Path, args: argparse.Namespace) -> dict:
     return metrics
 
 
-def write_metadata(run_dir: Path, seed: int, args: argparse.Namespace) -> None:
+def write_metadata(variant: str, run_dir: Path, seed: int, args: argparse.Namespace) -> None:
     local_ultralytics()
     from ultralytics import YOLO
     from ultralytics.utils.torch_utils import get_flops
@@ -156,25 +163,18 @@ def write_metadata(run_dir: Path, seed: int, args: argparse.Namespace) -> None:
     model = YOLO(run_dir / "weights/best.pt")
     head = model.model.model[-1]
     manifest = {
-        "variant": VARIANT,
+        "variant": variant,
         "seed": seed,
         "config": CONFIG.name,
         "data_yaml": str(args.data_yaml),
-        "topology": "P2 -> GAP ChannelAttention -> shared Detect",
+        "topology": "P2/P3 plain RepC2f -> GAP ChannelAttention -> shared Detect",
         "detect_from": head.f,
         "detect_stride": head.stride.tolist(),
         "epochs": args.epochs,
         "imgsz": args.imgsz,
         "batch_size": args.batch_size,
         "nms_iou": 0.5,
-        "factorized_tal_target": True,
-        "factorized_tal_tau": 0.75,
-        "factorized_tal_kappa": 1.5,
-        "factorized_tal_lambda": 0.5,
-        "factorized_tal_s_max": 32.0,
-        "factorized_tal_warmup_start": 5,
-        "factorized_tal_warmup_end": 15,
-        "factorized_tal_p2_only": True,
+        "factorized_tal": VARIANTS[variant],
         "params": sum(parameter.numel() for parameter in model.model.parameters()),
         "model_gflops_thop": get_flops(model.model, imgsz=args.imgsz),
     }
@@ -183,10 +183,11 @@ def write_metadata(run_dir: Path, seed: int, args: argparse.Namespace) -> None:
 
 def write_summaries(args: argparse.Namespace) -> None:
     rows = []
-    for seed in args.seeds:
-        path = args.project / VARIANT / f"seed_{seed}" / "evaluation_metrics.json"
-        if path.is_file():
-            rows.append({"variant": VARIANT, "seed": seed, **json.loads(path.read_text(encoding="utf-8"))})
+    for variant in args.variants:
+        for seed in args.seeds:
+            path = args.project / variant / f"seed_{seed}" / "evaluation_metrics.json"
+            if path.is_file():
+                rows.append({"variant": variant, "seed": seed, **json.loads(path.read_text(encoding="utf-8"))})
     if not rows:
         return
     fields = sorted({key for row in rows for key in row}, key=lambda key: (key not in {"variant", "seed"}, key))
@@ -194,11 +195,17 @@ def write_summaries(args: argparse.Namespace) -> None:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
-    aggregate = {"variant": VARIANT, "runs": len(rows)}
-    for key in sorted(set.intersection(*(set(row) for row in rows)) - {"variant", "seed", "checkpoint"}):
-        values = [float(row[key]) for row in rows]
-        aggregate[f"{key}/mean"] = statistics.fmean(values)
-        aggregate[f"{key}/std"] = statistics.stdev(values) if len(values) > 1 else 0.0
+    aggregate = []
+    for variant in args.variants:
+        group = [row for row in rows if row["variant"] == variant]
+        if not group:
+            continue
+        record = {"variant": variant, "runs": len(group)}
+        for key in sorted(set.intersection(*(set(row) for row in group)) - {"variant", "seed", "checkpoint"}):
+            values = [float(row[key]) for row in group]
+            record[f"{key}/mean"] = statistics.fmean(values)
+            record[f"{key}/std"] = statistics.stdev(values) if len(values) > 1 else 0.0
+        aggregate.append(record)
     (args.project / "summary_aggregate.json").write_text(json.dumps(aggregate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -228,8 +235,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--patience", type=int, default=20)
-    parser.add_argument("--hf-repo-id", default="duyle2408/varroa-yolov8n-p2-gap-factorized-tal-k15")
-    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
+    parser.add_argument("--hf-repo-id", default="duyle2408/varroa-yolov8n-p2p3-gap-factorized-tal")
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42])
+    parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS))
     return parser.parse_args(argv)
 
 
@@ -239,13 +247,14 @@ def main() -> None:
     validate_dataset(args.data_yaml)
     uploader = Uploader(args.hf_repo_id)
     for seed in args.seeds:
-        run_dir = train(seed, args)
-        evaluate(run_dir, args)
-        write_metadata(run_dir, seed, args)
-        write_summaries(args)
-        if not complete(run_dir, args.epochs):
-            raise RuntimeError(f"Required post-evaluation artifacts are incomplete: {run_dir}")
-        uploader.upload_run(VARIANT, seed, run_dir)
+        for variant in args.variants:
+            run_dir = train(variant, seed, args)
+            evaluate(run_dir, args)
+            write_metadata(variant, run_dir, seed, args)
+            write_summaries(args)
+            if not complete(run_dir, args.epochs):
+                raise RuntimeError(f"Required post-evaluation artifacts are incomplete: {run_dir}")
+            uploader.upload_run(variant, seed, run_dir)
     write_summaries(args)
 
 
