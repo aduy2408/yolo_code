@@ -39,6 +39,16 @@ VARIANTS = {
         "factorized_tal_warmup_end": 15,
         "factorized_tal_p2_only": True,
     },
+    "varroa_p2p3_plain_gap_factorized_k15_s128": {
+        "factorized_tal_target": True,
+        "factorized_tal_tau": 0.75,
+        "factorized_tal_kappa": 1.5,
+        "factorized_tal_lambda": 0.5,
+        "factorized_tal_s_max": 128.0,
+        "factorized_tal_warmup_start": 5,
+        "factorized_tal_warmup_end": 15,
+        "factorized_tal_p2_only": True,
+    },
 }
 REQUIRED = (
     "weights/best.pt",
