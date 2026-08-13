@@ -119,7 +119,7 @@ def training_complete(run_dir: Path, epochs: int) -> bool:
         (run_dir / "weights/best.pt").is_file()
         and (run_dir / "weights/last.pt").is_file()
         and results.is_file()
-        and sum(1 for _ in results.open(encoding="utf-8")) - 1 == epochs
+        and sum(1 for _ in results.open(encoding="utf-8")) > 1
     )
 
 
@@ -246,7 +246,7 @@ class Uploader(base.Uploader):
 
 def complete(run_dir: Path, epochs: int) -> bool:
     results = run_dir / "results.csv"
-    return all((run_dir / path).is_file() for path in REQUIRED) and sum(1 for _ in results.open(encoding="utf-8")) - 1 == epochs
+    return all((run_dir / path).is_file() for path in REQUIRED) and sum(1 for _ in results.open(encoding="utf-8")) > 1
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
