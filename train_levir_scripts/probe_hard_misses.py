@@ -299,10 +299,8 @@ def main() -> None:
             if not hasattr(net.args, "box"):
                 setattr(net.args, "box", 7.5)
 
-        # Hook output of layer 19 (for GAP variants) or layer 18 (for plain variants)
-        detect_idx = len(net.model) - 1
-        detect_input_indices = net.model[detect_idx].f
-        p2_layer_idx = detect_input_indices[0] if isinstance(detect_input_indices, list) else 19
+        # Hook correct P2 representation layer dynamically
+        p2_layer_idx = 19 if type(net.model[19]).__name__ == "ChannelAttention" else 18
         target_layer = net.model[p2_layer_idx]
 
         activations = {}
