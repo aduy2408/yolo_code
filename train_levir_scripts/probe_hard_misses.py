@@ -126,9 +126,16 @@ def find_hard_misses(
         
         for g_idx, gt in enumerate(gt_xyxy):
             area = (gt[2] - gt[0]) * (gt[3] - gt[1])
-            # Only consider small objects (< 32px or area < 1024)
-            if math.sqrt(area) >= 32.0:
-                continue
+            # Categorize size groups
+            size_side = math.sqrt(area.item())
+            if area.item() < 100.0:
+                size_group = "tiny"
+            elif area.item() <= 400.0:
+                size_group = "small"
+            elif area.item() <= 1024.0:
+                size_group = "medium"
+            else:
+                size_group = "large"
                 
             # Compute IoU with all predictions
             if len(pred_boxes) == 0:
@@ -166,9 +173,10 @@ def find_hard_misses(
                     "image_path": img_path,
                     "gt_box": gt,
                     "gt_idx": g_idx,
+                    "size_group": size_group,
                     "false_positives": false_positives
                 })
-                if len(hard_misses) >= 20:
+                if len(hard_misses) >= 200:
                     return hard_misses
                     
     return hard_misses
@@ -273,7 +281,7 @@ def main() -> None:
     ]
     
     # Accumulate results across all misses
-    probe_results = {name: {"gt_peak": [], "bg_peak": [], "ap": [], "rescued": 0} for name in probe_names}
+    probe_results = {name: {"gt_peak": [], "bg_peak": [], "ap": [], "size_group": [], "rescued": 0} for name in probe_names}
 
     for idx, miss in enumerate(miss_list, 1):
         img_path = miss["image_path"]
@@ -362,26 +370,43 @@ def main() -> None:
             probe_results[name]["gt_peak"].append(gt_peak)
             probe_results[name]["bg_peak"].append(bg_peak)
             probe_results[name]["ap"].append(ap)
+            probe_results[name]["size_group"].append(miss["size_group"])
             if ap > 0.5: # Criteria for successful rescue
                 probe_results[name]["rescued"] += 1
 
     h_handle.remove()
 
-    # Summarize all results
+    # Summarize all results by size groups
     summary = {}
+    size_groups_list = ["all", "tiny", "small", "medium", "large"]
+    
     for name in probe_names:
-        rescued = probe_results[name]["rescued"]
-        total = len(miss_list)
-        rescue_rate = rescued / total if total else 0.0
-        
-        summary[name] = {
-            "mean_gt_peak": float(np.mean(probe_results[name]["gt_peak"])),
-            "mean_bg_peak": float(np.mean(probe_results[name]["bg_peak"])),
-            "mean_ap": float(np.mean(probe_results[name]["ap"])),
-            "rescue_rate": float(rescue_rate),
-            "rescued_count": rescued,
-            "total_count": total
-        }
+        summary[name] = {}
+        for group in size_groups_list:
+            if group == "all":
+                selected_indices = list(range(len(miss_list)))
+            else:
+                selected_indices = [i for i, sg in enumerate(probe_results[name]["size_group"]) if sg == group]
+                
+            if not selected_indices:
+                continue
+                
+            gt_peaks = [probe_results[name]["gt_peak"][i] for i in selected_indices]
+            bg_peaks = [probe_results[name]["bg_peak"][i] for i in selected_indices]
+            aps = [probe_results[name]["ap"][i] for i in selected_indices]
+            
+            rescued_count = sum(1 for i in selected_indices if probe_results[name]["ap"][i] > 0.5)
+            total_count = len(selected_indices)
+            rescue_rate = rescued_count / total_count if total_count else 0.0
+            
+            summary[name][group] = {
+                "mean_gt_peak": float(np.mean(gt_peaks)),
+                "mean_bg_peak": float(np.mean(bg_peaks)),
+                "mean_ap": float(np.mean(aps)),
+                "rescue_rate": float(rescue_rate),
+                "rescued_count": rescued_count,
+                "total_count": total_count
+            }
 
     print("\n=== Hard Misses Oracle Probes Results ===")
     print(json.dumps(summary, indent=2))
