@@ -48,6 +48,23 @@ def main() -> None:
     device = f"cuda:{args.device}" if str(args.device).isdigit() else args.device
     wrapper = YOLO(args.checkpoint)
     net = wrapper.model.to(device)
+    
+    # Initialize basic model args if missing or if it doesn't support dot notation
+    from types import SimpleNamespace
+    train_args = (getattr(wrapper, "ckpt", None) or {}).get("train_args", {})
+    if not hasattr(net, "args") or isinstance(net.args, dict):
+        # Merge default configs and train_args into a SimpleNamespace
+        from ultralytics.utils import DEFAULT_CFG_DICT
+        cfg_dict = DEFAULT_CFG_DICT.copy()
+        if train_args:
+            cfg_dict.update(train_args)
+        net.args = SimpleNamespace(**cfg_dict)
+    elif not hasattr(net.args, "box"):
+        for k, v in (getattr(wrapper, "ckpt", None) or {}).get("train_args", {}).items():
+            setattr(net.args, k, v)
+        if not hasattr(net.args, "box"):
+            setattr(net.args, "box", 7.5) # Fallback gain
+
     loss_fn = v8DetectionLoss(net)
 
     # Find the GAP module output on layer 19 (P2 ChannelAttention)
