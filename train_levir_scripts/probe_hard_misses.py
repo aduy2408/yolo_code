@@ -342,13 +342,13 @@ def main() -> None:
         # 6. BG Prototype Residual
         # Average feature of background regions
         bg_features = F_p2[:, ~gt_mask]
-        p_bg = bg_features.mean(dim=1, keepdim=True) # (C, 1)
+        p_bg = bg_features.mean(dim=1).view(C, 1, 1) # (C, 1, 1)
         F_bg_res = F_p2 - p_bg
         probes["BG Prototype Residual"] = F_bg_res.permute(1, 2, 0).reshape(-1, C)
         
         # 7. Hard-BG Prototype Residual
         if hard_bg_mask.any():
-            p_hard = F_p2[:, hard_bg_mask].mean(dim=1, keepdim=True)
+            p_hard = F_p2[:, hard_bg_mask].mean(dim=1).view(C, 1, 1)
         else:
             # Fallback to general background if no false positives
             p_hard = p_bg
