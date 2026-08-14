@@ -44,7 +44,6 @@ def analyze_checkpoint(
 ) -> dict[str, float]:
     wrapper = YOLO(checkpoint_path)
     net = wrapper.model.to(device)
-    loss_fn = v8DetectionLoss(net)
     
     # Mock net.args if SimpleNamespace details are missing
     from types import SimpleNamespace
@@ -60,6 +59,9 @@ def analyze_checkpoint(
             setattr(net.args, k, v)
         if not hasattr(net.args, "box"):
             setattr(net.args, "box", 7.5)
+
+    loss_fn = v8DetectionLoss(net)
+
 
     # Determine P2 feature map layer (often 18 or 19 depending on config/neck structure)
     # Let's inspect model modules and grab layer 19 or 18
