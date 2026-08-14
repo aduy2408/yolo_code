@@ -100,6 +100,7 @@ from .block import (
     set_boundary_enabled,
 )
 from .local_detail import LocalDetailRepC2f
+from .pconv import C2f_PConv
 from .conv import (
     CBAM,
     ChannelAttention,
@@ -251,6 +252,7 @@ __all__ = (
     "LayerNorm2d",
     "LightConv",
     "LocalDetailRepC2f",
+    "C2f_PConv",
     "P1FusionLocalDetail",
     "P1GER",
     "P1PlainFusion",
