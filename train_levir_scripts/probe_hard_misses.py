@@ -407,37 +407,37 @@ def main() -> None:
     
         h_handle.remove()
 
-    # Summarize all results by size groups
-    summary = {}
-    size_groups_list = ["all", "tiny", "small", "medium", "large"]
-    
-    for name in probe_names:
-        summary[name] = {}
-        for group in size_groups_list:
-            if group == "all":
-                selected_indices = list(range(len(miss_list)))
-            else:
-                selected_indices = [i for i, sg in enumerate(probe_results[name]["size_group"]) if sg == group]
+        # Summarize all results by size groups
+        summary = {}
+        size_groups_list = ["all", "tiny", "small", "medium", "large"]
+        
+        for name in probe_names:
+            summary[name] = {}
+            for group in size_groups_list:
+                if group == "all":
+                    selected_indices = list(range(len(miss_list)))
+                else:
+                    selected_indices = [i for i, sg in enumerate(probe_results[name]["size_group"]) if sg == group]
+                    
+                if not selected_indices:
+                    continue
+                    
+                gt_peaks = [probe_results[name]["gt_peak"][i] for i in selected_indices]
+                bg_peaks = [probe_results[name]["bg_peak"][i] for i in selected_indices]
+                aps = [probe_results[name]["ap"][i] for i in selected_indices]
                 
-            if not selected_indices:
-                continue
+                rescued_count = sum(1 for i in selected_indices if probe_results[name]["ap"][i] > 0.5)
+                total_count = len(selected_indices)
+                rescue_rate = rescued_count / total_count if total_count else 0.0
                 
-            gt_peaks = [probe_results[name]["gt_peak"][i] for i in selected_indices]
-            bg_peaks = [probe_results[name]["bg_peak"][i] for i in selected_indices]
-            aps = [probe_results[name]["ap"][i] for i in selected_indices]
-            
-            rescued_count = sum(1 for i in selected_indices if probe_results[name]["ap"][i] > 0.5)
-            total_count = len(selected_indices)
-            rescue_rate = rescued_count / total_count if total_count else 0.0
-            
-            summary[name][group] = {
-                "mean_gt_peak": float(np.mean(gt_peaks)),
-                "mean_bg_peak": float(np.mean(bg_peaks)),
-                "mean_ap": float(np.mean(aps)),
-                "rescue_rate": float(rescue_rate),
-                "rescued_count": rescued_count,
-                "total_count": total_count
-            }
+                summary[name][group] = {
+                    "mean_gt_peak": float(np.mean(gt_peaks)),
+                    "mean_bg_peak": float(np.mean(bg_peaks)),
+                    "mean_ap": float(np.mean(aps)),
+                    "rescue_rate": float(rescue_rate),
+                    "rescued_count": rescued_count,
+                    "total_count": total_count
+                }
         all_variant_summaries[var_name] = summary
 
     print("\n=== Hard Misses Oracle Probes Results (4-Way Comparison) ===")
