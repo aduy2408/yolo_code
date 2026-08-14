@@ -241,7 +241,7 @@ def evaluate_probe(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset-root", type=Path, default=ROOT / "datasets")
-    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--imgsz", type=int, default=512)
     parser.add_argument("--device", default="0")
     args = parser.parse_args()
