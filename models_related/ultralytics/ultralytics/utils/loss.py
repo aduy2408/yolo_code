@@ -964,6 +964,8 @@ class v8DetectionLoss:
         self.factorized_tal_warmup_start = int(getattr(h, "factorized_tal_warmup_start", 5))
         self.factorized_tal_warmup_end = int(getattr(h, "factorized_tal_warmup_end", 15))
         self.factorized_tal_p2_only = bool(getattr(h, "factorized_tal_p2_only", True))
+        self.factorized_tal_mode = str(getattr(h, "factorized_tal_mode", "current")).lower()
+        self.factorized_tal_metrics = {}
         if self.factorized_tal_target:
             if (
                 self.vfl is not None
@@ -976,6 +978,8 @@ class v8DetectionLoss:
                 raise ValueError("factorized_tal_tau must be in (0, 1]")
             if self.factorized_tal_kappa <= 0 or not 0 <= self.factorized_tal_lambda <= 1 or self.factorized_tal_s_max <= 0:
                 raise ValueError("factorized TAL kappa/s_max must be positive and lambda must be in [0, 1]")
+            if self.factorized_tal_mode not in {"current", "mass_preserve", "geometry", "agreement_gate"}:
+                raise ValueError(f"unknown factorized_tal_mode: {self.factorized_tal_mode}")
         self.loc_assign = bool(getattr(h, "loc_assign", False))
         self.loc_assign_topk = int(getattr(h, "loc_assign_topk", 3))
         self.loc_assign_max_stride = float(getattr(h, "loc_assign_max_stride", 8.0))
@@ -1090,8 +1094,64 @@ class v8DetectionLoss:
             tempered[b, mask_b] = torch.where(positive, q + lam * (q.clamp_min(1e-12).pow(tau[:, None]) - q), q)
         return tempered
 
+    def factorize_tal_targets(
+        self, q: torch.Tensor, u: torch.Tensor, lam: float
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        """Return per-GT factorized classification targets and small scalar diagnostics."""
+        eps = 1e-12
+        mode = self.factorized_tal_mode
+        if mode not in {"current", "mass_preserve", "geometry", "agreement_gate"}:
+            raise ValueError(f"unknown factorized_tal_mode: {mode}")
+        q_score = q.sum(-1)
+        q_max = q_score.max().clamp_min(eps)
+        u_max = u.max().clamp_min(eps)
+        metrics = {
+            "tal_iou_top1_agreement": float((q_score.argmax() == u.argmax()).item()),
+        }
+
+        if mode == "agreement_gate" and q_score.argmax() != u.argmax():
+            metrics.update(n_ftal_gt=0.0, n_bypassed_gt=1.0, gate_on_fraction=0.0, gate_on_fraction_small=0.0)
+            return q, metrics
+
+        if mode == "geometry":
+            r = (u / u_max).clamp(0, 1)
+        else:
+            r = (q_score / q_max).clamp(0, 1)
+        q_new_score = u_max.pow(self.factorized_tal_tau) * r.pow(self.factorized_tal_kappa)
+
+        if mode == "mass_preserve":
+            old_mass = q_score.sum()
+            new_mass = q_new_score.sum()
+            scale = old_mass / new_mass.clamp_min(eps)
+            q_new_score = (q_new_score * scale).clamp(0, 1)
+            metrics.update(
+                mp_scale_mean=float(scale.detach().item()),
+                mp_saturation_frac=float((q_new_score >= 1).to(torch.float32).mean().detach().item()),
+                mass_ratio_before=1.0,
+                mass_ratio_after=float((q_new_score.sum() / old_mass.clamp_min(eps)).detach().item()),
+            )
+
+        geo_prob = q_new_score / q_new_score.sum().clamp_min(eps)
+        metrics.update(
+            geo_target_neff=float((1.0 / geo_prob.square().sum().clamp_min(eps)).detach().item()),
+            geo_target_entropy=float(-(geo_prob * geo_prob.clamp_min(eps).log()).sum().detach().item()),
+        )
+        if mode == "agreement_gate":
+            metrics.update(n_ftal_gt=1.0, n_bypassed_gt=0.0, gate_on_fraction=1.0, gate_on_fraction_small=1.0)
+
+        scale = (q_new_score / q_score.clamp_min(eps)).unsqueeze(-1)
+        q_new = torch.where(q > 0, q * scale, q)
+        return q + lam * (q_new - q), metrics
+
     def factorized_tal_cls_targets(
-        self, target_scores: torch.Tensor, gt_bboxes: torch.Tensor, target_gt_idx: torch.Tensor, fg_mask: torch.Tensor, n_p2: int
+        self,
+        target_scores: torch.Tensor,
+        gt_bboxes: torch.Tensor,
+        target_gt_idx: torch.Tensor,
+        fg_mask: torch.Tensor,
+        n_p2: int,
+        pred_bboxes: torch.Tensor,
+        stride_tensor: torch.Tensor,
     ) -> torch.Tensor:
         """Boost each GT's TAL ceiling while sharpening its within-GT positive ranking."""
         lam = self.factorized_tal_lambda
@@ -1105,6 +1165,8 @@ class v8DetectionLoss:
         if lam <= 0 or not fg_mask.any():
             return target_scores
 
+        metric_sums = {}
+        metric_count = 0
         out = target_scores.clone()
         pos_mask = fg_mask.clone()
         if self.factorized_tal_p2_only:
@@ -1119,9 +1181,17 @@ class v8DetectionLoss:
                 if size >= self.factorized_tal_s_max:
                     continue
                 q = target_scores[b, group]
-                u_max = q.max().clamp_min(1e-12)
-                q_new = u_max.pow(self.factorized_tal_tau) * (q / u_max).clamp(0, 1).pow(self.factorized_tal_kappa)
-                out[b, group] = torch.where(q > 0, q + lam * (q_new - q), q)
+                gt_box = (box / stride_tensor[group]).detach()
+                u = bbox_iou(pred_bboxes[b, group].detach(), gt_box, xywh=False, CIoU=False).squeeze(-1).clamp(0)
+                q_new, metrics = self.factorize_tal_targets(q, u, lam)
+                out[b, group] = torch.where(q > 0, q_new, q)
+                metric_count += 1
+                for key, value in metrics.items():
+                    metric_sums[key] = metric_sums.get(key, 0.0) + value
+        self.factorized_tal_metrics = {
+            key: value / max(metric_count, 1) for key, value in metric_sums.items()
+        }
+        self.factorized_tal_metrics["n_small_gt"] = float(metric_count)
         return out
 
     def bbox_decode(
@@ -1790,7 +1860,9 @@ class v8DetectionLoss:
         if self.scale_temper_target:
             cls_target_scores = self.scale_tempered_cls_targets(target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2)
         elif self.factorized_tal_target:
-            cls_target_scores = self.factorized_tal_cls_targets(target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2)
+            cls_target_scores = self.factorized_tal_cls_targets(
+                target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2, pred_bboxes, stride_tensor
+            )
         assigned_iou = None
         # Use the same coordinate scale as bbox loss. If target_bboxes has already been divided by stride_tensor,
         # do not divide again.
