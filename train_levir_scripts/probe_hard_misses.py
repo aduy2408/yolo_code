@@ -315,97 +315,97 @@ def main() -> None:
         probe_results = {name: {"gt_peak": [], "bg_peak": [], "ap": [], "size_group": [], "rescued": 0} for name in probe_names}
 
         for idx, miss in enumerate(miss_list, 1):
-        img_path = miss["image_path"]
-        gt = miss["gt_box"]
-        fps = miss["false_positives"]
-        
-        # Forward pass to get activations
-        original = cv2.imread(str(img_path))
-        h_orig, w_orig = original.shape[:2]
-        image = letterbox(image=original)
-        tensor = torch.from_numpy(image[..., ::-1].copy()).to(device).permute(2, 0, 1).float()[None] / 255
-        
-        with torch.no_grad():
-            net(tensor)
+            img_path = miss["image_path"]
+            gt = miss["gt_box"]
+            fps = miss["false_positives"]
             
-        F_p2 = activations["p2"] # (C, H_p2, W_p2)
-        C, H_p2, W_p2 = F_p2.shape
-        
-        # Create mask for current GT box on P2 scale
-        # Scale GT coords to P2 grid size
-        scale_x = W_p2 / w_orig
-        scale_y = H_p2 / h_orig
-        x1_p2, y1_p2 = int(gt[0].item() * scale_x), int(gt[1].item() * scale_y)
-        x2_p2, y2_p2 = int(gt[2].item() * scale_x), int(gt[3].item() * scale_y)
-        
-        # Ensure it occupies at least 1 cell
-        x2_p2 = max(x2_p2, x1_p2 + 1)
-        y2_p2 = max(y2_p2, y1_p2 + 1)
-        
-        gt_mask = torch.zeros((H_p2, W_p2), dtype=torch.bool, device=device)
-        gt_mask[y1_p2:y2_p2, x1_p2:x2_p2] = True
-        
-        # Create hard-background mask if false positives exist
-        hard_bg_mask = torch.zeros((H_p2, W_p2), dtype=torch.bool, device=device)
-        for fp in fps:
-            xf1, yf1 = int(fp[0].item() * scale_x), int(fp[1].item() * scale_y)
-            xf2, yf2 = int(fp[2].item() * scale_x), int(fp[3].item() * scale_y)
-            hard_bg_mask[yf1:max(yf2, yf1+1), xf1:max(xf2, xf1+1)] = True
+            # Forward pass to get activations
+            original = cv2.imread(str(img_path))
+            h_orig, w_orig = original.shape[:2]
+            image = letterbox(image=original)
+            tensor = torch.from_numpy(image[..., ::-1].copy()).to(device).permute(2, 0, 1).float()[None] / 255
             
-        # Target labels
-        y = gt_mask.view(-1).long() # 1 inside GT, 0 background
-        
-        # Define representation inputs for each probe
-        probes = {}
-        
-        # 1. Raw F
-        probes["Raw F"] = F_p2.permute(1, 2, 0).reshape(-1, C)
-        
-        # 2. F Normalized
-        F_norm = F_p2 / (F_p2.norm(dim=0, keepdim=True) + 1e-8)
-        probes["F Normalized"] = F_norm.permute(1, 2, 0).reshape(-1, C)
-        
-        # 3. Center-Ring Contrast
-        F_ring = extract_ring_mean(F_p2)
-        F_contrast = F_p2 - F_ring
-        probes["Center-Ring Contrast"] = torch.cat([F_p2, F_contrast], dim=0).permute(1, 2, 0).reshape(-1, 2*C)
-        
-        # 4. Local Rarity
-        F_rarity = extract_local_rarity(F_p2)
-        probes["Local Rarity"] = torch.cat([F_p2, F_rarity], dim=0).permute(1, 2, 0).reshape(-1, C+1)
-        
-        # 5. Local Coherence
-        F_coherence = extract_local_coherence(F_p2)
-        probes["Local Coherence"] = torch.cat([F_p2, F_coherence], dim=0).permute(1, 2, 0).reshape(-1, C+1)
-        
-        # 6. BG Prototype Residual
-        # Average feature of background regions
-        bg_features = F_p2[:, ~gt_mask]
-        p_bg = bg_features.mean(dim=1).view(C, 1, 1) # (C, 1, 1)
-        F_bg_res = F_p2 - p_bg
-        probes["BG Prototype Residual"] = F_bg_res.permute(1, 2, 0).reshape(-1, C)
-        
-        # 7. Hard-BG Prototype Residual
-        if hard_bg_mask.any():
-            p_hard = F_p2[:, hard_bg_mask].mean(dim=1).view(C, 1, 1)
-        else:
-            # Fallback to general background if no false positives
-            p_hard = p_bg
-        F_hard_res = F_p2 - p_hard
-        probes["Hard-BG Prototype Residual"] = F_hard_res.permute(1, 2, 0).reshape(-1, C)
-
-        # Train and evaluate each probe
-        for name, x in probes.items():
-            gt_peak, bg_peak, ap = evaluate_probe(x, y)
+            with torch.no_grad():
+                net(tensor)
+                
+            F_p2 = activations["p2"] # (C, H_p2, W_p2)
+            C, H_p2, W_p2 = F_p2.shape
             
-            probe_results[name]["gt_peak"].append(gt_peak)
-            probe_results[name]["bg_peak"].append(bg_peak)
-            probe_results[name]["ap"].append(ap)
-            probe_results[name]["size_group"].append(miss["size_group"])
-            if ap > 0.5: # Criteria for successful rescue
-                probe_results[name]["rescued"] += 1
-
-    h_handle.remove()
+            # Create mask for current GT box on P2 scale
+            # Scale GT coords to P2 grid size
+            scale_x = W_p2 / w_orig
+            scale_y = H_p2 / h_orig
+            x1_p2, y1_p2 = int(gt[0].item() * scale_x), int(gt[1].item() * scale_y)
+            x2_p2, y2_p2 = int(gt[2].item() * scale_x), int(gt[3].item() * scale_y)
+            
+            # Ensure it occupies at least 1 cell
+            x2_p2 = max(x2_p2, x1_p2 + 1)
+            y2_p2 = max(y2_p2, y1_p2 + 1)
+            
+            gt_mask = torch.zeros((H_p2, W_p2), dtype=torch.bool, device=device)
+            gt_mask[y1_p2:y2_p2, x1_p2:x2_p2] = True
+            
+            # Create hard-background mask if false positives exist
+            hard_bg_mask = torch.zeros((H_p2, W_p2), dtype=torch.bool, device=device)
+            for fp in fps:
+                xf1, yf1 = int(fp[0].item() * scale_x), int(fp[1].item() * scale_y)
+                xf2, yf2 = int(fp[2].item() * scale_x), int(fp[3].item() * scale_y)
+                hard_bg_mask[yf1:max(yf2, yf1+1), xf1:max(xf2, xf1+1)] = True
+                
+            # Target labels
+            y = gt_mask.view(-1).long() # 1 inside GT, 0 background
+            
+            # Define representation inputs for each probe
+            probes = {}
+            
+            # 1. Raw F
+            probes["Raw F"] = F_p2.permute(1, 2, 0).reshape(-1, C)
+            
+            # 2. F Normalized
+            F_norm = F_p2 / (F_p2.norm(dim=0, keepdim=True) + 1e-8)
+            probes["F Normalized"] = F_norm.permute(1, 2, 0).reshape(-1, C)
+            
+            # 3. Center-Ring Contrast
+            F_ring = extract_ring_mean(F_p2)
+            F_contrast = F_p2 - F_ring
+            probes["Center-Ring Contrast"] = torch.cat([F_p2, F_contrast], dim=0).permute(1, 2, 0).reshape(-1, 2*C)
+            
+            # 4. Local Rarity
+            F_rarity = extract_local_rarity(F_p2)
+            probes["Local Rarity"] = torch.cat([F_p2, F_rarity], dim=0).permute(1, 2, 0).reshape(-1, C+1)
+            
+            # 5. Local Coherence
+            F_coherence = extract_local_coherence(F_p2)
+            probes["Local Coherence"] = torch.cat([F_p2, F_coherence], dim=0).permute(1, 2, 0).reshape(-1, C+1)
+            
+            # 6. BG Prototype Residual
+            # Average feature of background regions
+            bg_features = F_p2[:, ~gt_mask]
+            p_bg = bg_features.mean(dim=1).view(C, 1, 1) # (C, 1, 1)
+            F_bg_res = F_p2 - p_bg
+            probes["BG Prototype Residual"] = F_bg_res.permute(1, 2, 0).reshape(-1, C)
+            
+            # 7. Hard-BG Prototype Residual
+            if hard_bg_mask.any():
+                p_hard = F_p2[:, hard_bg_mask].mean(dim=1).view(C, 1, 1)
+            else:
+                # Fallback to general background if no false positives
+                p_hard = p_bg
+            F_hard_res = F_p2 - p_hard
+            probes["Hard-BG Prototype Residual"] = F_hard_res.permute(1, 2, 0).reshape(-1, C)
+    
+            # Train and evaluate each probe
+            for name, x in probes.items():
+                gt_peak, bg_peak, ap = evaluate_probe(x, y)
+                
+                probe_results[name]["gt_peak"].append(gt_peak)
+                probe_results[name]["bg_peak"].append(bg_peak)
+                probe_results[name]["ap"].append(ap)
+                probe_results[name]["size_group"].append(miss["size_group"])
+                if ap > 0.5: # Criteria for successful rescue
+                    probe_results[name]["rescued"] += 1
+    
+        h_handle.remove()
 
     # Summarize all results by size groups
     summary = {}
