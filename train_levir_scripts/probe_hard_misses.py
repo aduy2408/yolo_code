@@ -21,7 +21,8 @@ sys.path.insert(0, str(ROOT / "models_related/ultralytics"))
 
 from ultralytics import YOLO  # noqa: E402
 from ultralytics.data.augment import LetterBox  # noqa: E402
-from ultralytics.utils.ops import scale_boxes, xywh2xyxy, non_max_suppression  # noqa: E402
+from ultralytics.utils.ops import scale_boxes, xywh2xyxy  # noqa: E402
+from ultralytics.utils.nms import non_max_suppression  # noqa: E402
 
 
 def labels_for(image: Path) -> Path:
