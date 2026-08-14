@@ -34,6 +34,23 @@ def test_channel_attention_default_is_legacy_gap_with_unchanged_state_keys():
     assert set(module.state_dict()) == {"fc.weight", "fc.bias"}
 
 
+def test_channel_attention_detach_descriptor_preserves_eval_forward_and_changes_train_backward():
+    normal = ChannelAttention(8)
+    detached = ChannelAttention(8, detach_descriptor=True)
+    detached.load_state_dict(normal.state_dict())
+    x = torch.randn(2, 8, 9, 11, requires_grad=True)
+
+    normal.eval()
+    detached.eval()
+    torch.testing.assert_close(detached(x), normal(x))
+
+    normal.train()
+    detached.train()
+    normal_grad = torch.autograd.grad(normal(x).sum(), x, retain_graph=True)[0]
+    detached_grad = torch.autograd.grad(detached(x).sum(), x)[0]
+    assert not torch.allclose(detached_grad, normal_grad)
+
+
 @pytest.mark.parametrize("descriptor", ["avg", "max", "avg_max"])
 def test_channel_attention_descriptor_gate_is_spatially_uniform(descriptor):
     module = ChannelAttention(8, descriptor)

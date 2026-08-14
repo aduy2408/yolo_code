@@ -4,17 +4,16 @@ description: Hướng dẫn phát triển code tại local và chạy huấn luy
 # Local to Marimo Training Workflow
 
 Sử dụng checklist này khi bạn muốn phát triển/cải tiến mô hình ở local và đẩy lên chạy huấn luyện trên server Marimo.
-
+Hãy chú ý răng khi được nhắc để dùng workflow này, nếu người dùng chưa đưa auth token marimo thì hãy làm việc và test đầy đầy đủ rồi hỏi lại auth marimo sau.
 ## 1. Đồng bộ mã nguồn lên GitHub (Local)
 
 Kích hoạt môi trường và kiểm tra tính đúng đắn trước khi commit:
 ```bash
 conda activate ml2
 python -m py_compile train_levir_scripts/train_all_levir.py
-git diff --check
 ```
 
-Commit và đẩy code lên nhánh chính (`main`):
+Commit và đẩy code lên nhánh chính (`main`)(không cần thiết phải selective, bạn có thể commit all, nếu trên server marimo cần pull đang bị dirty bạn có thể xóa luôn yolo_code và clone về repo mớimới):
 ```bash
 git add .
 git commit -m "feat(levir): description of changes"

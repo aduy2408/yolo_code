@@ -24,6 +24,8 @@ from ultralytics.nn.modules import (
     AmplitudePerturbation,
     LearnableGlobalScalar,
     MatchedChannelPerturbation,
+    ResidualDWConv,
+    ResidualDWConv5,
     P2FeatureProbe,
     ELAN1,
     OBB,
@@ -2354,7 +2356,7 @@ def parse_model(d, ch, verbose=True):
         elif m is P1GER:
             c2 = ch[f[0]]
             args = [[ch[x] for x in f], *args]
-        elif m in frozenset({CBAM, ChannelAttention, SpatialAttention, ChannelKVCompressedAttention, P2AmplitudeCalibrator, LearnableGlobalScalar, MatchedChannelPerturbation, P2FeatureProbe}):
+        elif m in frozenset({CBAM, ChannelAttention, SpatialAttention, ChannelKVCompressedAttention, P2AmplitudeCalibrator, LearnableGlobalScalar, MatchedChannelPerturbation, ResidualDWConv, ResidualDWConv5, P2FeatureProbe}):
             c2 = ch[f]
             if m is not SpatialAttention:
                 args = [c2, *args]

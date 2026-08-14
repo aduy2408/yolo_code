@@ -28,6 +28,8 @@ __all__ = (
     "AmplitudePerturbation",
     "LearnableGlobalScalar",
     "MatchedChannelPerturbation",
+    "ResidualDWConv",
+    "ResidualDWConv5",
     "P2FeatureProbe",
 )
 
@@ -528,17 +530,19 @@ class ChannelAttention(nn.Module):
         https://github.com/open-mmlab/mmdetection/tree/v3.0.0rc1/configs/rtmdet
     """
 
-    def __init__(self, channels: int, descriptor: str = "avg") -> None:
+    def __init__(self, channels: int, descriptor: str = "avg", detach_descriptor: bool = False) -> None:
         """Initialize Channel-attention module.
 
         Args:
             channels (int): Number of input channels.
             descriptor (str): Global descriptor: ``avg``, ``max``, or ``avg_max``.
+            detach_descriptor (bool): Detach descriptor input while preserving ``x * gate`` forward values.
         """
         super().__init__()
         if descriptor not in {"avg", "max", "avg_max"}:
             raise ValueError(f"Unsupported channel descriptor: {descriptor!r}")
         self.descriptor = descriptor
+        self.detach_descriptor = detach_descriptor
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Conv2d(channels, channels, 1, 1, 0, bias=True)
         self.max_pool = nn.AdaptiveMaxPool2d(1) if descriptor != "avg" else None
@@ -554,12 +558,13 @@ class ChannelAttention(nn.Module):
         Returns:
             (torch.Tensor): Channel-attended output tensor.
         """
-        average = self.fc(self.pool(x))
+        descriptor_x = x.detach() if getattr(self, "detach_descriptor", False) and self.training else x
+        average = self.fc(self.pool(descriptor_x))
         descriptor = getattr(self, "descriptor", "avg")
         if descriptor == "avg":
             gate = average
         else:
-            maximum = self.fc(self.max_pool(x)) if descriptor == "max" else self.max_fc(self.max_pool(x))
+            maximum = self.fc(self.max_pool(descriptor_x)) if descriptor == "max" else self.max_fc(self.max_pool(descriptor_x))
             gate = maximum if descriptor == "max" else average + maximum
         act_gate = self.act(gate)
         if getattr(self, "override_gate_fn", None) is not None:
@@ -704,6 +709,36 @@ class MatchedChannelPerturbation(nn.Module):
             "gate_min": float(g.min()),
             "gate_max": float(g.max()),
         }
+
+
+class ResidualDWConv(nn.Module):
+    """Residual depthwise local mixer with optional partial-channel path."""
+
+    def __init__(self, channels=None, k=5, alpha=0.1, partial_ratio=1.0) -> None:
+        super().__init__()
+        if not 0 < partial_ratio <= 1:
+            raise ValueError(f"partial_ratio must be in (0, 1], got {partial_ratio}")
+        active_channels = max(1, int(round(channels * partial_ratio)))
+        self.channels = channels
+        self.active_channels = active_channels
+        self.k = int(k)
+        self.partial_ratio = float(partial_ratio)
+        self.dw = nn.Conv2d(active_channels, active_channels, self.k, padding=self.k // 2, groups=active_channels, bias=False)
+        self.bn = nn.BatchNorm2d(active_channels)
+        self.act = nn.SiLU()
+        self.alpha = nn.Parameter(torch.tensor(float(alpha)))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x_active, x_skip = x.split((self.active_channels, self.channels - self.active_channels), dim=1)
+        y_active = x_active + self.alpha.to(dtype=x.dtype) * self.act(self.bn(self.dw(x_active)))
+        return y_active if x_skip.shape[1] == 0 else torch.cat((y_active, x_skip), dim=1)
+
+
+class ResidualDWConv5(ResidualDWConv):
+    """Backward-compatible depthwise 5x5 residual mixer."""
+
+    def __init__(self, channels=None, alpha=0.1) -> None:
+        super().__init__(channels, k=5, alpha=alpha, partial_ratio=1.0)
 
 
 class P2FeatureProbe(nn.Module):

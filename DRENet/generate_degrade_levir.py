@@ -1,7 +1,7 @@
 """Generate degraded images for LEVIR-Ship split (DRENet requirement).
 
-DegradeGenerate.py is pixel-loop Python — too slow for 3896 images.
-This script vectorises with numpy and runs multi-process.
+This keeps the same degradation rule as DegradeGenerate.py, but replaces the
+per-pixel Python mean with OpenCV box filters and multiprocessing.
 """
 import warnings; warnings.filterwarnings('ignore')
 import os, numpy as np, cv2
@@ -33,30 +33,30 @@ def degrade_one(args):
         # No ships → simple blur
         dst = cv2.blur(img, (20, 20))
     else:
-        # Object-aware blur  (vectorised, same formula as DegradeGenerate.py)
+        # Object-aware blur with the same min-distance cap and crop-window mean
+        # behavior as DegradeGenerate.py.
         centers_xy = label[:, 1:3] * SIZE  # cx, cy in pixels
         ys, xs = np.mgrid[0:SIZE, 0:SIZE]  # (H,W)
-        # dist to nearest ship center for each pixel
-        # shape: (n_centers, H, W)
-        dy = ys[None] - centers_xy[:, 1:2, None]  # broadcast
-        dx = xs[None] - centers_xy[:, 0:1, None]
-        dist2 = dy**2 + dx**2
-        min_dist = np.sqrt(dist2.min(axis=0))  # (H,W)
-        # box sizes per pixel (same formula as original)
+        min_dist2 = np.full((SIZE, SIZE), 130 * 130, dtype=np.float32)
+        for cx, cy in centers_xy:
+            dist2 = (ys - cy) ** 2 + (xs - cx) ** 2
+            np.minimum(min_dist2, dist2, out=min_dist2)
+        min_dist = np.sqrt(min_dist2)  # (H,W)
         box = (1.03 ** min_dist).astype(int) // 2  # (H,W)
-        box = np.clip(box, 0, 30)  # cap to reasonable kernel
-        # For each unique box size, apply a blur and pick pixels
-        # This is an approximation of per-pixel variable blur
-        # via a set of fixed kernels (much faster, very close to original)
         dst = img.copy().astype(np.float32)
+        integral = cv2.integral(img.astype(np.float32), sdepth=cv2.CV_64F)
         unique_sizes = np.unique(box)
         for b in unique_sizes:
             if b == 0:
                 continue
-            k = 2 * b + 1
-            blurred = cv2.blur(img, (k, k)).astype(np.float32)
             mask = (box == b)
-            dst[mask] = blurred[mask]
+            y0 = np.maximum(ys - b, 0)
+            y1 = np.minimum(ys + b + 1, SIZE)
+            x0 = np.maximum(xs - b, 0)
+            x1 = np.minimum(xs + b + 1, SIZE)
+            area = ((y1 - y0) * (x1 - x0))[..., None]
+            sums = integral[y1, x1] - integral[y0, x1] - integral[y1, x0] + integral[y0, x0]
+            dst[mask] = (sums / area)[mask]
         dst = dst.astype(np.uint8)
 
     cv2.imwrite(str(dst_path), dst)

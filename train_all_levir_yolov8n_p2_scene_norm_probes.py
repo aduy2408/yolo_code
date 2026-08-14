@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import train_all_levir_yolov8n_p2_feature_probes as workflow
+import train_levir_scripts.train_all_levir_yolov8n_p2_feature_probes as workflow
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_ROOT = ROOT / "models_related/models_config/yolov8/levir"
