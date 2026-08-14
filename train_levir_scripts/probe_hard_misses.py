@@ -247,29 +247,26 @@ def main() -> None:
     args = parser.parse_args()
 
     device = f"cuda:{args.device}" if str(args.device).isdigit() else args.device
-    wrapper = YOLO(args.checkpoint)
-    net = wrapper.model.to(device).eval()
 
-    # Locate layer 19 (P2 ChannelAttention output)
-    target_layer = net.model[19]
-    activations = {}
-    
-    def forward_hook(module, input, output):
-        activations["p2"] = output.squeeze(0)
+    # Define the 4 target variants we want to run probes on
+    checkpoints = {
+        "Plain": Path("/marimo/yolo_code/runs/checkpoints_4way/train/yolov8n_p2_baseline_seed42/weights/best.pt"),
+        "Plain + FTAL": Path("/marimo/yolo_code/runs/checkpoints_4way/runs/plain_p2_factorized_k15/seed_42/weights/best.pt"),
+        "GAP": Path("/marimo/yolo_code/runs/checkpoints_4way/runs/gap/seed_42/weights/best.pt"),
+        "GAP + FTAL": Path("/marimo/yolo_code/runs/checkpoints_4way/runs/gap_factorized_k15/seed_42/weights/best.pt"),
+    }
 
-    h_handle = target_layer.register_forward_hook(forward_hook)
-
-    # Scan test split for hard misses
     images_dir = args.dataset_root / "levir_ship_yolo_seed42/images/test"
     images = sorted(path for path in images_dir.iterdir() if path.suffix.lower() in {".png", ".jpg", ".jpeg"})
     
-    print("Scanning test set for hard misses...")
-    miss_list = find_hard_misses(wrapper, images, device, args.imgsz)
+    # Find misses using the GAP + FTAL model as the reference detector
+    wrapper_ref = YOLO(checkpoints["GAP + FTAL"])
+    print("Scanning test set for hard misses using GAP + FTAL model...")
+    miss_list = find_hard_misses(wrapper_ref, images, device, args.imgsz)
     print(f"Found {len(miss_list)} hard missed objects.")
 
     if not miss_list:
         print("No hard missed objects found!")
-        h_handle.remove()
         return
 
     letterbox = LetterBox(new_shape=(args.imgsz, args.imgsz), auto=False, stride=32)
@@ -280,10 +277,44 @@ def main() -> None:
         "BG Prototype Residual", "Hard-BG Prototype Residual"
     ]
     
-    # Accumulate results across all misses
-    probe_results = {name: {"gt_peak": [], "bg_peak": [], "ap": [], "size_group": [], "rescued": 0} for name in probe_names}
+    all_variant_summaries = {}
 
-    for idx, miss in enumerate(miss_list, 1):
+    for var_name, ckpt_path in checkpoints.items():
+        print(f"\nAnalyzing model variant: {var_name}...")
+        wrapper = YOLO(ckpt_path)
+        net = wrapper.model.to(device).eval()
+
+        # Simple mock net args
+        from types import SimpleNamespace
+        train_args = (getattr(wrapper, "ckpt", None) or {}).get("train_args", {})
+        if not hasattr(net, "args") or isinstance(net.args, dict):
+            from ultralytics.utils import DEFAULT_CFG_DICT
+            cfg_dict = DEFAULT_CFG_DICT.copy()
+            if train_args:
+                cfg_dict.update(train_args)
+            net.args = SimpleNamespace(**cfg_dict)
+        elif not hasattr(net.args, "box"):
+            for k, v in train_args.items():
+                setattr(net.args, k, v)
+            if not hasattr(net.args, "box"):
+                setattr(net.args, "box", 7.5)
+
+        # Hook output of layer 19 (for GAP variants) or layer 18 (for plain variants)
+        detect_idx = len(net.model) - 1
+        detect_input_indices = net.model[detect_idx].f
+        p2_layer_idx = detect_input_indices[0] if isinstance(detect_input_indices, list) else 19
+        target_layer = net.model[p2_layer_idx]
+
+        activations = {}
+        def forward_hook(module, input, output):
+            activations["p2"] = output.squeeze(0)
+
+        h_handle = target_layer.register_forward_hook(forward_hook)
+
+        # Accumulate results across all misses
+        probe_results = {name: {"gt_peak": [], "bg_peak": [], "ap": [], "size_group": [], "rescued": 0} for name in probe_names}
+
+        for idx, miss in enumerate(miss_list, 1):
         img_path = miss["image_path"]
         gt = miss["gt_box"]
         fps = miss["false_positives"]
@@ -407,14 +438,15 @@ def main() -> None:
                 "rescued_count": rescued_count,
                 "total_count": total_count
             }
+        all_variant_summaries[var_name] = summary
 
-    print("\n=== Hard Misses Oracle Probes Results ===")
-    print(json.dumps(summary, indent=2))
+    print("\n=== Hard Misses Oracle Probes Results (4-Way Comparison) ===")
+    print(json.dumps(all_variant_summaries, indent=2))
 
     output_dir = ROOT / "runs/gradient_diagnostics"
     output_dir.mkdir(parents=True, exist_ok=True)
     with open(output_dir / "probe_hard_misses_results.json", "w") as f:
-        json.dump(summary, f, indent=2)
+        json.dump(all_variant_summaries, f, indent=2)
 
 
 if __name__ == "__main__":
