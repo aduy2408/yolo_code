@@ -210,7 +210,7 @@ def main() -> None:
             x2, y2 = int(min(w_p2, cx + w/2)), int(min(h_p2, cy + h/2))
             mask_p2[y1:y2, x1:x2] = True
 
-        mask_p2_expanded = mask_p2.unsqueeze(0).expand(g_cls.shape[0], -1, -1) # Channels matching
+        mask_p2_expanded = mask_p2.unsqueeze(0).unsqueeze(0).expand(g_cls.shape[0], g_cls.shape[1], -1, -1) # B, C, H, W
         
         g_cls_local = g_cls[mask_p2_expanded].view(-1)
         g_sup_local = g_sup[mask_p2_expanded].view(-1)
