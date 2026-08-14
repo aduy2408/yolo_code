@@ -27,6 +27,7 @@ from ultralytics.nn.modules import (
     ResidualDWConv,
     ResidualDWConv5,
     P2FeatureProbe,
+    FactorizedSupportAux,
     ELAN1,
     OBB,
     OBB26,
@@ -691,6 +692,7 @@ class BaseModel(torch.nn.Module):
         diagnostics.update(getattr(self.criterion, "positive_confidence_rescue_metrics", {}))
         diagnostics.update(getattr(self.criterion, "consensus_metrics", {}))
         diagnostics.update(getattr(self.criterion, "psd_metrics", {}))
+        diagnostics.update(getattr(self.criterion, "support_metrics", {}))
         assignment_context = getattr(self.criterion, "dbss_assignment_context", None)
         self.criterion.dbss_assignment_context = None
         for module in self.modules():
@@ -2359,7 +2361,7 @@ def parse_model(d, ch, verbose=True):
         elif m is P1GER:
             c2 = ch[f[0]]
             args = [[ch[x] for x in f], *args]
-        elif m in frozenset({CBAM, ChannelAttention, SpatialAttention, ChannelKVCompressedAttention, P2AmplitudeCalibrator, LearnableGlobalScalar, MatchedChannelPerturbation, ResidualDWConv, ResidualDWConv5, P2FeatureProbe}):
+        elif m in frozenset({CBAM, ChannelAttention, SpatialAttention, ChannelKVCompressedAttention, P2AmplitudeCalibrator, LearnableGlobalScalar, MatchedChannelPerturbation, ResidualDWConv, ResidualDWConv5, P2FeatureProbe, FactorizedSupportAux}):
             c2 = ch[f]
             if m is not SpatialAttention:
                 args = [c2, *args]

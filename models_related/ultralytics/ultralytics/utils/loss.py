@@ -1008,6 +1008,22 @@ class v8DetectionLoss:
         self.dfl_residual_scale = float(getattr(m, "dfl_residual_scale", getattr(h, "dfl_residual_scale", 0.25)))
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
+        # Factorized Support Aux supervision setup
+        self.support_module = None
+        for module in model.modules():
+            if module.__class__.__name__ == "FactorizedSupportAux":
+                self.support_module = module
+                break
+        self.support_gain = float(getattr(h, "factorized_support_gain", 0.1))
+        self.support_tau = float(getattr(h, "factorized_support_tau", 0.75))
+        self.support_kappa = float(getattr(h, "factorized_support_kappa", 1.5))
+        self.support_blend = float(getattr(h, "factorized_support_blend", 0.5))
+        self.support_topk = int(getattr(h, "factorized_support_topk", 10))
+        self.support_s_max = float(getattr(h, "factorized_support_s_max", 32.0))
+        self.support_metrics = {}
+
+
+
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
         """Preprocess targets by converting to tensor format and scaling coordinates."""
         nl, ne = targets.shape
@@ -1522,6 +1538,115 @@ class v8DetectionLoss:
             "p2_detail_mask_fraction": float(torch.stack(mask_fraction).mean().item()) if mask_fraction else 0.0,
         }
         return raw
+
+    def compute_factorized_support_loss(
+        self,
+        logits: torch.Tensor,
+        pred_bboxes: torch.Tensor,
+        anchor_points: torch.Tensor,
+        gt_bboxes: torch.Tensor,
+        mask_gt: torch.Tensor,
+        tau: float = 0.75,
+        kappa: float = 1.5,
+        blend: float = 0.5,
+        topk: int = 10,
+        s_max: float = 32.0,
+    ) -> torch.Tensor:
+        """Compute Factorized Support Auxiliary training-only loss on P2."""
+        bs, _, h, w = logits.shape
+        n_anchors = h * w
+        logits_flat = logits.permute(0, 2, 3, 1).reshape(bs, n_anchors)  # (bs, n_anchors)
+
+        # 1. Size gate check matches Factorized TAL: sqrt(width * height) < s_max
+        wh = (gt_bboxes[..., 2:] - gt_bboxes[..., :2]).clamp_min(0)
+        size = (wh[..., 0] * wh[..., 1]).sqrt()
+        valid_gt_size = size < s_max
+
+        # 2. Rescale anchor centers (anchor_points input is already scaled to pixels)
+        centers = anchor_points.detach()  # (n_anchors, 2)
+        cx, cy = centers[..., 0], centers[..., 1]
+
+        losses = []
+        metrics_tgt_means = []
+        metrics_pred_means = []
+        metrics_n_gt = 0
+        metrics_cells_per_gt = []
+        metrics_neff = []
+        metrics_top1_frac = []
+
+        for b in range(bs):
+            valid_gts = mask_gt[b].squeeze(-1).bool() & valid_gt_size[b].bool()
+            gt_indices = valid_gts.nonzero(as_tuple=False).squeeze(-1).tolist()
+            if not gt_indices:
+                continue
+
+            for g_idx in gt_indices:
+                gt = gt_bboxes[b, g_idx]
+                x1, y1, x2, y2 = gt[0], gt[1], gt[2], gt[3]
+
+                # Geometry match: anchor center inside GT
+                inside = (cx >= x1) & (cx <= x2) & (cy >= y1) & (cy <= y2)
+                inside_indices = inside.nonzero(as_tuple=False).squeeze(-1)
+                if len(inside_indices) == 0:
+                    continue
+
+                # Calculate IoU of detached predictions and the current GT
+                pred_inside = pred_bboxes[b, inside_indices]  # (N_inside, 4)
+                iou_vals = bbox_iou(pred_inside, gt.unsqueeze(0), xywh=False, CIoU=False).squeeze(-1).clamp(0)
+
+                # Keep candidates with highest IoU
+                k = min(topk, len(inside_indices))
+                topk_vals, topk_local_indices = iou_vals.topk(k)
+                topk_global_indices = inside_indices[topk_local_indices]
+
+                # Calculate target scores
+                u_max = topk_vals.max().clamp_min(1e-12)
+                r = topk_vals / u_max
+                q_new = (u_max ** tau) * (r ** kappa)
+                q_target = topk_vals + blend * (q_new - topk_vals)
+                q_target = q_target.detach()
+
+                # BCE loss with logits for these top-k candidate cells
+                selected_logits = logits_flat[b, topk_global_indices]
+                loss_gt = F.binary_cross_entropy_with_logits(selected_logits, q_target, reduction="mean")
+                losses.append(loss_gt)
+
+                # Diagnostics
+                metrics_n_gt += 1
+                metrics_tgt_means.append(q_target.mean().item())
+                metrics_pred_means.append(selected_logits.sigmoid().mean().item())
+                metrics_cells_per_gt.append(float(k))
+                
+                # N_eff = (sum q_target)^2 / sum(q_target^2)
+                sum_q = q_target.sum().item()
+                sum_q2 = (q_target ** 2).sum().item()
+                metrics_neff.append((sum_q ** 2) / (sum_q2 + 1e-12))
+                # Top-1 fraction
+                metrics_top1_frac.append(q_target.max().item() / (sum_q + 1e-12))
+
+        if not losses:
+            self.support_metrics = {
+                "loss_support": 0.0,
+                "support_target_mean": 0.0,
+                "support_pred_mean": 0.0,
+                "support_n_gt": 0.0,
+                "support_cells_per_gt": 0.0,
+                "support_target_neff": 0.0,
+                "support_target_top1_frac": 0.0,
+            }
+            return logits.sum() * 0.0
+
+        loss_support_val = torch.stack(losses).mean()
+        self.support_metrics = {
+            "loss_support": float(loss_support_val.detach().item()),
+            "support_target_mean": float(sum(metrics_tgt_means) / len(metrics_tgt_means)),
+            "support_pred_mean": float(sum(metrics_pred_means) / len(metrics_pred_means)),
+            "support_n_gt": float(metrics_n_gt),
+            "support_cells_per_gt": float(sum(metrics_cells_per_gt) / len(metrics_cells_per_gt)),
+            "support_target_neff": float(sum(metrics_neff) / len(metrics_neff)),
+            "support_target_top1_frac": float(sum(metrics_top1_frac) / len(metrics_top1_frac)),
+        }
+        return loss_support_val
 
     def get_assigned_targets_and_loss(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> tuple:
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size and return foreground mask and
@@ -2181,7 +2306,48 @@ class v8DetectionLoss:
         """Calculate detection loss using assigned targets."""
         batch_size = preds["boxes"].shape[0]
         loss, loss_detach = self.get_assigned_targets_and_loss(preds, batch)[1:]
-        
+
+        # Factorized Support Aux supervision
+        if self.support_module is not None and self.support_module.support_logits is not None:
+            h2, w2 = preds["feats"][0].shape[-2:]
+            n_p2 = h2 * w2
+            assert self.support_module.support_logits.shape[-2] * self.support_module.support_logits.shape[-1] == n_p2, \
+                f"Support head shape mismatch: {self.support_module.support_logits.shape} vs P2 anchors count {n_p2}"
+
+            pred_distri = preds["boxes"].permute(0, 2, 1).contiguous()
+            anchor_points_all, stride_tensor_all = make_anchors(preds["feats"], self.stride, 0.5)
+            pred_bboxes_all = self.bbox_decode(anchor_points_all, pred_distri, None, stride_tensor_all)  # xyxy
+            
+            # Ground truth preprocess
+            imgsz = torch.tensor(preds["feats"][0].shape[2:], device=self.device, dtype=pred_bboxes_all.dtype) * self.stride[0]
+            targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+            targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+            _, gt_bboxes = targets.split((1, 4), 2)  # xyxy
+            mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+
+            # Slice and scale P2 anchors and predictions to pixel units
+            anchor_points_p2 = anchor_points_all[:n_p2] * stride_tensor_all[:n_p2]
+            pred_bboxes_p2 = pred_bboxes_all[:, :n_p2].detach() * stride_tensor_all[:n_p2]
+
+            # Compute support loss
+            l_sup = self.compute_factorized_support_loss(
+                logits=self.support_module.support_logits,
+                pred_bboxes=pred_bboxes_p2,
+                anchor_points=anchor_points_p2,
+                gt_bboxes=gt_bboxes,
+                mask_gt=mask_gt,
+                tau=self.support_tau,
+                kappa=self.support_kappa,
+                blend=self.support_blend,
+                topk=self.support_topk,
+                s_max=self.support_s_max,
+            )
+            # Accumulate into classification element (loss[1])
+            applied_sup = l_sup * self.support_gain
+            loss[1] = loss[1] + applied_sup
+            loss_detach = loss_detach.clone()
+            loss_detach[1] = loss_detach[1] + applied_sup.detach().item()
+
         # Calculate tiny-GT restraint loss for P1DRR modules
         restraint_loss = torch.tensor(0.0, device=self.device)
         drr_modules = [m for m in self.model.modules() if m.__class__.__name__ == "P1DRR"]

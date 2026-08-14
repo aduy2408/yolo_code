@@ -98,6 +98,7 @@ from .block import (
     clear_boundary_context,
     set_boundary_context,
     set_boundary_enabled,
+    FactorizedSupportAux,
 )
 from .local_detail import LocalDetailRepC2f
 from .pconv import C2f_PConv
@@ -262,6 +263,7 @@ __all__ = (
     "MLPBlock",
     "MSDeformAttn",
     "MaxSigmoidAttnBlock",
+    "FactorizedSupportAux",
     "Pose",
     "Pose26",
     "P2NUDFLDetect",

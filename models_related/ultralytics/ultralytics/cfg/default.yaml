@@ -248,6 +248,14 @@ copy_paste_mode: flip # (str) copy-paste strategy for segmentation: flip or mixu
 auto_augment: randaugment # (str) classification auto augmentation policy: randaugment, autoaugment, augmix
 erasing: 0.4 # (float) random erasing probability for classification (0.0–1.0)
 
+# Factorized Support Aux settings --------------------------------------------------------------------------------------
+factorized_support_gain: 0.1 # (float) loss gain factor for factorized support aux supervision
+factorized_support_tau: 0.75 # (float) tau factor for target exponentiation
+factorized_support_kappa: 1.5 # (float) kappa factor for target ranking exponentiation
+factorized_support_blend: 0.5 # (float) blend ratio between standard IoU and factorized target
+factorized_support_topk: 10 # (int) number of top cells to select per GT
+factorized_support_s_max: 32.0 # (float) maximum object size threshold for support supervision
+
 # Custom config.yaml ---------------------------------------------------------------------------------------------------
 cfg: # (str, optional) path to a config.yaml that overrides defaults
 

@@ -23,6 +23,7 @@ VARIANTS = {
     "plain_p2p3_detail_repc2f_factorized_k15": CONFIG_ROOT / "yolov8n_p2p3_levir_detail_repc2f.yaml",
     "plain_p2p3_detail_repc2f_gap_factorized_k15": CONFIG_ROOT / "yolov8n_p2p3_levir_detail_repc2f_gap.yaml",
     "plain_p2p3_gap_factorized_k15": CONFIG_ROOT / "yolov8n_p2p3_levir_plain_gap.yaml",
+    "plain_p2p3_gap_support": CONFIG_ROOT / "yolov8n_p2p3_levir_plain_gap_support.yaml",
 }
 
 # Set the workflow globals
@@ -46,6 +47,15 @@ def train_kwargs(args: argparse.Namespace, data_yaml: Path, seed: int, amp: bool
             factorized_tal_warmup_start=5,
             factorized_tal_warmup_end=15,
             factorized_tal_p2_only=True,
+        )
+    elif variant == "plain_p2p3_gap_support":
+        kwargs.update(
+            factorized_support_gain=0.1,
+            factorized_support_tau=0.75,
+            factorized_support_kappa=1.5,
+            factorized_support_blend=0.5,
+            factorized_support_topk=10,
+            factorized_support_s_max=32.0,
         )
     return kwargs
 

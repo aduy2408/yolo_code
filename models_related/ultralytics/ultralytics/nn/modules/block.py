@@ -89,6 +89,7 @@ __all__ = (
     "clear_boundary_context",
     "set_boundary_context",
     "set_boundary_enabled",
+    "FactorizedSupportAux",
 )
 
 
@@ -4682,3 +4683,22 @@ class ChannelKVCompressedAttention(nn.Module):
         y = self.proj(y)
         
         return x + self.beta * y
+
+
+class FactorizedSupportAux(nn.Module):
+    """Training-only auxiliary head for factorized support quality supervision on P2."""
+
+    def __init__(self, c: int) -> None:
+        super().__init__()
+        self.head = nn.Conv2d(c, 1, 1)
+        nn.init.zeros_(self.head.weight)
+        nn.init.zeros_(self.head.bias)
+        self.support_logits = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.training:
+            self.support_logits = self.head(x)
+        else:
+            self.support_logits = None
+        return x
+
