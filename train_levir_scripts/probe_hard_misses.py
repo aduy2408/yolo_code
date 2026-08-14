@@ -149,16 +149,18 @@ def find_hard_misses(
                 false_positives = []
                 for p_idx, pred in enumerate(pred_boxes):
                     if pred_scores[p_idx] > 0.1:
-                        # Check IoU with all GTs
-                        x1_fp = torch.clamp(gt_xyxy[:, 0], min=pred[0].item())
-                        y1_fp = torch.clamp(gt_xyxy[:, 1], min=pred[1].item())
-                        x2_fp = torch.clamp(gt_xyxy[:, 2], max=pred[2].item())
-                        y2_fp = torch.clamp(gt_xyxy[:, 3], max=pred[3].item())
-                        inter_fp = torch.clamp(x2_fp - x1_fp, min=0) * torch.clamp(y2_fp - y1_fp, min=0)
-                        union_fp = area + (pred[2] - pred[0]) * (pred[3] - pred[1]) - inter_fp
-                        iou_fp = inter_fp / (union_fp + 1e-8)
-                        if iou_fp.max() < 0.1:
-                            false_positives.append(pred)
+                         # Check IoU with all GTs on CPU
+                         pred_cpu = pred.cpu()
+                         gt_xyxy_cpu = gt_xyxy.cpu()
+                         x1_fp = torch.clamp(gt_xyxy_cpu[:, 0], min=pred_cpu[0].item())
+                         y1_fp = torch.clamp(gt_xyxy_cpu[:, 1], min=pred_cpu[1].item())
+                         x2_fp = torch.clamp(gt_xyxy_cpu[:, 2], max=pred_cpu[2].item())
+                         y2_fp = torch.clamp(gt_xyxy_cpu[:, 3], max=pred_cpu[3].item())
+                         inter_fp = torch.clamp(x2_fp - x1_fp, min=0) * torch.clamp(y2_fp - y1_fp, min=0)
+                         union_fp = area + (pred_cpu[2] - pred_cpu[0]) * (pred_cpu[3] - pred_cpu[1]) - inter_fp
+                         iou_fp = inter_fp / (union_fp + 1e-8)
+                         if iou_fp.max() < 0.1:
+                             false_positives.append(pred)
 
                 hard_misses.append({
                     "image_path": img_path,
