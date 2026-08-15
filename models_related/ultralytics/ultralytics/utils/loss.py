@@ -1836,8 +1836,10 @@ class v8DetectionLoss:
                     gt_bboxes,
                     mask_gt,
                 )
-                inter = (fg0 & fg1).sum().float()
-                union = (fg0 | fg1).sum().float().clamp_min(1)
+                fg0_bool = fg0.bool()
+                fg1_bool = fg1.bool()
+                inter = (fg0_bool & fg1_bool).sum().float()
+                union = (fg0_bool | fg1_bool).sum().float().clamp_min(1)
                 self.ggcf_tal_metrics = {
                     "ggcf_p0": float(fg0.sum().item()),
                     "ggcf_p1": float(fg1.sum().item()),
