@@ -154,14 +154,7 @@ def main() -> None:
             if uploader:
                 uploader.upload_run(run_dir, variant, seed)
                 uploader.upload_metadata(args, data_yaml)
-            if variant == "G2_ggcf" and {"G1_field_only", "G2_ggcf"} <= metrics_seen.keys():
-                if _test_ap(metrics_seen["G2_ggcf"]) <= _test_ap(metrics_seen["G1_field_only"]):
-                    print("Stopping after G2: geometry guidance did not beat FieldOnly.", flush=True)
-                    return
-            if variant == "G3_ggcf_refined_assign" and {"G2_ggcf", "G3_ggcf_refined_assign"} <= metrics_seen.keys():
-                if _test_ap(metrics_seen["G3_ggcf_refined_assign"]) <= _test_ap(metrics_seen["G2_ggcf"]):
-                    print("Stopping after G3: refined-assignment GGCF did not beat coarse-assignment GGCF.", flush=True)
-                    return
+
 
 
 if __name__ == "__main__":
