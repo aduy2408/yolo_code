@@ -112,7 +112,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--patience", type=int, default=20)
+    parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--smoke-fraction", type=float, default=0.01)
     parser.add_argument("--no-smoke", action="store_true")
     parser.add_argument("--smoke-only", action="store_true")
