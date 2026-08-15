@@ -1067,7 +1067,7 @@ class v8DetectionLoss:
         p2_points = anchor_points[:n_p2] * stride_tensor[:n_p2]
         p2_score = coarse_scores[:, :n_p2].detach().sigmoid().amax(-1)
         for b in range(coarse_scores.shape[0]):
-            valid = mask_gt[b, :, 0]
+            valid = mask_gt[b, :, 0].to(torch.bool)
             inside = torch.zeros(n_p2, device=self.device, dtype=torch.bool)
             if valid.any():
                 boxes = gt_bboxes[b, valid]
