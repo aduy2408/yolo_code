@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torch.nn.init import constant_, xavier_uniform_
 
 from ultralytics.utils import NOT_MACOS14
+from ultralytics.utils.ops import xyxy2xywh
 from ultralytics.utils.tal import dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import TORCH_1_11, fuse_conv_and_bn, smart_inference_mode
 
@@ -105,6 +106,73 @@ class P2OffsetRegression(nn.Module):
         return torch.cat([self.sides[i](sampled[:, i]) for i in range(4)], dim=1)
 
 
+class RingPoolR5(nn.Module):
+    """Fixed per-channel annulus average matching the R5 diagnostic probe."""
+
+    def __init__(self, channels: int, radius: int = 5) -> None:
+        super().__init__()
+        self.channels = int(channels)
+        self.radius = int(radius)
+        size = 2 * self.radius + 1
+        yy, xx = torch.meshgrid(torch.arange(size), torch.arange(size), indexing="ij")
+        dist = ((xx - self.radius) ** 2 + (yy - self.radius) ** 2).float().sqrt()
+        mask = (dist > 1.0) & (dist <= self.radius)
+        kernel = (mask.float() / mask.sum()).view(1, 1, size, size).repeat(self.channels, 1, 1, 1)
+        self.register_buffer("weight", kernel)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        pad = self.radius
+        return F.conv2d(F.pad(x, (pad, pad, pad, pad), mode="replicate"), self.weight, groups=self.channels)
+
+
+class RingContextCls(nn.Module):
+    """Zero-init classification context adapter: F + Conv1x1([F, RingPool(F)])."""
+
+    def __init__(self, channels: int, radius: int = 5) -> None:
+        super().__init__()
+        self.ring = RingPoolR5(channels, radius)
+        self.fuse = nn.Conv2d(2 * channels, channels, kernel_size=1, bias=True)
+        nn.init.zeros_(self.fuse.weight)
+        nn.init.zeros_(self.fuse.bias)
+        self.last_stats: dict[str, torch.Tensor] = {}
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        r = self.ring(x)
+        z = self.fuse(torch.cat((x, r), dim=1))
+        with torch.no_grad():
+            self.last_stats = {
+                "residual_ratio": (z.norm() / (x.norm() + 1e-8)).detach(),
+                "ring_mean_abs": r.abs().mean().detach(),
+                "fusion_output_mean_abs": z.abs().mean().detach(),
+            }
+        return x + z
+
+
+class GGCFEncoder(nn.Module):
+    """Zero-init Geometry-Guided Candidate Field encoder over a 7x7 P2 field."""
+
+    def __init__(self, channels: int, nc: int, geometry: bool = True) -> None:
+        super().__init__()
+        self.geometry = bool(geometry)
+        self.stem = nn.Sequential(
+            nn.Conv2d(channels + (4 if self.geometry else 0), channels, 3, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(channels, channels, 3, padding=1),
+            nn.SiLU(),
+            nn.AdaptiveAvgPool2d(1),
+        )
+        self.box = nn.Conv2d(channels, 4, 1)
+        self.cls = nn.Conv2d(channels, nc, 1)
+        nn.init.zeros_(self.box.weight)
+        nn.init.zeros_(self.box.bias)
+        nn.init.zeros_(self.cls.weight)
+        nn.init.zeros_(self.cls.bias)
+
+    def forward(self, z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        y = self.stem(z)
+        return self.box(y).flatten(1), self.cls(y).flatten(1)
+
+
 class Detect(nn.Module):
     """YOLO Detect head for object detection models.
 
@@ -180,11 +248,33 @@ class Detect(nn.Module):
         box_detail_gate: bool = True,
         p2_offset_regression: bool = False,
         p1_reg_injection: bool = False,
+        ring_context: bool = False,
+        ring_radius: int = 5,
+        head_share_mode: str = "none",
+        cls_head_width: int = 0,
+        cls_head_dense: bool = False,
+        ggcf_refine: bool = False,
+        ggcf_geometry: bool = True,
+        ggcf_patch: int = 7,
+        ggcf_infer_k: int = 1000,
     ):
         """Initialize the YOLO detection layer with specified number of classes and channels."""
         super().__init__()
         self.nc = nc  # number of classes
         self.p1_reg_injection = bool(p1_reg_injection)
+        self.ring_context = bool(ring_context)
+        self.ring_radius = int(ring_radius)
+        self.head_share_mode = str(head_share_mode).lower()
+        if self.head_share_mode not in {"none", "share1", "full"}:
+            raise ValueError("head_share_mode must be 'none', 'share1', or 'full'.")
+        self.cls_head_width = int(cls_head_width)
+        self.cls_head_dense = bool(cls_head_dense)
+        self.ggcf_refine = bool(ggcf_refine)
+        self.ggcf_geometry = bool(ggcf_geometry)
+        self.ggcf_patch = int(ggcf_patch)
+        self.ggcf_infer_k = int(ggcf_infer_k)
+        if self.ggcf_patch % 2 != 1 or self.ggcf_patch < 3:
+            raise ValueError("ggcf_patch must be an odd integer >= 3.")
         if self.p1_reg_injection:
             self.nl = len(ch) - 1
             ch_detect = ch[:-1]
@@ -220,10 +310,34 @@ class Detect(nn.Module):
         self.dfl_residual_scale = float(dfl_residual_scale)
         self.box_detail_head = bool(box_detail_head)
         self.box_detail_levels = set(range(self.nl) if box_detail_levels is None else box_detail_levels) if self.box_detail_head else set()
-        c2, c3 = max((16, ch_detect[0] // 4, self.reg_max * 4)), max(ch_detect[0], min(self.nc, 100))  # channels
-        self.cv2 = nn.ModuleList(
-            nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch_detect
-        )
+        c2 = max((16, ch_detect[0] // 4, self.reg_max * 4))
+        c3 = self.cls_head_width or max(ch_detect[0], min(self.nc, 100))  # channels
+        self.shared_head = nn.ModuleList()
+        if self.head_share_mode == "share1":
+            self.shared_head = nn.ModuleList(Conv(x, c2, 3) for x in ch_detect)
+            self.cv2 = nn.ModuleList(nn.Sequential(Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for _ in ch_detect)
+            self.cv3 = nn.ModuleList(nn.Sequential(Conv(c2, c2, 3), nn.Conv2d(c2, self.nc, 1)) for _ in ch_detect)
+        elif self.head_share_mode == "full":
+            self.shared_head = nn.ModuleList(nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3)) for x in ch_detect)
+            self.cv2 = nn.ModuleList(nn.Conv2d(c2, 4 * self.reg_max, 1) for _ in ch_detect)
+            self.cv3 = nn.ModuleList(nn.Conv2d(c2, self.nc, 1) for _ in ch_detect)
+        else:
+            self.cv2 = nn.ModuleList(
+                nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch_detect
+            )
+            dense_cls = self.cls_head_dense or (self.legacy and self.cls_head_width <= 0)
+            self.cv3 = (
+                nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch_detect)
+                if dense_cls
+                else nn.ModuleList(
+                    nn.Sequential(
+                        nn.Sequential(DWConv(x, x, 3), Conv(x, c3, 1)),
+                        nn.Sequential(DWConv(c3, c3, 3), Conv(c3, c3, 1)),
+                        nn.Conv2d(c3, self.nc, 1),
+                    )
+                    for x in ch_detect
+                )
+            )
         self.box_detail = nn.ModuleList(
             BoxLocalDetail(x, box_detail_scale, box_detail_kernel, box_detail_gate)
             if i in self.box_detail_levels
@@ -231,18 +345,11 @@ class Detect(nn.Module):
             for i, x in enumerate(ch_detect)
         )
         self.cv2_residual = self.init_dfl_residual_heads(ch_detect) if self.dfl_residual else nn.ModuleList()
-        self.cv3 = (
-            nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch_detect)
-            if self.legacy
-            else nn.ModuleList(
-                nn.Sequential(
-                    nn.Sequential(DWConv(x, x, 3), Conv(x, c3, 1)),
-                    nn.Sequential(DWConv(c3, c3, 3), Conv(c3, c3, 1)),
-                    nn.Conv2d(c3, self.nc, 1),
-                )
-                for x in ch_detect
-            )
+        self.cls_ring_context = nn.ModuleList(
+            RingContextCls(x, self.ring_radius) if self.ring_context and i == 0 else nn.Identity()
+            for i, x in enumerate(ch_detect)
         )
+        self.ggcf_encoder = GGCFEncoder(ch_detect[0], self.nc, self.ggcf_geometry) if self.ggcf_refine else None
         if self.cls_geometry_fuse:
             cls_channels = [m[-1].in_channels for m in self.cv3]
             self.cls_geometry_embed = nn.ModuleList(nn.Conv2d(4, c, 1) for c in cls_channels)
@@ -274,6 +381,7 @@ class Detect(nn.Module):
             if self.cls_geometry_fuse:
                 self.one2one_cls_geometry_embed = copy.deepcopy(self.cls_geometry_embed)
                 self.one2one_cls_geometry_fuse_conv = copy.deepcopy(self.cls_geometry_fuse_conv)
+            self.one2one_ggcf_encoder = copy.deepcopy(self.ggcf_encoder) if self.ggcf_refine else None
         if self.nl == 4 and p2_offset_regression:
             self.cv2[0] = P2OffsetRegression(self.cv2[0], self.reg_max)
             if end2end:
@@ -298,6 +406,8 @@ class Detect(nn.Module):
             out.update(quality_head=self.cvq)
         if getattr(self, "cls_geometry_fuse", False):
             out.update(geom_embed=self.cls_geometry_embed, geom_fuse=self.cls_geometry_fuse_conv)
+        if getattr(self, "ggcf_refine", False):
+            out.update(ggcf_encoder=self.ggcf_encoder)
         return out
 
     @property
@@ -308,6 +418,8 @@ class Detect(nn.Module):
             out.update(box_residual_head=self.one2one_cv2_residual)
         if getattr(self, "cls_geometry_fuse", False):
             out.update(geom_embed=self.one2one_cls_geometry_embed, geom_fuse=self.one2one_cls_geometry_fuse_conv)
+        if getattr(self, "ggcf_refine", False):
+            out.update(ggcf_encoder=self.one2one_ggcf_encoder)
         return out
 
     @property
@@ -387,6 +499,7 @@ class Detect(nn.Module):
         box_residual_head: torch.nn.Module = None,
         geom_embed: torch.nn.Module = None,
         geom_fuse: torch.nn.Module = None,
+        ggcf_encoder: GGCFEncoder | None = None,
     ) -> dict[str, torch.Tensor]:
         """Concatenates and returns predicted bounding boxes and class probabilities."""
         if box_head is None or cls_head is None:  # for fused inference
@@ -394,11 +507,21 @@ class Detect(nn.Module):
         cls_x = x if cls_x is None else cls_x
         bs = x[0].shape[0]  # batch size
         box_features = [self.box_detail[i](x[i]) for i in range(self.nl)]
+        cls_ring_context = getattr(self, "cls_ring_context", None)
+        cls_features = (
+            [cls_ring_context[i](cls_x[i]) for i in range(self.nl)] if cls_ring_context is not None else cls_x
+        )
         if not getattr(self, "cls_geometry_fuse", False):
-            boxes_per_level = [box_head[i](box_features[i]) for i in range(self.nl)]
+            if getattr(self, "head_share_mode", "none") == "none":
+                boxes_per_level = [box_head[i](box_features[i]) for i in range(self.nl)]
+                cls_inputs = cls_features
+            else:
+                shared = [self.shared_head[i](box_features[i]) for i in range(self.nl)]
+                boxes_per_level = [box_head[i](shared[i]) for i in range(self.nl)]
+                cls_inputs = shared
             boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
             scores = torch.cat(
-                [self._forward_cls_branch(i, cls_head[i], cls_x[i]).view(bs, self.nc, -1) for i in range(self.nl)],
+                [self._forward_cls_branch(i, cls_head[i], cls_inputs[i]).view(bs, self.nc, -1) for i in range(self.nl)],
                 dim=-1,
             )
         else:
@@ -407,13 +530,23 @@ class Detect(nn.Module):
                 box_logits = box_head[i](box_features[i])
                 boxes_per_level.append(box_logits)
                 dist_map = self._geometry_dist_map(box_logits)
-                cls_logits = self._geometry_cls_logits(cls_head[i], cls_x[i], dist_map, geom_embed[i], geom_fuse[i])
+                cls_logits = self._geometry_cls_logits(cls_head[i], cls_features[i], dist_map, geom_embed[i], geom_fuse[i])
                 scores_per_level.append(cls_logits.view(bs, self.nc, -1))
             boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
             scores = torch.cat(scores_per_level, dim=-1)
         if getattr(self, "capture_dfl_diagnostics", False):
             self.last_p3_box_logits = boxes_per_level[0].detach()
         out = dict(boxes=boxes, scores=scores, feats=x)
+        if getattr(self, "ggcf_refine", False) and not self.training:
+            b0_xyxy, stride_tensor = self._decode_grid_boxes(boxes, x)
+            topk = scores.sigmoid().amax(1).topk(min(self.ggcf_infer_k, scores.shape[-1]), dim=1).indices
+            refined = self.ggcf_refine_candidates(cls_features[0], b0_xyxy.transpose(1, 2), scores.transpose(1, 2), topk, ggcf_encoder)
+            out.update(
+                refined_bboxes=refined["bboxes"].transpose(1, 2),
+                refined_scores=refined["scores"].transpose(1, 2),
+                ggcf_indices=topk,
+                stride_tensor=stride_tensor,
+            )
         if getattr(self, "dfl_residual", False) and box_residual_head is not None:
             out["dfl_residual"] = torch.cat(
                 [box_residual_head[i](box_features[i]).view(bs, 4, -1) for i in range(self.nl)], dim=-1
@@ -427,6 +560,87 @@ class Detect(nn.Module):
         if self.training and getattr(self, "loc_quality_enabled", False):
             out["loc_maps"] = [self.loc_cv[i](x[i]) for i in range(self.nl)]
         return out
+
+    def _decode_grid_boxes(self, boxes: torch.Tensor, feats: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Decode DFL logits to xyxy boxes in feature-grid units."""
+        anchors, stride_tensor = make_anchors(feats, self.stride, 0.5)
+        anchors = anchors.transpose(0, 1)
+        b, _, a = boxes.shape
+        probability = boxes.view(b, 4, self.reg_max, a).softmax(2)
+        bin_values = getattr(self, "p2_dfl_bins", getattr(self, "p3_dfl_bins", None))
+        if bin_values is not None:
+            uniform = torch.arange(self.reg_max, device=boxes.device, dtype=boxes.dtype).view(1, 1, -1, 1)
+            custom = bin_values.to(device=boxes.device, dtype=boxes.dtype).view(1, 1, -1, 1)
+            is_p2 = (stride_tensor.view(1, 1, 1, -1) == stride_tensor.min()).to(boxes.dtype)
+            values = uniform + is_p2 * (custom - uniform)
+            dist = (probability * values).sum(2)
+        else:
+            dist = self.dfl(boxes)
+        return dist2bbox(dist, anchors.unsqueeze(0), xywh=False, dim=1), stride_tensor
+
+    def ggcf_refine_candidates(
+        self,
+        feature: torch.Tensor,
+        coarse_bboxes: torch.Tensor,
+        coarse_scores: torch.Tensor,
+        indices: torch.Tensor,
+        encoder: GGCFEncoder | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Refine selected candidate indices, leaving unselected predictions coarse."""
+        encoder = self.ggcf_encoder if encoder is None else encoder
+        if encoder is None:
+            return {"bboxes": coarse_bboxes, "scores": coarse_scores}
+        if self.nl != 1:
+            raise ValueError("GGCF refinement is P2-only and expects a single Detect level.")
+        if indices.numel() == 0:
+            return {"bboxes": coarse_bboxes, "scores": coarse_scores}
+        indices = indices.to(device=feature.device, dtype=torch.long)
+        b, k = indices.shape
+        h, w = feature.shape[-2:]
+        radius = self.ggcf_patch // 2
+        center_y = (indices // w).to(feature.dtype)
+        center_x = (indices % w).to(feature.dtype)
+        offsets = torch.arange(-radius, radius + 1, device=feature.device, dtype=feature.dtype)
+        oy, ox = torch.meshgrid(offsets, offsets, indexing="ij")
+        xs = center_x[..., None, None] + ox.view(1, 1, self.ggcf_patch, self.ggcf_patch)
+        ys = center_y[..., None, None] + oy.view(1, 1, self.ggcf_patch, self.ggcf_patch)
+        grid = torch.stack((2 * (xs + 0.5) / w - 1, 2 * (ys + 0.5) / h - 1), dim=-1)
+        patches = F.grid_sample(
+            feature,
+            grid.flatten(1, 2),
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=False,
+        ).view(b, feature.shape[1], k, self.ggcf_patch, self.ggcf_patch).permute(0, 2, 1, 3, 4)
+        z = patches
+        selected_boxes = coarse_bboxes.gather(1, indices[..., None].expand(-1, -1, 4))
+        guide = selected_boxes.detach()
+        bw = (guide[..., 2] - guide[..., 0]).clamp_min(1e-3)
+        bh = (guide[..., 3] - guide[..., 1]).clamp_min(1e-3)
+        if encoder.geometry:
+            gl = (xs - guide[..., 0, None, None]) / bw[..., None, None]
+            gr = (guide[..., 2, None, None] - xs) / bw[..., None, None]
+            gt = (ys - guide[..., 1, None, None]) / bh[..., None, None]
+            gb = (guide[..., 3, None, None] - ys) / bh[..., None, None]
+            geom = torch.stack((gl, gr, gt, gb), dim=2)
+            z = torch.cat((z, geom.to(dtype=z.dtype)), dim=2)
+        box_delta, cls_delta = encoder(z.reshape(b * k, z.shape[2], self.ggcf_patch, self.ggcf_patch))
+        box_delta = 0.25 * box_delta.tanh().view(b, k, 4)
+        cls_delta = cls_delta.view(b, k, self.nc)
+        cx = (selected_boxes[..., 0] + selected_boxes[..., 2]) * 0.5
+        cy = (selected_boxes[..., 1] + selected_boxes[..., 3]) * 0.5
+        bw0 = (selected_boxes[..., 2] - selected_boxes[..., 0]).clamp_min(1e-3)
+        bh0 = (selected_boxes[..., 3] - selected_boxes[..., 1]).clamp_min(1e-3)
+        dx, dy, dw, dh = box_delta.unbind(-1)
+        c1x = cx + bw0 * dx
+        c1y = cy + bh0 * dy
+        w1 = bw0 * dw.exp()
+        h1 = bh0 * dh.exp()
+        refined_selected = torch.stack((c1x - w1 * 0.5, c1y - h1 * 0.5, c1x + w1 * 0.5, c1y + h1 * 0.5), dim=-1)
+        selected_scores = coarse_scores.gather(1, indices[..., None].expand(-1, -1, self.nc)) + cls_delta
+        refined_bboxes = coarse_bboxes.scatter(1, indices[..., None].expand(-1, -1, 4), refined_selected)
+        refined_scores = coarse_scores.scatter(1, indices[..., None].expand(-1, -1, self.nc), selected_scores)
+        return {"bboxes": refined_bboxes, "scores": refined_scores}
 
     def forward(
         self, x: list[torch.Tensor]
@@ -477,8 +691,12 @@ class Detect(nn.Module):
             (torch.Tensor): Concatenated tensor of decoded bounding boxes and class probabilities.
         """
         # Inference path
-        dbox = self._get_decode_boxes(x)
-        scores = x["scores"].sigmoid()
+        dbox = (
+            xyxy2xywh((x["refined_bboxes"] * x.get("stride_tensor", self.strides).view(1, 1, -1)).transpose(1, 2)).transpose(1, 2)
+            if "refined_bboxes" in x
+            else self._get_decode_boxes(x)
+        )
+        scores = x.get("refined_scores", x["scores"]).sigmoid()
         quality = None
         if getattr(self, "quality_head", False) and "quality_logits" in x:
             quality = x["quality_logits"].sigmoid()
@@ -524,6 +742,9 @@ class Detect(nn.Module):
 
     def bias_init(self):
         """Initialize Detect() biases, WARNING: requires stride availability."""
+        def final_conv(module):
+            return module if isinstance(module, nn.Conv2d) else module[-1]
+
         for i, (a, b) in enumerate(zip(self.one2many["box_head"], self.one2many["cls_head"])):  # from
             if isinstance(a, HVDecoupledRegression):
                 for output in (a.horizontal[-1], a.vertical[-1]):
@@ -532,8 +753,8 @@ class Detect(nn.Module):
                 for side in a.sides:
                     side.bias.data[:] = 2.0
             else:
-                a[-1].bias.data[:] = 2.0  # box
-            b[-1].bias.data[: self.nc] = math.log(
+                final_conv(a).bias.data[:] = 2.0  # box
+            final_conv(b).bias.data[: self.nc] = math.log(
                 5 / self.nc / (640 / self.stride[i]) ** 2
             )  # cls (.01 objects, 80 classes, 640 img)
         if getattr(self, "quality_head", False):
@@ -545,8 +766,8 @@ class Detect(nn.Module):
                     for side in a.sides:
                         side.bias.data[:] = 2.0
                 else:
-                    a[-1].bias.data[:] = 2.0  # box
-                b[-1].bias.data[: self.nc] = math.log(
+                    final_conv(a).bias.data[:] = 2.0  # box
+                final_conv(b).bias.data[: self.nc] = math.log(
                     5 / self.nc / (640 / self.stride[i]) ** 2
                 )  # cls (.01 objects, 80 classes, 640 img)
 

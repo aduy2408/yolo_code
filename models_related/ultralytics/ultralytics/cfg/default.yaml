@@ -128,6 +128,19 @@ factorized_tal_s_max: 32.0 # (float) EXPERIMENTAL apply factorized TAL only belo
 factorized_tal_warmup_start: 5 # (int) EXPERIMENTAL epoch before factorized TAL starts
 factorized_tal_warmup_end: 15 # (int) EXPERIMENTAL epoch where factorized TAL reaches full strength
 factorized_tal_p2_only: true # (bool) EXPERIMENTAL apply factorized TAL targets only to P2 positives
+ring_context: false # (bool) EXPERIMENTAL P2 classification-only ring context adapter
+ring_radius: 5 # (int) EXPERIMENTAL ring context annulus radius
+head_share_mode: none # (str) EXPERIMENTAL Detect topology: none, share1, or full
+cls_head_width: 0 # (int) EXPERIMENTAL Detect cls tower width override; 0 keeps default
+cls_head_dense: false # (bool) EXPERIMENTAL use dense Conv3x3 cls tower instead of DW+PW
+ggcf_refine: false # (bool) EXPERIMENTAL P2 Geometry-Guided Candidate Field refinement
+ggcf_geometry: true # (bool) EXPERIMENTAL add coarse-box relative geometry channels to GGCF
+ggcf_patch: 7 # (int) EXPERIMENTAL GGCF local field size
+ggcf_infer_k: 1000 # (int) EXPERIMENTAL top P2 candidates refined at inference
+ggcf_train_k: 256 # (int) EXPERIMENTAL max P2 candidates refined per image during training
+ggcf_hard_bg: 128 # (int) EXPERIMENTAL hard background candidates refined per image during training
+ggcf_assign_refined: false # (bool) EXPERIMENTAL run TAL on GGCF-refined predictions
+ggcf_tal_diagnostics: false # (bool) EXPERIMENTAL collect GGCF coarse/refined TAL summary
 vfl: false # (bool) EXPERIMENTAL use Varifocal Loss with assigned IoU as positive classification target
 vfl_alpha: 0.75 # (float) EXPERIMENTAL Varifocal Loss negative alpha
 vfl_gamma: 2.0 # (float) EXPERIMENTAL Varifocal Loss focusing gamma

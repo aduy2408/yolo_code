@@ -132,6 +132,180 @@ Current interpretation should stay narrower:
 
 > GAP + Factorized TAL is a real observed interaction, but the gain is not fully explained by better `r_i -> IoU` ranking reliability.
 
+## Lambda 1.0 Check
+
+One final Marimo run tested the same winning formula at full blend strength:
+`tau=0.75`, `kappa=1.5`, `lambda=1.0`, GAP P2-only, seed 42, 100 epochs,
+`best.pt`, val/test with explicit NMS `iou=0.5`.
+
+Run path:
+`/marimo/yolo_code/runs/levir_yolov8n_p2_gap_factorized_tal_lambda1/gap_factorized_k15_lambda1/seed_42`.
+The process finished training/evaluation and remained as a zombie; no upload
+manifest was present because it was launched with `--no-upload`.
+
+| Variant | Precision | Recall | AP50 | AP75 | mAP50-95 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| GAP + FTAL k=1.5, lambda=0.5 | 0.8393 | 0.7882 | **0.8283** | 0.1388 | **0.3161** |
+| GAP + FTAL k=1.5, lambda=1.0 | 0.8250 | 0.7585 | 0.7956 | **0.1421** | 0.3107 |
+| Delta lambda=1.0 - lambda=0.5 | -0.0143 | -0.0297 | -0.0327 | +0.0033 | -0.0054 |
+
+Validation for lambda=1.0 was P/R/AP50/AP75/mAP50-95:
+`0.8357 / 0.7928 / 0.8248 / 0.1392 / 0.3314`.
+
+Readout: lambda=1.0 does not pass the detector-level gate. The slight AP75
+increase does not offset the AP50, recall, and mAP50-95 drop. Do not sweep more
+lambda values from this result alone; keep lambda=0.5 as the current setting.
+
+## Target-Mode Checks
+
+Three seed-42 checks tested whether the lambda=1 failure was due to target-mass
+loss, TAL-relative ranking, or unsafe sharpening when TAL and IoU disagree. All
+use the same GAP P2-only config, `tau=0.75`, `kappa=1.5`, `s_max=32`, 100
+epochs, `best.pt`, and explicit NMS `iou=0.5`.
+
+Run path:
+`/marimo/yolo_code/runs/levir_yolov8n_p2_gap_ftal_target_modes`.
+
+HF artifact repo:
+`duyle2408/levir-yolov8n-p2-gap-ftal-target-modes-seed42`.
+
+### Held-Out Test
+
+| Variant | Precision | Recall | AP50 | AP75 | mAP50-95 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| GAP + FTAL k=1.5, lambda=0.5 | 0.8393 | **0.7882** | **0.8283** | **0.1388** | **0.3161** |
+| GAP + FTAL k=1.5, lambda=1.0 | 0.8250 | 0.7585 | 0.7956 | 0.1421 | 0.3107 |
+| Mass-preserving FTAL, lambda=1.0 | **0.8431** | 0.7658 | 0.8144 | 0.1195 | 0.3062 |
+| Geometry-decoupled FTAL, lambda=0.5 | 0.8216 | 0.7739 | 0.8035 | 0.1052 | 0.2941 |
+| Agreement-gated FTAL, lambda=0.5 | 0.8338 | 0.7495 | 0.7981 | 0.1223 | 0.3151 |
+
+### Validation
+
+| Variant | Precision | Recall | AP50 | AP75 | mAP50-95 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| Mass-preserving FTAL, lambda=1.0 | **0.8612** | 0.7776 | 0.8308 | 0.1379 | 0.3304 |
+| Geometry-decoupled FTAL, lambda=0.5 | 0.8209 | 0.7579 | 0.8123 | 0.1182 | 0.3216 |
+| Agreement-gated FTAL, lambda=0.5 | 0.8563 | **0.7843** | **0.8342** | **0.1433** | **0.3330** |
+
+Readout:
+
+- Mass preservation does not rescue the lambda=1 run. It recovers AP50 versus
+  lambda=1 but loses AP75 and mAP50-95 versus the current lambda=0.5 baseline.
+- Geometry-decoupled ranking is worse on every main detector metric.
+- Agreement gating is closest on mAP50-95, but it still loses AP50, AP75, and
+  recall versus the current baseline.
+
+Decision: keep GAP + FTAL k=1.5 lambda=0.5 as the baseline. Do not promote
+`mass_preserve`, `geometry`, or `agreement_gate` from this seed.
+
+## Shared / Late-Decoupled Detect Head Check
+
+This run tested whether the GAP + FTAL gain depends on forcing classification
+and regression to share more late head computation. No new context, gate,
+descriptor, residual verifier, or loss change was added.
+
+Protocol:
+
+- Base: GAP + FTAL k=1.5, lambda=0.5.
+- Dataset: LEVIR-Ship fixed split seed 42.
+- Train: seed 42, 100 epochs, `imgsz=512`, batch 8.
+- Eval: `best.pt`, val/test, explicit NMS `iou=0.5`.
+- Run path: `/marimo/yolo_code/runs/levir_yolov8n_p2_gap_ftal_shared_head`.
+- HF artifact repo: `duyle2408/levir-yolov8n-p2-gap-ftal-shared-head-seed42`.
+
+Variants:
+
+| Variant | Head topology |
+| :--- | :--- |
+| `gap_ftal_decoupled` | current YOLOv8-style separate box and cls towers |
+| `gap_ftal_share1` | one shared 3x3 block, then separate box/cls blocks |
+| `gap_ftal_fully_shared` | two shared 3x3 blocks, then final box/cls predictors |
+
+### Held-Out Test
+
+| Variant | Precision | Recall | AP50 | AP75 | mAP50-95 | Params |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gap_ftal_decoupled` | **0.8393** | **0.7882** | **0.8283** | **0.1388** | **0.3161** | 1.60M |
+| `gap_ftal_share1` | 0.7647 | 0.7126 | 0.7420 | 0.0985 | 0.2730 | 1.62M |
+| `gap_ftal_fully_shared` | 0.8083 | 0.7471 | 0.7846 | 0.0948 | 0.2863 | 1.58M |
+
+### Validation
+
+| Variant | Precision | Recall | AP50 | AP75 | mAP50-95 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| `gap_ftal_decoupled` | **0.8605** | **0.7743** | **0.8361** | **0.1515** | **0.3338** |
+| `gap_ftal_share1` | 0.8429 | 0.7428 | 0.8198 | 0.1255 | 0.3149 |
+| `gap_ftal_fully_shared` | 0.8446 | 0.7655 | 0.8180 | 0.1236 | 0.3100 |
+
+Decision gate:
+
+- `share1` fails: test mAP50-95 drops `0.3161 -> 0.2730`, AP75 drops
+  `0.1388 -> 0.0985`, recall drops `0.7882 -> 0.7126`.
+- `fully_shared` fails: test mAP50-95 drops `0.3161 -> 0.2863`, AP75 drops
+  `0.1388 -> 0.0948`, recall drops `0.7882 -> 0.7471`.
+
+Readout: late sharing is not a useful topology change for the current
+GAP+FTAL recipe. The standard decoupled Detect head remains the reference.
+This closes the shared-head line for now; if continuing the subtractive
+architecture direction, the cleaner next test is learned low-rank P2
+compression before Detect, not another head-sharing variant.
+
+## Classifier-Capacity Detect Head Check
+
+This run tested a narrower explanation for the failed shared-head result:
+the default Detect head may be asymmetric because the regression tower uses
+width 64 from `4 * reg_max`, while the one-class classification tower can be
+only width 32. Regression depth and semantics were unchanged; only classifier
+capacity was changed.
+
+Protocol:
+
+- Base: GAP + FTAL k=1.5, lambda=0.5.
+- Dataset: LEVIR-Ship fixed split seed 42.
+- Train: seed 42, 100 epochs, `imgsz=512`, batch 8.
+- Eval: `best.pt`, val/test, explicit NMS `iou=0.5`.
+- Run path: `/marimo/yolo_code/runs/levir_yolov8n_p2_gap_ftal_cls_capacity`.
+- HF artifact repo: `duyle2408/levir-yolov8n-p2-gap-ftal-cls-capacity-seed42`.
+
+Variants:
+
+| Variant | Head topology |
+| :--- | :--- |
+| `gap_ftal_decoupled` | current reference Detect head |
+| `gap_ftal_reg64_cls64_dw` | keep regression tower width 64; set cls tower width 64 with DW+PW blocks |
+| `gap_ftal_reg64_cls64_fullconv` | keep regression tower width 64; set cls tower width 64 with dense Conv3x3 blocks |
+
+### Held-Out Test
+
+| Variant | Precision | Recall | AP50 | AP75 | mAP50-95 | Params |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `gap_ftal_decoupled` | **0.8393** | **0.7882** | **0.8283** | **0.1388** | **0.3161** | 1.60M |
+| `gap_ftal_reg64_cls64_dw` | 0.8306 | 0.7701 | 0.7945 | 0.1136 | 0.2922 | 1.59M |
+| `gap_ftal_reg64_cls64_fullconv` | 0.8108 | 0.7513 | 0.7924 | 0.1092 | 0.2918 | 1.64M |
+
+### Validation
+
+| Variant | Precision | Recall | AP50 | AP75 | mAP50-95 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| `gap_ftal_decoupled` | 0.8605 | 0.7743 | **0.8361** | **0.1515** | 0.3338 |
+| `gap_ftal_reg64_cls64_dw` | **0.8606** | **0.7845** | 0.8337 | 0.1494 | **0.3347** |
+| `gap_ftal_reg64_cls64_fullconv` | 0.8530 | 0.7458 | 0.8291 | 0.1439 | 0.3219 |
+
+Decision gate:
+
+- `cls64-DW` looks harmless or slightly better on validation mAP50-95
+  (`0.3338 -> 0.3347`) but fails on held-out test: AP50 drops
+  `0.8283 -> 0.7945`, AP75 drops `0.1388 -> 0.1136`, and mAP50-95 drops
+  `0.3161 -> 0.2922`.
+- `cls64-fullConv` also fails on held-out test: AP50 drops
+  `0.8283 -> 0.7924`, AP75 drops `0.1388 -> 0.1092`, and mAP50-95 drops
+  `0.3161 -> 0.2918`.
+
+Readout: simply increasing the one-class classification tower capacity does
+not solve the GAP+FTAL classification/ranking bottleneck, and dense Conv3x3
+classification is worse than the DW+PW width-64 control. The current Detect
+classifier width/separability is not the next useful architecture lever.
+
 ## Decision
 
 Factorized TAL k=1.5 passes the main detector-level gate:
@@ -175,4 +349,4 @@ The TAL ranking reliability diagnostic completed on Marimo:
 - `/marimo/yolo_code/runs/levir_yolov8n_p2_gap_factorized_tal/tal_r_iou_reliability/tal_r_iou_reliability_per_gt.csv`
 - `/marimo/yolo_code/runs/levir_yolov8n_p2_gap_factorized_tal/tal_r_iou_reliability/tal_r_iou_reliability_summary.json`
 
-Do not run k=2.5/3.0 or k=1.25. Because plain P2 + Factorized TAL does not improve mAP/AP75, do not claim a general TAL loss method yet. The next useful direction is diagnosing the GAP ↔ TAL interaction.
+Do not run k=2.5/3.0 or k=1.25. Because plain P2 + Factorized TAL does not improve mAP/AP75, do not claim a general TAL loss method yet. The shared-head and classifier-capacity checks both failed, so do not pursue more Detect-head topology or width variants without a new diagnostic reason.

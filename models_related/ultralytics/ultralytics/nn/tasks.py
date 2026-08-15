@@ -2188,6 +2188,15 @@ def parse_model(d, ch, verbose=True):
     box_detail_gate = d.get("box_detail_gate", True)
     p2_offset_regression = d.get("p2_offset_regression", False)
     p1_reg_injection = d.get("p1_reg_injection", False)
+    ring_context = d.get("ring_context", False)
+    ring_radius = d.get("ring_radius", 5)
+    head_share_mode = d.get("head_share_mode", "none")
+    cls_head_width = d.get("cls_head_width", 0)
+    cls_head_dense = d.get("cls_head_dense", False)
+    ggcf_refine = d.get("ggcf_refine", False)
+    ggcf_geometry = d.get("ggcf_geometry", True)
+    ggcf_patch = d.get("ggcf_patch", 7)
+    ggcf_infer_k = d.get("ggcf_infer_k", 1000)
     depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
     scale = d.get("scale")
     if scales:
@@ -2432,9 +2441,14 @@ def parse_model(d, ch, verbose=True):
                         box_detail_kernel,
                         box_detail_gate,
                         p2_offset_regression,
-                        p1_reg_injection,
-                    ]
-                )
+                            p1_reg_injection,
+                            ring_context,
+                            ring_radius,
+                            "none",
+                            0,
+                            False,
+                        ]
+                    )
                 args.append(attn_type)
             else:
                 args.extend([reg_max, end2end, [ch[x] for x in f]])
@@ -2458,6 +2472,15 @@ def parse_model(d, ch, verbose=True):
                             box_detail_gate,
                             p2_offset_regression,
                             p1_reg_injection,
+                            ring_context,
+                            ring_radius,
+                            head_share_mode if m is Detect else "none",
+                            cls_head_width if m is Detect else 0,
+                            cls_head_dense if m is Detect else False,
+                            ggcf_refine if m is Detect else False,
+                            ggcf_geometry if m is Detect else True,
+                            ggcf_patch if m is Detect else 7,
+                            ggcf_infer_k if m is Detect else 1000,
                         ]
                     )
             if m is Segment or m is YOLOESegment or m is Segment26 or m is YOLOESegment26:

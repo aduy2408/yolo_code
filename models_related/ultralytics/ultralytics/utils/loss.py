@@ -986,6 +986,12 @@ class v8DetectionLoss:
         self.loc_assign_center_radius = float(getattr(h, "loc_assign_center_radius", 2.5))
         self.loc_assign_weight = float(getattr(h, "loc_assign_weight", 0.5))
         self.detect_head = m
+        self.ggcf_refine = bool(getattr(m, "ggcf_refine", False))
+        self.ggcf_train_k = int(getattr(h, "ggcf_train_k", 256))
+        self.ggcf_hard_bg = int(getattr(h, "ggcf_hard_bg", 128))
+        self.ggcf_assign_refined = bool(getattr(h, "ggcf_assign_refined", False))
+        self.ggcf_tal_diagnostics = bool(getattr(h, "ggcf_tal_diagnostics", False))
+        self.ggcf_tal_metrics = {}
         self.box_consensus_gain = float(getattr(h, "box_consensus_gain", 0.0))
         self.box_consensus_warmup_start = int(getattr(h, "box_consensus_warmup_start", 5))
         self.box_consensus_warmup_end = int(getattr(h, "box_consensus_warmup_end", 15))
@@ -1044,6 +1050,38 @@ class v8DetectionLoss:
             within_idx = torch.arange(nl, device=self.device) - offsets[batch_idx]
             out[batch_idx, within_idx] = targets[:, 1:]
             out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor))
+        return out
+
+    def ggcf_candidate_indices(
+        self,
+        anchor_points: torch.Tensor,
+        stride_tensor: torch.Tensor,
+        coarse_scores: torch.Tensor,
+        gt_bboxes: torch.Tensor,
+        mask_gt: torch.Tensor,
+        n_p2: int,
+    ) -> torch.Tensor:
+        """Select inside-GT P2 anchors plus high-score hard background anchors."""
+        k_total = min(max(self.ggcf_train_k, 1), n_p2)
+        out = torch.zeros((coarse_scores.shape[0], k_total), device=self.device, dtype=torch.long)
+        p2_points = anchor_points[:n_p2] * stride_tensor[:n_p2]
+        p2_score = coarse_scores[:, :n_p2].detach().sigmoid().amax(-1)
+        for b in range(coarse_scores.shape[0]):
+            valid = mask_gt[b, :, 0]
+            inside = torch.zeros(n_p2, device=self.device, dtype=torch.bool)
+            if valid.any():
+                boxes = gt_bboxes[b, valid]
+                x, y = p2_points[:, 0:1], p2_points[:, 1:2]
+                inside = ((x >= boxes[:, 0]) & (x <= boxes[:, 2]) & (y >= boxes[:, 1]) & (y <= boxes[:, 3])).any(1)
+            selected = inside.nonzero(as_tuple=False).flatten()
+            hard_pool = torch.where(inside, p2_score[b].new_full((n_p2,), -1.0), p2_score[b])
+            hard_k = min(self.ggcf_hard_bg, max(k_total - selected.numel(), 0), n_p2)
+            if hard_k:
+                selected = torch.cat((selected, hard_pool.topk(hard_k).indices))
+            if selected.numel() < k_total:
+                filler = p2_score[b].topk(k_total).indices
+                selected = torch.cat((selected, filler))
+            out[b] = selected[:k_total]
         return out
 
     def positive_confidence_rescue_loss(
@@ -1735,7 +1773,7 @@ class v8DetectionLoss:
             + int(self.p2_detail_rec_gain > 0),
             device=self.device,
         )  # box, cls, dfl[, boundary][, loc_quality][, quality][, rank][, psd][, dgfe_rec][, dgfe_spatial][, p2_detail]
-        pred_distri, pred_scores = (
+        pred_distri, coarse_scores = (
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
         )
@@ -1743,8 +1781,8 @@ class v8DetectionLoss:
         pred_residual = pred_residual.permute(0, 2, 1).contiguous() if pred_residual is not None else None
         anchor_points, stride_tensor = make_anchors(preds["feats"], self.stride, 0.5)
 
-        dtype = pred_scores.dtype
-        batch_size = pred_scores.shape[0]
+        dtype = coarse_scores.dtype
+        batch_size = coarse_scores.shape[0]
         imgsz = torch.tensor(preds["feats"][0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
 
         # Targets
@@ -1754,18 +1792,57 @@ class v8DetectionLoss:
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
 
         # Pboxes
-        pred_bboxes = self.bbox_decode(anchor_points, pred_distri, pred_residual, stride_tensor)  # xyxy
+        coarse_bboxes = self.bbox_decode(anchor_points, pred_distri, pred_residual, stride_tensor)  # xyxy
+        n_p2 = math.prod(preds["feats"][0].shape[2:])
+        pred_scores, pred_bboxes = coarse_scores, coarse_bboxes
+        if self.ggcf_refine:
+            ggcf_indices = self.ggcf_candidate_indices(anchor_points, stride_tensor, coarse_scores, gt_bboxes, mask_gt, n_p2)
+            refined = self.detect_head.ggcf_refine_candidates(
+                preds["feats"][0],
+                coarse_bboxes,
+                coarse_scores,
+                ggcf_indices,
+            )
+            pred_bboxes, pred_scores = refined["bboxes"], refined["scores"]
+            preds["ggcf_indices"] = ggcf_indices.detach()
+        assign_scores = pred_scores if self.ggcf_assign_refined else coarse_scores
+        assign_bboxes = pred_bboxes if self.ggcf_assign_refined else coarse_bboxes
 
         _, target_bboxes, target_scores, fg_mask, target_gt_idx = self.assigner(
-            pred_scores.detach().sigmoid(),
-            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+            assign_scores.detach().sigmoid(),
+            (assign_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
             anchor_points * stride_tensor,
             gt_labels,
             gt_bboxes,
             mask_gt,
         )
         fg_mask = fg_mask.bool()
-        n_p2 = math.prod(preds["feats"][0].shape[2:])
+        self.ggcf_tal_metrics = {}
+        if self.ggcf_tal_diagnostics and self.ggcf_refine:
+            with torch.no_grad():
+                _, _, _, fg0, _ = self.assigner(
+                    coarse_scores.detach().sigmoid(),
+                    (coarse_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+                    anchor_points * stride_tensor,
+                    gt_labels,
+                    gt_bboxes,
+                    mask_gt,
+                )
+                _, _, _, fg1, _ = self.assigner(
+                    pred_scores.detach().sigmoid(),
+                    (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+                    anchor_points * stride_tensor,
+                    gt_labels,
+                    gt_bboxes,
+                    mask_gt,
+                )
+                inter = (fg0 & fg1).sum().float()
+                union = (fg0 | fg1).sum().float().clamp_min(1)
+                self.ggcf_tal_metrics = {
+                    "ggcf_p0": float(fg0.sum().item()),
+                    "ggcf_p1": float(fg1.sum().item()),
+                    "ggcf_positive_jaccard": float((inter / union).item()),
+                }
         self.dbss_assignment_context = {
             "p2_fg_mask": fg_mask[:, :n_p2].detach(),
             "p2_target_scores": target_scores[:, :n_p2].detach(),

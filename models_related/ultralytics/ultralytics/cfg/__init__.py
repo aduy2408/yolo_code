@@ -306,6 +306,11 @@ CFG_INT_KEYS = frozenset(
         "factorized_support_topk",
         "hf_atten_blur_kernel",
         "hf_atten_mask_grid",
+        "ring_radius",
+        "ggcf_patch",
+        "ggcf_infer_k",
+        "ggcf_train_k",
+        "ggcf_hard_bg",
     }
 )
 CFG_BOOL_KEYS = frozenset(
@@ -337,6 +342,11 @@ CFG_BOOL_KEYS = frozenset(
         "scale_temper_p2_only",
         "factorized_tal_target",
         "factorized_tal_p2_only",
+        "ring_context",
+        "ggcf_refine",
+        "ggcf_geometry",
+        "ggcf_assign_refined",
+        "ggcf_tal_diagnostics",
         "box_voting",
         "wiou_monotonous",
         "single_cls",

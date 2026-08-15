@@ -99,9 +99,15 @@ Upload phải retry lỗi mạng ít nhất 3 lần. Khi restart, runner đượ
 
 ## 4. Giám sát tiến trình
 
-Theo dõi log thời gian thực:
+Sau khi launch detached, chỉ kiểm tra ngắn để xác nhận PID còn sống và log đã bắt đầu ghi. Không poll/tail log dài liên tục vì rất tốn token.
+
+Nếu cần chắc hơn, chỉ poll tối đa đến sau **1 epoch train + validation** đầu tiên rồi dừng. Từ đó để runner tự chạy; nếu có lỗi hoặc cần đọc log sâu, người dùng sẽ báo.
+
+Ví dụ kiểm tra ngắn:
 ```bash
-tail -f /marimo/yolo_code/runs/levir_ship_baselines/train_all.log
+pid=$(cat /marimo/yolo_code/runs/levir_ship_baselines/train_all.pid)
+ps -o pid,stat,etime,cmd -p "$pid"
+tail -80 /marimo/yolo_code/runs/levir_ship_baselines/train_all.log
 ```
 
 Chỉ báo một run hoàn tất khi đồng thời có clean exit, train artifacts, val/test evaluation, config/manifest và remote HF verification. Không kết luận hoàn tất từ PID, toast, `best.pt`, metric một split hoặc marker upload đơn lẻ.
