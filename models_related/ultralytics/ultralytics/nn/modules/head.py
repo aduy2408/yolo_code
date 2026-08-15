@@ -636,8 +636,8 @@ class Detect(nn.Module):
         c1y = cy + bh0 * dy
         w1 = bw0 * dw.exp()
         h1 = bh0 * dh.exp()
-        refined_selected = torch.stack((c1x - w1 * 0.5, c1y - h1 * 0.5, c1x + w1 * 0.5, c1y + h1 * 0.5), dim=-1)
-        selected_scores = coarse_scores.gather(1, indices[..., None].expand(-1, -1, self.nc)) + cls_delta
+        refined_selected = torch.stack((c1x - w1 * 0.5, c1y - h1 * 0.5, c1x + w1 * 0.5, c1y + h1 * 0.5), dim=-1).to(dtype=coarse_bboxes.dtype)
+        selected_scores = coarse_scores.gather(1, indices[..., None].expand(-1, -1, self.nc)) + cls_delta.to(dtype=coarse_scores.dtype)
         refined_bboxes = coarse_bboxes.scatter(1, indices[..., None].expand(-1, -1, 4), refined_selected)
         refined_scores = coarse_scores.scatter(1, indices[..., None].expand(-1, -1, self.nc), selected_scores)
         return {"bboxes": refined_bboxes, "scores": refined_scores}
