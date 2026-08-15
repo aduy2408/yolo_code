@@ -65,6 +65,7 @@ def test_invalid_mode_and_runner_defaults():
 
     args = train.parse_args()
     assert args.variants == [
+        "gap_ftal_mass_preserve_l05",
         "gap_ftal_mass_preserve_l1",
         "gap_ftal_geometry_l05",
         "gap_ftal_agreement_gate_l05",

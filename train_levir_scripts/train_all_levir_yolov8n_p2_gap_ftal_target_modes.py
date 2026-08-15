@@ -19,6 +19,7 @@ CONFIG_ROOT = ROOT.parent / "models_related/models_config/yolov8/levir"
 workflow.EXPERIMENT = "levir_yolov8n_p2_gap_ftal_target_modes"
 workflow.HF_REPO = "duyle2408/levir-yolov8n-p2-gap-ftal-target-modes-seed42"
 workflow.VARIANTS = {
+    "gap_ftal_mass_preserve_l05": CONFIG_ROOT / "yolov8n_p2_fpn_only_cbam_channel_only.yaml",
     "gap_ftal_mass_preserve_l1": CONFIG_ROOT / "yolov8n_p2_fpn_only_cbam_channel_only.yaml",
     "gap_ftal_geometry_l05": CONFIG_ROOT / "yolov8n_p2_fpn_only_cbam_channel_only.yaml",
     "gap_ftal_agreement_gate_l05": CONFIG_ROOT / "yolov8n_p2_fpn_only_cbam_channel_only.yaml",
@@ -29,6 +30,7 @@ _BASE_MODEL_FOR = workflow.model_for
 _BASE_SMOKE = workflow.smoke
 
 MODES = {
+    "gap_ftal_mass_preserve_l05": ("mass_preserve", 0.5),
     "gap_ftal_mass_preserve_l1": ("mass_preserve", 1.0),
     "gap_ftal_geometry_l05": ("geometry", 0.5),
     "gap_ftal_agreement_gate_l05": ("agreement_gate", 0.5),
