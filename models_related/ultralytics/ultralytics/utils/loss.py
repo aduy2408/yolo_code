@@ -1074,13 +1074,19 @@ class v8DetectionLoss:
                 x, y = p2_points[:, 0:1], p2_points[:, 1:2]
                 inside = ((x >= boxes[:, 0]) & (x <= boxes[:, 2]) & (y >= boxes[:, 1]) & (y <= boxes[:, 3])).any(1)
             selected = inside.nonzero(as_tuple=False).flatten()
+            if selected.numel() > k_total:
+                selected_scores = p2_score[b, selected]
+                selected = selected[selected_scores.topk(k_total).indices]
             hard_pool = torch.where(inside, p2_score[b].new_full((n_p2,), -1.0), p2_score[b])
             hard_k = min(self.ggcf_hard_bg, max(k_total - selected.numel(), 0), n_p2)
             if hard_k:
                 selected = torch.cat((selected, hard_pool.topk(hard_k).indices))
             if selected.numel() < k_total:
-                filler = p2_score[b].topk(k_total).indices
-                selected = torch.cat((selected, filler))
+                available = torch.ones(n_p2, device=self.device, dtype=torch.bool)
+                available[selected] = False
+                filler_pool = torch.where(available, p2_score[b], p2_score[b].new_full((n_p2,), -1.0))
+                filler_k = k_total - selected.numel()
+                selected = torch.cat((selected, filler_pool.topk(filler_k).indices))
             out[b] = selected[:k_total]
         return out
 
@@ -1820,7 +1826,7 @@ class v8DetectionLoss:
         self.ggcf_tal_metrics = {}
         if self.ggcf_tal_diagnostics and self.ggcf_refine:
             with torch.no_grad():
-                _, _, _, fg0, _ = self.assigner(
+                _, target_bboxes0, _, fg0, _ = self.assigner(
                     coarse_scores.detach().sigmoid(),
                     (coarse_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
                     anchor_points * stride_tensor,
@@ -1828,7 +1834,7 @@ class v8DetectionLoss:
                     gt_bboxes,
                     mask_gt,
                 )
-                _, _, _, fg1, _ = self.assigner(
+                _, target_bboxes1, _, fg1, _ = self.assigner(
                     pred_scores.detach().sigmoid(),
                     (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
                     anchor_points * stride_tensor,
@@ -1840,10 +1846,62 @@ class v8DetectionLoss:
                 fg1_bool = fg1.bool()
                 inter = (fg0_bool & fg1_bool).sum().float()
                 union = (fg0_bool | fg1_bool).sum().float().clamp_min(1)
+                
+                iou_max_coarse_list = []
+                iou_max_refined_list = []
+                mean_iou_pos_coarse = []
+                max_iou_pos_coarse = []
+                mean_iou_pos_refined = []
+                max_iou_pos_refined = []
+                rescue_count = 0
+
+                for b in range(batch_size):
+                    valid_gts = gt_bboxes[b, mask_gt[b, :, 0].to(torch.bool)]
+                    if valid_gts.numel() == 0:
+                        continue
+                    
+                    c_ious = []
+                    r_ious = []
+                    for g_idx in range(valid_gts.shape[0]):
+                        gt_single = valid_gts[g_idx].unsqueeze(0)
+                        c_ious.append(bbox_iou(coarse_bboxes[b] * stride_tensor, gt_single, xywh=False, CIoU=False).squeeze(-1))
+                        r_ious.append(bbox_iou(pred_bboxes[b] * stride_tensor, gt_single, xywh=False, CIoU=False).squeeze(-1))
+                    
+                    c_ious = torch.stack(c_ious, dim=1)
+                    r_ious = torch.stack(r_ious, dim=1)
+                    
+                    max_c_iou_per_gt, _ = c_ious.max(dim=0)
+                    max_r_iou_per_gt, _ = r_ious.max(dim=0)
+                    
+                    iou_max_coarse_list.append(max_c_iou_per_gt.max().item() if max_c_iou_per_gt.numel() > 0 else 0.0)
+                    iou_max_refined_list.append(max_r_iou_per_gt.max().item() if max_r_iou_per_gt.numel() > 0 else 0.0)
+                    
+                    pos_idx0 = fg0_bool[b]
+                    if pos_idx0.any():
+                        pos_c_ious = bbox_iou(coarse_bboxes[b, pos_idx0] * stride_tensor[pos_idx0], target_bboxes0[b, pos_idx0], xywh=False, CIoU=False).squeeze(-1)
+                        mean_iou_pos_coarse.append(pos_c_ious.mean().item())
+                        max_iou_pos_coarse.append(pos_c_ious.max().item())
+                    
+                    pos_idx1 = fg1_bool[b]
+                    if pos_idx1.any():
+                        pos_r_ious = bbox_iou(pred_bboxes[b, pos_idx1] * stride_tensor[pos_idx1], target_bboxes1[b, pos_idx1], xywh=False, CIoU=False).squeeze(-1)
+                        mean_iou_pos_refined.append(pos_r_ious.mean().item())
+                        max_iou_pos_refined.append(pos_r_ious.max().item())
+                        
+                        pos_c_ious_for_r = bbox_iou(coarse_bboxes[b, pos_idx1] * stride_tensor[pos_idx1], target_bboxes1[b, pos_idx1], xywh=False, CIoU=False).squeeze(-1)
+                        rescue_count += ((pos_c_ious_for_r < 0.5) & (pos_r_ious >= 0.5)).sum().item()
+
                 self.ggcf_tal_metrics = {
                     "ggcf_p0": float(fg0.sum().item()),
                     "ggcf_p1": float(fg1.sum().item()),
                     "ggcf_positive_jaccard": float((inter / union).item()),
+                    "ggcf_iou_max_coarse": float(sum(iou_max_coarse_list) / max(len(iou_max_coarse_list), 1)),
+                    "ggcf_iou_max_refined": float(sum(iou_max_refined_list) / max(len(iou_max_refined_list), 1)),
+                    "ggcf_mean_iou_pos_coarse": float(sum(mean_iou_pos_coarse) / max(len(mean_iou_pos_coarse), 1)),
+                    "ggcf_max_iou_pos_coarse": float(sum(max_iou_pos_coarse) / max(len(max_iou_pos_coarse), 1)),
+                    "ggcf_mean_iou_pos_refined": float(sum(mean_iou_pos_refined) / max(len(mean_iou_pos_refined), 1)),
+                    "ggcf_max_iou_pos_refined": float(sum(max_iou_pos_refined) / max(len(max_iou_pos_refined), 1)),
+                    "ggcf_rescue_count": float(rescue_count),
                 }
         self.dbss_assignment_context = {
             "p2_fg_mask": fg_mask[:, :n_p2].detach(),
@@ -1940,7 +1998,7 @@ class v8DetectionLoss:
             cls_target_scores = self.scale_tempered_cls_targets(target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2)
         elif self.factorized_tal_target:
             cls_target_scores = self.factorized_tal_cls_targets(
-                target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2, pred_bboxes, stride_tensor
+                target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2, assign_bboxes, stride_tensor
             )
         assigned_iou = None
         # Use the same coordinate scale as bbox loss. If target_bboxes has already been divided by stride_tensor,

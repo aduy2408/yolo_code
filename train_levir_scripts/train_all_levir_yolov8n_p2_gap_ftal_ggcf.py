@@ -69,7 +69,6 @@ def model_for(variant: str, pretrained: str):
     if head.stride.tolist() != [4.0] or head.nl != 1 or not head.ggcf_refine:
         raise ValueError(f"{variant}: expected P2-only GGCF Detect stride [4], got {head.stride.tolist()}")
     head.ggcf_geometry = variant not in {"G1_field_only", "G5_field_only_refined_assign"}
-    head.ggcf_encoder.geometry = head.ggcf_geometry
     return model
 
 

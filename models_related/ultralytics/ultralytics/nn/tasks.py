@@ -693,6 +693,7 @@ class BaseModel(torch.nn.Module):
         diagnostics.update(getattr(self.criterion, "consensus_metrics", {}))
         diagnostics.update(getattr(self.criterion, "psd_metrics", {}))
         diagnostics.update(getattr(self.criterion, "support_metrics", {}))
+        diagnostics.update(getattr(self.criterion, "ggcf_tal_metrics", {}))
         assignment_context = getattr(self.criterion, "dbss_assignment_context", None)
         self.criterion.dbss_assignment_context = None
         for module in self.modules():

@@ -349,7 +349,7 @@ class Detect(nn.Module):
             RingContextCls(x, self.ring_radius) if self.ring_context and i == 0 else nn.Identity()
             for i, x in enumerate(ch_detect)
         )
-        self.ggcf_encoder = GGCFEncoder(ch_detect[0], self.nc, self.ggcf_geometry) if self.ggcf_refine else None
+        self.ggcf_encoder = GGCFEncoder(ch_detect[0], self.nc, True) if self.ggcf_refine else None
         if self.cls_geometry_fuse:
             cls_channels = [m[-1].in_channels for m in self.cv3]
             self.cls_geometry_embed = nn.ModuleList(nn.Conv2d(4, c, 1) for c in cls_channels)
@@ -617,13 +617,17 @@ class Detect(nn.Module):
         guide = selected_boxes.detach()
         bw = (guide[..., 2] - guide[..., 0]).clamp_min(1e-3)
         bh = (guide[..., 3] - guide[..., 1]).clamp_min(1e-3)
-        if encoder.geometry:
-            gl = (xs - guide[..., 0, None, None]) / bw[..., None, None]
-            gr = (guide[..., 2, None, None] - xs) / bw[..., None, None]
-            gt = (ys - guide[..., 1, None, None]) / bh[..., None, None]
-            gb = (guide[..., 3, None, None] - ys) / bh[..., None, None]
+        if self.ggcf_geometry:
+            gx = xs + 0.5
+            gy = ys + 0.5
+            gl = (gx - guide[..., 0, None, None]) / bw[..., None, None]
+            gr = (guide[..., 2, None, None] - gx) / bw[..., None, None]
+            gt = (gy - guide[..., 1, None, None]) / bh[..., None, None]
+            gb = (guide[..., 3, None, None] - gy) / bh[..., None, None]
             geom = torch.stack((gl, gr, gt, gb), dim=2)
-            z = torch.cat((z, geom.to(dtype=z.dtype)), dim=2)
+        else:
+            geom = torch.zeros((b, k, 4, self.ggcf_patch, self.ggcf_patch), device=feature.device, dtype=z.dtype)
+        z = torch.cat((z, geom.to(dtype=z.dtype)), dim=2)
         box_delta, cls_delta = encoder(z.reshape(b * k, z.shape[2], self.ggcf_patch, self.ggcf_patch))
         box_delta = 0.25 * box_delta.tanh().view(b, k, 4)
         cls_delta = cls_delta.view(b, k, self.nc)
