@@ -2494,6 +2494,9 @@ class v8DetectionLoss:
         if self.p2_detail_rec_gain > 0:
             loss[dgfe_idx] = self._p2_detail_reconstruction_loss(preds) * self.p2_detail_rec_gain
             self.p2_detail_metrics["p2_detail_applied_loss"] = float(loss[dgfe_idx].detach().item())
+        self.last_cls_target_scores = cls_target_scores
+        self.last_cls_target_scores_sum = cls_target_scores_sum
+        self.last_cls_weights = cls_weights
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,
@@ -2627,7 +2630,8 @@ class v8DetectionLoss:
                 loss_detach = loss_detach.clone()
                 loss_detach[1] = loss_detach[1] + lambda_r * restraint_loss.item()
                 
-        if "aux_logits" in preds:
+        verifier = getattr(self.model.model[-1], "verifier", None)
+        if verifier is not None:
             n_p2 = math.prod(preds["feats"][0].shape[2:])
             anchor_points, stride_tensor = make_anchors(preds["feats"], self.stride, 0.5)
             
@@ -2643,28 +2647,92 @@ class v8DetectionLoss:
             pboxes_p2 = pboxes_px[:, :n_p2]
             tboxes_p2 = tboxes_px[:, :n_p2]
             
-            dtype = preds["aux_logits"].dtype
-            t_i = torch.zeros((batch_size, n_p2), device=self.device, dtype=dtype)
-            if fg_mask_p2.any():
-                ious = bbox_iou(pboxes_p2[fg_mask_p2], tboxes_p2[fg_mask_p2], xywh=False, CIoU=False)
-                t_i[fg_mask_p2] = ious.clamp(min=0.0, max=1.0)
-                
-            T_i = torch.zeros((batch_size, n_p2, self.nc), device=self.device, dtype=dtype)
-            if fg_mask_p2.any():
-                target_scores_p2 = self.last_target_scores[:, :n_p2]
-                class_idx = target_scores_p2.argmax(dim=-1)
-                T_i.scatter_(2, class_idx.unsqueeze(-1), t_i.unsqueeze(-1))
-                
-            aux_logits = preds["aux_logits"].permute(0, 2, 1).contiguous()
-            target_scores_sum = max(self.last_target_scores.sum(), 1.0)
+            rois_list = []
+            sel_indices_list = []
             
-            loss_aux = self.bce(aux_logits, T_i).sum() / target_scores_sum
+            coarse_scores = preds["scores"].permute(0, 2, 1).contiguous()
+            p2_raw_logits = coarse_scores[:, :n_p2]
+            p2_scores = p2_raw_logits.sigmoid().max(dim=-1)[0]
             
-            verifier_loss_gain = getattr(self.model.model[-1], "verifier_loss_gain", 0.5)
-            applied_aux = loss_aux * verifier_loss_gain
-            loss[1] = loss[1] + applied_aux
-            loss_detach = loss_detach.clone()
-            loss_detach[1] = loss_detach[1] + applied_aux.detach().item()
+            for img_idx in range(batch_size):
+                pos_mask_b = fg_mask_p2[img_idx]
+                pos_indices = pos_mask_b.nonzero(as_tuple=True)[0]
+                
+                neg_mask_b = ~pos_mask_b
+                neg_indices = neg_mask_b.nonzero(as_tuple=True)[0]
+                
+                num_pos = pos_indices.shape[0]
+                num_neg = max(32, min(int(3 * num_pos), 256))
+                
+                if neg_indices.shape[0] > 0:
+                    neg_scores_b = p2_scores[img_idx, neg_indices]
+                    top_neg_sub_indices = torch.topk(neg_scores_b, k=min(num_neg, neg_indices.shape[0]), largest=True)[1]
+                    sel_neg_indices = neg_indices[top_neg_sub_indices]
+                else:
+                    sel_neg_indices = neg_indices.new_zeros(0)
+                    
+                sel_idx_b = torch.cat([pos_indices, sel_neg_indices])
+                sel_indices_list.append((img_idx, sel_idx_b))
+                
+                img_boxes = pboxes_p2[img_idx, sel_idx_b] / self.stride[0]
+                img_batch_idx = torch.full((img_boxes.shape[0], 1), img_idx, device=self.device, dtype=img_boxes.dtype)
+                rois_b = torch.cat([img_batch_idx, img_boxes], dim=1)
+                rois_list.append(rois_b)
+                
+            rois = torch.cat(rois_list, dim=0)
+            
+            if rois.shape[0] > 0:
+                delta_z_sel = verifier(preds["feats"][0], rois)
+                delta_z_full = torch.zeros_like(p2_raw_logits)
+                
+                dtype = delta_z_sel.dtype
+                T_i_sel = torch.zeros((rois.shape[0], self.nc), device=self.device, dtype=dtype)
+                
+                curr_sel_idx = 0
+                for img_idx, sel_idx_b in sel_indices_list:
+                    num_sel = sel_idx_b.shape[0]
+                    if num_sel == 0:
+                        continue
+                        
+                    delta_z_full[img_idx, sel_idx_b] = delta_z_sel[curr_sel_idx : curr_sel_idx + num_sel]
+                    
+                    pos_mask_b = fg_mask_p2[img_idx]
+                    target_scores_b = self.last_target_scores[img_idx, :n_p2]
+                    
+                    for i_sel, anchor_idx in enumerate(sel_idx_b.tolist()):
+                        if pos_mask_b[anchor_idx]:
+                            cls_idx = target_scores_b[anchor_idx].argmax(dim=-1)
+                            pbox = pboxes_p2[img_idx, anchor_idx].unsqueeze(0)
+                            tbox = tboxes_p2[img_idx, anchor_idx].unsqueeze(0)
+                            iou = bbox_iou(pbox, tbox, xywh=False, CIoU=False).clamp(min=0.0, max=1.0)
+                            T_i_sel[curr_sel_idx + i_sel, cls_idx] = iou.squeeze()
+                            
+                    curr_sel_idx += num_sel
+                    
+                coarse_scores_updated = coarse_scores.clone()
+                coarse_scores_updated[:, :n_p2] = coarse_scores_updated[:, :n_p2] + verifier.alpha * delta_z_full
+                
+                bce_orig = self.bce(coarse_scores[:, :n_p2], self.last_cls_target_scores[:, :n_p2].to(dtype))
+                bce_orig *= self.last_cls_weights[:, :n_p2]
+                if self.class_weights is not None:
+                    bce_orig *= self.class_weights
+                    
+                bce_updated = self.bce(coarse_scores_updated[:, :n_p2], self.last_cls_target_scores[:, :n_p2].to(dtype))
+                bce_updated *= self.last_cls_weights[:, :n_p2]
+                if self.class_weights is not None:
+                    bce_updated *= self.class_weights
+                    
+                cls_target_scores_sum = self.last_cls_target_scores_sum
+                loss[1] = loss[1] - bce_orig.sum() / cls_target_scores_sum + bce_updated.sum() / cls_target_scores_sum
+                
+                target_scores_sum = max(self.last_target_scores.sum(), 1.0)
+                loss_aux = self.bce(delta_z_sel, T_i_sel).sum() / target_scores_sum
+                
+                verifier_loss_gain = getattr(self.model.model[-1], "verifier_loss_gain", 0.5)
+                applied_aux = loss_aux * verifier_loss_gain
+                loss[1] = loss[1] + applied_aux
+                loss_detach = loss_detach.clone()
+                loss_detach[1] = loss_detach[1] + applied_aux.detach().item()
 
         return loss * batch_size, loss_detach
 

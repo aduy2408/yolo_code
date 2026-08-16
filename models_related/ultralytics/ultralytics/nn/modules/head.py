@@ -513,6 +513,7 @@ class Detect(nn.Module):
         """Concatenates and returns predicted bounding boxes and class probabilities."""
         if box_head is None or cls_head is None:  # for fused inference
             return dict()
+        delta_z = None
         cls_x = x if cls_x is None else cls_x
         bs = x[0].shape[0]  # batch size
         box_features = [self.box_detail[i](x[i]) for i in range(self.nl)]
@@ -528,9 +529,9 @@ class Detect(nn.Module):
                 shared = [self.shared_head[i](box_features[i]) for i in range(self.nl)]
                 boxes_per_level = [box_head[i](shared[i]) for i in range(self.nl)]
                 cls_inputs = shared
+            boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
             
-            delta_z = None
-            if getattr(self, "verifier", None) is not None:
+            if getattr(self, "verifier", None) is not None and not self.training:
                 box_p2_logits = boxes_per_level[0]
                 b, _, h, w = box_p2_logits.shape
                 grid_cell_offset = 0.5
@@ -543,16 +544,38 @@ class Detect(nn.Module):
                 dbox_p2 = self.decode_bboxes(dist_p2, anchors_p2.transpose(0, 1).unsqueeze(0), xywh=False)
                 dbox_p2 = dbox_p2.transpose(1, 2).detach()
                 
-                B, N, _ = dbox_p2.shape
-                batch_idx = torch.arange(B, device=dbox_p2.device, dtype=dbox_p2.dtype).view(B, 1, 1).expand(B, N, 1)
-                rois = torch.cat((batch_idx, dbox_p2), dim=2).reshape(-1, 5)
+                n_p2 = h * w
+                p2_raw_logits = self._forward_cls_branch(0, cls_head[0], cls_inputs[0]).view(bs, self.nc, n_p2)
+                p2_scores = p2_raw_logits.sigmoid().amax(dim=1)
                 
-                delta_z = self.verifier(cls_inputs[0], rois).flatten(2) # (B, nc, H*W)
-
-            boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
-            cls_scores_per_level = [self._forward_cls_branch(i, cls_head[i], cls_inputs[i]).view(bs, self.nc, -1) for i in range(self.nl)]
-            if delta_z is not None:
-                cls_scores_per_level[0] = cls_scores_per_level[0] + self.verifier.alpha * delta_z
+                K = min(300, n_p2)
+                topk_val, topk_idx = torch.topk(p2_scores, k=K, dim=1)
+                
+                rois_list = []
+                for img_idx in range(bs):
+                    img_topk_idx = topk_idx[img_idx]
+                    img_boxes = dbox_p2[img_idx, img_topk_idx]
+                    img_batch_idx = torch.full((img_boxes.shape[0], 1), img_idx, device=dbox_p2.device, dtype=dbox_p2.dtype)
+                    img_rois = torch.cat((img_batch_idx, img_boxes), dim=1)
+                    rois_list.append(img_rois)
+                rois = torch.cat(rois_list, dim=0)
+                
+                delta_z_sparse = self.verifier(cls_inputs[0], rois)
+                delta_z_sparse = delta_z_sparse.view(bs, K, self.nc).permute(0, 2, 1)
+                
+                delta_z_full = torch.zeros_like(p2_raw_logits)
+                topk_idx_expanded = topk_idx.unsqueeze(1).expand(-1, self.nc, -1)
+                delta_z_full.scatter_(2, topk_idx_expanded, delta_z_sparse)
+                
+                cls_scores_per_level = []
+                for i in range(self.nl):
+                    lvl_logits = self._forward_cls_branch(i, cls_head[i], cls_inputs[i]).view(bs, self.nc, -1)
+                    if i == 0:
+                        lvl_logits = lvl_logits + self.verifier.alpha * delta_z_full
+                    cls_scores_per_level.append(lvl_logits)
+            else:
+                cls_scores_per_level = [self._forward_cls_branch(i, cls_head[i], cls_inputs[i]).view(bs, self.nc, -1) for i in range(self.nl)]
+                
             scores = torch.cat(cls_scores_per_level, dim=-1)
         else:
             boxes_per_level, scores_per_level = [], []
@@ -563,8 +586,7 @@ class Detect(nn.Module):
                 cls_logits = self._geometry_cls_logits(cls_head[i], cls_features[i], dist_map, geom_embed[i], geom_fuse[i])
                 scores_per_level.append(cls_logits.view(bs, self.nc, -1))
             
-            delta_z = None
-            if getattr(self, "verifier", None) is not None:
+            if getattr(self, "verifier", None) is not None and not self.training:
                 box_p2_logits = boxes_per_level[0]
                 b, _, h, w = box_p2_logits.shape
                 grid_cell_offset = 0.5
@@ -577,12 +599,30 @@ class Detect(nn.Module):
                 dbox_p2 = self.decode_bboxes(dist_p2, anchors_p2.transpose(0, 1).unsqueeze(0), xywh=False)
                 dbox_p2 = dbox_p2.transpose(1, 2).detach()
                 
-                B, N, _ = dbox_p2.shape
-                batch_idx = torch.arange(B, device=dbox_p2.device, dtype=dbox_p2.dtype).view(B, 1, 1).expand(B, N, 1)
-                rois = torch.cat((batch_idx, dbox_p2), dim=2).reshape(-1, 5)
+                n_p2 = h * w
+                p2_raw_logits = scores_per_level[0]
+                p2_scores = p2_raw_logits.sigmoid().amax(dim=1)
                 
-                delta_z = self.verifier(cls_features[0], rois).flatten(2) # (B, nc, H*W)
-                scores_per_level[0] = scores_per_level[0] + self.verifier.alpha * delta_z
+                K = min(300, n_p2)
+                topk_val, topk_idx = torch.topk(p2_scores, k=K, dim=1)
+                
+                rois_list = []
+                for img_idx in range(bs):
+                    img_topk_idx = topk_idx[img_idx]
+                    img_boxes = dbox_p2[img_idx, img_topk_idx]
+                    img_batch_idx = torch.full((img_boxes.shape[0], 1), img_idx, device=dbox_p2.device, dtype=dbox_p2.dtype)
+                    img_rois = torch.cat((img_batch_idx, img_boxes), dim=1)
+                    rois_list.append(img_rois)
+                rois = torch.cat(rois_list, dim=0)
+                
+                delta_z_sparse = self.verifier(cls_features[0], rois)
+                delta_z_sparse = delta_z_sparse.view(bs, K, self.nc).permute(0, 2, 1)
+                
+                delta_z_full = torch.zeros_like(p2_raw_logits)
+                topk_idx_expanded = topk_idx.unsqueeze(1).expand(-1, self.nc, -1)
+                delta_z_full.scatter_(2, topk_idx_expanded, delta_z_sparse)
+                
+                scores_per_level[0] = scores_per_level[0] + self.verifier.alpha * delta_z_full
                 
             boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
             scores = torch.cat(scores_per_level, dim=-1)
@@ -2844,16 +2884,15 @@ class CandidateVerifier(nn.Module):
 
     def forward(self, x_p2, rois):
         import torchvision
-        B = x_p2.shape[0]
-        H, W = x_p2.shape[-2:]
+        if rois.shape[0] == 0:
+            return torch.zeros((0, self.nc), device=x_p2.device, dtype=x_p2.dtype)
 
         if self.mode == "a1_box_fovea":
             r_features = torchvision.ops.roi_align(x_p2, rois, output_size=(5, 5), spatial_scale=1.0, aligned=True)
             r_features = self.dw(r_features)
             r_features = self.pw(r_features)
             r_features = r_features.mean(dim=(2, 3))
-            delta_z = self.mlp(r_features)  # (B * H * W, nc)
-            delta_z = delta_z.view(B, H, W, self.nc).permute(0, 3, 1, 2)  # (B, nc, H, W)
+            delta_z = self.mlp(r_features)  # (N_rois, nc)
             return delta_z
 
         elif self.mode == "a3_semantic_structural":
@@ -2868,7 +2907,6 @@ class CandidateVerifier(nn.Module):
             v_combined = torch.cat((v_s, v_str), dim=1)
             v_combined = v_combined.mean(dim=(2, 3))
             delta_z = self.mlp(v_combined)
-            delta_z = delta_z.view(B, H, W, self.nc).permute(0, 3, 1, 2)
             return delta_z
 
         elif self.mode == "a4_raw_adapted":
@@ -2881,8 +2919,7 @@ class CandidateVerifier(nn.Module):
             v_combined = torch.cat((v_raw, v_adapt), dim=1)
             v_combined = v_combined.mean(dim=(2, 3))
             delta_z = self.mlp(v_combined)
-            delta_z = delta_z.view(B, H, W, self.nc).permute(0, 3, 1, 2)
             return delta_z
 
-        return torch.zeros_like(x_p2)
+        return torch.zeros((rois.shape[0], self.nc), device=x_p2.device, dtype=x_p2.dtype)
 

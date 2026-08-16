@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Train/evaluate plain P2 + FTAL verifier tests on LEVIR dataset."""
+"""Train/evaluate plain P2 + default TAL verifier tests on LEVIR dataset."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -28,30 +30,120 @@ _BASE_SMOKE = workflow.smoke
 _BASE_TRAIN = workflow.train
 
 
+def create_scene_disjoint_split(data_root: Path, output: Path, seed: int) -> Path:
+    """Prepare a reproducible scene-disjoint split targeting 2728/584/584 images."""
+    image_dir, label_dir = data_root / "All Images", data_root / "All Annotations"
+    image_stems = {path.stem for path in image_dir.glob("*.png")}
+    label_stems = {path.stem for path in label_dir.glob("*.txt")}
+    if image_stems != label_stems:
+        raise ValueError("Image/label mismatch")
+    
+    import re
+    from collections import defaultdict
+    scene_re = re.compile(r"^(.*)_(-?\d+)_(-?\d+)$")
+    scene_to_stems = defaultdict(list)
+    for stem in sorted(image_stems):
+        match = scene_re.match(stem)
+        if not match:
+            raise ValueError(f"Invalid stem: {stem}")
+        scene = match.group(1)
+        scene_to_stems[scene].append(stem)
+        
+    scenes = sorted(scene_to_stems.keys())
+    import random
+    random.Random(seed).shuffle(scenes)
+    
+    splits = {"train": [], "val": [], "test": []}
+    counts = {"train": 0, "val": 0, "test": 0}
+    
+    for scene in scenes:
+        stems = scene_to_stems[scene]
+        n = len(stems)
+        if counts["train"] < 2728:
+            splits["train"].extend(stems)
+            counts["train"] += n
+        elif counts["val"] < 584:
+            splits["val"].extend(stems)
+            counts["val"] += n
+        else:
+            splits["test"].extend(stems)
+            counts["test"] += n
+            
+    print(f"Scene-disjoint split counts: {counts}")
+    
+    import shutil
+    for generated in (output / "images", output / "labels"):
+        if generated.exists():
+            shutil.rmtree(generated)
+            
+    manifest = {"seed": seed, "splits": {}}
+    for split, stems in splits.items():
+        images_out = output / "images" / split
+        labels_out = output / "labels" / split
+        images_out.mkdir(parents=True, exist_ok=True)
+        labels_out.mkdir(parents=True, exist_ok=True)
+        for stem in stems:
+            for source, destination in (
+                (image_dir / f"{stem}.png", images_out / f"{stem}.png"),
+                (label_dir / f"{stem}.txt", labels_out / f"{stem}.txt"),
+            ):
+                if not destination.exists():
+                    try:
+                        destination.symlink_to(source)
+                    except OSError:
+                        shutil.copy2(source, destination)
+        manifest["splits"][split] = {"images": len(stems)}
+        
+    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    data_yaml = output / "levir_ship.yaml"
+    data_yaml.write_text(
+        f"path: {output.resolve()}\ntrain: images/train\nval: images/val\ntest: images/test\nnames:\n  0: ship\n",
+        encoding="utf-8",
+    )
+    return data_yaml
+
+
+def prepare_fixed_split(args: argparse.Namespace) -> Path:
+    data_yaml = args.dataset_root / f"levir_ship_yolo_scene_seed{args.split_seed}" / "levir_ship.yaml"
+    if not data_yaml.is_file():
+        data_yaml = create_scene_disjoint_split(args.data_root, data_yaml.parent, args.split_seed)
+    return data_yaml
+
+
 def train_kwargs(args: argparse.Namespace, data_yaml: Path, seed: int, amp: bool) -> dict[str, object]:
+    # Use default TAL settings (remove FTAL)
     kwargs = _BASE_TRAIN_KWARGS(args, data_yaml, seed, amp)
+    # Ensure FTAL flags are explicitly disabled
     kwargs.update(
-        # FTAL (Factorized TAL) settings (fixed across experiments)
-        factorized_tal_target=True,
-        factorized_tal_tau=0.75,
-        factorized_tal_kappa=1.5,
-        factorized_tal_lambda=0.5,
-        factorized_tal_s_max=32.0,
-        factorized_tal_warmup_start=5,
-        factorized_tal_warmup_end=15,
-        factorized_tal_p2_only=True,
-        # Candidate Verifier settings
-        verifier_mode=args.current_variant,
-        verifier_alpha=args.verifier_alpha,
-        verifier_loss_gain=args.verifier_loss_gain,
+        factorized_tal_target=False,
     )
     return kwargs
 
 
 def model_for(variant: str, pretrained: str):
-    model = _BASE_MODEL_FOR(variant, pretrained)
+    workflow.local_ultralytics()
+    # Dynamically read and write a temporary config YAML file with verifier_mode injected
+    plain_yaml_path = CONFIG_ROOT / "yolov8n_p2_fpn_only_plain.yaml"
+    with open(plain_yaml_path, "r", encoding="utf-8") as f:
+        cfg_dict = yaml.safe_load(f)
+    
+    cfg_dict["verifier_mode"] = variant
+    cfg_dict["verifier_alpha"] = 0.0
+    cfg_dict["verifier_loss_gain"] = 0.5
+    
+    temp_yaml_path = CONFIG_ROOT / f"temp_{variant}.yaml"
+    with open(temp_yaml_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg_dict, f)
+        
+    try:
+        from ultralytics import YOLO
+        model = YOLO(str(temp_yaml_path))
+        model.load(pretrained, smart_transfer=True)
+    finally:
+        if temp_yaml_path.is_file():
+            temp_yaml_path.unlink()
+            
     from ultralytics.nn.modules import Detect
-
     layers = model.model.model
     head = layers[-1]
     if not isinstance(head, Detect):
@@ -91,13 +183,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoke-only", action="store_true")
     parser.add_argument("--no-upload", action="store_true")
     parser.add_argument("--hf-repo-id", default=workflow.HF_REPO)
-    parser.add_argument("--verifier-alpha", type=float, default=0.5)
+    parser.add_argument("--verifier-alpha", type=float, default=0.0)
     parser.add_argument("--verifier-loss-gain", type=float, default=0.5)
     parser.set_defaults(current_variant="a1_box_fovea", runner=Path(__file__).resolve())
     return parser.parse_args()
 
 
 def main() -> None:
+    workflow.prepare_fixed_split = prepare_fixed_split
     workflow.train_kwargs = train_kwargs
     workflow.model_for = model_for
     workflow.smoke = smoke
