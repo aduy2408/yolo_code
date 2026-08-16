@@ -140,6 +140,19 @@ def prepare_split(args: argparse.Namespace) -> Path:
     return data_yaml
 
 
+def raw_p2_rows(run_dir: Path, args: argparse.Namespace) -> list[dict]:
+    base.local_ultralytics()
+    from train_levir_scripts import analyze_p2_cbam_ranking as ranking
+
+    images_dir = args.dataset_root / "levir_ship_yolo_scene_seed42/images/test"
+    images = sorted(path for path in images_dir.iterdir() if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"})
+    if args.ranking_limit:
+        images = images[: args.ranking_limit]
+    ns = argparse.Namespace(imgsz=args.imgsz, device=args.device, expected_seed=int(run_dir.name.rsplit("_", 1)[1]))
+    ranking.EXPECTED_LEVELS["gap_scale_temper"] = 1
+    return ranking.inspect_model("gap_scale_temper", run_dir / "weights/best.pt", images, ns)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=ROOT / "LevirShipData")
@@ -172,7 +185,7 @@ def main() -> None:
         for variant in args.variants:
             run_dir = train(variant, data_yaml, seed, args)
             base.evaluate(run_dir, data_yaml, args)
-            rows = base.raw_p2_rows(run_dir, args)
+            rows = raw_p2_rows(run_dir, args)
             diag = base.diagnose_from_raw(rows)
             (run_dir / "interaction_diagnostic.json").write_text(json.dumps(diag, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             base.ranking_summary(rows, run_dir, args)
