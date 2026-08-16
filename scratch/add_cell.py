@@ -9,8 +9,24 @@ def _launch_verifiers():
     import sys as _sys
     import subprocess
     import os
+    import re
     from huggingface_hub import HfApi as _HfApi
     from pathlib import Path
+
+    # Parse HF_TOKEN dynamically from notebook.py to avoid hardcoding credentials
+    token_re = re.compile(r'HF_TOKEN\s*=\s*"(hf_[A-Za-z0-9]+)"')
+    try:
+        with open("/marimo/notebook.py", "r", encoding="utf-8") as f:
+            content = f.read()
+        match = token_re.search(content)
+        if not match:
+            raise ValueError("Could not find HF_TOKEN pattern in notebook.py")
+        HF_TOKEN = match.group(1)
+    except Exception as e:
+        # Fallback to env or print error
+        HF_TOKEN = os.environ.get("HF_TOKEN", "")
+        if not HF_TOKEN:
+            raise RuntimeError(f"Failed to read HF_TOKEN from notebook.py: {e}")
 
     ROOT = Path("/marimo/yolo_code")
     _run_root = ROOT / "runs/levir_yolov8n_p2_gap_ftal_verifiers"
