@@ -257,9 +257,8 @@ class Detect(nn.Module):
         ggcf_geometry: bool = True,
         ggcf_patch: int = 7,
         ggcf_infer_k: int = 1000,
-        verifier_mode: str = "none",
-        verifier_alpha: float = 0.5,
-        verifier_loss_gain: float = 0.5,
+        pathway_mode: str = "none",
+        pathway_alpha: float = 0.0,
     ):
         """Initialize the YOLO detection layer with specified number of classes and channels."""
         super().__init__()
@@ -389,12 +388,17 @@ class Detect(nn.Module):
             self.cv2[0] = P2OffsetRegression(self.cv2[0], self.reg_max)
             if end2end:
                 self.one2one_cv2[0] = P2OffsetRegression(self.one2one_cv2[0], self.reg_max)
-        self.verifier_mode = str(verifier_mode).lower()
-        self.verifier_loss_gain = float(verifier_loss_gain)
-        if self.verifier_mode != "none":
-            self.verifier = CandidateVerifier(self.verifier_mode, ch_detect[0], self.nc, verifier_alpha)
+
+        self.pathway_mode = str(pathway_mode).lower()
+        self.pathway_alpha = float(pathway_alpha)
+        if self.pathway_mode == "structural_energy":
+            self.pathway = StructuralEnergyPathway(ch_detect[0], self.pathway_alpha)
+        elif self.pathway_mode == "feature_polarity":
+            self.pathway = FeaturePolarityPathway(ch_detect[0], self.pathway_alpha)
+        elif self.pathway_mode == "global_reference":
+            self.pathway = GlobalReferencePathway(ch_detect[0], self.pathway_alpha)
         else:
-            self.verifier = None
+            self.pathway = None
 
     @staticmethod
     def init_dfl_residual_heads(ch: tuple) -> nn.ModuleList:
@@ -513,7 +517,6 @@ class Detect(nn.Module):
         """Concatenates and returns predicted bounding boxes and class probabilities."""
         if box_head is None or cls_head is None:  # for fused inference
             return dict()
-        delta_z = None
         cls_x = x if cls_x is None else cls_x
         bs = x[0].shape[0]  # batch size
         box_features = [self.box_detail[i](x[i]) for i in range(self.nl)]
@@ -529,55 +532,16 @@ class Detect(nn.Module):
                 shared = [self.shared_head[i](box_features[i]) for i in range(self.nl)]
                 boxes_per_level = [box_head[i](shared[i]) for i in range(self.nl)]
                 cls_inputs = shared
+            if getattr(self, "pathway", None) is not None:
+                cls_inputs = [self.pathway(cls_inputs[0])] + list(cls_inputs[1:])
             boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
-            
-            if getattr(self, "verifier", None) is not None and not self.training:
-                box_p2_logits = boxes_per_level[0]
-                b, _, h, w = box_p2_logits.shape
-                grid_cell_offset = 0.5
-                sx = torch.arange(end=w, device=box_p2_logits.device, dtype=box_p2_logits.dtype) + grid_cell_offset
-                sy = torch.arange(end=h, device=box_p2_logits.device, dtype=box_p2_logits.dtype) + grid_cell_offset
-                sy, sx = torch.meshgrid(sy, sx, indexing="ij")
-                anchors_p2 = torch.stack((sx, sy), -1).view(-1, 2)
-                
-                dist_p2 = self.dfl(box_p2_logits.flatten(2))
-                dbox_p2 = self.decode_bboxes(dist_p2, anchors_p2.transpose(0, 1).unsqueeze(0), xywh=False)
-                dbox_p2 = dbox_p2.transpose(1, 2).detach()
-                
-                n_p2 = h * w
-                p2_raw_logits = self._forward_cls_branch(0, cls_head[0], cls_inputs[0]).view(bs, self.nc, n_p2)
-                p2_scores = p2_raw_logits.sigmoid().amax(dim=1)
-                
-                K = min(300, n_p2)
-                topk_val, topk_idx = torch.topk(p2_scores, k=K, dim=1)
-                
-                rois_list = []
-                for img_idx in range(bs):
-                    img_topk_idx = topk_idx[img_idx]
-                    img_boxes = dbox_p2[img_idx, img_topk_idx]
-                    img_batch_idx = torch.full((img_boxes.shape[0], 1), img_idx, device=dbox_p2.device, dtype=dbox_p2.dtype)
-                    img_rois = torch.cat((img_batch_idx, img_boxes), dim=1)
-                    rois_list.append(img_rois)
-                rois = torch.cat(rois_list, dim=0)
-                
-                delta_z_sparse = self.verifier(cls_inputs[0], rois)
-                delta_z_sparse = delta_z_sparse.view(bs, K, self.nc).permute(0, 2, 1)
-                
-                delta_z_full = torch.zeros_like(p2_raw_logits)
-                topk_idx_expanded = topk_idx.unsqueeze(1).expand(-1, self.nc, -1)
-                delta_z_full.scatter_(2, topk_idx_expanded, delta_z_sparse)
-                
-                cls_scores_per_level = []
-                for i in range(self.nl):
-                    lvl_logits = self._forward_cls_branch(i, cls_head[i], cls_inputs[i]).view(bs, self.nc, -1)
-                    if i == 0:
-                        lvl_logits = lvl_logits + self.verifier.alpha * delta_z_full
-                    cls_scores_per_level.append(lvl_logits)
-            else:
-                cls_scores_per_level = [self._forward_cls_branch(i, cls_head[i], cls_inputs[i]).view(bs, self.nc, -1) for i in range(self.nl)]
-                
-            scores = torch.cat(cls_scores_per_level, dim=-1)
+            scores = torch.cat(
+                [self._forward_cls_branch(i, cls_head[i], cls_inputs[i]).view(bs, self.nc, -1) for i in range(self.nl)],
+                dim=-1,
+            )
         else:
+            if getattr(self, "pathway", None) is not None:
+                cls_features = [self.pathway(cls_features[0])] + list(cls_features[1:])
             boxes_per_level, scores_per_level = [], []
             for i in range(self.nl):
                 box_logits = box_head[i](box_features[i])
@@ -585,52 +549,11 @@ class Detect(nn.Module):
                 dist_map = self._geometry_dist_map(box_logits)
                 cls_logits = self._geometry_cls_logits(cls_head[i], cls_features[i], dist_map, geom_embed[i], geom_fuse[i])
                 scores_per_level.append(cls_logits.view(bs, self.nc, -1))
-            
-            if getattr(self, "verifier", None) is not None and not self.training:
-                box_p2_logits = boxes_per_level[0]
-                b, _, h, w = box_p2_logits.shape
-                grid_cell_offset = 0.5
-                sx = torch.arange(end=w, device=box_p2_logits.device, dtype=box_p2_logits.dtype) + grid_cell_offset
-                sy = torch.arange(end=h, device=box_p2_logits.device, dtype=box_p2_logits.dtype) + grid_cell_offset
-                sy, sx = torch.meshgrid(sy, sx, indexing="ij")
-                anchors_p2 = torch.stack((sx, sy), -1).view(-1, 2)
-                
-                dist_p2 = self.dfl(box_p2_logits.flatten(2))
-                dbox_p2 = self.decode_bboxes(dist_p2, anchors_p2.transpose(0, 1).unsqueeze(0), xywh=False)
-                dbox_p2 = dbox_p2.transpose(1, 2).detach()
-                
-                n_p2 = h * w
-                p2_raw_logits = scores_per_level[0]
-                p2_scores = p2_raw_logits.sigmoid().amax(dim=1)
-                
-                K = min(300, n_p2)
-                topk_val, topk_idx = torch.topk(p2_scores, k=K, dim=1)
-                
-                rois_list = []
-                for img_idx in range(bs):
-                    img_topk_idx = topk_idx[img_idx]
-                    img_boxes = dbox_p2[img_idx, img_topk_idx]
-                    img_batch_idx = torch.full((img_boxes.shape[0], 1), img_idx, device=dbox_p2.device, dtype=dbox_p2.dtype)
-                    img_rois = torch.cat((img_batch_idx, img_boxes), dim=1)
-                    rois_list.append(img_rois)
-                rois = torch.cat(rois_list, dim=0)
-                
-                delta_z_sparse = self.verifier(cls_features[0], rois)
-                delta_z_sparse = delta_z_sparse.view(bs, K, self.nc).permute(0, 2, 1)
-                
-                delta_z_full = torch.zeros_like(p2_raw_logits)
-                topk_idx_expanded = topk_idx.unsqueeze(1).expand(-1, self.nc, -1)
-                delta_z_full.scatter_(2, topk_idx_expanded, delta_z_sparse)
-                
-                scores_per_level[0] = scores_per_level[0] + self.verifier.alpha * delta_z_full
-                
             boxes = torch.cat([b.view(bs, 4 * self.reg_max, -1) for b in boxes_per_level], dim=-1)
             scores = torch.cat(scores_per_level, dim=-1)
         if getattr(self, "capture_dfl_diagnostics", False):
             self.last_p3_box_logits = boxes_per_level[0].detach()
         out = dict(boxes=boxes, scores=scores, feats=x)
-        if delta_z is not None:
-            out["aux_logits"] = delta_z
         if getattr(self, "ggcf_refine", False) and not self.training:
             b0_xyxy, stride_tensor = self._decode_grid_boxes(boxes, x)
             topk = scores.sigmoid().amax(1).topk(min(self.ggcf_infer_k, scores.shape[-1]), dim=1).indices
@@ -2844,82 +2767,55 @@ class DetectClsAttention(Detect):
         return y if self.export else (y, preds)
 
 
-class CandidateVerifier(nn.Module):
-    def __init__(self, mode, in_channels, nc, verifier_alpha=0.5):
+class StructuralEnergyPathway(nn.Module):
+    def __init__(self, channels: int, alpha: float = 0.0):
         super().__init__()
-        self.mode = mode  # 'a1_box_fovea', 'a3_semantic_structural', 'a4_raw_adapted'
-        self.in_channels = in_channels
-        self.nc = nc
-        self.alpha = nn.Parameter(torch.tensor(verifier_alpha, dtype=torch.float32))
+        self.dw_a = nn.Conv2d(channels, channels, kernel_size=3, padding=1, groups=channels, bias=False)
+        self.dw_b = nn.Conv2d(channels, channels, kernel_size=3, padding=1, groups=channels, bias=False)
+        self.pw = nn.Conv2d(channels, channels, kernel_size=1, bias=False)
+        self.alpha = nn.Parameter(torch.tensor(alpha, dtype=torch.float32))
 
-        # A1: Box-Conditioned P2 Fovea
-        if mode == "a1_box_fovea":
-            self.dw = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, groups=in_channels)
-            self.pw = nn.Conv2d(in_channels, in_channels, kernel_size=1)
-            self.mlp = nn.Sequential(
-                nn.Linear(in_channels, in_channels // 2),
-                nn.ReLU(inplace=True),
-                nn.Linear(in_channels // 2, nc)
-            )
+    def forward(self, F):
+        A = self.dw_a(F)
+        B = self.dw_b(F)
+        E = torch.sqrt(A * A + B * B + 1e-6)
+        S = self.pw(E)
+        return F + self.alpha * S
 
-        # A3: Semantic-Structural Dual Representation
-        elif mode == "a3_semantic_structural":
-            self.dw_a = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, groups=in_channels)
-            self.dw_b = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, groups=in_channels)
-            self.pw_str = nn.Conv2d(in_channels, in_channels, kernel_size=1)
-            self.mlp = nn.Sequential(
-                nn.Linear(in_channels * 2, in_channels),
-                nn.ReLU(inplace=True),
-                nn.Linear(in_channels, nc)
-            )
 
-        # A4: Raw-Adapted Dual Representation
-        elif mode == "a4_raw_adapted":
-            self.norm = nn.GroupNorm(num_groups=min(8, in_channels), num_channels=in_channels)
-            self.mlp = nn.Sequential(
-                nn.Linear(in_channels * 2, in_channels),
-                nn.ReLU(inplace=True),
-                nn.Linear(in_channels, nc)
-            )
+class FeaturePolarityPathway(nn.Module):
+    def __init__(self, channels: int, alpha: float = 0.0):
+        super().__init__()
+        self.dw = nn.Conv2d(channels, channels, kernel_size=3, padding=1, groups=channels, bias=False)
+        self.pw = nn.Conv2d(channels * 2, channels, kernel_size=1, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.alpha = nn.Parameter(torch.tensor(alpha, dtype=torch.float32))
 
-    def forward(self, x_p2, rois):
-        import torchvision
-        if rois.shape[0] == 0:
-            return torch.zeros((0, self.nc), device=x_p2.device, dtype=x_p2.dtype)
+    def forward(self, F):
+        U = self.dw(F)
+        U_pos = self.relu(U)
+        U_neg = self.relu(-U)
+        P = torch.cat([U_pos, U_neg], dim=1)
+        P = self.pw(P)
+        return F + self.alpha * P
 
-        if self.mode == "a1_box_fovea":
-            r_features = torchvision.ops.roi_align(x_p2, rois, output_size=(5, 5), spatial_scale=1.0, aligned=True)
-            r_features = self.dw(r_features)
-            r_features = self.pw(r_features)
-            r_features = r_features.mean(dim=(2, 3))
-            delta_z = self.mlp(r_features)  # (N_rois, nc)
-            return delta_z
 
-        elif self.mode == "a3_semantic_structural":
-            a_k = self.dw_a(x_p2)
-            b_k = self.dw_b(x_p2)
-            E_k = torch.sqrt(a_k**2 + b_k**2 + 1e-6)
-            F_str = self.pw_str(E_k)
+class GlobalReferencePathway(nn.Module):
+    def __init__(self, channels: int, alpha: float = 0.0):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(channels, channels // 4, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // 4, channels, bias=False)
+        )
+        self.pw = nn.Conv2d(channels, channels, kernel_size=1, bias=False)
+        self.alpha = nn.Parameter(torch.tensor(alpha, dtype=torch.float32))
 
-            v_s = torchvision.ops.roi_align(x_p2, rois, output_size=(5, 5), spatial_scale=1.0, aligned=True)
-            v_str = torchvision.ops.roi_align(F_str, rois, output_size=(5, 5), spatial_scale=1.0, aligned=True)
-
-            v_combined = torch.cat((v_s, v_str), dim=1)
-            v_combined = v_combined.mean(dim=(2, 3))
-            delta_z = self.mlp(v_combined)
-            return delta_z
-
-        elif self.mode == "a4_raw_adapted":
-            F_raw = x_p2
-            F_adapt = self.norm(x_p2)
-
-            v_raw = torchvision.ops.roi_align(F_raw, rois, output_size=(5, 5), spatial_scale=1.0, aligned=True)
-            v_adapt = torchvision.ops.roi_align(F_adapt, rois, output_size=(5, 5), spatial_scale=1.0, aligned=True)
-
-            v_combined = torch.cat((v_raw, v_adapt), dim=1)
-            v_combined = v_combined.mean(dim=(2, 3))
-            delta_z = self.mlp(v_combined)
-            return delta_z
-
-        return torch.zeros((rois.shape[0], self.nc), device=x_p2.device, dtype=x_p2.dtype)
+    def forward(self, F):
+        g = F.mean(dim=(2, 3))
+        r = self.mlp(g)
+        r = r.unsqueeze(-1).unsqueeze(-1)
+        D = F - r
+        C = self.pw(D)
+        return F + self.alpha * C
 

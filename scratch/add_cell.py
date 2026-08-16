@@ -29,7 +29,7 @@ def _launch_verifiers():
             raise RuntimeError(f"Failed to read HF_TOKEN from notebook.py: {e}")
 
     ROOT = Path("/marimo/yolo_code")
-    _run_root = ROOT / "runs/levir_yolov8n_p2_gap_ftal_verifiers"
+    _run_root = ROOT / "runs/levir_yolov8n_p2_gap_ftal_pathways"
     _run_root.mkdir(parents=True, exist_ok=True)
     _pid_path = _run_root / "train.pid"
     _log_path = _run_root / "train.log"
@@ -39,7 +39,7 @@ def _launch_verifiers():
             return {"status": "already running", "pid": _old_pid, "log": str(_log_path)}
             
     _command = [
-        _sys.executable, "-u", "train_levir_scripts/train_all_levir_verifier.py",
+        _sys.executable, "-u", "train_levir_scripts/train_all_levir_pathways.py",
         "--data-root", "/marimo/LevirShipData",
         "--dataset-root", str(ROOT / "datasets"),
         "--project", str(_run_root),
@@ -50,9 +50,7 @@ def _launch_verifiers():
         "--device", "cuda",
         "--workers", "4",
         "--patience", "20",
-        "--hf-repo-id", "duyle2408/levir-yolov8n-p2-gap-ftal-verifiers-seed42",
-        "--verifier-alpha", "0.0",
-        "--verifier-loss-gain", "0.5",
+        "--hf-repo-id", "duyle2408/levir-yolov8n-p2-gap-ftal-pathways-seed42",
     ]
     _env = os.environ.copy()
     _env["HF_TOKEN"] = HF_TOKEN
@@ -65,13 +63,13 @@ def _launch_verifiers():
     return {"status": "launched", "pid": _process.pid, "log": str(_log_path)}
 
 verifiers_launch = _launch_verifiers()
-mo.status.toast(f"🧪 Verifiers {verifiers_launch['status']} — PID {verifiers_launch['pid']}")
-mo.md(f'''### Box-Conditioned Verifiers (A1, A3, A4) Matrix
+mo.status.toast(f"🧪 Pathways {verifiers_launch['status']} — PID {verifiers_launch['pid']}")
+mo.md(f'''### Dense Pathways (Structural, Polarity, Global Ref) Matrix
 
 - Status: **{verifiers_launch['status']}**
 - PID: `{verifiers_launch['pid']}`
 - Log: `{verifiers_launch['log']}`
-- Order: `a1_box_fovea`, `a3_semantic_structural`, `a4_raw_adapted`
+- Order: `plain`, `structural_energy`, `feature_polarity`, `global_reference`
 - Epochs: `100`; seed: `42`
 ''')
 """
