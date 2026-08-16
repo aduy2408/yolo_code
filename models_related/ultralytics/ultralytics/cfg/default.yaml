@@ -138,6 +138,9 @@ ggcf_geometry: true # (bool) EXPERIMENTAL add coarse-box relative geometry chann
 ggcf_patch: 7 # (int) EXPERIMENTAL GGCF local field size
 ggcf_infer_k: 1000 # (int) EXPERIMENTAL top P2 candidates refined at inference
 ggcf_train_k: 256 # (int) EXPERIMENTAL max P2 candidates refined per image during training
+verifier_mode: none # (str) EXPERIMENTAL candidate verifier mode: a1_box_fovea, a3_semantic_structural, a4_raw_adapted, none
+verifier_alpha: 0.5 # (float) EXPERIMENTAL auxiliary logit residual weight alpha
+verifier_loss_gain: 0.5 # (float) EXPERIMENTAL verifier loss weight gain
 ggcf_hard_bg: 128 # (int) EXPERIMENTAL hard background candidates refined per image during training
 ggcf_assign_refined: false # (bool) EXPERIMENTAL run TAL on GGCF-refined predictions
 ggcf_tal_diagnostics: false # (bool) EXPERIMENTAL collect GGCF coarse/refined TAL summary

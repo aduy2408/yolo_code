@@ -1823,6 +1823,9 @@ class v8DetectionLoss:
             mask_gt,
         )
         fg_mask = fg_mask.bool()
+        self.last_target_bboxes = target_bboxes
+        self.last_target_scores = target_scores
+        self.last_fg_mask = fg_mask
         self.ggcf_tal_metrics = {}
         if self.ggcf_tal_diagnostics and self.ggcf_refine:
             with torch.no_grad():
@@ -2624,6 +2627,45 @@ class v8DetectionLoss:
                 loss_detach = loss_detach.clone()
                 loss_detach[1] = loss_detach[1] + lambda_r * restraint_loss.item()
                 
+        if "aux_logits" in preds:
+            n_p2 = math.prod(preds["feats"][0].shape[2:])
+            anchor_points, stride_tensor = make_anchors(preds["feats"], self.stride, 0.5)
+            
+            pred_distri = preds["boxes"].permute(0, 2, 1).contiguous()
+            pred_residual = preds.get("dfl_residual")
+            pred_residual = pred_residual.permute(0, 2, 1).contiguous() if pred_residual is not None else None
+            pboxes = self.bbox_decode(anchor_points, pred_distri, pred_residual, stride_tensor)
+            
+            pboxes_px = pboxes * stride_tensor
+            tboxes_px = self.last_target_bboxes
+            fg_mask_p2 = self.last_fg_mask[:, :n_p2]
+            
+            pboxes_p2 = pboxes_px[:, :n_p2]
+            tboxes_p2 = tboxes_px[:, :n_p2]
+            
+            dtype = preds["aux_logits"].dtype
+            t_i = torch.zeros((batch_size, n_p2), device=self.device, dtype=dtype)
+            if fg_mask_p2.any():
+                ious = bbox_iou(pboxes_p2[fg_mask_p2], tboxes_p2[fg_mask_p2], xywh=False, CIoU=False)
+                t_i[fg_mask_p2] = ious.clamp(min=0.0, max=1.0)
+                
+            T_i = torch.zeros((batch_size, n_p2, self.nc), device=self.device, dtype=dtype)
+            if fg_mask_p2.any():
+                target_scores_p2 = self.last_target_scores[:, :n_p2]
+                class_idx = target_scores_p2.argmax(dim=-1)
+                T_i.scatter_(2, class_idx.unsqueeze(-1), t_i.unsqueeze(-1))
+                
+            aux_logits = preds["aux_logits"].permute(0, 2, 1).contiguous()
+            target_scores_sum = max(self.last_target_scores.sum(), 1.0)
+            
+            loss_aux = self.bce(aux_logits, T_i).sum() / target_scores_sum
+            
+            verifier_loss_gain = getattr(self.model.model[-1], "verifier_loss_gain", 0.5)
+            applied_aux = loss_aux * verifier_loss_gain
+            loss[1] = loss[1] + applied_aux
+            loss_detach = loss_detach.clone()
+            loss_detach[1] = loss_detach[1] + applied_aux.detach().item()
+
         return loss * batch_size, loss_detach
 
 

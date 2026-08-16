@@ -2198,6 +2198,9 @@ def parse_model(d, ch, verbose=True):
     ggcf_geometry = d.get("ggcf_geometry", True)
     ggcf_patch = d.get("ggcf_patch", 7)
     ggcf_infer_k = d.get("ggcf_infer_k", 1000)
+    verifier_mode = d.get("verifier_mode", "none")
+    verifier_alpha = d.get("verifier_alpha", 0.5)
+    verifier_loss_gain = d.get("verifier_loss_gain", 0.5)
     depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
     scale = d.get("scale")
     if scales:
@@ -2482,6 +2485,9 @@ def parse_model(d, ch, verbose=True):
                             ggcf_geometry if m is Detect else True,
                             ggcf_patch if m is Detect else 7,
                             ggcf_infer_k if m is Detect else 1000,
+                            verifier_mode if m in {Detect, HVDecoupledDetect, P2NUDFLDetect, P3NUDFLDetect} else "none",
+                            verifier_alpha if m in {Detect, HVDecoupledDetect, P2NUDFLDetect, P3NUDFLDetect} else 0.5,
+                            verifier_loss_gain if m in {Detect, HVDecoupledDetect, P2NUDFLDetect, P3NUDFLDetect} else 0.5,
                         ]
                     )
             if m is Segment or m is YOLOESegment or m is Segment26 or m is YOLOESegment26:

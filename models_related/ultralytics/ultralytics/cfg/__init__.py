@@ -157,6 +157,8 @@ CLI_HELP_MSG = f"""
 CFG_FLOAT_KEYS = frozenset(
     {  # integer or float arguments, i.e. x=2 and x=2.0
         "warmup_epochs",
+        "verifier_alpha",
+        "verifier_loss_gain",
         "box",
         "cls",
         "cls_pw",
@@ -266,6 +268,7 @@ CFG_CHOICE_KEYS = {
     "dgfe_spatial_target_mode": {"iou", "edge_error"},
     "positive_support_mode": {"dominant", "random", "none"},
     "factorized_tal_mode": {"current", "mass_preserve", "geometry", "agreement_gate"},
+    "verifier_mode": {"a1_box_fovea", "a3_semantic_structural", "a4_raw_adapted", "none"},
 }
 CFG_INT_KEYS = frozenset(
     {  # integer-only arguments
