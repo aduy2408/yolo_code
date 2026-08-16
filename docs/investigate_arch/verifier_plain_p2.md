@@ -32,7 +32,20 @@ Consequently, the resulting checkpoint represents a pure **Plain P2 Baseline wit
 
 ## Evaluation Results
 
-Evaluation was performed with NMS IoU set strictly to `0.5` per the project's evaluation protocol:
+### Split Protocol Comparison (Plain P2 Baseline)
+
+Here we compare the performance of the **Plain P2 Baseline** under the original **Fixed Split** (random division) vs the **Scene-Disjoint Split** (divided by scene) on seed 42 (evaluated with NMS IoU = `0.5`):
+
+| Split Protocol | Precision | Recall | mAP50 (AP50) | mAP75 (AP75) | mAP50-95 |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Fixed Split** (Seed 42) | 0.8049 | 0.6223 | 0.7213 | 0.1353 | 0.2815 |
+| **Scene-Disjoint Split** (Seed 42) | **0.8346** | **0.7421** | **0.8156** | **0.1718** | **0.3229** |
+
+*Note: The Fixed Split baseline results are sourced from [report_factorized_tal.md](file:///mnt/data/varroa/yolo_related/docs/reports/report_factorized_tal.md#L115).*
+
+### Detailed Validation/Test Metrics (Scene-Disjoint Split)
+
+Detailed metrics of the current run on the **Scene-Disjoint Split** (seed 42):
 
 | Metric | Validation Split (`val`) | Test Split (`test`) |
 | :--- | :---: | :---: |
