@@ -2686,27 +2686,30 @@ class v8DetectionLoss:
                 delta_z_full = torch.zeros_like(p2_raw_logits)
                 
                 dtype = delta_z_sel.dtype
-                T_i_sel = torch.zeros((rois.shape[0], self.nc), device=self.device, dtype=dtype)
+                T_i = torch.zeros((batch_size, n_p2, self.nc), device=self.device, dtype=dtype)
+                if fg_mask_p2.any():
+                    ious = bbox_iou(pboxes_p2[fg_mask_p2], tboxes_p2[fg_mask_p2], xywh=False, CIoU=False).clamp(min=0.0, max=1.0)
+                    target_scores_p2 = self.last_target_scores[:, :n_p2]
+                    class_idx = target_scores_p2[fg_mask_p2].argmax(dim=-1)
+                    pos_coords = fg_mask_p2.nonzero(as_tuple=True)
+                    T_i[pos_coords[0], pos_coords[1], class_idx] = ious.squeeze(-1)
+                
+                sel_img_indices = []
+                sel_anchor_indices = []
+                for img_idx, sel_idx_b in sel_indices_list:
+                    sel_img_indices.append(torch.full_like(sel_idx_b, img_idx))
+                    sel_anchor_indices.append(sel_idx_b)
+                sel_img_coords = torch.cat(sel_img_indices, dim=0)
+                sel_anchor_coords = torch.cat(sel_anchor_indices, dim=0)
+                
+                T_i_sel = T_i[sel_img_coords, sel_anchor_coords]
                 
                 curr_sel_idx = 0
                 for img_idx, sel_idx_b in sel_indices_list:
                     num_sel = sel_idx_b.shape[0]
                     if num_sel == 0:
                         continue
-                        
                     delta_z_full[img_idx, sel_idx_b] = delta_z_sel[curr_sel_idx : curr_sel_idx + num_sel]
-                    
-                    pos_mask_b = fg_mask_p2[img_idx]
-                    target_scores_b = self.last_target_scores[img_idx, :n_p2]
-                    
-                    for i_sel, anchor_idx in enumerate(sel_idx_b.tolist()):
-                        if pos_mask_b[anchor_idx]:
-                            cls_idx = target_scores_b[anchor_idx].argmax(dim=-1)
-                            pbox = pboxes_p2[img_idx, anchor_idx].unsqueeze(0)
-                            tbox = tboxes_p2[img_idx, anchor_idx].unsqueeze(0)
-                            iou = bbox_iou(pbox, tbox, xywh=False, CIoU=False).clamp(min=0.0, max=1.0)
-                            T_i_sel[curr_sel_idx + i_sel, cls_idx] = iou.squeeze()
-                            
                     curr_sel_idx += num_sel
                     
                 coarse_scores_updated = coarse_scores.clone()
