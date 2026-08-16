@@ -35,7 +35,7 @@ def _launch_verifiers():
         "--workers", "4",
         "--patience", "20",
         "--hf-repo-id", "duyle2408/levir-yolov8n-p2-gap-ftal-verifiers-seed42",
-        "--verifier-alpha", "0.5",
+        "--verifier-alpha", "0.0",
         "--verifier-loss-gain", "0.5",
     ]
     _env = os.environ.copy()
