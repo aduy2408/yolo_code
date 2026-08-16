@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train/evaluate GAP + FTAL verifier tests on LEVIR dataset."""
+"""Train/evaluate plain P2 + FTAL verifier tests on LEVIR dataset."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ CONFIG_ROOT = ROOT.parent / "models_related/models_config/yolov8/levir"
 workflow.EXPERIMENT = "levir_yolov8n_p2_gap_ftal_verifiers"
 workflow.HF_REPO = "duyle2408/levir-yolov8n-p2-gap-ftal-verifiers-seed42"
 workflow.VARIANTS = {
-    "a1_box_fovea": CONFIG_ROOT / "yolov8n_p2_fpn_only_cbam_channel_only.yaml",
-    "a3_semantic_structural": CONFIG_ROOT / "yolov8n_p2_fpn_only_cbam_channel_only.yaml",
-    "a4_raw_adapted": CONFIG_ROOT / "yolov8n_p2_fpn_only_cbam_channel_only.yaml",
+    "a1_box_fovea": CONFIG_ROOT / "yolov8n_p2_fpn_only_plain.yaml",
+    "a3_semantic_structural": CONFIG_ROOT / "yolov8n_p2_fpn_only_plain.yaml",
+    "a4_raw_adapted": CONFIG_ROOT / "yolov8n_p2_fpn_only_plain.yaml",
 }
 
 _BASE_TRAIN_KWARGS = workflow.train_kwargs
@@ -50,12 +50,12 @@ def train_kwargs(args: argparse.Namespace, data_yaml: Path, seed: int, amp: bool
 
 def model_for(variant: str, pretrained: str):
     model = _BASE_MODEL_FOR(variant, pretrained)
-    from ultralytics.nn.modules import ChannelAttention, Detect
+    from ultralytics.nn.modules import Detect
 
     layers = model.model.model
     head = layers[-1]
-    if not isinstance(layers[19], ChannelAttention) or not isinstance(head, Detect) or head.f != [19]:
-        raise ValueError(f"{variant}: expected P2 -> GAP ChannelAttention -> Detect([19])")
+    if not isinstance(head, Detect):
+        raise ValueError(f"{variant}: expected Detect head at the end")
     if head.stride.tolist() != [4.0] or head.nl != 1:
         raise ValueError(f"{variant}: expected P2-only Detect stride [4], got {head.stride.tolist()}")
     return model
