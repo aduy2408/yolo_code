@@ -4677,12 +4677,169 @@ class ChannelKVCompressedAttention(nn.Module):
         
         # 5. Apply channel affinity matrix to values
         y = torch.matmul(a, v)
-        
         # 6. Reshape & Project back
         y = y.view(b, c, h, w)
         y = self.proj(y)
         
         return x + self.beta * y
+
+
+class SemanticStructuralCrossInjection(nn.Module):
+    """Variant C1: Semantic-Structural Cross Injection.
+    Applies rank-1 channel cross-injection using structural energy maps.
+    """
+
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        c = channels
+        self.dw_a = nn.Conv2d(c, c, kernel_size=3, padding=1, groups=c, bias=False)
+        self.dw_b = nn.Conv2d(c, c, kernel_size=3, padding=1, groups=c, bias=False)
+        
+        self.w_f = nn.Conv2d(c, c, 1, bias=True)
+        self.w_s = nn.Conv2d(c, c, 1, bias=True)
+        
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.alpha = nn.Parameter(torch.zeros(1))
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        a = self.dw_a(x)
+        b = self.dw_b(x)
+        s = torch.sqrt(a * a + b * b + 1e-5)
+        
+        p = torch.tanh(self.w_f(self.pool(x))) # B, C, 1, 1 (signed redistribution)
+        
+        # Softmax selection over channel dimension (dim=1)
+        q_logits = self.w_s(self.pool(s)) # B, C, 1, 1
+        q = F.softmax(q_logits, dim=1) # B, C, 1, 1
+        
+        e_s = torch.sum(q * s, dim=1, keepdim=True) # B, 1, H, W (weighted selection)
+        i = p * e_s # B, C, H, W
+        
+        return x + self.alpha * i
+
+
+class SemanticStructuralAgreementInjection(nn.Module):
+    """Variant C2: Semantic-Structural Agreement Injection.
+    Injects structural energy only when semantic and structural projections agree.
+    """
+
+    def __init__(self, channels: int, d: int = 8) -> None:
+        super().__init__()
+        c = channels
+        self.dw_a = nn.Conv2d(c, c, kernel_size=3, padding=1, groups=c, bias=False)
+        self.dw_b = nn.Conv2d(c, c, kernel_size=3, padding=1, groups=c, bias=False)
+        
+        self.w_f = nn.Conv2d(c, c, 1, bias=True)
+        self.w_s = nn.Conv2d(c, c, 1, bias=True)
+        
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.alpha = nn.Parameter(torch.zeros(1))
+        self.beta_raw = nn.Parameter(torch.tensor(3.98)) # softplus(3.98) ≈ 4.0
+        self.tau = nn.Parameter(torch.tensor(0.1))
+        
+        self.w_f_loc = nn.Conv2d(c, d, 1, bias=False)
+        self.w_s_loc = nn.Conv2d(c, d, 1, bias=False)
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        a = self.dw_a(x)
+        b = self.dw_b(x)
+        s = torch.sqrt(a * a + b * b + 1e-5)
+        
+        p = torch.tanh(self.w_f(self.pool(x))) # B, C, 1, 1
+        
+        q_logits = self.w_s(self.pool(s)) # B, C, 1, 1
+        q = F.softmax(q_logits, dim=1) # B, C, 1, 1
+        
+        e_s = torch.sum(q * s, dim=1, keepdim=True) # B, 1, H, W
+        i = p * e_s # B, C, H, W
+        
+        u_f = self.w_f_loc(x) # B, d, H, W
+        u_s = self.w_s_loc(s) # B, d, H, W
+        
+        u_f_norm = F.normalize(u_f, p=2, dim=1, eps=1e-8)
+        u_s_norm = F.normalize(u_s, p=2, dim=1, eps=1e-8)
+        
+        cos_sim = torch.sum(u_f_norm * u_s_norm, dim=1, keepdim=True) # B, 1, H, W
+        beta = F.softplus(self.beta_raw)
+        agreement = torch.sigmoid(beta * (cos_sim - self.tau)) # B, 1, H, W
+        
+        return x + self.alpha * agreement * i
+
+
+class SemanticPolarityAdaptiveSelection(nn.Module):
+    """Variant C3: Semantic-Polarity Adaptive Selection.
+    Selects between positive and negative activation responses adaptively.
+    """
+
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        c = channels
+        self.dw = nn.Conv2d(c, c, kernel_size=3, padding=1, groups=c, bias=False)
+        self.w_sel = nn.Conv2d(c, 2 * c, 1, bias=True)
+        
+        self.w_f = nn.Conv2d(c, c, 1, bias=True)
+        self.w_s = nn.Conv2d(c, c, 1, bias=True)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.alpha = nn.Parameter(torch.zeros(1))
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        u = self.dw(x)
+        p_plus = torch.relu(u)
+        p_minus = torch.relu(-u)
+        
+        sel_logits = self.w_sel(x) # B, 2*C, H, W
+        b, c2, h, w = sel_logits.shape
+        sel_logits = sel_logits.view(b, 2, c2 // 2, h, w)
+        sel_weights = torch.softmax(sel_logits, dim=1) # B, 2, C, H, W
+        
+        p = sel_weights[:, 0] * p_plus + sel_weights[:, 1] * p_minus # B, C, H, W
+        
+        p_gate = torch.tanh(self.w_f(self.pool(x))) # B, C, 1, 1
+        
+        q_logits = self.w_s(self.pool(p)) # B, C, 1, 1
+        q_gate = F.softmax(q_logits, dim=1) # B, C, 1, 1
+        
+        q_t_p = torch.sum(q_gate * p, dim=1, keepdim=True) # B, 1, H, W
+        i = p_gate * q_t_p
+        
+        return x + self.alpha * i
+
+
+class LowRankMultiStateCrossFusion(nn.Module):
+    """Variant C4: Low-Rank Multi-State Cross Fusion.
+    Generalizes rank-1 dynamic cross-injection to rank-r.
+    """
+
+    def __init__(self, channels: int, r: int = 4) -> None:
+        super().__init__()
+        c = channels
+        self.r = r
+        self.dw_a = nn.Conv2d(c, c, kernel_size=3, padding=1, groups=c, bias=False)
+        self.dw_b = nn.Conv2d(c, c, kernel_size=3, padding=1, groups=c, bias=False)
+        
+        self.w_f = nn.Conv2d(c, c * r, 1, bias=True)
+        self.w_s = nn.Conv2d(c, c * r, 1, bias=True)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.alpha = nn.Parameter(torch.zeros(1))
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        a = self.dw_a(x)
+        b = self.dw_b(x)
+        s = torch.sqrt(a * a + b * b + 1e-5)
+        
+        b_size, c, h, w = x.shape
+        
+        p = torch.tanh(self.w_f(self.pool(x))).view(b_size, c, self.r) # B, C, r
+        
+        q_logits = self.w_s(self.pool(s)).view(b_size, c, self.r) # B, C, r
+        q = F.softmax(q_logits, dim=1) # B, C, r (normalized over channels per rank state)
+        
+        s_flat = s.view(b_size, c, h * w)
+        q_t_s = torch.bmm(q.transpose(1, 2), s_flat) # B, r, HW
+        
+        i = torch.bmm(p, q_t_s).view(b_size, c, h, w)
+        
+        return x + self.alpha * i
 
 
 class FactorizedSupportAux(nn.Module):

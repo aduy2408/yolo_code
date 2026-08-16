@@ -99,6 +99,10 @@ from .block import (
     set_boundary_context,
     set_boundary_enabled,
     FactorizedSupportAux,
+    SemanticStructuralCrossInjection,
+    SemanticStructuralAgreementInjection,
+    SemanticPolarityAdaptiveSelection,
+    LowRankMultiStateCrossFusion,
 )
 from .local_detail import LocalDetailRepC2f
 from .pconv import C2f_PConv
@@ -268,6 +272,10 @@ __all__ = (
     "MSDeformAttn",
     "MaxSigmoidAttnBlock",
     "FactorizedSupportAux",
+    "SemanticStructuralCrossInjection",
+    "SemanticStructuralAgreementInjection",
+    "SemanticPolarityAdaptiveSelection",
+    "LowRankMultiStateCrossFusion",
     "Pose",
     "Pose26",
     "P2NUDFLDetect",

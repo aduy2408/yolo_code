@@ -2737,6 +2737,18 @@ class DetectClsAttention(Detect):
         elif self.attn_type == "reg_local":
             self.attn = nn.Identity()
             self.box_detail[0] = P2RegLocal(c_p2)
+        elif self.attn_type == "c1_cross_injection":
+            from .block import SemanticStructuralCrossInjection
+            self.attn = SemanticStructuralCrossInjection(c_p2)
+        elif self.attn_type == "c2_agreement":
+            from .block import SemanticStructuralAgreementInjection
+            self.attn = SemanticStructuralAgreementInjection(c_p2)
+        elif self.attn_type == "c3_polarity":
+            from .block import SemanticPolarityAdaptiveSelection
+            self.attn = SemanticPolarityAdaptiveSelection(c_p2)
+        elif self.attn_type == "c4_rank4":
+            from .block import LowRankMultiStateCrossFusion
+            self.attn = LowRankMultiStateCrossFusion(c_p2)
         else:
             raise ValueError(f"Unsupported attn_type: {self.attn_type}")
 
