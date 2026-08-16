@@ -32,16 +32,18 @@ Consequently, the resulting checkpoint represents a pure **Plain P2 Baseline wit
 
 ## Evaluation Results
 
-### Split Protocol Comparison (Plain P2 Baseline)
+### Architecture & Split Protocol Comparison
 
-Here we compare the performance of the **Plain P2 Baseline** under the original **Fixed Split** (random division) vs the **Scene-Disjoint Split** (divided by scene) on seed 42 (evaluated with NMS IoU = `0.5`):
+Here is the side-by-side comparison of the **Plain P2 Baseline** (which ran in this checkpoint), the **GAP Baseline**, and the **GAP + Factorized TAL (FTAL) k=1.5** under both split protocols on seed 42 (NMS IoU = `0.5`):
 
-| Split Protocol | Precision | Recall | mAP50 (AP50) | mAP75 (AP75) | mAP50-95 |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **Fixed Split** (Seed 42) | 0.8049 | 0.6223 | 0.7213 | 0.1353 | 0.2815 |
-| **Scene-Disjoint Split** (Seed 42) | **0.8346** | **0.7421** | **0.8156** | **0.1718** | **0.3229** |
+| Model / Architecture | Split Protocol | Precision | Recall | mAP50 (AP50) | mAP75 (AP75) | mAP50-95 |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Plain P2 Baseline** | **Fixed Split** | 0.8049 | 0.6223 | 0.7213 | 0.1353 | 0.2815 |
+| **Plain P2 Baseline** (This Run) | **Scene-Disjoint** | **0.8346** | **0.7421** | **0.8156** | **0.1718** | **0.3229** |
+| **GAP Baseline** | **Fixed Split** | 0.8266 | 0.7701 | 0.8162 | 0.1305 | 0.3106 |
+| **GAP + FTAL k=1.5** | **Fixed Split** | 0.8393 | 0.7882 | 0.8283 | 0.1388 | 0.3161 |
 
-*Note: The Fixed Split baseline results are sourced from [report_factorized_tal.md](file:///mnt/data/varroa/yolo_related/docs/reports/report_factorized_tal.md#L115).*
+*Note: Reference results for Fixed Split variants are sourced from [report_factorized_tal.md](file:///mnt/data/varroa/yolo_related/docs/reports/report_factorized_tal.md#L34-L44) and [report_yolov8n_p2_attention.md](file:///mnt/data/varroa/yolo_related/docs/reports/report_yolov8n_p2_attention.md).*
 
 ### Detailed Validation/Test Metrics (Scene-Disjoint Split)
 
