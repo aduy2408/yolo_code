@@ -116,7 +116,7 @@ class LocalContrastBasisStem(nn.Module):
                 dim=1,
             )
         relative = self.scale_formation(scale_state)
-        self.last_D = 1.0 - F.cosine_similarity(main, relative, dim=1)
+        self.last_D = (1.0 - F.cosine_similarity(main, relative, dim=1)).detach()
         if getattr(self, "fusion_mode", "concat") == "ffm":
             p = self.fc_p(self.gap(relative))
             q = self.fc_q(self.gap(main))
