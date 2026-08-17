@@ -2522,58 +2522,74 @@ class v8DetectionLoss:
         if hasattr(detect_head, "cls_ring_context") and len(detect_head.cls_ring_context) > 0:
             ring_cls = detect_head.cls_ring_context[0]
             if ring_cls.__class__.__name__ == "RingContextCls" and getattr(ring_cls, "last_x", None) is not None:
-                last_x = ring_cls.last_x
-                last_z = ring_cls.last_z
-                last_gate = ring_cls.last_gate
+                # 1. Warmup Check: only compute loss if epoch >= 10
+                epoch = 0
+                if hasattr(self.model, "trainer") and self.model.trainer is not None:
+                    epoch = getattr(self.model.trainer, "epoch", 0)
                 
-                B, C, H, W = last_x.shape
-                n_p2 = H * W
-                
-                # Reshape fg_mask to [B, 1, H, W]
-                p2_fg = fg_mask[:, :n_p2].reshape(B, 1, H, W).float()
-                
-                # Fetch pred classification scores to identify hard negatives
-                pred_scores = preds["scores"].permute(0, 2, 1).contiguous()
-                p2_scores = pred_scores[:, :n_p2].detach().float().sigmoid().max(dim=-1)[0]
-                bg_mask = ~fg_mask[:, :n_p2]
-                p2_hard_neg = bg_mask & (p2_scores > 0.1)
-                p2_hard_neg = p2_hard_neg.reshape(B, 1, H, W).float()
-                
-                # Supervise gate: target is 1 for positive and hard negatives
-                gate_target = (p2_fg + p2_hard_neg).clamp(0.0, 1.0)
-                loss_gate = F.binary_cross_entropy(last_gate, gate_target)
-                
-                # Auxiliary Contrastive InfoNCE Loss
-                F_out = (last_x + last_gate * last_z).permute(0, 2, 3, 1).reshape(-1, C)
-                flat_fg = fg_mask[:, :n_p2].reshape(-1)
-                flat_scores = p2_scores.reshape(-1)
-                flat_hn = p2_hard_neg.reshape(-1).bool()
-                
-                wp_mask = flat_fg & (flat_scores < 0.3)
-                tp_mask = flat_fg & (flat_scores >= 0.5)
-                neg_mask = flat_hn
-                
-                if wp_mask.any() and tp_mask.any() and neg_mask.any():
-                    wp_feats = F.normalize(F_out[wp_mask], p=2, dim=1)
-                    tp_feats = F.normalize(F_out[tp_mask], p=2, dim=1)
-                    neg_feats = F.normalize(F_out[neg_mask], p=2, dim=1)
+                if epoch >= 10:
+                    last_x = ring_cls.last_x
+                    last_z = ring_cls.last_z
+                    last_gate = ring_cls.last_gate
                     
-                    # Cosine similarities
-                    sim_pos = torch.matmul(wp_feats, tp_feats.t()) / 0.07
-                    sim_neg = torch.matmul(wp_feats, neg_feats.t()) / 0.07
+                    B, C, H, W = last_x.shape
+                    n_p2 = H * W
                     
-                    max_sim = torch.max(torch.max(sim_pos, dim=1, keepdim=True)[0], torch.max(sim_neg, dim=1, keepdim=True)[0])
-                    sim_pos_exp = torch.exp(sim_pos - max_sim)
-                    sim_neg_exp = torch.exp(sim_neg - max_sim)
+                    # Fetch predictions and flatten them batch-wide
+                    pred_scores = preds["scores"].permute(0, 2, 1).contiguous()
+                    p2_scores = pred_scores[:, :n_p2].detach().float().sigmoid().max(dim=-1)[0] # [B, n_p2]
+                    flat_p2_scores = p2_scores.reshape(-1)
                     
-                    loss_contrast = -torch.log(sim_pos_exp.sum(dim=1) / (sim_pos_exp.sum(dim=1) + sim_neg_exp.sum(dim=1) + 1e-8) + 1e-8).mean()
-                else:
-                    loss_contrast = torch.tensor(0.0, device=self.device)
-                
-                loss_aux = 0.1 * loss_gate + 0.05 * loss_contrast
-                loss[1] = loss[1] + loss_aux
-                loss_detach = loss_detach.clone()
-                loss_detach[1] = loss_detach[1] + loss_aux.detach().item()
+                    flat_fg = fg_mask[:, :n_p2].reshape(-1)
+                    flat_bg = ~flat_fg
+                    
+                    # 2. Relative Percentile Gating & Contrastive targets (Batch-Wide)
+                    if flat_fg.any():
+                        pos_scores = flat_p2_scores[flat_fg]
+                        wp_threshold = torch.quantile(pos_scores, 0.30)
+                        tp_threshold = torch.quantile(pos_scores, 0.60)
+                        wp_mask = flat_fg & (flat_p2_scores <= wp_threshold)
+                        tp_mask = flat_fg & (flat_p2_scores >= tp_threshold)
+                    else:
+                        wp_mask = torch.zeros_like(flat_fg)
+                        tp_mask = torch.zeros_like(flat_fg)
+                        
+                    if flat_bg.any():
+                        bg_scores = flat_p2_scores[flat_bg]
+                        neg_threshold = torch.quantile(bg_scores, 0.90)
+                        neg_mask = flat_bg & (flat_p2_scores >= neg_threshold)
+                    else:
+                        neg_mask = torch.zeros_like(flat_fg)
+                    
+                    # Gate Target: Positive anchors + Hard Negatives
+                    flat_gate_target = (flat_fg.float() + neg_mask.float()).clamp(0.0, 1.0)
+                    gate_target = flat_gate_target.reshape(B, 1, H, W)
+                    loss_gate = F.binary_cross_entropy(last_gate, gate_target)
+                    
+                    # 3. Batch-Wide Feature Contrastive Loss
+                    F_out = (last_x + last_gate * last_z).permute(0, 2, 3, 1).reshape(-1, C) # [B*n_p2, C]
+                    if wp_mask.any() and tp_mask.any() and neg_mask.any():
+                        wp_feats = F.normalize(F_out[wp_mask], p=2, dim=1)
+                        tp_feats = F.normalize(F_out[tp_mask], p=2, dim=1)
+                        neg_feats = F.normalize(F_out[neg_mask], p=2, dim=1)
+                        
+                        # Cosine similarities
+                        sim_pos = torch.matmul(wp_feats, tp_feats.t()) / 0.07
+                        sim_neg = torch.matmul(wp_feats, neg_feats.t()) / 0.07
+                        
+                        max_sim = torch.max(torch.max(sim_pos, dim=1, keepdim=True)[0], torch.max(sim_neg, dim=1, keepdim=True)[0])
+                        sim_pos_exp = torch.exp(sim_pos - max_sim)
+                        sim_neg_exp = torch.exp(sim_neg - max_sim)
+                        
+                        loss_contrast = -torch.log(sim_pos_exp.sum(dim=1) / (sim_pos_exp.sum(dim=1) + sim_neg_exp.sum(dim=1) + 1e-8) + 1e-8).mean()
+                    else:
+                        loss_contrast = torch.tensor(0.0, device=self.device)
+                    
+                    # 4. Adjusted Coefficients
+                    loss_aux = 0.5 * loss_gate + 0.2 * loss_contrast
+                    loss[1] = loss[1] + loss_aux
+                    loss_detach = loss_detach.clone()
+                    loss_detach[1] = loss_detach[1] + loss_aux.detach().item()
 
         # Factorized Support Aux supervision
         if self.support_module is not None and self.support_module.support_logits is not None:
