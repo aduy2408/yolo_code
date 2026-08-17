@@ -126,26 +126,43 @@ class RingPoolR5(nn.Module):
 
 
 class RingContextCls(nn.Module):
-    """Zero-init classification context adapter: F + Conv1x1([F, RingPool(F)])."""
+    """Candidate-targeted classification context adapter: F + Mask * Conv1x1([F, RingPool(F)])."""
 
     def __init__(self, channels: int, radius: int = 5) -> None:
         super().__init__()
+        self.channels = channels
         self.ring = RingPoolR5(channels, radius)
         self.fuse = nn.Conv2d(2 * channels, channels, kernel_size=1, bias=True)
         nn.init.zeros_(self.fuse.weight)
         nn.init.zeros_(self.fuse.bias)
+        
+        self.gate = nn.Conv2d(channels, 1, kernel_size=3, padding=1)
+        nn.init.zeros_(self.gate.weight)
+        nn.init.zeros_(self.gate.bias)
+        
         self.last_stats: dict[str, torch.Tensor] = {}
+        self.last_x = None
+        self.last_z = None
+        self.last_gate = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         r = self.ring(x)
         z = self.fuse(torch.cat((x, r), dim=1))
+        gate = self.gate(x).sigmoid()
+        
+        if self.training:
+            self.last_x = x
+            self.last_z = z
+            self.last_gate = gate
+            
         with torch.no_grad():
             self.last_stats = {
                 "residual_ratio": (z.norm() / (x.norm() + 1e-8)).detach(),
                 "ring_mean_abs": r.abs().mean().detach(),
                 "fusion_output_mean_abs": z.abs().mean().detach(),
+                "gate_mean": gate.mean().detach(),
             }
-        return x + z
+        return x + gate * z
 
 
 class GGCFEncoder(nn.Module):
