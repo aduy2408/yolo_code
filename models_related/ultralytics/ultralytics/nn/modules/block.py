@@ -4864,7 +4864,7 @@ class DualChannelFormationBackbone(nn.Module):
     """Persistent Dual-Stream Channel-Formation Block.
     Maintains and propagates a tuple (M, I) of mixed and isolated representations.
     If the input is a single tensor X, it splits X using stem projections.
-    Supports Progressive Fusion (Option C) and Late Concat (Option B, progressive=False).
+    Supports Progressive Cross-conditioned formation (Option C) and Late Concat (Option B, progressive=False).
     """
 
     def __init__(self, c1: int, c2: int, n: int = 1, shortcut: bool = True, g: int = 1, e: float = 0.67, progressive: bool = True) -> None:
@@ -4877,10 +4877,20 @@ class DualChannelFormationBackbone(nn.Module):
         self.stem_m = Conv(c1, self.c2_m, 1) if c1 != self.c2_m else nn.Identity()
         self.stem_i = Conv(c1, self.c2_i, 1) if c1 != self.c2_i else nn.Identity()
 
-        # Mixed Stream Blocks (with pointwise mix)
-        self.m_blocks = nn.ModuleList(Bottleneck(self.c2_m, self.c2_m, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+        # Mixed Stream Blocks: Φ_M (takes [M, selected_I] which has c2_m + c2_i channels and outputs c2_m)
+        # We will use Bottleneck with input dimension c2_m + c2_i if progressive, else c2_m.
+        # To keep it neat, we define:
+        if self.progressive:
+            self.m_blocks = nn.ModuleList(
+                nn.Sequential(
+                    Conv(self.c2_m + self.c2_i, self.c2_m, 1),
+                    Bottleneck(self.c2_m, self.c2_m, shortcut, g, k=((3, 3), (3, 3)), e=1.0)
+                ) for _ in range(n)
+            )
+        else:
+            self.m_blocks = nn.ModuleList(Bottleneck(self.c2_m, self.c2_m, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
 
-        # Isolated Stream Blocks (DWConv3x3 only, no pointwise mix)
+        # Isolated Stream Blocks: Φ_I (DWConv3x3 only, no pointwise mix)
         self.i_blocks = nn.ModuleList(
             nn.Sequential(
                 nn.Conv2d(self.c2_i, self.c2_i, 3, padding=1, groups=self.c2_i, bias=False),
@@ -4895,19 +4905,27 @@ class DualChannelFormationBackbone(nn.Module):
         if self.progressive:
             # Interaction cues: M, I, M_proj*I, abs(M_proj - I) -> c2_m + 3 * c2_i channels
             self.proj_m_to_i = nn.Conv2d(self.c2_m, self.c2_i, 1, bias=False)
+            self.proj_i = nn.Conv2d(self.c2_i, self.c2_i, 1, bias=False) # P_I(I)
+            
             fusion_channels = self.c2_m + 3 * self.c2_i
+            # Z -> H (interaction bottleneck)
             self.fusion_phi = nn.Sequential(
                 nn.Conv2d(fusion_channels, self.c2_m + self.c2_i, 1, bias=False),
                 nn.BatchNorm2d(self.c2_m + self.c2_i),
                 nn.SiLU(inplace=True)
             )
-            # Delta projections
-            self.delta_m = nn.Conv2d(self.c2_m + self.c2_i, self.c2_m, 1, bias=False)
-            self.delta_i = nn.Conv2d(self.c2_m + self.c2_i, self.c2_i, 1, bias=False)
             
-            # Initializing weights of delta projections with 1e-4 for non-zero gradient flow
-            nn.init.constant_(self.delta_m.weight, 1e-4)
-            nn.init.constant_(self.delta_i.weight, 1e-4)
+            # Asymmetric Gates
+            # G_I(Z) for selecting I info -> c2_i channels
+            self.gate_i = nn.Sequential(
+                nn.Conv2d(self.c2_m + self.c2_i, self.c2_i, 1, bias=False),
+                nn.Sigmoid()
+            )
+            # G_M(Z) for modulating I channel weights -> c2_i channels
+            self.gate_m = nn.Sequential(
+                nn.Conv2d(self.c2_m + self.c2_i, self.c2_i, 1, bias=False),
+                nn.Sigmoid()
+            )
 
     def forward(self, x: torch.Tensor | tuple[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         if isinstance(x, tuple):
@@ -4917,18 +4935,25 @@ class DualChannelFormationBackbone(nn.Module):
             i = self.stem_i(x)
 
         for m_blk, i_blk in zip(self.m_blocks, self.i_blocks):
-            m = m_blk(m)
-            i = i_blk(i)
             if self.progressive:
-                # Explicit interaction cues
+                # 1. Compute interaction Z
                 m_proj = self.proj_m_to_i(m)
                 prod = m_proj * i
                 diff = torch.abs(m_proj - i)
-                # Concatenate all cues: [m, i, prod, diff]
                 cues = torch.cat([m, i, prod, diff], dim=1)
-                h = self.fusion_phi(cues)
-                m = m + self.delta_m(h)
-                i = i + self.delta_i(h)
+                z = self.fusion_phi(cues)
+
+                # 2. Select I -> inject into mixed stream formation
+                g_i = self.gate_i(z)
+                i_sel = g_i * self.proj_i(i)
+                m = m_blk(torch.cat([m, i_sel], dim=1))
+
+                # 3. Modulate isolated stream formation
+                g_m = self.gate_m(z)
+                i = i_blk(i) * g_m
+            else:
+                m = m_blk(m)
+                i = i_blk(i)
 
         return m, i
 
