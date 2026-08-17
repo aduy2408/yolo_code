@@ -966,8 +966,8 @@ class v8DetectionLoss:
         self.factorized_tal_p2_only = bool(getattr(h, "factorized_tal_p2_only", True))
         self.factorized_tal_mode = str(getattr(h, "factorized_tal_mode", "current")).lower()
         self.factorized_tal_metrics = {}
-        self.crc_gate_coeff = float(getattr(h, "crc_gate_coeff", 0.5))
-        self.crc_contrast_coeff = float(getattr(h, "crc_contrast_coeff", 0.2))
+        self.crc_gate_coeff = float(getattr(self.model, "crc_gate_coeff", 0.5))
+        self.crc_contrast_coeff = float(getattr(self.model, "crc_contrast_coeff", 0.2))
         if self.factorized_tal_target:
             if (
                 self.vfl is not None

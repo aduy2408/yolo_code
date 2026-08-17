@@ -62,43 +62,26 @@ def model_for(variant: str, pretrained: str):
         raise ValueError(f"{variant}: expected P2-only Detect stride [4], got {head.stride.tolist()}")
     if not isinstance(head.cls_ring_context[0], RingContextCls) or not head.ring_context or head.ring_radius != 5:
         raise ValueError(f"{variant}: ring context did not resolve as R5 P2 cls-only adapter")
+    
+    # Attach coefficients to PyTorch model (model.model)
+    if variant == "gap_ftal_crc_gate_only":
+        model.model.crc_gate_coeff = 0.5
+        model.model.crc_contrast_coeff = 0.0
+    elif variant == "gap_ftal_crc_contrast_only":
+        model.model.crc_gate_coeff = 0.0
+        model.model.crc_contrast_coeff = 0.2
+    else:
+        model.model.crc_gate_coeff = 0.5
+        model.model.crc_contrast_coeff = 0.2
     return model
 
 
 def smoke(variant: str, data_yaml: Path, args: argparse.Namespace, amp: bool = True) -> bool:
-    original_train_kwargs = workflow.train_kwargs
-    def custom_train_kwargs(*args_kwargs, **kwargs_kwargs):
-        kwargs = original_train_kwargs(*args_kwargs, **kwargs_kwargs)
-        if variant == "gap_ftal_crc_gate_only":
-            kwargs.update(crc_gate_coeff=0.5, crc_contrast_coeff=0.0)
-        elif variant == "gap_ftal_crc_contrast_only":
-            kwargs.update(crc_gate_coeff=0.0, crc_contrast_coeff=0.2)
-        else:
-            kwargs.update(crc_gate_coeff=0.5, crc_contrast_coeff=0.2)
-        return kwargs
-    workflow.train_kwargs = custom_train_kwargs
-    try:
-        return _base_smoke(variant, data_yaml, args, amp)
-    finally:
-        workflow.train_kwargs = original_train_kwargs
+    return _base_smoke(variant, data_yaml, args, amp)
 
 
 def train(variant: str, seed: int, data_yaml: Path, amp: bool, args: argparse.Namespace) -> Path:
-    original_train_kwargs = workflow.train_kwargs
-    def custom_train_kwargs(*args_kwargs, **kwargs_kwargs):
-        kwargs = original_train_kwargs(*args_kwargs, **kwargs_kwargs)
-        if variant == "gap_ftal_crc_gate_only":
-            kwargs.update(crc_gate_coeff=0.5, crc_contrast_coeff=0.0)
-        elif variant == "gap_ftal_crc_contrast_only":
-            kwargs.update(crc_gate_coeff=0.0, crc_contrast_coeff=0.2)
-        else:
-            kwargs.update(crc_gate_coeff=0.5, crc_contrast_coeff=0.2)
-        return kwargs
-    workflow.train_kwargs = custom_train_kwargs
-    try:
-        return _base_train(variant, seed, data_yaml, amp, args)
-    finally:
-        workflow.train_kwargs = original_train_kwargs
+    return _base_train(variant, seed, data_yaml, amp, args)
 
 
 def parse_args() -> argparse.Namespace:
