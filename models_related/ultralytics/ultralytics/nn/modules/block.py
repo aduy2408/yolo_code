@@ -5033,8 +5033,8 @@ class NativeCrossReconstruction(nn.Module):
         
         if self.mode == "ffm":
             # p, q shape: (B, C, 1, 1)
-            p = torch.sigmoid(self.fc_p(self.gap(A_proj)))
-            q = torch.sigmoid(self.fc_q(self.gap(B)))
+            p = self.fc_p(self.gap(A_proj))
+            q = self.fc_q(self.gap(B))
             
             # S_B shape: (B, 1, H, W)
             S_B = (q * B).sum(dim=1, keepdim=True)

@@ -108,6 +108,7 @@ from .block import (
     DualCollapse,
     NativeCrossReconstruction,
 )
+from .local_contrast import LocalContrastBasisStem
 from .local_detail import LocalDetailRepC2f
 from .pconv import C2f_PConv
 from .conv import (
@@ -284,6 +285,7 @@ __all__ = (
     "DualDownsample",
     "DualCollapse",
     "NativeCrossReconstruction",
+    "LocalContrastBasisStem",
     "Pose",
     "Pose26",
     "P2NUDFLDetect",
