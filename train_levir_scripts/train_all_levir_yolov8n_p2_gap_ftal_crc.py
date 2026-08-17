@@ -19,6 +19,7 @@ CONFIG_ROOT = ROOT.parent / "models_related/models_config/yolov8/levir"
 workflow.EXPERIMENT = "levir_yolov8n_p2_gap_ftal_crc"
 workflow.HF_REPO = "duyle2408/levir-yolov8n-p2-gap-ftal-crc"
 workflow.VARIANTS = {
+    "plain_ftal_crc": CONFIG_ROOT / "yolov8n_p2_fpn_only_plain_crc.yaml",
     "gap_ftal_crc": CONFIG_ROOT / "yolov8n_p2_fpn_only_gap_ring_context_cls.yaml",
 }
 
@@ -49,8 +50,12 @@ def model_for(variant: str, pretrained: str):
 
     layers = model.model.model
     head = layers[-1]
-    if not isinstance(layers[19], ChannelAttention) or not isinstance(head, Detect) or head.f != [19]:
-        raise ValueError(f"{variant}: expected P2 -> ChannelAttention(avg) -> Detect([19])")
+    if variant == "gap_ftal_crc":
+        if not isinstance(layers[19], ChannelAttention) or not isinstance(head, Detect) or head.f != [19]:
+            raise ValueError(f"{variant}: expected P2 -> ChannelAttention(avg) -> Detect([19])")
+    else:
+        if not isinstance(head, Detect) or head.f != [18]:
+            raise ValueError(f"{variant}: expected P2 -> Detect([18])")
     if head.stride.tolist() != [4.0] or head.nl != 1:
         raise ValueError(f"{variant}: expected P2-only Detect stride [4], got {head.stride.tolist()}")
     if not isinstance(head.cls_ring_context[0], RingContextCls) or not head.ring_context or head.ring_radius != 5:
