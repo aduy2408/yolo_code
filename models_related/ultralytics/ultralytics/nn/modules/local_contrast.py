@@ -34,6 +34,7 @@ class LocalContrastBasisStem(nn.Module):
         mode: str = "relative",
         k_small: int = 9,
         k_large: int = 17,
+        fusion_mode: str = "concat",
     ) -> None:
         super().__init__()
         if mode not in {"relative", "relative_no_cross", "raw"}:
@@ -44,6 +45,7 @@ class LocalContrastBasisStem(nn.Module):
         self.mode = mode
         self.k_small = int(k_small)
         self.k_large = int(k_large)
+        self.fusion_mode = fusion_mode.lower()
 
         # Main path: same P2-producing stem as the YOLOv8n baseline.
         c_mid = max(c2 // 2, 8)
@@ -67,6 +69,11 @@ class LocalContrastBasisStem(nn.Module):
         # Joint formation is intentionally not an additive adapter. The output is
         # a newly formed P2 representation and is the sole state propagated onward.
         self.joint_formation = C2f(2 * c2, c2, n=1, shortcut=False)
+        if self.fusion_mode == "ffm":
+            self.gap = nn.AdaptiveAvgPool2d(1)
+            self.fc_p = nn.Conv2d(c2, c2, 1)
+            self.fc_q = nn.Conv2d(c2, c2, 1)
+            self.conv_out = Conv(c2 * 3, c2, 1)
 
     @staticmethod
     def _rgb_magnitude(x: torch.Tensor) -> torch.Tensor:
@@ -110,4 +117,11 @@ class LocalContrastBasisStem(nn.Module):
             )
         relative = self.scale_formation(scale_state)
         self.last_D = 1.0 - F.cosine_similarity(main, relative, dim=1)
-        return self.joint_formation(torch.cat((main, relative), dim=1))
+        if getattr(self, "fusion_mode", "concat") == "ffm":
+            p = self.fc_p(self.gap(relative))
+            q = self.fc_q(self.gap(main))
+            S_B = (q * main).sum(dim=1, keepdim=True)
+            B_hat = p * S_B
+            return self.conv_out(torch.cat([main, B_hat, relative], dim=1))
+        else:
+            return self.joint_formation(torch.cat((main, relative), dim=1))
