@@ -4859,3 +4859,119 @@ class FactorizedSupportAux(nn.Module):
             self.support_logits = None
         return x
 
+
+class DualChannelFormationBackbone(nn.Module):
+    """Persistent Dual-Stream Channel-Formation Block.
+    Maintains and propagates a tuple (M, I) of mixed and isolated representations.
+    If the input is a single tensor X, it splits X using stem projections.
+    Supports Progressive Fusion (Option C) and Late Concat (Option B, progressive=False).
+    """
+
+    def __init__(self, c1: int, c2: int, n: int = 1, shortcut: bool = True, g: int = 1, e: float = 0.67, progressive: bool = True) -> None:
+        super().__init__()
+        self.c2_m = int(round(c2 * e))
+        self.c2_i = c2 - self.c2_m
+        self.progressive = progressive
+
+        # Stem transitions (used only if input is a single tensor)
+        self.stem_m = Conv(c1, self.c2_m, 1) if c1 != self.c2_m else nn.Identity()
+        self.stem_i = Conv(c1, self.c2_i, 1) if c1 != self.c2_i else nn.Identity()
+
+        # Mixed Stream Blocks (with pointwise mix)
+        self.m_blocks = nn.ModuleList(Bottleneck(self.c2_m, self.c2_m, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+
+        # Isolated Stream Blocks (DWConv3x3 only, no pointwise mix)
+        self.i_blocks = nn.ModuleList(
+            nn.Sequential(
+                nn.Conv2d(self.c2_i, self.c2_i, 3, padding=1, groups=self.c2_i, bias=False),
+                nn.BatchNorm2d(self.c2_i),
+                nn.SiLU(inplace=True),
+                nn.Conv2d(self.c2_i, self.c2_i, 3, padding=1, groups=self.c2_i, bias=False),
+                nn.BatchNorm2d(self.c2_i),
+                nn.SiLU(inplace=True)
+            ) for _ in range(n)
+        )
+
+        if self.progressive:
+            # Interaction cues: M, I, M_proj*I, abs(M_proj - I) -> c2_m + 3 * c2_i channels
+            self.proj_m_to_i = nn.Conv2d(self.c2_m, self.c2_i, 1, bias=False)
+            fusion_channels = self.c2_m + 3 * self.c2_i
+            self.fusion_phi = nn.Sequential(
+                nn.Conv2d(fusion_channels, self.c2_m + self.c2_i, 1, bias=False),
+                nn.BatchNorm2d(self.c2_m + self.c2_i),
+                nn.SiLU(inplace=True)
+            )
+            # Delta projections
+            self.delta_m = nn.Conv2d(self.c2_m + self.c2_i, self.c2_m, 1, bias=False)
+            self.delta_i = nn.Conv2d(self.c2_m + self.c2_i, self.c2_i, 1, bias=False)
+            
+            # Initializing weights of delta projections with 1e-4 for non-zero gradient flow
+            nn.init.constant_(self.delta_m.weight, 1e-4)
+            nn.init.constant_(self.delta_i.weight, 1e-4)
+
+    def forward(self, x: torch.Tensor | tuple[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        if isinstance(x, tuple):
+            m, i = x
+        else:
+            m = self.stem_m(x)
+            i = self.stem_i(x)
+
+        for m_blk, i_blk in zip(self.m_blocks, self.i_blocks):
+            m = m_blk(m)
+            i = i_blk(i)
+            if self.progressive:
+                # Explicit interaction cues
+                m_proj = self.proj_m_to_i(m)
+                prod = m_proj * i
+                diff = torch.abs(m_proj - i)
+                # Concatenate all cues: [m, i, prod, diff]
+                cues = torch.cat([m, i, prod, diff], dim=1)
+                h = self.fusion_phi(cues)
+                m = m + self.delta_m(h)
+                i = i + self.delta_i(h)
+
+        return m, i
+
+
+class DualDownsample(nn.Module):
+    """Downsampling module for persistent dual-stream.
+    Independently downsamples M (via standard Conv stride=2) and I (via DWConv stride=2).
+    """
+
+    def __init__(self, c1: int, c2: int, k: int = 3, s: int = 2, e: float = 0.67) -> None:
+        super().__init__()
+        c1_m = int(round(c1 * e))
+        c1_i = c1 - c1_m
+        c2_m = int(round(c2 * e))
+        c2_i = c2 - c2_m
+
+        self.down_m = Conv(c1_m, c2_m, k, s)
+        self.down_i = nn.Sequential(
+            nn.Conv2d(c1_i, c1_i, k, s, padding=k // 2, groups=c1_i, bias=False),
+            nn.BatchNorm2d(c1_i),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(c1_i, c2_i, 1, bias=False),
+            nn.BatchNorm2d(c2_i)
+        )
+
+    def forward(self, x: tuple[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        m, i = x
+        return self.down_m(m), self.down_i(i)
+
+
+class DualCollapse(nn.Module):
+    """Collapses persistent dual-stream (M, I) back to a single tensor.
+    Utilizes Concat + Conv 1x1.
+    """
+
+    def __init__(self, c1: int, c2: int) -> None:
+        super().__init__()
+        # c1 is total channel capacity of input streams (M + I)
+        self.conv = Conv(c1, c2, 1)
+
+    def forward(self, x: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        m, i = x
+        return self.conv(torch.cat([m, i], dim=1))
+
+
+

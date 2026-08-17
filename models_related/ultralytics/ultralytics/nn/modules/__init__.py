@@ -103,6 +103,9 @@ from .block import (
     SemanticStructuralAgreementInjection,
     SemanticPolarityAdaptiveSelection,
     LowRankMultiStateCrossFusion,
+    DualChannelFormationBackbone,
+    DualDownsample,
+    DualCollapse,
 )
 from .local_detail import LocalDetailRepC2f
 from .pconv import C2f_PConv
@@ -276,6 +279,9 @@ __all__ = (
     "SemanticStructuralAgreementInjection",
     "SemanticPolarityAdaptiveSelection",
     "LowRankMultiStateCrossFusion",
+    "DualChannelFormationBackbone",
+    "DualDownsample",
+    "DualCollapse",
     "Pose",
     "Pose26",
     "P2NUDFLDetect",

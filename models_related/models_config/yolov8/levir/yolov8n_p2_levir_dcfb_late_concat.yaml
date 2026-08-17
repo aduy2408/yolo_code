@@ -1,0 +1,39 @@
+nc: 1
+p2_offset_regression: false
+scale: n
+scales: {n: [0.33, 0.25, 1024]}
+backbone:
+  # Stage 0: Stride 2
+  - [-1, 1, Conv, [64, 3, 2]]
+  
+  # Stage 1: Stride 4
+  - [-1, 1, Conv, [128, 3, 2]] # idx: 1
+  - [-1, 3, DualChannelFormationBackbone, [128, true, 1, 0.67, false]] # idx: 2, output: tuple (M, I)
+  - [-1, 1, DualCollapse, [128]] # idx: 3, output: tensor (for neck)
+  
+  # Stage 2: Stride 8
+  - [2, 1, DualDownsample, [256, 3, 2, 0.67]] # idx: 4, input from 2, output: tuple (M, I)
+  - [-1, 6, DualChannelFormationBackbone, [256, true, 1, 0.67, false]] # idx: 5, output: tuple (M, I)
+  - [-1, 1, DualCollapse, [256]] # idx: 6, output: tensor (for neck)
+  
+  # Stage 3: Stride 16
+  - [5, 1, DualDownsample, [512, 3, 2, 0.67]] # idx: 7, input from 5, output: tuple (M, I)
+  - [-1, 6, DualChannelFormationBackbone, [512, true, 1, 0.67, false]] # idx: 8, output: tuple (M, I)
+  - [-1, 1, DualCollapse, [512]] # idx: 9, output: tensor (for neck)
+  
+  # Stage 4: Stride 32
+  - [8, 1, DualDownsample, [1024, 3, 2, 0.67]] # idx: 10, input from 8, output: tuple (M, I)
+  - [-1, 3, DualChannelFormationBackbone, [1024, true, 1, 0.67, false]] # idx: 11, output: tuple (M, I)
+  - [-1, 1, DualCollapse, [1024]] # idx: 12, output: tensor
+  - [-1, 1, SPPF, [1024, 5]] # idx: 13
+head:
+  - [-1, 1, nn.Upsample, [null, 2, nearest]] # idx: 14 (from 13)
+  - [[-1, 9], 1, Concat, [1]] # idx: 15 (concat with 9 - collapsed Stage 3)
+  - [-1, 3, C2f, [512]] # idx: 16
+  - [-1, 1, nn.Upsample, [null, 2, nearest]] # idx: 17
+  - [[-1, 6], 1, Concat, [1]] # idx: 18 (concat with 6 - collapsed Stage 2)
+  - [-1, 3, C2f, [256]] # idx: 19
+  - [-1, 1, nn.Upsample, [null, 2, nearest]] # idx: 20
+  - [[-1, 3], 1, Concat, [1]] # idx: 21 (concat with 3 - collapsed Stage 1)
+  - [-1, 3, C2f, [128]] # idx: 22
+  - [[22], 1, Detect, [nc]] # idx: 23 (FPN-Only P2 Detect)
