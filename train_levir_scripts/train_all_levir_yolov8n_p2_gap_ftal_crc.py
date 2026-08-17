@@ -21,6 +21,8 @@ workflow.HF_REPO = "duyle2408/levir-yolov8n-p2-gap-ftal-crc"
 workflow.VARIANTS = {
     "plain_ftal_crc": CONFIG_ROOT / "yolov8n_p2_fpn_only_plain_crc.yaml",
     "gap_ftal_crc": CONFIG_ROOT / "yolov8n_p2_fpn_only_gap_ring_context_cls.yaml",
+    "gap_ftal_crc_gate_only": CONFIG_ROOT / "yolov8n_p2_fpn_only_gap_ring_context_cls.yaml",
+    "gap_ftal_crc_contrast_only": CONFIG_ROOT / "yolov8n_p2_fpn_only_gap_ring_context_cls.yaml",
 }
 
 _base_train_kwargs = workflow.train_kwargs
@@ -50,7 +52,7 @@ def model_for(variant: str, pretrained: str):
 
     layers = model.model.model
     head = layers[-1]
-    if variant == "gap_ftal_crc":
+    if variant in {"gap_ftal_crc", "gap_ftal_crc_gate_only", "gap_ftal_crc_contrast_only"}:
         if not isinstance(layers[19], ChannelAttention) or not isinstance(head, Detect) or head.f != [19]:
             raise ValueError(f"{variant}: expected P2 -> ChannelAttention(avg) -> Detect([19])")
     else:
@@ -64,11 +66,39 @@ def model_for(variant: str, pretrained: str):
 
 
 def smoke(variant: str, data_yaml: Path, args: argparse.Namespace, amp: bool = True) -> bool:
-    return _base_smoke(variant, data_yaml, args, amp)
+    original_train_kwargs = workflow.train_kwargs
+    def custom_train_kwargs(*args_kwargs, **kwargs_kwargs):
+        kwargs = original_train_kwargs(*args_kwargs, **kwargs_kwargs)
+        if variant == "gap_ftal_crc_gate_only":
+            kwargs.update(crc_gate_coeff=0.5, crc_contrast_coeff=0.0)
+        elif variant == "gap_ftal_crc_contrast_only":
+            kwargs.update(crc_gate_coeff=0.0, crc_contrast_coeff=0.2)
+        else:
+            kwargs.update(crc_gate_coeff=0.5, crc_contrast_coeff=0.2)
+        return kwargs
+    workflow.train_kwargs = custom_train_kwargs
+    try:
+        return _base_smoke(variant, data_yaml, args, amp)
+    finally:
+        workflow.train_kwargs = original_train_kwargs
 
 
 def train(variant: str, seed: int, data_yaml: Path, amp: bool, args: argparse.Namespace) -> Path:
-    return _base_train(variant, seed, data_yaml, amp, args)
+    original_train_kwargs = workflow.train_kwargs
+    def custom_train_kwargs(*args_kwargs, **kwargs_kwargs):
+        kwargs = original_train_kwargs(*args_kwargs, **kwargs_kwargs)
+        if variant == "gap_ftal_crc_gate_only":
+            kwargs.update(crc_gate_coeff=0.5, crc_contrast_coeff=0.0)
+        elif variant == "gap_ftal_crc_contrast_only":
+            kwargs.update(crc_gate_coeff=0.0, crc_contrast_coeff=0.2)
+        else:
+            kwargs.update(crc_gate_coeff=0.5, crc_contrast_coeff=0.2)
+        return kwargs
+    workflow.train_kwargs = custom_train_kwargs
+    try:
+        return _base_train(variant, seed, data_yaml, amp, args)
+    finally:
+        workflow.train_kwargs = original_train_kwargs
 
 
 def parse_args() -> argparse.Namespace:

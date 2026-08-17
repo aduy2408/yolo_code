@@ -69,7 +69,7 @@ def test_model_topology_and_runner_defaults():
     assert head.ring_context and head.ring_radius == 5
 
     args = train.parse_args()
-    assert set(args.variants) == {"plain_ftal_crc", "gap_ftal_crc"}
+    assert set(args.variants) == {"plain_ftal_crc", "gap_ftal_crc", "gap_ftal_crc_gate_only", "gap_ftal_crc_contrast_only"}
     assert args.seeds == [42]
     assert args.split_seed == 42
     assert args.epochs == 100 and args.imgsz == 512

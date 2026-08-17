@@ -966,6 +966,8 @@ class v8DetectionLoss:
         self.factorized_tal_p2_only = bool(getattr(h, "factorized_tal_p2_only", True))
         self.factorized_tal_mode = str(getattr(h, "factorized_tal_mode", "current")).lower()
         self.factorized_tal_metrics = {}
+        self.crc_gate_coeff = float(getattr(h, "crc_gate_coeff", 0.5))
+        self.crc_contrast_coeff = float(getattr(h, "crc_contrast_coeff", 0.2))
         if self.factorized_tal_target:
             if (
                 self.vfl is not None
@@ -2586,7 +2588,7 @@ class v8DetectionLoss:
                         loss_contrast = torch.tensor(0.0, device=self.device)
                     
                     # 4. Adjusted Coefficients
-                    loss_aux = 0.5 * loss_gate + 0.2 * loss_contrast
+                    loss_aux = self.crc_gate_coeff * loss_gate + self.crc_contrast_coeff * loss_contrast
                     loss[1] = loss[1] + loss_aux
                     loss_detach = loss_detach.clone()
                     loss_detach[1] = loss_detach[1] + loss_aux.detach().item()
