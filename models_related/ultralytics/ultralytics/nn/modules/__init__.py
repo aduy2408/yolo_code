@@ -106,6 +106,7 @@ from .block import (
     DualChannelFormationBackbone,
     DualDownsample,
     DualCollapse,
+    NativeCrossReconstruction,
 )
 from .local_detail import LocalDetailRepC2f
 from .pconv import C2f_PConv
@@ -282,6 +283,7 @@ __all__ = (
     "DualChannelFormationBackbone",
     "DualDownsample",
     "DualCollapse",
+    "NativeCrossReconstruction",
     "Pose",
     "Pose26",
     "P2NUDFLDetect",

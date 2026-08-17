@@ -4999,4 +4999,53 @@ class DualCollapse(nn.Module):
         return self.conv(torch.cat([m, i], dim=1))
 
 
+class NativeCrossReconstruction(nn.Module):
+    """Native Cross-Reconstruction P2.
+    Takes two input feature maps A (X_pre) and B (X_post).
+    Applies rank-1 outer product cross-reconstruction if mode is 'ffm',
+    otherwise applies simple concatenation and projection if mode is 'concat'.
+    """
+
+    def __init__(self, c1: list[int], c2: int, mode: str = "ffm") -> None:
+        super().__init__()
+        assert len(c1) == 2, "NativeCrossReconstruction requires exactly 2 input channels [c1_A, c1_B]"
+        c_a, c_b = c1
+        self.mode = mode.lower()
+        
+        # Project A to B's channel dimension if they mismatch
+        self.proj_a = Conv(c_a, c_b, 1) if c_a != c_b else nn.Identity()
+        
+        if self.mode == "ffm":
+            self.gap = nn.AdaptiveAvgPool2d(1)
+            self.fc_p = nn.Conv2d(c_b, c_b, 1)
+            self.fc_q = nn.Conv2d(c_b, c_b, 1)
+            self.conv_out = Conv(c_b * 3, c2, 1)
+        elif self.mode == "concat":
+            self.conv_out = Conv(c_b * 2, c2, 1)
+        else:
+            raise ValueError(f"Unknown NativeCrossReconstruction mode: {mode}")
+
+    def forward(self, x: list[torch.Tensor]) -> torch.Tensor:
+        assert len(x) == 2, "NativeCrossReconstruction forward requires exactly 2 tensors [A, B]"
+        A, B = x
+        
+        A_proj = self.proj_a(A)
+        
+        if self.mode == "ffm":
+            # p, q shape: (B, C, 1, 1)
+            p = torch.sigmoid(self.fc_p(self.gap(A_proj)))
+            q = torch.sigmoid(self.fc_q(self.gap(B)))
+            
+            # S_B shape: (B, 1, H, W)
+            S_B = (q * B).sum(dim=1, keepdim=True)
+            
+            # B_hat shape: (B, C, H, W)
+            B_hat = p * S_B
+            
+            return self.conv_out(torch.cat([B, B_hat, A_proj], dim=1))
+        else:
+            return self.conv_out(torch.cat([B, A_proj], dim=1))
+
+
+
 

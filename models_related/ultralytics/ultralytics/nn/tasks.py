@@ -35,6 +35,7 @@ from ultralytics.nn.modules import (
     DualChannelFormationBackbone,
     DualDownsample,
     DualCollapse,
+    NativeCrossReconstruction,
     ELAN1,
     OBB,
     OBB26,
@@ -2357,6 +2358,11 @@ def parse_model(d, ch, verbose=True):
                     args.extend((True, 1.2))
             if m is C2fCIB:
                 legacy = False
+        elif m is NativeCrossReconstruction:
+            c1, c2 = [ch[x] for x in f], args[0]
+            if c2 != nc:
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, *args[1:]]
         elif m is M3NATFuse:
             c1, c2 = [ch[x] for x in f], args[0]
             if c2 != nc:
