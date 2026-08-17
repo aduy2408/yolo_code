@@ -109,4 +109,5 @@ class LocalContrastBasisStem(nn.Module):
                 dim=1,
             )
         relative = self.scale_formation(scale_state)
+        self.last_D = 1.0 - F.cosine_similarity(main, relative, dim=1)
         return self.joint_formation(torch.cat((main, relative), dim=1))
