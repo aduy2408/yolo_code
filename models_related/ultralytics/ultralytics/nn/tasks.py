@@ -2338,6 +2338,9 @@ def parse_model(d, ch, verbose=True):
             DualChannelFormationBackbone,
             DualDownsample,
             DualCollapse,
+            LocalContrastBasisStem,
+            SingleContrastFormationStem,
+            SidecarResidualFusionStem,
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
