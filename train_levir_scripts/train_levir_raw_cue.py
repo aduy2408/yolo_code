@@ -98,10 +98,8 @@ def run(args: argparse.Namespace) -> None:
 
     for seed in SEEDS:
         ds_dir = args.dataset_root / f"levir_ship_yolo_seed{seed}"
-        data_yaml = ds_dir / "levir_ship.yaml"
-        if not data_yaml.is_file():
-            data_root = args.data_root if args.data_root.exists() else Path("/marimo/LevirShipData")
-            data_yaml = prepare(data_root, ds_dir, seed)
+        data_root = args.data_root if (args.data_root / "All Images").is_dir() else Path("/marimo/LevirShipData")
+        data_yaml = prepare(data_root, ds_dir, seed)
         for variant_name, yaml_cfg in VARIANTS.items():
             run_name = f"{variant_name}_seed{seed}"
             run_dir = args.project / run_name
