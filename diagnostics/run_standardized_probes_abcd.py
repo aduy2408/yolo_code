@@ -88,8 +88,7 @@ def build_hooked_yolo_model(weights_path: Path, device: str):
     class ForwardWrapper(nn.Module):
         def forward(self, x):
             hooked_feats.clear()
-            preds = net(x)
-            decoded = net.model[22](preds) if len(net.model) > 22 else net.model[-1](preds)
+            decoded, preds = net(x)
             return decoded, preds
 
     return ForwardWrapper(), net, hooked_feats
