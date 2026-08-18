@@ -37,7 +37,7 @@ class LocalContrastBasisStem(nn.Module):
         fusion_mode: str = "concat",
     ) -> None:
         super().__init__()
-        if mode not in {"relative", "relative_no_cross", "raw"}:
+        if mode not in {"relative", "relative_no_cross", "raw", "relative_r_only"}:
             raise ValueError(f"invalid LocalContrastBasisStem mode: {mode!r}")
         if k_small % 2 == 0 or k_large % 2 == 0 or k_small >= k_large:
             raise ValueError("LocalContrastBasisStem requires odd k_small < k_large")
@@ -64,7 +64,8 @@ class LocalContrastBasisStem(nn.Module):
 
         # Cross-scale basis contains short-scale state, long-scale state,
         # channel-wise agreement, and channel-wise discrepancy.
-        self.scale_formation = C2f(4 * c_rel, c2, n=1, shortcut=False)
+        in_scale = 2 * c_rel if self.mode == "relative_r_only" else 4 * c_rel
+        self.scale_formation = C2f(in_scale, c2, n=1, shortcut=False)
 
         # Joint formation is intentionally not an additive adapter. The output is
         # a newly formed P2 representation and is the sole state propagated onward.
@@ -105,6 +106,9 @@ class LocalContrastBasisStem(nn.Module):
         if self.mode == "relative_no_cross":
             # Same 4*C width and active parameters, but no explicit cross-scale products/differences.
             scale_state = torch.cat((rel_small, rel_large, rel_small, rel_large), dim=1)
+        elif self.mode == "relative_r_only":
+            # Direct concat of rel_small and rel_large without product/diff basis
+            scale_state = torch.cat((rel_small, rel_large), dim=1)
         else:
             scale_state = torch.cat(
                 (
@@ -123,5 +127,41 @@ class LocalContrastBasisStem(nn.Module):
             S_B = (q * main).sum(dim=1, keepdim=True)
             B_hat = p * S_B
             return self.conv_out(torch.cat([main, B_hat, relative], dim=1))
+        elif getattr(self, "fusion_mode", "concat") == "r_only":
+            return relative
         else:
             return self.joint_formation(torch.cat((main, relative), dim=1))
+
+
+class SingleContrastFormationStem(nn.Module):
+    """Single-Scale Local Contrast Formation Stem (LCF-Stem)."""
+
+    def __init__(self, c1: int, c2: int, k: int = 17, mode: str = "relative", use_form: bool = True) -> None:
+        super().__init__()
+        self.k = int(k)
+        self.mode = mode
+        self.use_form = use_form
+
+        c_hidden = max(c2 // 4, 8)
+        self.enc = nn.Sequential(
+            Conv(c1, c_hidden, 3, 2),
+            Conv(c_hidden, c_hidden, 3, 2),
+            C2f(c_hidden, c_hidden, n=1, shortcut=True),
+        )
+
+        if self.use_form:
+            self.form = C2f(c_hidden, c2, n=1, shortcut=False)
+        else:
+            self.form = nn.Conv2d(c_hidden, c2, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.mode == "relative":
+            pad = self.k // 2
+            mean = F.avg_pool2d(F.pad(x, (pad, pad, pad, pad), mode="reflect"), kernel_size=self.k, stride=1)
+            contrast = x - mean
+        else:
+            contrast = x
+
+        z = self.enc(contrast)
+        p2 = self.form(z)
+        return p2
