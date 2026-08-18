@@ -341,6 +341,27 @@ def probe_one_seed(ckpt: Path, val_samples, test_samples, device, letterbox, arg
     wrapper = YOLO(str(ckpt))
     net = wrapper.model.to(device).eval()
 
+    # Override _predict_once to bypass unexpected forward pass crash
+    def debug_predict_once(x, profile=False, visualize=False, embed=None):
+        y = []
+        for idx, m in enumerate(net.model):
+            if m.f != -1:
+                if isinstance(m.f, int):
+                    x = y[m.f]
+                else:
+                    prev_x = x
+                    x = []
+                    for j in m.f:
+                        if j == -1:
+                            x.append(prev_x)
+                        else:
+                            x.append(y[j])
+            x = m(x)
+            y.append(x if idx in net.save else None)
+        return x
+
+    net._predict_once = debug_predict_once
+
     hooked: dict = {}
     handles = []
     # Hook Layer 2 (backbone P2 output c2f) and Layer 18 (FPN output c2f_fused)
