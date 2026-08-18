@@ -311,9 +311,9 @@ def get_strip_mean_gpu(color_map_t: torch.Tensor, x_range: list[float], y_range:
 
 
 def extract_candidate_features_gpu(gpu_maps: dict[str, torch.Tensor], cx: float, cy: float,
-                                   box: torch.Tensor, H: int, W: int, r_scale: float) -> dict[str, torch.Tensor]:
+                                   box_numpy: np.ndarray, H: int, W: int, r_scale: float) -> dict[str, torch.Tensor]:
     feats = {}
-    device = box.device
+    device = gpu_maps["cbcr"].device
 
     # Stage A: Patches (3x3 and 5x5 cells), dynamically scaled in size to match original image resolution
     for space in ["rgb", "y", "cbcr", "opp"]:
@@ -321,7 +321,7 @@ def extract_candidate_features_gpu(gpu_maps: dict[str, torch.Tensor], cx: float,
             feats[f"{space}_{size}"] = get_patch_feature_gpu(gpu_maps[space], cx, cy, size, r_scale)
 
     # Stage B: Geometry features
-    x1, y1, x2, y2 = float(box[0].item()), float(box[1].item()), float(box[2].item()), float(box[3].item())
+    x1, y1, x2, y2 = float(box_numpy[0]), float(box_numpy[1]), float(box_numpy[2]), float(box_numpy[3])
     w_box, h_box = x2 - x1, y2 - y1
 
     # Expanded box bounds
@@ -438,17 +438,22 @@ def collect_features(net, hooked, samples, device, letterbox, args, split_name) 
             # Box bounds
             boxes_orig = map_boxes_to_original(boxes, original.shape, args.imgsz)
 
+            # Move coordinates to CPU numpy arrays once to avoid inside-loop GPU-to-CPU synchronizations
+            cx_orig_cpu = cx_orig.cpu().numpy()
+            cy_orig_cpu = cy_orig.cpu().numpy()
+            boxes_orig_cpu = boxes_orig.cpu().numpy()
+
             # Collect color and geometry features for each candidate
             case_feats = {
                 "m": m_feats.cpu()
             }
             temp_feats = {}
             for k_idx, k in enumerate(safe_idx.tolist()):
-                cx = float(cx_orig[k_idx].item())
-                cy = float(cy_orig[k_idx].item())
+                cx = float(cx_orig_cpu[k_idx])
+                cy = float(cy_orig_cpu[k_idx])
                 
                 cand_feats = extract_candidate_features_gpu(
-                    gpu_maps, cx, cy, boxes_orig[k_idx], H_orig, W_orig, r_scale
+                    gpu_maps, cx, cy, boxes_orig_cpu[k_idx], H_orig, W_orig, r_scale
                 )
                 for key, val in cand_feats.items():
                     if key not in temp_feats:
