@@ -137,6 +137,46 @@ def run(args: argparse.Namespace) -> None:
             if token:
                 repo_id = upload_run(run_dir, repo_id, token)
 
+    generate_summary(args.project)
+
+
+def generate_summary(project_dir: Path) -> dict:
+    summary_data = {}
+    md_lines = [
+        "# Raw Color & Multi-Cue Evidence Fusion Runs Summary",
+        "",
+        "| Variant | NMS IoU | VAL mAP50 | VAL mAP50-95 | TEST mAP50 | TEST mAP50-95 |",
+        "| :--- | :---: | :---: | :---: | :---: | :---: |",
+    ]
+
+    for d in sorted(project_dir.iterdir()):
+        if d.is_dir():
+            metrics_f = d / "evaluation_metrics.json"
+            if metrics_f.exists():
+                with open(metrics_f) as f:
+                    m = json.load(f)
+                summary_data[d.name] = m
+                val = m.get("val", {})
+                test = m.get("test", {})
+                md_lines.append(
+                    f"| {d.name} | 0.5 | {val.get('map50', 0):.4f} | {val.get('map75', 0):.4f} | **{test.get('map50', 0):.4f}** | {test.get('map75', 0):.4f} |"
+                )
+
+    summary_json = project_dir / "summary.json"
+    summary_md = project_dir / "summary.md"
+
+    with open(summary_json, "w") as f:
+        json.dump(summary_data, f, indent=2)
+
+    with open(summary_md, "w") as f:
+        f.write("\n".join(md_lines) + "\n")
+
+    print("\n" + "\n".join(md_lines) + "\n")
+    print(f"Summary JSON saved to {summary_json}")
+    print(f"Summary Markdown saved to {summary_md}")
+
+    return summary_data
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
