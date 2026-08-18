@@ -521,12 +521,16 @@ def main():
 
     weights_path = Path(args.weights)
     if not weights_path.exists():
-        fallback1 = ROOT / "runs/plain_p2_only/seed_42/weights/best.pt"
-        fallback2 = ROOT / "runs/checkpoint_cache/duyle2408_levir-ship-yolo-p2_train_yolov8n_p2_baseline_seed42_weights_best.pt"
-        if fallback1.exists():
-            weights_path = fallback1
-        elif fallback2.exists():
-            weights_path = fallback2
+        fallbacks = [
+            ROOT / "runs/plain_p2_only/seed_42/weights/best.pt",
+            ROOT / "runs/levir_yolov8n_p2_plain/seed_42/weights/best.pt",
+            ROOT / "runs/checkpoint_cache/duyle2408_levir-ship-yolo-p2_train_yolov8n_p2_baseline_seed42_weights_best.pt",
+            Path("/marimo/yolo_code/runs/levir_yolov8n_p2_plain/seed_42/weights/best.pt"),
+        ]
+        for fb in fallbacks:
+            if fb.exists():
+                weights_path = fb
+                break
         else:
             raise FileNotFoundError(f"Checkpoint {args.weights} not found and no fallback checkpoint available.")
 
