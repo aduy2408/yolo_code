@@ -5,6 +5,7 @@ Evaluates baseline M (c2f_fused) and auxiliary representations (RGB, Y, CbCr, Op
 using patches (3x3 and 5x5 cells) and box-aligned geometry regions.
 Computes PairAcc, Rank, Spearman Rho, Recall@1/5, Regret, Rescue and Damage rates.
 Averages results across seeds 42, 43, 44 using checkpoints from HuggingFace.
+Highly optimized: runs YOLO forward pass once per image and performs all cropping/pooling on GPU.
 """
 
 from __future__ import annotations
@@ -174,17 +175,10 @@ def load_split_samples(dataset_root: Path, split: str) -> list[dict]:
     return samples
 
 
-def get_candidates(net, original_shape, letterbox, image_path, gt, device,
-                   near_cells=8, top_neg=256):
+def get_candidates_precomputed(decoded: torch.Tensor, preds: dict, original_shape: tuple[int, int],
+                               gt: torch.Tensor, device: str, near_cells: int = 8,
+                               top_neg: int = 256) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     h, w = original_shape[:2]
-    image = letterbox(image=cv2.imread(str(image_path)))
-    tensor = (
-        torch.from_numpy(image[..., ::-1].copy())
-        .to(device).permute(2, 0, 1).float()[None] / 255.0
-    )
-    with torch.no_grad():
-        decoded, preds = net(tensor)
-
     p2 = preds["feats"][0].squeeze(0)
     c, hp, wp = p2.shape
     n_p2 = hp * wp
@@ -214,15 +208,15 @@ def get_candidates(net, original_shape, letterbox, image_path, gt, device,
 
 
 # ---------------------------------------------------------------------------
-# Feature Extraction Functions (RGB, Y, CbCr, Opponent)
+# GPU Feature Extraction Functions (RGB, Y, CbCr, Opponent)
 # ---------------------------------------------------------------------------
 
-def compute_color_maps(image_bgr: np.ndarray) -> dict[str, np.ndarray]:
-    """Convert BGR image to normalized RGB, Y, CbCr, and Opponent color spaces."""
-    img_rgb = image_bgr[..., ::-1].copy() / 255.0
-    r = img_rgb[..., 0]
-    g = img_rgb[..., 1]
-    b = img_rgb[..., 2]
+def compute_color_maps_gpu(image_bgr: np.ndarray, device: str) -> dict[str, torch.Tensor]:
+    """Convert BGR image to normalized RGB, Y, CbCr, and Opponent color spaces on GPU."""
+    img_t = torch.from_numpy(image_bgr[..., ::-1].copy()).to(device).float() / 255.0
+    r = img_t[..., 0]
+    g = img_t[..., 1]
+    b = img_t[..., 2]
 
     # Y (Luminance)
     y = 0.299 * r + 0.587 * g + 0.114 * b
@@ -236,56 +230,56 @@ def compute_color_maps(image_bgr: np.ndarray) -> dict[str, np.ndarray]:
     o2 = b - 0.5 * (r + g)
 
     return {
-        "rgb": img_rgb,
-        "y": np.expand_dims(y, axis=-1),
-        "cbcr": np.stack([cb, cr], axis=-1),
-        "opp": np.stack([o1, o2], axis=-1),
+        "rgb": img_t,
+        "y": y.unsqueeze(-1),
+        "cbcr": torch.stack([cb, cr], dim=-1),
+        "opp": torch.stack([o1, o2], dim=-1),
     }
 
 
-def get_patch_feature(color_map: np.ndarray, cx: float, cy: float, patch_cells: int) -> torch.Tensor:
-    """Crop patch_cells around candidate center and adaptive average pool to 3x3."""
-    H, W, C = color_map.shape
+def get_patch_feature_gpu(color_map_t: torch.Tensor, cx: float, cy: float, patch_cells: int) -> torch.Tensor:
+    """Crop patch_cells around candidate center and adaptive average pool to 3x3 on GPU."""
+    H, W, C = color_map_t.shape
     half = 2 * patch_cells
     ymin, ymax = int(max(0, cy - half)), int(min(H, cy + half))
     xmin, xmax = int(max(0, cx - half)), int(min(W, cx + half))
 
-    patch = color_map[ymin:ymax, xmin:xmax]
-    patch_t = torch.from_numpy(patch).permute(2, 0, 1).float().unsqueeze(0) # (1, C, h, w)
+    patch = color_map_t[ymin:ymax, xmin:xmax]
+    patch_t = patch.permute(2, 0, 1).unsqueeze(0) # (1, C, h, w)
     pooled = F.adaptive_avg_pool2d(patch_t, (3, 3)).squeeze(0) # (C, 3, 3)
     return pooled.flatten()
 
 
-def get_region_stats(crop_cbcr: np.ndarray, mask: np.ndarray) -> list[float]:
+def get_region_stats_gpu(crop_cbcr: torch.Tensor, mask: torch.Tensor) -> list[float]:
     if mask.sum() > 0:
-        pixels = crop_cbcr[mask]
-        mean = pixels.mean(axis=0)
-        std = pixels.std(axis=0)
-        return [float(mean[0]), float(mean[1]), float(std[0]), float(std[1])]
-    else:
-        return [0.0, 0.0, 0.0, 0.0]
+        pixels = crop_cbcr[mask] # (N, 2)
+        mean = pixels.mean(dim=0)
+        std = pixels.std(dim=0)
+        return [float(mean[0].item()), float(mean[1].item()), float(std[0].item()), float(std[1].item())]
+    return [0.0, 0.0, 0.0, 0.0]
 
 
-def get_strip_mean(color_map: np.ndarray, x_range: list[float], y_range: list[float]) -> np.ndarray:
-    H, W, C = color_map.shape
+def get_strip_mean_gpu(color_map_t: torch.Tensor, x_range: list[float], y_range: list[float]) -> torch.Tensor:
+    H, W, C = color_map_t.shape
     x1, x2 = int(max(0, x_range[0])), int(min(W, x_range[1]))
     y1, y2 = int(max(0, y_range[0])), int(min(H, y_range[1]))
     if (x2 > x1) and (y2 > y1):
-        return color_map[y1:y2, x1:x2].mean(axis=(0, 1))
-    return np.zeros(C)
+        return color_map_t[y1:y2, x1:x2].mean(dim=(0, 1))
+    return torch.zeros(C, device=color_map_t.device)
 
 
-def extract_candidate_features(color_maps: dict[str, np.ndarray], cx: float, cy: float,
-                               box: torch.Tensor, H: int, W: int) -> dict[str, torch.Tensor]:
+def extract_candidate_features_gpu(gpu_maps: dict[str, torch.Tensor], cx: float, cy: float,
+                                   box: torch.Tensor, H: int, W: int) -> dict[str, torch.Tensor]:
     feats = {}
+    device = box.device
 
     # Stage A: Patches (3x3 and 5x5 cells)
     for space in ["rgb", "y", "cbcr", "opp"]:
         for size in [3, 5]:
-            feats[f"{space}_{size}"] = get_patch_feature(color_maps[space], cx, cy, size)
+            feats[f"{space}_{size}"] = get_patch_feature_gpu(gpu_maps[space], cx, cy, size)
 
     # Stage B: Geometry features
-    x1, y1, x2, y2 = float(box[0]), float(box[1]), float(box[2]), float(box[3])
+    x1, y1, x2, y2 = float(box[0].item()), float(box[1].item()), float(box[2].item()), float(box[3].item())
     w_box, h_box = x2 - x1, y2 - y1
 
     # Expanded box bounds
@@ -296,45 +290,46 @@ def extract_candidate_features(color_maps: dict[str, np.ndarray], cx: float, cy:
     y1_e, y2_e = int(max(0, y1_exp)), int(min(H, y2_exp))
     x1_e, x2_e = int(max(0, x1_exp)), int(min(W, x2_exp))
 
-    crop_cbcr = color_maps["cbcr"][y1_e:y2_e, x1_e:x2_e]
+    crop_cbcr = gpu_maps["cbcr"][y1_e:y2_e, x1_e:x2_e]
 
     # Region masks relative to the crop coordinates
-    yy, xx = np.meshgrid(np.arange(y1_e, y2_e), np.arange(x1_e, x2_e), indexing="ij")
+    grid_y = torch.arange(y1_e, y2_e, device=device).view(-1, 1)
+    grid_x = torch.arange(x1_e, x2_e, device=device).view(1, -1)
     w_in, h_in = w_box * 0.7, h_box * 0.7
     x1_in, y1_in = cx - w_in * 0.5, cy - h_in * 0.5
     x2_in, y2_in = cx + w_in * 0.5, cy + h_in * 0.5
 
-    mask_inner = (xx >= x1_in) & (xx <= x2_in) & (yy >= y1_in) & (yy <= y2_in)
-    mask_box = (xx >= x1) & (xx <= x2) & (yy >= y1) & (yy <= y2)
+    mask_inner = (grid_x >= x1_in) & (grid_x <= x2_in) & (grid_y >= y1_in) & (grid_y <= y2_in)
+    mask_box = (grid_x >= x1) & (grid_x <= x2) & (grid_y >= y1) & (grid_y <= y2)
     mask_border = mask_box & (~mask_inner)
     mask_outer = ~mask_box
 
     # Probe 5: Inner / Border / Outer region stats
     p5_feats = []
-    p5_feats.extend(get_region_stats(crop_cbcr, mask_inner))
-    p5_feats.extend(get_region_stats(crop_cbcr, mask_border))
-    p5_feats.extend(get_region_stats(crop_cbcr, mask_outer))
-    feats["inner_outer"] = torch.tensor(p5_feats, dtype=torch.float32)
+    p5_feats.extend(get_region_stats_gpu(crop_cbcr, mask_inner))
+    p5_feats.extend(get_region_stats_gpu(crop_cbcr, mask_border))
+    p5_feats.extend(get_region_stats_gpu(crop_cbcr, mask_outer))
+    feats["inner_outer"] = torch.tensor(p5_feats, dtype=torch.float32, device=device)
 
     # Probe 6: Four-side chroma geometry
     d = max(2.0, 0.1 * min(w_box, h_box))
     p6_feats = []
     # Left
-    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x1 + d], [y1, y2])) # inside
-    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1 - d, x1], [y1, y2])) # outside
+    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x1 + d], [y1, y2])) # inside
+    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1 - d, x1], [y1, y2])) # outside
     # Right
-    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x2 - d, x2], [y1, y2])) # inside
-    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x2, x2 + d], [y1, y2])) # outside
+    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x2 - d, x2], [y1, y2])) # inside
+    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x2, x2 + d], [y1, y2])) # outside
     # Top
-    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x2], [y1, y1 + d])) # inside
-    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x2], [y1 - d, y1])) # outside
+    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x2], [y1, y1 + d])) # inside
+    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x2], [y1 - d, y1])) # outside
     # Bottom
-    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x2], [y2 - d, y2])) # inside
-    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x2], [y2, y2 + d])) # outside
-    feats["four_side"] = torch.tensor(p6_feats, dtype=torch.float32)
+    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x2], [y2 - d, y2])) # inside
+    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x2], [y2, y2 + d])) # outside
+    feats["four_side"] = torch.cat(p6_feats, dim=0)
 
     # Probe 7: Spatial chroma map 5x5
-    crop_t = torch.from_numpy(crop_cbcr).permute(2, 0, 1).float().unsqueeze(0)
+    crop_t = crop_cbcr.permute(2, 0, 1).unsqueeze(0)
     feats["spatial_map"] = F.adaptive_avg_pool2d(crop_t, (5, 5)).squeeze(0).flatten()
 
     return feats
@@ -360,25 +355,30 @@ def collect_features(net, hooked, samples, device, letterbox, args, split_name) 
         gt_xyxy[:, [0, 2]] *= original.shape[1]
         gt_xyxy[:, [1, 3]] *= original.shape[0]
 
-        # Convert colors
+        # Convert colors and run forward pass ONCE per image
         original_letter = letterbox(image=original)
-        color_maps = compute_color_maps(original_letter)
+        gpu_maps = compute_color_maps_gpu(original_letter, device)
         H_img, W_img, _ = original_letter.shape
 
-        for gt in gt_xyxy:
-            idx, local_ious, y, boxes = get_candidates(
-                net, original.shape, letterbox, sample["image"], gt, device
-            )
-            if len(idx) < 2 or y.sum() == 0:
-                continue
+        tensor = (
+            torch.from_numpy(original_letter[..., ::-1].copy())
+            .to(device).permute(2, 0, 1).float()[None] / 255.0
+        )
+        with torch.no_grad():
+            decoded, preds = net(tensor)
 
-            if "c2f_fused" not in hooked:
-                continue
-            t_fused = hooked["c2f_fused"]
-            c, hf, wf = t_fused.shape
-            n = hf * wf
+        if "c2f_fused" not in hooked:
+            continue
+        t_fused = hooked["c2f_fused"]
+        c, hf, wf = t_fused.shape
+        n = hf * wf
+
+        for gt in gt_xyxy:
+            idx, local_ious, y, boxes = get_candidates_precomputed(
+                decoded, preds, original.shape, gt, device
+            )
             safe_idx = idx[idx < n]
-            if len(safe_idx) < 2:
+            if len(safe_idx) < 2 or y.sum() == 0:
                 continue
 
             m_feats = t_fused.permute(1, 2, 0).reshape(n, c)[safe_idx]
@@ -393,14 +393,14 @@ def collect_features(net, hooked, samples, device, letterbox, args, split_name) 
                 grid_x = k % wf
                 cy = (grid_y + 0.5) * 4
                 cx = (grid_x + 0.5) * 4
-                cand_feats = extract_candidate_features(color_maps, cx, cy, boxes[k_idx], H_img, W_img)
+                cand_feats = extract_candidate_features_gpu(gpu_maps, cx, cy, boxes[k_idx], H_img, W_img)
                 for key, val in cand_feats.items():
                     if key not in temp_feats:
                         temp_feats[key] = []
                     temp_feats[key].append(val)
 
             for key, val in temp_feats.items():
-                case_feats[key] = torch.stack(val, dim=0)
+                case_feats[key] = torch.stack(val, dim=0).cpu()
 
             case_feats_list.append((case_feats, local_ious.cpu(), y.cpu()))
 
