@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Localized linear logistic probing for plain YOLOv8n-P2 baseline checkpoints.
+"""Unified color-space and geometry-conditioned linear probing script.
 
-Probes the three stem layers of the standard P2 backbone (cv1, cv2, c2f/P2)
-using checkpoints downloaded from HuggingFace (duyle2408/levir-ship-yolo-p2).
-Trains probes on VAL, evaluates on TEST, averages across seeds.
+Evaluates baseline M (c2f_fused) and auxiliary representations (RGB, Y, CbCr, Opponent)
+using patches (3x3 and 5x5 cells) and box-aligned geometry regions.
+Computes PairAcc, Rank, Spearman Rho, Recall@1/5, Regret, Rescue and Damage rates.
+Averages results across seeds 42, 43, 44 using checkpoints from HuggingFace.
 """
 
 from __future__ import annotations
@@ -16,8 +17,10 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import scipy.stats
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +34,7 @@ from probe_center_ring_cohorts import iou_matrix, read_labels  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Shared probe utilities (mirrors probe_contrast_basis_stems.py)
+# Core Probe Training & Evaluation Logic
 # ---------------------------------------------------------------------------
 
 def ap_auc(scores: torch.Tensor, y: torch.Tensor) -> tuple[float, float]:
@@ -68,30 +71,88 @@ def train_probe(x: torch.Tensor, y: torch.Tensor, epochs: int) -> nn.Linear:
     return model
 
 
-def evaluate_probe(model, x, local_ious, y):
+def evaluate_case(probe: nn.Linear, x_case: torch.Tensor, local_ious: torch.Tensor,
+                  y: torch.Tensor, base_scores_case: torch.Tensor | None = None) -> dict:
     with torch.no_grad():
-        scores = torch.sigmoid(model(x).squeeze(1))
+        logits = probe(x_case).squeeze(1)
+        scores = torch.sigmoid(logits)
+
     ap, auc = ap_auc(scores, y)
     order = torch.argsort(scores, descending=True)
     best_iou_idx = int(torch.argmax(local_ious))
     rank = int((order == best_iou_idx).nonzero(as_tuple=False)[0].item()) + 1
 
+    # Recall
+    recall_at_1 = float((local_ious[order[:1]] >= 0.5).any().item())
+    recall_at_5 = float((local_ious[order[:5]] >= 0.5).any().item())
+
+    # Regret
+    max_iou = float(local_ious.max().item())
+    top1_iou = float(local_ious[order[0]].item())
+    regret = max_iou - top1_iou
+
+    # Spearman correlation
+    scores_cpu = scores.cpu().numpy()
+    ious_cpu = local_ious.cpu().numpy()
+    if len(scores_cpu) > 1 and len(np.unique(scores_cpu)) > 1 and len(np.unique(ious_cpu)) > 1:
+        spearman_rho, _ = scipy.stats.spearmanr(scores_cpu, ious_cpu)
+    else:
+        spearman_rho = float("nan")
+
+    # Pairwise statistics (positive-positive pairs with delta IoU > 0.05)
     pos_indices = (y == 1).nonzero(as_tuple=False).flatten()
-    pair_acc = float("nan")
+    correct_pairs = 0
+    total_pairs = 0
+
+    rescue_numerator = 0
+    rescue_denominator = 0
+    damage_numerator = 0
+    damage_denominator = 0
+
     if len(pos_indices) > 1:
         ious_pos = local_ious[pos_indices]
         scores_pos = scores[pos_indices]
-        diff_mask = ious_pos[:, None] > ious_pos[None, :] + 0.05
-        if diff_mask.any():
-            pair_acc = float(
-                (scores_pos[:, None] > scores_pos[None, :])[diff_mask].float().mean().item()
-            )
 
-    out = {"ap": ap, "auc": auc, "best_iou_rank": rank, "within_gt_pair_acc": pair_acc}
-    for k in (1, 5):
-        top = order[: min(k, len(order))]
-        out[f"recall_at_{k}"] = float((local_ious[top] >= 0.5).any().item())
-    return out
+        if base_scores_case is not None:
+            base_scores_pos = base_scores_case[pos_indices]
+        else:
+            base_scores_pos = None
+
+        for i in range(len(pos_indices)):
+            for j in range(len(pos_indices)):
+                if ious_pos[i] > ious_pos[j] + 0.05:
+                    total_pairs += 1
+                    is_correct = bool(scores_pos[i] > scores_pos[j])
+                    if is_correct:
+                        correct_pairs += 1
+
+                    if base_scores_pos is not None:
+                        is_base_correct = bool(base_scores_pos[i] > base_scores_pos[j])
+                        if not is_base_correct:
+                            rescue_denominator += 1
+                            if is_correct:
+                                rescue_numerator += 1
+                        else:
+                            damage_denominator += 1
+                            if not is_correct:
+                                damage_numerator += 1
+
+    return {
+        "ap": ap,
+        "auc": auc,
+        "rank": rank,
+        "spearman": spearman_rho,
+        "recall_at_1": recall_at_1,
+        "recall_at_5": recall_at_5,
+        "regret": regret,
+        "correct_pairs": correct_pairs,
+        "total_pairs": total_pairs,
+        "rescue_num": rescue_numerator,
+        "rescue_den": rescue_denominator,
+        "damage_num": damage_numerator,
+        "damage_den": damage_denominator,
+        "scores": scores,
+    }
 
 
 def load_split_samples(dataset_root: Path, split: str) -> list[dict]:
@@ -142,54 +203,218 @@ def get_candidates(net, original_shape, letterbox, image_path, gt, device,
         top = torch.argsort(logits[neg_idx], descending=True)[:top_neg]
         neg_idx = neg_idx[top]
     idx = torch.cat([torch.nonzero(pos, as_tuple=False).flatten(), neg_idx]).unique()
-    return idx, ious[idx], (ious[idx] >= 0.1).long()
+    return idx, ious[idx], (ious[idx] >= 0.1).long(), boxes[idx]
 
 
 # ---------------------------------------------------------------------------
-# Plain P2 probe: hook layers 0/1/2 = cv1/cv2/c2f
+# Feature Extraction Functions (RGB, Y, CbCr, Opponent)
 # ---------------------------------------------------------------------------
-# Plain P2 architecture (fpn_only_plain.yaml):
-#   model[0] = Conv(3->32, k=3, s=2)    stride-2, 256x256  (cv1)
-#   model[1] = Conv(32->64, k=3, s=2)   stride-4, 128x128  (cv2 = P2 res)
-#   model[2] = C2f(64->64)              stride-4, 128x128  (c2f = P2)
-# Candidate indices are at P2 head resolution (128x128 for 512px input).
-# cv2 and c2f share the same spatial resolution → safe to use idx directly.
-# cv1 is 256x256 → idx must be remapped (each P2 cell = 4 cv1 cells).
 
-REP_KEYS = ["cv1", "cv2", "c2f", "c2f_fused"]
+def compute_color_maps(image_bgr: np.ndarray) -> dict[str, np.ndarray]:
+    """Convert BGR image to normalized RGB, Y, CbCr, and Opponent color spaces."""
+    img_rgb = image_bgr[..., ::-1].copy() / 255.0
+    r = img_rgb[..., 0]
+    g = img_rgb[..., 1]
+    b = img_rgb[..., 2]
+
+    # Y (Luminance)
+    y = 0.299 * r + 0.587 * g + 0.114 * b
+
+    # CbCr (Pure chroma)
+    cb = 0.5 - 0.1687 * r - 0.3313 * g + 0.5 * b
+    cr = 0.5 + 0.5 * r - 0.4187 * g - 0.0813 * b
+
+    # Opponent color
+    o1 = r - g
+    o2 = b - 0.5 * (r + g)
+
+    return {
+        "rgb": img_rgb,
+        "y": np.expand_dims(y, axis=-1),
+        "cbcr": np.stack([cb, cr], axis=-1),
+        "opp": np.stack([o1, o2], axis=-1),
+    }
 
 
-def _extract_feat(hooked: dict, key: str, idx: torch.Tensor, p2_hw: tuple[int, int]) -> torch.Tensor | None:
-    """Extract flattened feature at candidate positions.
+def get_patch_feature(color_map: np.ndarray, cx: float, cy: float, patch_cells: int) -> torch.Tensor:
+    """Crop patch_cells around candidate center and adaptive average pool to 3x3."""
+    H, W, C = color_map.shape
+    half = 2 * patch_cells
+    ymin, ymax = int(max(0, cy - half)), int(min(H, cy + half))
+    xmin, xmax = int(max(0, cx - half)), int(min(W, cx + half))
 
-    p2_hw: (hp, wp) at P2 / stride-4 resolution (e.g. 128x128 for 512px).
-    For cv1 (stride-2, double res), maps each P2 index to top-left cv1 cell.
-    """
-    if key not in hooked:
-        return None
-    t = hooked[key]  # (C, H, W)
-    c, hf, wf = t.shape
-    hp, wp = p2_hw
+    patch = color_map[ymin:ymax, xmin:xmax]
+    patch_t = torch.from_numpy(patch).permute(2, 0, 1).float().unsqueeze(0) # (1, C, h, w)
+    pooled = F.adaptive_avg_pool2d(patch_t, (3, 3)).squeeze(0) # (C, 3, 3)
+    return pooled.flatten()
 
-    if hf == hp and wf == wp:
-        # Same resolution as P2: direct index
-        n = hf * wf
-        safe = idx[idx < n]
-        if len(safe) < 2:
-            return None
-        return t.permute(1, 2, 0).reshape(n, c)[safe]
-    elif hf == hp * 2 and wf == wp * 2:
-        # cv1: stride-2 = 2x P2 resolution; map P2 idx -> cv1 top-left
-        row = (idx // wp) * 2
-        col = (idx % wp) * 2
-        cv1_idx = row * wf + col
-        n = hf * wf
-        safe_mask = cv1_idx < n
-        if safe_mask.sum() < 2:
-            return None
-        return t.permute(1, 2, 0).reshape(n, c)[cv1_idx[safe_mask]]
+
+def get_region_stats(crop_cbcr: np.ndarray, mask: np.ndarray) -> list[float]:
+    if mask.sum() > 0:
+        pixels = crop_cbcr[mask]
+        mean = pixels.mean(axis=0)
+        std = pixels.std(axis=0)
+        return [float(mean[0]), float(mean[1]), float(std[0]), float(std[1])]
     else:
-        return None
+        return [0.0, 0.0, 0.0, 0.0]
+
+
+def get_strip_mean(color_map: np.ndarray, x_range: list[float], y_range: list[float]) -> np.ndarray:
+    H, W, C = color_map.shape
+    x1, x2 = int(max(0, x_range[0])), int(min(W, x_range[1]))
+    y1, y2 = int(max(0, y_range[0])), int(min(H, y_range[1]))
+    if (x2 > x1) and (y2 > y1):
+        return color_map[y1:y2, x1:x2].mean(axis=(0, 1))
+    return np.zeros(C)
+
+
+def extract_candidate_features(color_maps: dict[str, np.ndarray], cx: float, cy: float,
+                               box: torch.Tensor, H: int, W: int) -> dict[str, torch.Tensor]:
+    feats = {}
+
+    # Stage A: Patches (3x3 and 5x5 cells)
+    for space in ["rgb", "y", "cbcr", "opp"]:
+        for size in [3, 5]:
+            feats[f"{space}_{size}"] = get_patch_feature(color_maps[space], cx, cy, size)
+
+    # Stage B: Geometry features
+    x1, y1, x2, y2 = float(box[0]), float(box[1]), float(box[2]), float(box[3])
+    w_box, h_box = x2 - x1, y2 - y1
+
+    # Expanded box bounds
+    w_exp, h_exp = w_box * 1.25, h_box * 1.25
+    x1_exp, y1_exp = cx - w_exp * 0.5, cy - h_exp * 0.5
+    x2_exp, y2_exp = cx + w_exp * 0.5, cy + h_exp * 0.5
+
+    y1_e, y2_e = int(max(0, y1_exp)), int(min(H, y2_exp))
+    x1_e, x2_e = int(max(0, x1_exp)), int(min(W, x2_exp))
+
+    crop_cbcr = color_maps["cbcr"][y1_e:y2_e, x1_e:x2_e]
+
+    # Region masks relative to the crop coordinates
+    yy, xx = np.meshgrid(np.arange(y1_e, y2_e), np.arange(x1_e, x2_e), indexing="ij")
+    w_in, h_in = w_box * 0.7, h_box * 0.7
+    x1_in, y1_in = cx - w_in * 0.5, cy - h_in * 0.5
+    x2_in, y2_in = cx + w_in * 0.5, cy + h_in * 0.5
+
+    mask_inner = (xx >= x1_in) & (xx <= x2_in) & (yy >= y1_in) & (yy <= y2_in)
+    mask_box = (xx >= x1) & (xx <= x2) & (yy >= y1) & (yy <= y2)
+    mask_border = mask_box & (~mask_inner)
+    mask_outer = ~mask_box
+
+    # Probe 5: Inner / Border / Outer region stats
+    p5_feats = []
+    p5_feats.extend(get_region_stats(crop_cbcr, mask_inner))
+    p5_feats.extend(get_region_stats(crop_cbcr, mask_border))
+    p5_feats.extend(get_region_stats(crop_cbcr, mask_outer))
+    feats["inner_outer"] = torch.tensor(p5_feats, dtype=torch.float32)
+
+    # Probe 6: Four-side chroma geometry
+    d = max(2.0, 0.1 * min(w_box, h_box))
+    p6_feats = []
+    # Left
+    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x1 + d], [y1, y2])) # inside
+    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1 - d, x1], [y1, y2])) # outside
+    # Right
+    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x2 - d, x2], [y1, y2])) # inside
+    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x2, x2 + d], [y1, y2])) # outside
+    # Top
+    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x2], [y1, y1 + d])) # inside
+    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x2], [y1 - d, y1])) # outside
+    # Bottom
+    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x2], [y2 - d, y2])) # inside
+    p6_feats.extend(get_strip_mean(color_maps["cbcr"], [x1, x2], [y2, y2 + d])) # outside
+    feats["four_side"] = torch.tensor(p6_feats, dtype=torch.float32)
+
+    # Probe 7: Spatial chroma map 5x5
+    crop_t = torch.from_numpy(crop_cbcr).permute(2, 0, 1).float().unsqueeze(0)
+    feats["spatial_map"] = F.adaptive_avg_pool2d(crop_t, (5, 5)).squeeze(0).flatten()
+
+    return feats
+
+
+# ---------------------------------------------------------------------------
+# Comprehensive Probing Process
+# ---------------------------------------------------------------------------
+
+def collect_features(net, hooked, samples, device, letterbox, args, split_name) -> tuple[dict, torch.Tensor, list]:
+    data = {}
+    all_y = []
+    case_feats_list = []
+
+    for sample in samples:
+        original = cv2.imread(str(sample["image"]))
+        if original is None:
+            continue
+        gt_boxes = sample["boxes"].to(device)
+        if len(gt_boxes) == 0:
+            continue
+        gt_xyxy = xywh2xyxy(gt_boxes)
+        gt_xyxy[:, [0, 2]] *= original.shape[1]
+        gt_xyxy[:, [1, 3]] *= original.shape[0]
+
+        # Convert colors
+        original_letter = letterbox(image=original)
+        color_maps = compute_color_maps(original_letter)
+        H_img, W_img, _ = original_letter.shape
+
+        for gt in gt_xyxy:
+            idx, local_ious, y, boxes = get_candidates(
+                net, original.shape, letterbox, sample["image"], gt, device
+            )
+            if len(idx) < 2 or y.sum() == 0:
+                continue
+
+            if "c2f_fused" not in hooked:
+                continue
+            t_fused = hooked["c2f_fused"]
+            c, hf, wf = t_fused.shape
+            n = hf * wf
+            safe_idx = idx[idx < n]
+            if len(safe_idx) < 2:
+                continue
+
+            m_feats = t_fused.permute(1, 2, 0).reshape(n, c)[safe_idx]
+
+            # Collect color and geometry features for each candidate
+            case_feats = {
+                "m": m_feats.cpu()
+            }
+            temp_feats = {}
+            for k_idx, k in enumerate(safe_idx.tolist()):
+                grid_y = k // wf
+                grid_x = k % wf
+                cy = (grid_y + 0.5) * 4
+                cx = (grid_x + 0.5) * 4
+                cand_feats = extract_candidate_features(color_maps, cx, cy, boxes[k_idx], H_img, W_img)
+                for key, val in cand_feats.items():
+                    if key not in temp_feats:
+                        temp_feats[key] = []
+                    temp_feats[key].append(val)
+
+            for key, val in temp_feats.items():
+                case_feats[key] = torch.stack(val, dim=0)
+
+            case_feats_list.append((case_feats, local_ious.cpu(), y.cpu()))
+
+            # Append to flat lists for VAL training
+            if "m" not in data:
+                data["m"] = []
+            data["m"].append(case_feats["m"])
+            for key in temp_feats:
+                if key not in data:
+                    data[key] = []
+                data[key].append(case_feats[key])
+            all_y.append(y.cpu())
+
+    flat_data = {}
+    flat_y = torch.tensor([])
+    if all_y:
+        flat_data = {k: torch.cat(data[k], dim=0) for k in data}
+        flat_y = torch.cat(all_y, dim=0)
+
+    print(f"  [{split_name}] collected {len(case_feats_list)} GT groups")
+    return flat_data, flat_y, case_feats_list
 
 
 def probe_one_seed(ckpt: Path, val_samples, test_samples, device, letterbox, args) -> dict:
@@ -198,98 +423,117 @@ def probe_one_seed(ckpt: Path, val_samples, test_samples, device, letterbox, arg
 
     hooked: dict = {}
     handles = []
-    for key, layer_idx in [("cv1", 0), ("cv2", 1), ("c2f", 2), ("c2f_fused", 18)]:
+    for key, layer_idx in [("c2f_fused", 18)]:
         def _hook(mod, inp, out, k=key):
             hooked[k] = out if isinstance(out, torch.Tensor) else out[0]
             hooked[k] = hooked[k].squeeze(0)
         handles.append(net.model[layer_idx].register_forward_hook(_hook))
 
     # ---- VAL ----
-    val_data = {k: [] for k in REP_KEYS}
-    val_y_list = []
-    for sample in val_samples:
-        original = cv2.imread(str(sample["image"]))
-        if original is None:
-            continue
-        gt_boxes = sample["boxes"].to(device)
-        if len(gt_boxes) == 0:
-            continue
-        gt_xyxy = xywh2xyxy(gt_boxes)
-        gt_xyxy[:, [0, 2]] *= original.shape[1]
-        gt_xyxy[:, [1, 3]] *= original.shape[0]
-        for gt in gt_xyxy:
-            idx, local_ious, y = get_candidates(
-                net, original.shape, letterbox, sample["image"], gt, device
-            )
-            if len(idx) < 2 or y.sum() == 0:
-                continue
-            # determine P2 resolution from c2f hook
-            if "c2f" not in hooked:
-                continue
-            _, hp, wp = hooked["c2f"].shape
-            feats = {k: _extract_feat(hooked, k, idx, (hp, wp)) for k in REP_KEYS}
-            if any(v is None or len(v) < 2 for v in feats.values()):
-                continue
-            for k in REP_KEYS:
-                val_data[k].append(feats[k].cpu())
-            val_y_list.append(y.cpu())
-
-    if not val_y_list:
-        for h in handles: h.remove()
+    val_data, val_y_cat, _ = collect_features(
+        net, hooked, val_samples, device, letterbox, args, "VAL"
+    )
+    if not val_data:
+        for h in handles:
+            h.remove()
         return {}
 
-    val_X = {k: torch.cat(val_data[k], 0).to(device) for k in REP_KEYS}
-    val_y_cat = torch.cat(val_y_list, 0).to(device)
-    probes = {k: train_probe(val_X[k], val_y_cat, args.epochs) for k in REP_KEYS}
-    print(f"  Trained probes on {val_y_cat.shape[0]} VAL candidates "
-          f"({int(val_y_cat.sum())} pos, {int((val_y_cat==0).sum())} neg)")
+    val_y_cat = val_y_cat.to(device)
+    val_X = {k: val_data[k].to(device) for k in val_data}
+
+    # Define representations
+    rep_keys = [k for k in val_data.keys() if k != "m"]
+
+    # Fit standalone probes
+    probes_standalone = {}
+    probes_combined = {}
+
+    # 1. Fit baseline M
+    probes_standalone["m"] = train_probe(val_X["m"], val_y_cat, args.epochs)
+
+    # 2. Fit standalone and combined for each auxiliary key
+    for k in rep_keys:
+        probes_standalone[k] = train_probe(val_X[k], val_y_cat, args.epochs)
+        # Combined [M, R]
+        combined_val = torch.cat([val_X["m"], val_X[k]], dim=1)
+        probes_combined[k] = train_probe(combined_val, val_y_cat, args.epochs)
 
     # ---- TEST ----
-    test_cases = []
-    for sample in test_samples:
-        original = cv2.imread(str(sample["image"]))
-        if original is None:
-            continue
-        gt_boxes = sample["boxes"].to(device)
-        if len(gt_boxes) == 0:
-            continue
-        gt_xyxy = xywh2xyxy(gt_boxes)
-        gt_xyxy[:, [0, 2]] *= original.shape[1]
-        gt_xyxy[:, [1, 3]] *= original.shape[0]
-        for gt in gt_xyxy:
-            idx, local_ious, y = get_candidates(
-                net, original.shape, letterbox, sample["image"], gt, device
-            )
-            if len(idx) < 2 or y.sum() == 0:
-                continue
-            if "c2f" not in hooked:
-                continue
-            _, hp, wp = hooked["c2f"].shape
-            feats = {k: _extract_feat(hooked, k, idx, (hp, wp)) for k in REP_KEYS}
-            if any(v is None or len(v) < 2 for v in feats.values()):
-                continue
-            test_cases.append((feats, local_ious, y))
+    _, _, test_cases = collect_features(
+        net, hooked, test_samples, device, letterbox, args, "TEST"
+    )
 
     for h in handles:
         h.remove()
 
-    variant_results = {k: [] for k in REP_KEYS}
+    # Pre-evaluate baseline M to collect base_scores_case for rescue/damage computations
+    base_scores_list = []
     for case_feats, local_ious, y in test_cases:
-        for k in REP_KEYS:
-            m = evaluate_probe(probes[k], case_feats[k], local_ious, y)
-            variant_results[k].append(m)
+        with torch.no_grad():
+            x_m = case_feats["m"].to(device)
+            m_scores = torch.sigmoid(probes_standalone["m"](x_m).squeeze(1))
+            base_scores_list.append(m_scores.cpu())
 
+    # Evaluate all variants
+    variant_results = {}
+    
+    # Baseline M evaluation
+    m_evals = []
+    for idx, (case_feats, local_ious, y) in enumerate(test_cases):
+        res = evaluate_case(probes_standalone["m"], case_feats["m"].to(device), local_ious, y)
+        m_evals.append(res)
+    variant_results["m"] = m_evals
+
+    # Standalone and Combined evaluations
+    for k in rep_keys:
+        # Standalone
+        st_evals = []
+        for idx, (case_feats, local_ious, y) in enumerate(test_cases):
+            res = evaluate_case(probes_standalone[k], case_feats[k].to(device), local_ious, y)
+            st_evals.append(res)
+        variant_results[k] = st_evals
+
+        # Combined
+        cb_evals = []
+        for idx, (case_feats, local_ious, y) in enumerate(test_cases):
+            comb_x = torch.cat([case_feats["m"], case_feats[k]], dim=1).to(device)
+            res = evaluate_case(probes_combined[k], comb_x, local_ious, y, base_scores_case=base_scores_list[idx])
+            cb_evals.append(res)
+        variant_results[f"m_{k}"] = cb_evals
+
+    # Average metrics over all test cases
     summary = {}
-    for k, rows in variant_results.items():
+    for key, rows in variant_results.items():
         if not rows:
             continue
-        metric_keys = rows[0].keys()
-        summary[k] = {
-            mk: float(np.mean([r[mk] for r in rows if not np.isnan(r[mk])]
-                               ) if [r[mk] for r in rows if not np.isnan(r[mk])] else float("nan"))
-            for mk in metric_keys
+        
+        # Calculate positive-positive pair statistics globally (weighted sum)
+        total_p = sum(r["total_pairs"] for r in rows)
+        correct_p = sum(r["correct_pairs"] for r in rows)
+        pair_acc = float(correct_p / total_p) if total_p > 0 else float("nan")
+
+        rescue_den = sum(r["rescue_den"] for r in rows)
+        rescue_num = sum(r["rescue_num"] for r in rows)
+        rescue_rate = float(rescue_num / rescue_den) if rescue_den > 0 else float("nan")
+
+        damage_den = sum(r["damage_den"] for r in rows)
+        damage_num = sum(r["damage_num"] for r in rows)
+        damage_rate = float(damage_num / damage_den) if damage_den > 0 else float("nan")
+
+        # Average other scalar metrics
+        keys_to_avg = ["ap", "auc", "rank", "spearman", "recall_at_1", "recall_at_5", "regret"]
+        summary[key] = {
+            mk: float(np.mean([r[mk] for r in rows if not np.isnan(r[mk])]))
+            if [r[mk] for r in rows if not np.isnan(r[mk])] else float("nan")
+            for mk in keys_to_avg
         }
-        summary[k]["count"] = len(rows)
+        summary[key].update({
+            "pair_acc": pair_acc,
+            "rescue_rate": rescue_rate,
+            "damage_rate": damage_rate,
+            "count": len(rows),
+        })
+
     return summary
 
 
@@ -331,8 +575,8 @@ def main() -> None:
     print(f"VAL: {len(val_samples)} images, TEST: {len(test_samples)} images")
 
     if args.smoke_only:
-        val_samples = [s for s in val_samples if len(s["boxes"]) > 0][:50]
-        test_samples = [s for s in test_samples if len(s["boxes"]) > 0][:50]
+        val_samples = [s for s in val_samples if len(s["boxes"]) > 0][:20]
+        test_samples = [s for s in test_samples if len(s["boxes"]) > 0][:20]
         print(f"[SMOKE] VAL: {len(val_samples)}, TEST: {len(test_samples)}")
 
     letterbox = LetterBox(new_shape=(args.imgsz, args.imgsz), auto=False, stride=32)
@@ -348,7 +592,6 @@ def main() -> None:
         used_ckpts[seed] = str(ckpt)
         result = probe_one_seed(ckpt, val_samples, test_samples, device, letterbox, args)
         seed_results.append(result)
-        print(f"  {json.dumps(result, indent=2)}")
 
     if not seed_results:
         print("No valid seed results.")
@@ -357,7 +600,7 @@ def main() -> None:
     averaged = average_seed_results(seed_results)
     out_dir = ROOT / "runs/gradient_diagnostics"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / "probe_plain_p2_results.json"
+    out_file = out_dir / "probe_plain_p2_chroma_results.json"
 
     output = {
         "protocol": {
@@ -367,18 +610,56 @@ def main() -> None:
             "split_eval": "test",
             "probe_trained_on": "val",
             "positive_def": "IoU >= 0.1",
-            "rep_keys": REP_KEYS,
             "seeds": list(used_ckpts.keys()),
-            "checkpoints": {str(s): p for s, p in used_ckpts.items()},
         },
         "per_seed": seed_results,
         "averaged": averaged,
     }
 
     out_file.write_text(json.dumps(output, indent=2))
-    print("\n=== AVERAGED RESULTS ===")
-    print(json.dumps(averaged, indent=2))
     print(f"\nWrote results to {out_file}")
+
+    # Output clean tables
+    print("\n" + "="*80)
+    print("=== SUMMARY AVERAGED PROBING RESULTS ===")
+    print("="*80)
+
+    # Filter to print Stage A Table
+    print("\nStage A - Patch Representations (3x3 and 5x5 cells)")
+    print("| Representation | PairAcc | Best Rank | Spearman | Recall@1 | Regret | Rescue | Damage |")
+    print("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+    
+    # Baseline M
+    m = averaged["m"]
+    print(f"| **M (c2f_fused)** | {m['pair_acc']:.4f} | {m['rank']:.2f} | {m['spearman']:.4f} | {m['recall_at_1']:.4f} | {m['regret']:.4f} | — | — |")
+    
+    stage_a_keys = [
+        ("RGB 3x3", "rgb_3"), ("RGB 5x5", "rgb_5"),
+        ("Y 3x3", "y_3"), ("Y 5x5", "y_5"),
+        ("CbCr 3x3", "cbcr_3"), ("CbCr 5x5", "cbcr_5"),
+        ("Opponent 3x3", "opp_3"), ("Opponent 5x5", "opp_5")
+    ]
+    for label, key in stage_a_keys:
+        st = averaged[key]
+        cb = averaged[f"m_{key}"]
+        print(f"| {label} (Standalone) | {st['pair_acc']:.4f} | {st['rank']:.2f} | {st['spearman']:.4f} | {st['recall_at_1']:.4f} | {st['regret']:.4f} | — | — |")
+        print(f"| **[M, {label}]** | **{cb['pair_acc']:.4f}** | **{cb['rank']:.2f}** | **{cb['spearman']:.4f}** | **{cb['recall_at_1']:.4f}** | **{cb['regret']:.4f}** | {cb['rescue_rate']:.4f} | {cb['damage_rate']:.4f} |")
+
+    print("\nStage B - Geometry & Box-aligned Representations")
+    print("| Representation | PairAcc | Best Rank | Spearman | Recall@1 | Regret | Rescue | Damage |")
+    print("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+    print(f"| **M (c2f_fused)** | {m['pair_acc']:.4f} | {m['rank']:.2f} | {m['spearman']:.4f} | {m['recall_at_1']:.4f} | {m['regret']:.4f} | — | — |")
+    
+    stage_b_keys = [
+        ("Inner/Outer (12d)", "inner_outer"),
+        ("Four-side (16d)", "four_side"),
+        ("Spatial Map 5x5 (50d)", "spatial_map")
+    ]
+    for label, key in stage_b_keys:
+        st = averaged[key]
+        cb = averaged[f"m_{key}"]
+        print(f"| {label} (Standalone) | {st['pair_acc']:.4f} | {st['rank']:.2f} | {st['spearman']:.4f} | {st['recall_at_1']:.4f} | {st['regret']:.4f} | — | — |")
+        print(f"| **[M, {label}]** | **{cb['pair_acc']:.4f}** | **{cb['rank']:.2f}** | **{cb['spearman']:.4f}** | **{cb['recall_at_1']:.4f}** | **{cb['regret']:.4f}** | {cb['rescue_rate']:.4f} | {cb['damage_rate']:.4f} |")
 
 
 if __name__ == "__main__":
