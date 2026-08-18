@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Unified color-space and geometry-conditioned linear probing script.
+"""Unified color-space and backbone/FPN linear probing script.
 
-Evaluates baseline M (c2f_fused) and auxiliary representations (RGB, Y, CbCr, Opponent)
-using patches (3x3 and 5x5 cells) and box-aligned geometry regions.
+Evaluates baseline B (backbone c2f), baseline F (fused FPN c2f_fused),
+and auxiliary color spaces (RGB, Y, CbCr, Opponent) mapped directly via GPU grid pooling.
 Computes PairAcc, Rank, Spearman Rho, Recall@1/5, Regret, Rescue and Damage rates.
 Averages results across seeds 42, 43, 44 using checkpoints from HuggingFace.
 
 Optimizations:
 1. Runs YOLO forward pass once per image.
-2. Extracts color/geometry features directly from the original image (no letterbox padding artifacts).
-3. Performs all cropping, masking, and feature calculations on GPU using PyTorch (no CPU-GPU sync bottlenecks).
+2. Performs all color space mapping and pooling once per image (no loop or crop bottlenecks).
+3. Leverages GPU-native AvgPool2d to construct multi-scale context features.
 """
 
 from __future__ import annotations
@@ -212,169 +212,46 @@ def get_candidates_precomputed(decoded: torch.Tensor, preds: dict, original_shap
 
 
 # ---------------------------------------------------------------------------
-# Coordinate Mapping Functions
+# GPU Multiscale Grid Feature Extraction
 # ---------------------------------------------------------------------------
 
-def map_points_to_original(x: torch.Tensor, y: torch.Tensor, original_shape: tuple[int, int], imgsz: int = 512) -> tuple[torch.Tensor, torch.Tensor]:
-    """Map coordinate points from imgsz x imgsz letterboxed space back to original image space."""
-    h, w = original_shape[:2]
-    r = min(imgsz / h, imgsz / w)
-    new_h, new_w = round(h * r), round(w * r)
-    pad_w = (imgsz - new_w) / 2
-    pad_h = (imgsz - new_h) / 2
+def compute_chroma_features_gpu(image_bgr_letter: np.ndarray, device: str) -> dict[str, torch.Tensor]:
+    """Convert BGR image to RGB/Y/CbCr/Opponent spaces and perform multi-scale grid pooling on GPU."""
+    img_t = torch.from_numpy(image_bgr_letter[..., ::-1].copy()).to(device).float() / 255.0 # (H, W, 3)
+    img_t = img_t.permute(2, 0, 1).unsqueeze(0) # (1, 3, 512, 512)
     
-    orig_x = (x - pad_w) / r
-    orig_y = (y - pad_h) / r
+    r = img_t[:, 0:1]
+    g = img_t[:, 1:2]
+    b = img_t[:, 2:3]
     
-    orig_x = orig_x.clamp(0, w)
-    orig_y = orig_y.clamp(0, h)
-    return orig_x, orig_y
-
-
-def map_boxes_to_original(coords: torch.Tensor, original_shape: tuple[int, int], imgsz: int = 512) -> torch.Tensor:
-    """Map candidate bounding boxes from imgsz x imgsz letterboxed space back to original image space."""
-    h, w = original_shape[:2]
-    r = min(imgsz / h, imgsz / w)
-    new_h, new_w = round(h * r), round(w * r)
-    pad_w = (imgsz - new_w) / 2
-    pad_h = (imgsz - new_h) / 2
-    
-    orig = coords.clone()
-    orig[..., [0, 2]] = (orig[..., [0, 2]] - pad_w) / r
-    orig[..., [1, 3]] = (orig[..., [1, 3]] - pad_h) / r
-    
-    orig[..., [0, 2]] = orig[..., [0, 2]].clamp(0, w)
-    orig[..., [1, 3]] = orig[..., [1, 3]].clamp(0, h)
-    return orig
-
-
-# ---------------------------------------------------------------------------
-# GPU Feature Extraction Functions (RGB, Y, CbCr, Opponent)
-# ---------------------------------------------------------------------------
-
-def compute_color_maps_gpu(image_bgr: np.ndarray, device: str) -> dict[str, torch.Tensor]:
-    """Convert BGR image to normalized RGB, Y, CbCr, and Opponent color spaces on GPU."""
-    img_t = torch.from_numpy(image_bgr[..., ::-1].copy()).to(device).float() / 255.0
-    r = img_t[..., 0]
-    g = img_t[..., 1]
-    b = img_t[..., 2]
-
-    # Y (Luminance)
+    # Y
     y = 0.299 * r + 0.587 * g + 0.114 * b
-
-    # CbCr (Pure chroma)
+    
+    # CbCr
     cb = 0.5 - 0.1687 * r - 0.3313 * g + 0.5 * b
     cr = 0.5 + 0.5 * r - 0.4187 * g - 0.0813 * b
-
-    # Opponent color
+    cbcr = torch.cat([cb, cr], dim=1) # (1, 2, 512, 512)
+    
+    # Opponent
     o1 = r - g
     o2 = b - 0.5 * (r + g)
-
-    return {
-        "rgb": img_t,
-        "y": y.unsqueeze(-1),
-        "cbcr": torch.stack([cb, cr], dim=-1),
-        "opp": torch.stack([o1, o2], dim=-1),
-    }
-
-
-def get_patch_feature_gpu(color_map_t: torch.Tensor, cx: float, cy: float, patch_cells: int, r_scale: float) -> torch.Tensor:
-    """Crop patch around candidate center scaling patch width/height by r_scale, pool to 3x3 on GPU."""
-    H, W, C = color_map_t.shape
-    half = (2 * patch_cells) / r_scale
-    ymin, ymax = int(max(0, cy - half)), int(min(H, cy + half))
-    xmin, xmax = int(max(0, cx - half)), int(min(W, cx + half))
-
-    patch = color_map_t[ymin:ymax, xmin:xmax]
-    patch_t = patch.permute(2, 0, 1).unsqueeze(0) # (1, C, h, w)
-    pooled = F.adaptive_avg_pool2d(patch_t, (3, 3)).squeeze(0) # (C, 3, 3)
-    return pooled.flatten()
-
-
-def get_region_stats_gpu(crop_cbcr: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-    device = crop_cbcr.device
-    if mask.sum() > 0:
-        pixels = crop_cbcr[mask] # (N, 2)
-        mean = pixels.mean(dim=0)
-        std = pixels.std(dim=0)
-        return torch.cat([mean, std]) # (4,)
-    return torch.zeros(4, device=device)
-
-
-def get_strip_mean_gpu(color_map_t: torch.Tensor, x_range: list[float], y_range: list[float]) -> torch.Tensor:
-    H, W, C = color_map_t.shape
-    x1, x2 = int(max(0, x_range[0])), int(min(W, x_range[1]))
-    y1, y2 = int(max(0, y_range[0])), int(min(H, y_range[1]))
-    if (x2 > x1) and (y2 > y1):
-        return color_map_t[y1:y2, x1:x2].mean(dim=(0, 1))
-    return torch.zeros(C, device=color_map_t.device)
-
-
-def extract_candidate_features_gpu(gpu_maps: dict[str, torch.Tensor], cx: float, cy: float,
-                                   box_numpy: np.ndarray, H: int, W: int, r_scale: float) -> dict[str, torch.Tensor]:
-    feats = {}
-    device = gpu_maps["cbcr"].device
-
-    # Stage A: Patches (3x3 and 5x5 cells), dynamically scaled in size to match original image resolution
-    for space in ["rgb", "y", "cbcr", "opp"]:
-        for size in [3, 5]:
-            feats[f"{space}_{size}"] = get_patch_feature_gpu(gpu_maps[space], cx, cy, size, r_scale)
-
-    # Stage B: Geometry features
-    x1, y1, x2, y2 = float(box_numpy[0]), float(box_numpy[1]), float(box_numpy[2]), float(box_numpy[3])
-    w_box, h_box = x2 - x1, y2 - y1
-
-    # Expanded box bounds
-    w_exp, h_exp = w_box * 1.25, h_box * 1.25
-    x1_exp, y1_exp = cx - w_exp * 0.5, cy - h_exp * 0.5
-    x2_exp, y2_exp = cx + w_exp * 0.5, cy + h_exp * 0.5
-
-    y1_e, y2_e = int(max(0, y1_exp)), int(min(H, y2_exp))
-    x1_e, x2_e = int(max(0, x1_exp)), int(min(W, x2_exp))
-
-    crop_cbcr = gpu_maps["cbcr"][y1_e:y2_e, x1_e:x2_e]
-
-    # Region masks relative to the crop coordinates
-    grid_y = torch.arange(y1_e, y2_e, device=device).view(-1, 1)
-    grid_x = torch.arange(x1_e, x2_e, device=device).view(1, -1)
-    w_in, h_in = w_box * 0.7, h_box * 0.7
-    x1_in, y1_in = cx - w_in * 0.5, cy - h_in * 0.5
-    x2_in, y2_in = cx + w_in * 0.5, cy + h_in * 0.5
-
-    mask_inner = (grid_x >= x1_in) & (grid_x <= x2_in) & (grid_y >= y1_in) & (grid_y <= y2_in)
-    mask_box = (grid_x >= x1) & (grid_x <= x2) & (grid_y >= y1) & (grid_y <= y2)
-    mask_border = mask_box & (~mask_inner)
-    mask_outer = ~mask_box
-
-    # Probe 5: Inner / Border / Outer region stats
-    p5_feats = []
-    p5_feats.append(get_region_stats_gpu(crop_cbcr, mask_inner))
-    p5_feats.append(get_region_stats_gpu(crop_cbcr, mask_border))
-    p5_feats.append(get_region_stats_gpu(crop_cbcr, mask_outer))
-    feats["inner_outer"] = torch.cat(p5_feats) # size 12
-
-    # Probe 6: Four-side chroma geometry
-    d = max(2.0, 0.1 * min(w_box, h_box))
-    p6_feats = []
-    # Left
-    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x1 + d], [y1, y2])) # inside
-    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1 - d, x1], [y1, y2])) # outside
-    # Right
-    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x2 - d, x2], [y1, y2])) # inside
-    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x2, x2 + d], [y1, y2])) # outside
-    # Top
-    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x2], [y1, y1 + d])) # inside
-    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x2], [y1 - d, y1])) # outside
-    # Bottom
-    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x2], [y2 - d, y2])) # inside
-    p6_feats.append(get_strip_mean_gpu(gpu_maps["cbcr"], [x1, x2], [y2, y2 + d])) # outside
-    feats["four_side"] = torch.cat(p6_feats, dim=0)
-
-    # Probe 7: Spatial chroma map 5x5
-    crop_t = crop_cbcr.permute(2, 0, 1).unsqueeze(0)
-    feats["spatial_map"] = F.adaptive_avg_pool2d(crop_t, (5, 5)).squeeze(0).flatten()
-
-    return feats
+    opp = torch.cat([o1, o2], dim=1) # (1, 2, 512, 512)
+    
+    # Pool to stride 4 (128x128 P2 resolution)
+    rgb0 = F.avg_pool2d(img_t, kernel_size=4, stride=4) # (1, 3, 128, 128)
+    y0 = F.avg_pool2d(y, kernel_size=4, stride=4) # (1, 1, 128, 128)
+    c0 = F.avg_pool2d(cbcr, kernel_size=4, stride=4) # (1, 2, 128, 128)
+    opp0 = F.avg_pool2d(opp, kernel_size=4, stride=4) # (1, 2, 128, 128)
+    
+    # Compute multi-scale context maps
+    features = {}
+    for name, t0 in [("rgb", rgb0), ("y", y0), ("cbcr", c0), ("opp", opp0)]:
+        t3 = F.avg_pool2d(t0, kernel_size=3, stride=1, padding=1)
+        t5 = F.avg_pool2d(t0, kernel_size=5, stride=1, padding=2)
+        # Concatenate along channel dimension
+        features[name] = torch.cat([t0, t3, t5], dim=1).squeeze(0) # (C_total, 128, 128)
+        
+    return features
 
 
 # ---------------------------------------------------------------------------
@@ -406,16 +283,18 @@ def collect_features(net, hooked, samples, device, letterbox, args, split_name) 
         with torch.no_grad():
             decoded, preds = net(tensor)
 
-        if "c2f_fused" not in hooked:
+        # 2. Extract backbone c2f (layer 2) and FPN c2f_fused (layer 18)
+        if "c2f" not in hooked or "c2f_fused" not in hooked:
             continue
-        t_fused = hooked["c2f_fused"]
-        c, hf, wf = t_fused.shape
-        n = hf * wf
+        t_backbone = hooked["c2f"]  # (C_b, 128, 128)
+        t_fused = hooked["c2f_fused"]  # (C_f, 128, 128)
+        
+        c_b, h_b, w_b = t_backbone.shape
+        c_f, h_f, w_f = t_fused.shape
+        n = h_f * w_f
 
-        # 2. Extract color maps from the ORIGINAL image directly (avoid letterbox padding artifacts)
-        gpu_maps = compute_color_maps_gpu(original, device)
-        H_orig, W_orig, _ = original.shape
-        r_scale = min(args.imgsz / H_orig, args.imgsz / W_orig)
+        # 3. Build chroma and other color maps at stride 4 (128x128 grid)
+        gpu_color_features = compute_chroma_features_gpu(original_letter, device)
 
         for gt in gt_xyxy:
             idx, local_ious, y, boxes = get_candidates_precomputed(
@@ -425,51 +304,24 @@ def collect_features(net, hooked, samples, device, letterbox, args, split_name) 
             if len(safe_idx) < 2 or y.sum() == 0:
                 continue
 
-            m_feats = t_fused.permute(1, 2, 0).reshape(n, c)[safe_idx]
+            grid_y = safe_idx // w_f
+            grid_x = safe_idx % w_f
 
-            # Map coordinates from 512x512 letterbox space back to original image coordinates
-            # Grid centers (cx, cy)
-            grid_y = safe_idx // wf
-            grid_x = safe_idx % wf
-            cx_pad = (grid_x + 0.5) * 4
-            cy_pad = (grid_y + 0.5) * 4
-            cx_orig, cy_orig = map_points_to_original(cx_pad, cy_pad, original.shape, args.imgsz)
-            
-            # Box bounds
-            boxes_orig = map_boxes_to_original(boxes, original.shape, args.imgsz)
+            # Extract features in one vectorized GPU slice
+            b_feats = t_backbone[:, grid_y, grid_x].permute(1, 0).cpu() # (num_candidates, C_b)
+            f_feats = t_fused[:, grid_y, grid_x].permute(1, 0).cpu() # (num_candidates, C_f)
 
-            # Move coordinates to CPU numpy arrays once to avoid inside-loop GPU-to-CPU synchronizations
-            cx_orig_cpu = cx_orig.cpu().numpy()
-            cy_orig_cpu = cy_orig.cpu().numpy()
-            boxes_orig_cpu = boxes_orig.cpu().numpy()
-
-            # Collect color and geometry features for each candidate
             case_feats = {
-                "m": m_feats.cpu()
+                "b": b_feats,
+                "f": f_feats,
             }
-            temp_feats = {}
-            for k_idx, k in enumerate(safe_idx.tolist()):
-                cx = float(cx_orig_cpu[k_idx])
-                cy = float(cy_orig_cpu[k_idx])
-                
-                cand_feats = extract_candidate_features_gpu(
-                    gpu_maps, cx, cy, boxes_orig_cpu[k_idx], H_orig, W_orig, r_scale
-                )
-                for key, val in cand_feats.items():
-                    if key not in temp_feats:
-                        temp_feats[key] = []
-                    temp_feats[key].append(val)
-
-            for key, val in temp_feats.items():
-                case_feats[key] = torch.stack(val, dim=0).cpu()
+            for name, feat_map in gpu_color_features.items():
+                case_feats[name] = feat_map[:, grid_y, grid_x].permute(1, 0).cpu()
 
             case_feats_list.append((case_feats, local_ious.cpu(), y.cpu()))
 
             # Append to flat lists for VAL training
-            if "m" not in data:
-                data["m"] = []
-            data["m"].append(case_feats["m"])
-            for key in temp_feats:
+            for key in case_feats:
                 if key not in data:
                     data[key] = []
                 data[key].append(case_feats[key])
@@ -491,7 +343,8 @@ def probe_one_seed(ckpt: Path, val_samples, test_samples, device, letterbox, arg
 
     hooked: dict = {}
     handles = []
-    for key, layer_idx in [("c2f_fused", 18)]:
+    # Hook Layer 2 (backbone P2 output c2f) and Layer 18 (FPN output c2f_fused)
+    for key, layer_idx in [("c2f", 2), ("c2f_fused", 18)]:
         def _hook(mod, inp, out, k=key):
             hooked[k] = out if isinstance(out, torch.Tensor) else out[0]
             hooked[k] = hooked[k].squeeze(0)
@@ -510,21 +363,28 @@ def probe_one_seed(ckpt: Path, val_samples, test_samples, device, letterbox, arg
     val_X = {k: val_data[k].to(device) for k in val_data}
 
     # Define representations
-    rep_keys = [k for k in val_data.keys() if k != "m"]
+    rep_keys = ["rgb", "y", "cbcr", "opp"]
 
-    # Fit standalone probes
-    probes_standalone = {}
-    probes_combined = {}
+    # Fit standalone and combined probes
+    probes = {}
+    
+    # Standalones B and F
+    probes["b"] = train_probe(val_X["b"], val_y_cat, args.epochs)
+    probes["f"] = train_probe(val_X["f"], val_y_cat, args.epochs)
+    
+    # Combined [F, B]
+    probes["f_b"] = train_probe(torch.cat([val_X["f"], val_X["b"]], dim=1), val_y_cat, args.epochs)
 
-    # 1. Fit baseline M
-    probes_standalone["m"] = train_probe(val_X["m"], val_y_cat, args.epochs)
-
-    # 2. Fit standalone and combined for each auxiliary key
-    for k in rep_keys:
-        probes_standalone[k] = train_probe(val_X[k], val_y_cat, args.epochs)
-        # Combined [M, R]
-        combined_val = torch.cat([val_X["m"], val_X[k]], dim=1)
-        probes_combined[k] = train_probe(combined_val, val_y_cat, args.epochs)
+    # Auxiliary color space probes
+    for c in rep_keys:
+        # Standalone color probe
+        probes[c] = train_probe(val_X[c], val_y_cat, args.epochs)
+        # Combined [B, C]
+        probes[f"b_{c}"] = train_probe(torch.cat([val_X["b"], val_X[c]], dim=1), val_y_cat, args.epochs)
+        # Combined [F, C]
+        probes[f"f_{c}"] = train_probe(torch.cat([val_X["f"], val_X[c]], dim=1), val_y_cat, args.epochs)
+        # Combined [F, B, C]
+        probes[f"f_b_{c}"] = train_probe(torch.cat([val_X["f"], val_X["b"], val_X[c]], dim=1), val_y_cat, args.epochs)
 
     # ---- TEST ----
     _, _, test_cases = collect_features(
@@ -534,40 +394,47 @@ def probe_one_seed(ckpt: Path, val_samples, test_samples, device, letterbox, arg
     for h in handles:
         h.remove()
 
-    # Pre-evaluate baseline M to collect base_scores_case for rescue/damage computations
+    # Pre-evaluate baseline F (fused) to collect base_scores_case for rescue/damage computations
     base_scores_list = []
     for case_feats, local_ious, y in test_cases:
         with torch.no_grad():
-            x_m = case_feats["m"].to(device)
-            m_scores = torch.sigmoid(probes_standalone["m"](x_m).squeeze(1))
-            base_scores_list.append(m_scores.cpu())
+            x_f = case_feats["f"].to(device)
+            f_scores = torch.sigmoid(probes["f"](x_f).squeeze(1))
+            base_scores_list.append(f_scores.cpu())
 
     # Evaluate all variants
     variant_results = {}
     
-    # Baseline M evaluation
-    m_evals = []
-    for idx, (case_feats, local_ious, y) in enumerate(test_cases):
-        res = evaluate_case(probes_standalone["m"], case_feats["m"].to(device), local_ious, y)
-        m_evals.append(res)
-    variant_results["m"] = m_evals
+    # Define keys to evaluate
+    eval_keys = ["b", "f", "f_b"]
+    for c in rep_keys:
+        eval_keys.extend([c, f"b_{c}", f"f_{c}", f"f_b_{c}"])
 
-    # Standalone and Combined evaluations
-    for k in rep_keys:
-        # Standalone
-        st_evals = []
+    for key in eval_keys:
+        evals = []
         for idx, (case_feats, local_ious, y) in enumerate(test_cases):
-            res = evaluate_case(probes_standalone[k], case_feats[k].to(device), local_ious, y)
-            st_evals.append(res)
-        variant_results[k] = st_evals
-
-        # Combined
-        cb_evals = []
-        for idx, (case_feats, local_ious, y) in enumerate(test_cases):
-            comb_x = torch.cat([case_feats["m"], case_feats[k]], dim=1).to(device)
-            res = evaluate_case(probes_combined[k], comb_x, local_ious, y, base_scores_case=base_scores_list[idx])
-            cb_evals.append(res)
-        variant_results[f"m_{k}"] = cb_evals
+            # Construct input feature tensor
+            if key == "b":
+                x_in = case_feats["b"]
+            elif key == "f":
+                x_in = case_feats["f"]
+            elif key == "f_b":
+                x_in = torch.cat([case_feats["f"], case_feats["b"]], dim=1)
+            elif key in rep_keys:
+                x_in = case_feats[key]
+            elif key.startswith("b_"):
+                c_name = key.split("_")[1]
+                x_in = torch.cat([case_feats["b"], case_feats[c_name]], dim=1)
+            elif key.startswith("f_b_"):
+                c_name = key.split("_")[2]
+                x_in = torch.cat([case_feats["f"], case_feats["b"], case_feats[c_name]], dim=1)
+            elif key.startswith("f_"):
+                c_name = key.split("_")[1]
+                x_in = torch.cat([case_feats["f"], case_feats[c_name]], dim=1)
+                
+            res = evaluate_case(probes[key], x_in.to(device), local_ious, y, base_scores_case=base_scores_list[idx])
+            evals.append(res)
+        variant_results[key] = evals
 
     # Average metrics over all test cases
     summary = {}
@@ -692,42 +559,31 @@ def main() -> None:
     print("=== SUMMARY AVERAGED PROBING RESULTS ===")
     print("="*80)
 
-    # Filter to print Stage A Table
-    print("\nStage A - Patch Representations (3x3 and 5x5 cells)")
-    print("| Representation | PairAcc | Best Rank | Spearman | Recall@1 | Regret | Rescue | Damage |")
+    # We print a structured table of baselines and auxiliary representations
+    print("\nProbing Results Table (Averaged 3 seeds)")
+    print("| Representation | PairAcc | Best Rank | Spearman | Recall@1 | Regret | Rescue (on F) | Damage (on F) |")
     print("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
     
-    # Baseline M
-    m = averaged["m"]
-    print(f"| **M (c2f_fused)** | {m['pair_acc']:.4f} | {m['rank']:.2f} | {m['spearman']:.4f} | {m['recall_at_1']:.4f} | {m['regret']:.4f} | — | — |")
-    
-    stage_a_keys = [
-        ("RGB 3x3", "rgb_3"), ("RGB 5x5", "rgb_5"),
-        ("Y 3x3", "y_3"), ("Y 5x5", "y_5"),
-        ("CbCr 3x3", "cbcr_3"), ("CbCr 5x5", "cbcr_5"),
-        ("Opponent 3x3", "opp_3"), ("Opponent 5x5", "opp_5")
-    ]
-    for label, key in stage_a_keys:
-        st = averaged[key]
-        cb = averaged[f"m_{key}"]
-        print(f"| {label} (Standalone) | {st['pair_acc']:.4f} | {st['rank']:.2f} | {st['spearman']:.4f} | {st['recall_at_1']:.4f} | {st['regret']:.4f} | — | — |")
-        print(f"| **[M, {label}]** | **{cb['pair_acc']:.4f}** | **{cb['rank']:.2f}** | **{cb['spearman']:.4f}** | **{cb['recall_at_1']:.4f}** | **{cb['regret']:.4f}** | {cb['rescue_rate']:.4f} | {cb['damage_rate']:.4f} |")
+    # Baselines
+    b = averaged["b"]
+    f = averaged["f"]
+    fb = averaged["f_b"]
+    print(f"| **B (backbone P2)** | {b['pair_acc']:.4f} | {b['rank']:.2f} | {b['spearman']:.4f} | {b['recall_at_1']:.4f} | {b['regret']:.4f} | — | — |")
+    print(f"| **F (fused FPN P2)** | {f['pair_acc']:.4f} | {f['rank']:.2f} | {f['spearman']:.4f} | {f['recall_at_1']:.4f} | {f['regret']:.4f} | — | — |")
+    print(f"| **[F, B]** | {fb['pair_acc']:.4f} | {fb['rank']:.2f} | {fb['spearman']:.4f} | {fb['recall_at_1']:.4f} | {fb['regret']:.4f} | {fb['rescue_rate']:.4f} | {fb['damage_rate']:.4f} |")
 
-    print("\nStage B - Geometry & Box-aligned Representations")
-    print("| Representation | PairAcc | Best Rank | Spearman | Recall@1 | Regret | Rescue | Damage |")
-    print("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
-    print(f"| **M (c2f_fused)** | {m['pair_acc']:.4f} | {m['rank']:.2f} | {m['spearman']:.4f} | {m['recall_at_1']:.4f} | {m['regret']:.4f} | — | — |")
-    
-    stage_b_keys = [
-        ("Inner/Outer (12d)", "inner_outer"),
-        ("Four-side (16d)", "four_side"),
-        ("Spatial Map 5x5 (50d)", "spatial_map")
-    ]
-    for label, key in stage_b_keys:
-        st = averaged[key]
-        cb = averaged[f"m_{key}"]
-        print(f"| {label} (Standalone) | {st['pair_acc']:.4f} | {st['rank']:.2f} | {st['spearman']:.4f} | {st['recall_at_1']:.4f} | {st['regret']:.4f} | — | — |")
-        print(f"| **[M, {label}]** | **{cb['pair_acc']:.4f}** | **{cb['rank']:.2f}** | **{cb['spearman']:.4f}** | **{cb['recall_at_1']:.4f}** | **{cb['regret']:.4f}** | {cb['rescue_rate']:.4f} | {cb['damage_rate']:.4f} |")
+    # Color space variants
+    for label, c_key in [("RGB", "rgb"), ("Y (Luminance)", "y"), ("CbCr (Chroma)", "cbcr"), ("Opponent", "opp")]:
+        c = averaged[c_key]
+        bc = averaged[f"b_{c_key}"]
+        fc = averaged[f"f_{c_key}"]
+        fbc = averaged[f"f_b_{c_key}"]
+        
+        print(f"|--- | --- | --- | --- | --- | --- | --- | --- |")
+        print(f"| {label} (Standalone) | {c['pair_acc']:.4f} | {c['rank']:.2f} | {c['spearman']:.4f} | {c['recall_at_1']:.4f} | {c['regret']:.4f} | — | — |")
+        print(f"| **[B, {label}]** | {bc['pair_acc']:.4f} | {bc['rank']:.2f} | {bc['spearman']:.4f} | {bc['recall_at_1']:.4f} | {bc['regret']:.4f} | — | — |")
+        print(f"| **[F, {label}]** | **{fc['pair_acc']:.4f}** | **{fc['rank']:.2f}** | **{fc['spearman']:.4f}** | **{fc['recall_at_1']:.4f}** | **{fc['regret']:.4f}** | {fc['rescue_rate']:.4f} | {fc['damage_rate']:.4f} |")
+        print(f"| **[F, B, {label}]** | **{fbc['pair_acc']:.4f}** | **{fbc['rank']:.2f}** | **{fbc['spearman']:.4f}** | **{fbc['recall_at_1']:.4f}** | **{fbc['regret']:.4f}** | {fbc['rescue_rate']:.4f} | {fbc['damage_rate']:.4f} |")
 
 
 if __name__ == "__main__":
