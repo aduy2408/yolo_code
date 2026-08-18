@@ -5,6 +5,11 @@
 #4 DetachedResidualFusion   — stop-grad residual + L1 recon aux supervision
 #6a SplitChannelDetect       — channel split control (no aux supervision)
 #6b GTChannelSpecialization  — channel split + D8 GT cue aux supervision
+
+Upload protocol (mandatory per marimo-train workflow):
+  - Fail fast before training if HF_TOKEN or hf_repo_id missing.
+  - Upload + verify + write upload_complete.json after EACH variant/seed run.
+  - Retry network errors at least 3 times.
 """
 
 from __future__ import annotations
@@ -13,9 +18,8 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
-
-import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -33,30 +37,101 @@ def local_ultralytics() -> None:
 CFG_DIR = ROOT / "models_related/models_config/yolov8/levir"
 
 VARIANTS = {
-    "yolov8n_p2_dedicated_cue_slots":    CFG_DIR / "yolov8n_p2_dedicated_cue_slots.yaml",    # #3
-    "yolov8n_p2_detached_residual":      CFG_DIR / "yolov8n_p2_detached_residual.yaml",      # #4
-    "yolov8n_p2_split_channel":          CFG_DIR / "yolov8n_p2_split_channel.yaml",          # #6a
-    "yolov8n_p2_gt_channel_spec":        CFG_DIR / "yolov8n_p2_gt_channel_spec.yaml",        # #6b
+    "yolov8n_p2_dedicated_cue_slots":  CFG_DIR / "yolov8n_p2_dedicated_cue_slots.yaml",    # #3
+    "yolov8n_p2_detached_residual":    CFG_DIR / "yolov8n_p2_detached_residual.yaml",      # #4
+    "yolov8n_p2_split_channel":        CFG_DIR / "yolov8n_p2_split_channel.yaml",          # #6a
+    "yolov8n_p2_gt_channel_spec":      CFG_DIR / "yolov8n_p2_gt_channel_spec.yaml",        # #6b
 }
 
 SEEDS = [42]
 
+# ── HF upload helpers ────────────────────────────────────────────────────────
+
+def _hf_api(token: str):
+    from huggingface_hub import HfApi
+    return HfApi(token=token)
+
+
+def upload_run_to_hf(
+    run_dir: Path,
+    yaml_cfg: Path,
+    hf_repo_id: str,
+    hf_remote_prefix: str,
+    hf_token: str,
+    retries: int = 3,
+) -> None:
+    """Upload all mandatory artifacts for one run, verify, write upload_complete.json."""
+    api = _hf_api(hf_token)
+
+    required_locals = [
+        run_dir / "weights/best.pt",
+        run_dir / "weights/last.pt",
+        run_dir / "results.csv",
+        run_dir / "evaluation_metrics.json",
+        run_dir / "args.yaml",
+    ]
+    extras = [yaml_cfg, Path(__file__)]
+
+    to_upload = [(p, f"{hf_remote_prefix}/{p.name}") for p in required_locals if p.exists()]
+    to_upload += [(p, f"{hf_remote_prefix}/{p.name}") for p in extras if p.exists()]
+
+    for local_path, remote_path in to_upload:
+        for attempt in range(1, retries + 1):
+            try:
+                api.upload_file(
+                    path_or_fileobj=str(local_path),
+                    path_in_repo=remote_path,
+                    repo_id=hf_repo_id,
+                    repo_type="model",
+                )
+                print(f"  [HF] Uploaded: {remote_path}")
+                break
+            except Exception as e:
+                if attempt == retries:
+                    raise RuntimeError(f"Upload failed after {retries} retries: {local_path}") from e
+                print(f"  [HF] Retry {attempt}/{retries}: {e}")
+                time.sleep(5 * attempt)
+
+    # Verify mandatory remote paths
+    try:
+        remote_files = {f.rfilename for f in api.list_repo_files(repo_id=hf_repo_id, repo_type="model")}
+    except Exception as e:
+        raise RuntimeError(f"Failed to list remote files for verification: {e}") from e
+
+    mandatory = [
+        f"{hf_remote_prefix}/best.pt",
+        f"{hf_remote_prefix}/last.pt",
+        f"{hf_remote_prefix}/results.csv",
+        f"{hf_remote_prefix}/evaluation_metrics.json",
+    ]
+    missing = [p for p in mandatory if p not in remote_files]
+    if missing:
+        raise RuntimeError(f"HF verification failed — missing: {missing}")
+
+    upload_complete = {
+        "hf_repo_id": hf_repo_id,
+        "hf_remote_prefix": hf_remote_prefix,
+        "uploaded_files": [r for _, r in to_upload],
+        "verified_paths": mandatory,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    (run_dir / "upload_complete.json").write_text(json.dumps(upload_complete, indent=2))
+    print(f"  [HF] Verification OK — upload_complete.json written.")
+
+
+# ── Training helpers ─────────────────────────────────────────────────────────
 
 def completed(run_dir: Path) -> bool:
     return all(
         (run_dir / f).is_file()
-        for f in ("weights/best.pt", "weights/last.pt", "results.csv", "evaluation_metrics.json")
+        for f in ("weights/best.pt", "weights/last.pt", "results.csv",
+                  "evaluation_metrics.json", "upload_complete.json")
     )
 
 
 def evaluate_run(model, data_yaml: str, run_dir: Path) -> dict:
-    best_pt = run_dir / "weights/best.pt"
-    if not best_pt.is_file():
-        raise FileNotFoundError(f"Missing best.pt: {run_dir}")
-
     val_res = model.val(data=data_yaml, split="val", iou=0.5, save=False, verbose=False)
     test_res = model.val(data=data_yaml, split="test", iou=0.5, save=False, verbose=False)
-
     metrics = {
         "nms_iou": 0.5,
         "val": {
@@ -72,12 +147,11 @@ def evaluate_run(model, data_yaml: str, run_dir: Path) -> dict:
             "map75": float(test_res.results_dict.get("metrics/mAP50-95(B)", 0.0)),
         },
     }
-    with open(run_dir / "evaluation_metrics.json", "w") as f:
-        json.dump(metrics, f, indent=2)
+    (run_dir / "evaluation_metrics.json").write_text(json.dumps(metrics, indent=2))
     return metrics
 
 
-def generate_summary(project_dir: Path) -> dict:
+def generate_summary(project_dir: Path, hf_repo_id: str, hf_token: str) -> dict:
     summary_data = {}
     md_lines = [
         "# Raw-Cue Architecture Experiments #3/#4/#6a/#6b Runs Summary",
@@ -92,20 +166,44 @@ def generate_summary(project_dir: Path) -> dict:
                 with open(mf) as f:
                     m = json.load(f)
                 summary_data[d.name] = m
-                val = m.get("val", {})
-                test = m.get("test", {})
+                val, test = m.get("val", {}), m.get("test", {})
                 md_lines.append(
                     f"| {d.name} | 0.5 | {val.get('map50', 0):.4f} | {val.get('map75', 0):.4f}"
                     f" | **{test.get('map50', 0):.4f}** | {test.get('map75', 0):.4f} |"
                 )
-
     (project_dir / "summary.json").write_text(json.dumps(summary_data, indent=2))
     (project_dir / "summary.md").write_text("\n".join(md_lines) + "\n")
     print("\n".join(md_lines))
+
+    # Upload summary to HF
+    try:
+        api = _hf_api(hf_token)
+        for fname in ["summary.json", "summary.md"]:
+            fpath = project_dir / fname
+            if fpath.exists():
+                api.upload_file(
+                    path_or_fileobj=str(fpath),
+                    path_in_repo=f"runs/{fname}",
+                    repo_id=hf_repo_id,
+                    repo_type="model",
+                )
+    except Exception as e:
+        print(f"[HF] Warning: summary upload failed: {e}")
+
     return summary_data
 
 
+# ── Main runner ──────────────────────────────────────────────────────────────
+
 def run(args: argparse.Namespace) -> None:
+    # Fail fast: require HF credentials
+    hf_token = args.hf_token or os.environ.get("HF_TOKEN", "")
+    hf_repo_id = args.hf_repo_id
+    if not hf_token:
+        raise SystemExit("FATAL: HF_TOKEN missing. Set --hf-token or HF_TOKEN env var.")
+    if not hf_repo_id:
+        raise SystemExit("FATAL: --hf-repo-id missing.")
+
     local_ultralytics()
 
     for seed in SEEDS:
@@ -114,25 +212,26 @@ def run(args: argparse.Namespace) -> None:
         data_yaml = prepare(data_root, ds_dir, seed)
 
         for variant_name, yaml_cfg in VARIANTS.items():
-            # Optionally run only a subset via --variants flag
             if args.variants and variant_name not in args.variants:
                 continue
 
             run_name = f"{variant_name}_seed{seed}"
             run_dir = args.project / run_name
+            hf_remote_prefix = f"runs/{variant_name}/seed_{seed}"
+
             if completed(run_dir):
-                print(f"[SKIP] Already completed: {run_name}")
+                print(f"[SKIP] Already complete (incl. HF upload): {run_name}")
                 continue
 
-            last = run_dir / "weights/last.pt"
             from ultralytics import YOLO
 
+            last = run_dir / "weights/last.pt"
             if last.is_file():
                 print(f"[RESUME] {run_name}")
                 model = YOLO(str(last))
                 model.train(resume=True)
             else:
-                print(f"[START] {run_name} with {yaml_cfg.name}")
+                print(f"[START] {run_name} — {yaml_cfg.name}")
                 model = YOLO(str(yaml_cfg))
                 model.train(
                     data=str(data_yaml),
@@ -149,12 +248,17 @@ def run(args: argparse.Namespace) -> None:
                     exist_ok=True,
                 )
 
+            # Evaluate
             best_model = YOLO(str(run_dir / "weights/best.pt"))
             print(f"[EVAL] {run_name} nms_iou=0.5")
             metrics = evaluate_run(best_model, str(data_yaml), run_dir)
             print(json.dumps(metrics, indent=2))
 
-    generate_summary(args.project)
+            # Upload to HF — fail hard (don't silently skip to next variant)
+            print(f"[HF] Uploading {run_name} → {hf_repo_id}/{hf_remote_prefix}")
+            upload_run_to_hf(run_dir, yaml_cfg, hf_repo_id, hf_remote_prefix, hf_token)
+
+    generate_summary(args.project, hf_repo_id, hf_token)
 
 
 def parse_args() -> argparse.Namespace:
@@ -168,9 +272,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device",       default="cuda")
     parser.add_argument("--workers",      type=int,  default=4)
     parser.add_argument("--patience",     type=int,  default=0)
+    parser.add_argument("--hf-token",     default="", help="HuggingFace token (or set HF_TOKEN env)")
+    parser.add_argument("--hf-repo-id",   default="duyle2408/levir-raw-cue-archs")
     parser.add_argument(
         "--variants", nargs="*", default=None,
-        help="Which variants to run (default: all). E.g. --variants yolov8n_p2_split_channel"
+        help="Which variants to run. Default: all. E.g. --variants yolov8n_p2_split_channel"
     )
     return parser.parse_args()
 
