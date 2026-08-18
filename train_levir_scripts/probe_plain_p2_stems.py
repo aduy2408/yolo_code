@@ -156,7 +156,7 @@ def get_candidates(net, original_shape, letterbox, image_path, gt, device,
 # cv2 and c2f share the same spatial resolution → safe to use idx directly.
 # cv1 is 256x256 → idx must be remapped (each P2 cell = 4 cv1 cells).
 
-REP_KEYS = ["cv1", "cv2", "c2f"]
+REP_KEYS = ["cv1", "cv2", "c2f", "c2f_fused"]
 
 
 def _extract_feat(hooked: dict, key: str, idx: torch.Tensor, p2_hw: tuple[int, int]) -> torch.Tensor | None:
@@ -198,7 +198,7 @@ def probe_one_seed(ckpt: Path, val_samples, test_samples, device, letterbox, arg
 
     hooked: dict = {}
     handles = []
-    for key, layer_idx in [("cv1", 0), ("cv2", 1), ("c2f", 2)]:
+    for key, layer_idx in [("cv1", 0), ("cv2", 1), ("c2f", 2), ("c2f_fused", 18)]:
         def _hook(mod, inp, out, k=key):
             hooked[k] = out if isinstance(out, torch.Tensor) else out[0]
             hooked[k] = hooked[k].squeeze(0)
