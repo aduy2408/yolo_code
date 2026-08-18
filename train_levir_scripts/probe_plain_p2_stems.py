@@ -5,7 +5,11 @@ Evaluates baseline M (c2f_fused) and auxiliary representations (RGB, Y, CbCr, Op
 using patches (3x3 and 5x5 cells) and box-aligned geometry regions.
 Computes PairAcc, Rank, Spearman Rho, Recall@1/5, Regret, Rescue and Damage rates.
 Averages results across seeds 42, 43, 44 using checkpoints from HuggingFace.
-Highly optimized: runs YOLO forward pass once per image and performs all cropping/pooling on GPU.
+
+Optimizations:
+1. Runs YOLO forward pass once per image.
+2. Extracts color/geometry features directly from the original image (no letterbox padding artifacts).
+3. Performs all cropping, masking, and feature calculations on GPU using PyTorch (no CPU-GPU sync bottlenecks).
 """
 
 from __future__ import annotations
@@ -208,6 +212,43 @@ def get_candidates_precomputed(decoded: torch.Tensor, preds: dict, original_shap
 
 
 # ---------------------------------------------------------------------------
+# Coordinate Mapping Functions
+# ---------------------------------------------------------------------------
+
+def map_points_to_original(x: torch.Tensor, y: torch.Tensor, original_shape: tuple[int, int], imgsz: int = 512) -> tuple[torch.Tensor, torch.Tensor]:
+    """Map coordinate points from imgsz x imgsz letterboxed space back to original image space."""
+    h, w = original_shape[:2]
+    r = min(imgsz / h, imgsz / w)
+    new_h, new_w = round(h * r), round(w * r)
+    pad_w = (imgsz - new_w) / 2
+    pad_h = (imgsz - new_h) / 2
+    
+    orig_x = (x - pad_w) / r
+    orig_y = (y - pad_h) / r
+    
+    orig_x = orig_x.clamp(0, w)
+    orig_y = orig_y.clamp(0, h)
+    return orig_x, orig_y
+
+
+def map_boxes_to_original(coords: torch.Tensor, original_shape: tuple[int, int], imgsz: int = 512) -> torch.Tensor:
+    """Map candidate bounding boxes from imgsz x imgsz letterboxed space back to original image space."""
+    h, w = original_shape[:2]
+    r = min(imgsz / h, imgsz / w)
+    new_h, new_w = round(h * r), round(w * r)
+    pad_w = (imgsz - new_w) / 2
+    pad_h = (imgsz - new_h) / 2
+    
+    orig = coords.clone()
+    orig[..., [0, 2]] = (orig[..., [0, 2]] - pad_w) / r
+    orig[..., [1, 3]] = (orig[..., [1, 3]] - pad_h) / r
+    
+    orig[..., [0, 2]] = orig[..., [0, 2]].clamp(0, w)
+    orig[..., [1, 3]] = orig[..., [1, 3]].clamp(0, h)
+    return orig
+
+
+# ---------------------------------------------------------------------------
 # GPU Feature Extraction Functions (RGB, Y, CbCr, Opponent)
 # ---------------------------------------------------------------------------
 
@@ -237,10 +278,10 @@ def compute_color_maps_gpu(image_bgr: np.ndarray, device: str) -> dict[str, torc
     }
 
 
-def get_patch_feature_gpu(color_map_t: torch.Tensor, cx: float, cy: float, patch_cells: int) -> torch.Tensor:
-    """Crop patch_cells around candidate center and adaptive average pool to 3x3 on GPU."""
+def get_patch_feature_gpu(color_map_t: torch.Tensor, cx: float, cy: float, patch_cells: int, r_scale: float) -> torch.Tensor:
+    """Crop patch around candidate center scaling patch width/height by r_scale, pool to 3x3 on GPU."""
     H, W, C = color_map_t.shape
-    half = 2 * patch_cells
+    half = (2 * patch_cells) / r_scale
     ymin, ymax = int(max(0, cy - half)), int(min(H, cy + half))
     xmin, xmax = int(max(0, cx - half)), int(min(W, cx + half))
 
@@ -250,13 +291,14 @@ def get_patch_feature_gpu(color_map_t: torch.Tensor, cx: float, cy: float, patch
     return pooled.flatten()
 
 
-def get_region_stats_gpu(crop_cbcr: torch.Tensor, mask: torch.Tensor) -> list[float]:
+def get_region_stats_gpu(crop_cbcr: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    device = crop_cbcr.device
     if mask.sum() > 0:
         pixels = crop_cbcr[mask] # (N, 2)
         mean = pixels.mean(dim=0)
         std = pixels.std(dim=0)
-        return [float(mean[0].item()), float(mean[1].item()), float(std[0].item()), float(std[1].item())]
-    return [0.0, 0.0, 0.0, 0.0]
+        return torch.cat([mean, std]) # (4,)
+    return torch.zeros(4, device=device)
 
 
 def get_strip_mean_gpu(color_map_t: torch.Tensor, x_range: list[float], y_range: list[float]) -> torch.Tensor:
@@ -269,14 +311,14 @@ def get_strip_mean_gpu(color_map_t: torch.Tensor, x_range: list[float], y_range:
 
 
 def extract_candidate_features_gpu(gpu_maps: dict[str, torch.Tensor], cx: float, cy: float,
-                                   box: torch.Tensor, H: int, W: int) -> dict[str, torch.Tensor]:
+                                   box: torch.Tensor, H: int, W: int, r_scale: float) -> dict[str, torch.Tensor]:
     feats = {}
     device = box.device
 
-    # Stage A: Patches (3x3 and 5x5 cells)
+    # Stage A: Patches (3x3 and 5x5 cells), dynamically scaled in size to match original image resolution
     for space in ["rgb", "y", "cbcr", "opp"]:
         for size in [3, 5]:
-            feats[f"{space}_{size}"] = get_patch_feature_gpu(gpu_maps[space], cx, cy, size)
+            feats[f"{space}_{size}"] = get_patch_feature_gpu(gpu_maps[space], cx, cy, size, r_scale)
 
     # Stage B: Geometry features
     x1, y1, x2, y2 = float(box[0].item()), float(box[1].item()), float(box[2].item()), float(box[3].item())
@@ -306,10 +348,10 @@ def extract_candidate_features_gpu(gpu_maps: dict[str, torch.Tensor], cx: float,
 
     # Probe 5: Inner / Border / Outer region stats
     p5_feats = []
-    p5_feats.extend(get_region_stats_gpu(crop_cbcr, mask_inner))
-    p5_feats.extend(get_region_stats_gpu(crop_cbcr, mask_border))
-    p5_feats.extend(get_region_stats_gpu(crop_cbcr, mask_outer))
-    feats["inner_outer"] = torch.tensor(p5_feats, dtype=torch.float32, device=device)
+    p5_feats.append(get_region_stats_gpu(crop_cbcr, mask_inner))
+    p5_feats.append(get_region_stats_gpu(crop_cbcr, mask_border))
+    p5_feats.append(get_region_stats_gpu(crop_cbcr, mask_outer))
+    feats["inner_outer"] = torch.cat(p5_feats) # size 12
 
     # Probe 6: Four-side chroma geometry
     d = max(2.0, 0.1 * min(w_box, h_box))
@@ -355,11 +397,8 @@ def collect_features(net, hooked, samples, device, letterbox, args, split_name) 
         gt_xyxy[:, [0, 2]] *= original.shape[1]
         gt_xyxy[:, [1, 3]] *= original.shape[0]
 
-        # Convert colors and run forward pass ONCE per image
+        # 1. Run YOLO forward pass ONCE per image (requires 512x512 letterbox input)
         original_letter = letterbox(image=original)
-        gpu_maps = compute_color_maps_gpu(original_letter, device)
-        H_img, W_img, _ = original_letter.shape
-
         tensor = (
             torch.from_numpy(original_letter[..., ::-1].copy())
             .to(device).permute(2, 0, 1).float()[None] / 255.0
@@ -373,6 +412,11 @@ def collect_features(net, hooked, samples, device, letterbox, args, split_name) 
         c, hf, wf = t_fused.shape
         n = hf * wf
 
+        # 2. Extract color maps from the ORIGINAL image directly (avoid letterbox padding artifacts)
+        gpu_maps = compute_color_maps_gpu(original, device)
+        H_orig, W_orig, _ = original.shape
+        r_scale = min(args.imgsz / H_orig, args.imgsz / W_orig)
+
         for gt in gt_xyxy:
             idx, local_ious, y, boxes = get_candidates_precomputed(
                 decoded, preds, original.shape, gt, device
@@ -383,17 +427,29 @@ def collect_features(net, hooked, samples, device, letterbox, args, split_name) 
 
             m_feats = t_fused.permute(1, 2, 0).reshape(n, c)[safe_idx]
 
+            # Map coordinates from 512x512 letterbox space back to original image coordinates
+            # Grid centers (cx, cy)
+            grid_y = safe_idx // wf
+            grid_x = safe_idx % wf
+            cx_pad = (grid_x + 0.5) * 4
+            cy_pad = (grid_y + 0.5) * 4
+            cx_orig, cy_orig = map_points_to_original(cx_pad, cy_pad, original.shape, args.imgsz)
+            
+            # Box bounds
+            boxes_orig = map_boxes_to_original(boxes, original.shape, args.imgsz)
+
             # Collect color and geometry features for each candidate
             case_feats = {
                 "m": m_feats.cpu()
             }
             temp_feats = {}
             for k_idx, k in enumerate(safe_idx.tolist()):
-                grid_y = k // wf
-                grid_x = k % wf
-                cy = (grid_y + 0.5) * 4
-                cx = (grid_x + 0.5) * 4
-                cand_feats = extract_candidate_features_gpu(gpu_maps, cx, cy, boxes[k_idx], H_img, W_img)
+                cx = float(cx_orig[k_idx].item())
+                cy = float(cy_orig[k_idx].item())
+                
+                cand_feats = extract_candidate_features_gpu(
+                    gpu_maps, cx, cy, boxes_orig[k_idx], H_orig, W_orig, r_scale
+                )
                 for key, val in cand_feats.items():
                     if key not in temp_feats:
                         temp_feats[key] = []
