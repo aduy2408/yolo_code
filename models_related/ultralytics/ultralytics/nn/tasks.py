@@ -71,6 +71,10 @@ from ultralytics.nn.modules import (
     MultiCueEvidenceFusion,
     RawColorSlotFusion,
     GTCuePreservationHead,
+    DedicatedCueSlots,
+    DetachedResidualFusion,
+    SplitChannelDetect,
+    GTChannelSpecialization,
     GCTS,
     C3CBAM,
     C3Ghost,
@@ -296,7 +300,7 @@ class BaseModel(torch.nn.Module):
                                 x.append(val)
             if profile and not isinstance(m, (FeatureDGFE, MaskedP2DetailReconstruction)):
                 self._profile_one_layer(m, x, dt)
-            if isinstance(m, (FeatureDGFE, RawColorSlotFusion, MultiCueEvidenceFusion)):
+            if isinstance(m, (FeatureDGFE, RawColorSlotFusion, MultiCueEvidenceFusion, DedicatedCueSlots, DetachedResidualFusion)):
                 x = m(x, img0)
                 if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
@@ -350,7 +354,7 @@ class BaseModel(torch.nn.Module):
                                 x.append(val[1])
                             else:
                                 x.append(val)
-            if isinstance(m, (FeatureDGFE, RawColorSlotFusion, MultiCueEvidenceFusion)):
+            if isinstance(m, (FeatureDGFE, RawColorSlotFusion, MultiCueEvidenceFusion, DedicatedCueSlots, DetachedResidualFusion)):
                 x = m(x, img0)
                 if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
@@ -760,7 +764,7 @@ class BaseModel(torch.nn.Module):
         assignment_context = getattr(self.criterion, "dbss_assignment_context", None)
         self.criterion.dbss_assignment_context = None
         for module in self.modules():
-            if isinstance(module, (ConflictFineReconstruction, DBSS, DualIrreducibilityHIT, GCTS, v10GCTSDetect, GTCuePreservationHead)):
+            if isinstance(module, (ConflictFineReconstruction, DBSS, DualIrreducibilityHIT, GCTS, v10GCTSDetect, GTCuePreservationHead, DetachedResidualFusion, GTChannelSpecialization)):
                 auxiliary, values = (
                     module.auxiliary_loss(batch, assignment_context) if isinstance(module, DBSS)
                     else module.auxiliary_loss(assignment_context, self.criterion.hyp)
@@ -2472,6 +2476,14 @@ def parse_model(d, ch, verbose=True):
             c1 = ch[f]
             c2 = args[0] if args else 4
             args = [c1, *args]
+        elif m is DedicatedCueSlots:
+            c2 = 32  # 24 + 4 + 4 = 32 fixed
+        elif m is DetachedResidualFusion:
+            c2 = 32  # 24 + 8 = 32 fixed
+        elif m is SplitChannelDetect:
+            c2 = 32  # 24 + 8 = 32 fixed
+        elif m is GTChannelSpecialization:
+            c2 = 32  # 24 + 8 = 32 fixed
         elif m is P1GER:
             c2 = ch[f[0]]
             args = [[ch[x] for x in f], *args]

@@ -1,0 +1,214 @@
+[
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-interaction-seed42",
+    "run": "c2_agreement",
+    "data": {
+      "checkpoint": "best.pt",
+      "nms_iou": 0.5,
+      "test/fitness": 0.24539953606046785,
+      "test/metrics/mAP50(B)": 0.698547701942313,
+      "test/metrics/mAP50-95(B)": 0.24539953606046785,
+      "test/metrics/mAP75(B)": 0.10295757903691848,
+      "test/metrics/precision(B)": 0.763115493906631,
+      "test/metrics/recall(B)": 0.6941176470588235,
+      "val/fitness": 0.28732984074853374,
+      "val/metrics/mAP50(B)": 0.7650525411614664,
+      "val/metrics/mAP50-95(B)": 0.28732984074853374,
+      "val/metrics/mAP75(B)": 0.10537241063579399,
+      "val/metrics/precision(B)": 0.8131291658863417,
+      "val/metrics/recall(B)": 0.736
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-interaction-seed42",
+    "run": "c3_polarity",
+    "data": {
+      "checkpoint": "best.pt",
+      "nms_iou": 0.5,
+      "test/fitness": 0.22402242500975866,
+      "test/metrics/mAP50(B)": 0.6893600221128062,
+      "test/metrics/mAP50-95(B)": 0.22402242500975866,
+      "test/metrics/mAP75(B)": 0.06868571474283315,
+      "test/metrics/precision(B)": 0.7534782020920396,
+      "test/metrics/recall(B)": 0.6470588235294118,
+      "val/fitness": 0.2711626767264267,
+      "val/metrics/mAP50(B)": 0.7590475228206793,
+      "val/metrics/mAP50-95(B)": 0.2711626767264267,
+      "val/metrics/mAP75(B)": 0.0858769465268964,
+      "val/metrics/precision(B)": 0.8036642655785666,
+      "val/metrics/recall(B)": 0.784
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-interaction-seed42",
+    "run": "c4_rank4",
+    "data": {
+      "checkpoint": "best.pt",
+      "nms_iou": 0.5,
+      "test/fitness": 0.2657362781542473,
+      "test/metrics/mAP50(B)": 0.7365078082834438,
+      "test/metrics/mAP50-95(B)": 0.2657362781542473,
+      "test/metrics/mAP75(B)": 0.10062390749416009,
+      "test/metrics/precision(B)": 0.8290721916317422,
+      "test/metrics/recall(B)": 0.6847671591657768,
+      "val/fitness": 0.2932019652043668,
+      "val/metrics/mAP50(B)": 0.7900582849745288,
+      "val/metrics/mAP50-95(B)": 0.2932019652043668,
+      "val/metrics/mAP75(B)": 0.1151247843925028,
+      "val/metrics/precision(B)": 0.825197941168256,
+      "val/metrics/recall(B)": 0.7679099606892689
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-gap-ftal-pathways-seed42",
+    "run": "feature_polarity",
+    "data": {
+      "nms_iou": 0.5,
+      "test/fitness": 0.24522619867943024,
+      "test/metrics/mAP50(B)": 0.7062826853637665,
+      "test/metrics/mAP50-95(B)": 0.24522619867943024,
+      "test/metrics/mAP75(B)": 0.10411232364853296,
+      "test/metrics/precision(B)": 0.7568961665825473,
+      "test/metrics/recall(B)": 0.6852941176470588,
+      "val/fitness": 0.28233409245678376,
+      "val/metrics/mAP50(B)": 0.7567884485691718,
+      "val/metrics/mAP50-95(B)": 0.28233409245678376,
+      "val/metrics/mAP75(B)": 0.10188039863713738,
+      "val/metrics/precision(B)": 0.7974468510077983,
+      "val/metrics/recall(B)": 0.7663997354145557
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-gap-ftal-pathways-seed42",
+    "run": "global_reference",
+    "data": {
+      "nms_iou": 0.5,
+      "test/fitness": 0.21104571691665294,
+      "test/metrics/mAP50(B)": 0.6300145154320016,
+      "test/metrics/mAP50-95(B)": 0.21104571691665294,
+      "test/metrics/mAP75(B)": 0.0950638677407259,
+      "test/metrics/precision(B)": 0.7012310575711227,
+      "test/metrics/recall(B)": 0.6088235294117647,
+      "val/fitness": 0.27302998222466957,
+      "val/metrics/mAP50(B)": 0.7703771437076553,
+      "val/metrics/mAP50-95(B)": 0.27302998222466957,
+      "val/metrics/mAP75(B)": 0.08595410746076139,
+      "val/metrics/precision(B)": 0.8155509993951292,
+      "val/metrics/recall(B)": 0.7626666666666667
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-gap-ftal-pathways-seed42",
+    "run": "pathways_plain",
+    "data": {
+      "nms_iou": 0.5,
+      "test/fitness": 0.2116916694808773,
+      "test/metrics/mAP50(B)": 0.6414340131877384,
+      "test/metrics/mAP50-95(B)": 0.2116916694808773,
+      "test/metrics/mAP75(B)": 0.07263271581562294,
+      "test/metrics/precision(B)": 0.7194704942585489,
+      "test/metrics/recall(B)": 0.6323529411764706,
+      "val/fitness": 0.27894719982371585,
+      "val/metrics/mAP50(B)": 0.7461917701240582,
+      "val/metrics/mAP50-95(B)": 0.27894719982371585,
+      "val/metrics/mAP75(B)": 0.10293070380804797,
+      "val/metrics/precision(B)": 0.7696626325007299,
+      "val/metrics/recall(B)": 0.7039340006120042
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-gap-ftal-pathways-seed42",
+    "run": "structural_energy",
+    "data": {
+      "nms_iou": 0.5,
+      "test/fitness": 0.23564706485465164,
+      "test/metrics/mAP50(B)": 0.6792097183555103,
+      "test/metrics/mAP50-95(B)": 0.23564706485465164,
+      "test/metrics/mAP75(B)": 0.09231763516572977,
+      "test/metrics/precision(B)": 0.8097069179434195,
+      "test/metrics/recall(B)": 0.6205882352941177,
+      "val/fitness": 0.2723028554742877,
+      "val/metrics/mAP50(B)": 0.7585149111406615,
+      "val/metrics/mAP50-95(B)": 0.2723028554742877,
+      "val/metrics/mAP75(B)": 0.0819364683949394,
+      "val/metrics/precision(B)": 0.8177547729986356,
+      "val/metrics/recall(B)": 0.741870468019863
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-gap-ftal-verifiers-seed42",
+    "run": "a1_box_fovea",
+    "data": {
+      "nms_iou": 0.5,
+      "test/fitness": 0.3228974217927635,
+      "test/metrics/mAP50(B)": 0.8155766938776042,
+      "test/metrics/mAP50-95(B)": 0.3228974217927635,
+      "test/metrics/mAP75(B)": 0.17184387368205034,
+      "test/metrics/precision(B)": 0.8346082511494683,
+      "test/metrics/recall(B)": 0.7420978017460734,
+      "val/fitness": 0.3220573527216508,
+      "val/metrics/mAP50(B)": 0.8317397657562726,
+      "val/metrics/mAP50-95(B)": 0.3220573527216508,
+      "val/metrics/mAP75(B)": 0.1420348253888749,
+      "val/metrics/precision(B)": 0.8427968900781712,
+      "val/metrics/recall(B)": 0.8149037725198672
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-plain-ftal-ggcf",
+    "run": "G1_field_only",
+    "data": {
+      "nms_iou": 0.5,
+      "test/fitness": 0.28388606378576114,
+      "test/metrics/mAP50(B)": 0.7495606643740889,
+      "test/metrics/mAP50-95(B)": 0.28388606378576114,
+      "test/metrics/mAP75(B)": 0.1066632918786812,
+      "test/metrics/precision(B)": 0.7728000078925024,
+      "test/metrics/recall(B)": 0.742836391576455,
+      "val/fitness": 0.3142668664172887,
+      "val/metrics/mAP50(B)": 0.8066021981626886,
+      "val/metrics/mAP50-95(B)": 0.3142668664172887,
+      "val/metrics/mAP75(B)": 0.1325842631830802,
+      "val/metrics/precision(B)": 0.8464567075994391,
+      "val/metrics/recall(B)": 0.7589517371785789
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-plain-ftal-ggcf",
+    "run": "G2_ggcf",
+    "data": {
+      "nms_iou": 0.5,
+      "test/fitness": 0.27202283995080584,
+      "test/metrics/mAP50(B)": 0.7588265980768696,
+      "test/metrics/mAP50-95(B)": 0.27202283995080584,
+      "test/metrics/mAP75(B)": 0.08602523172828769,
+      "test/metrics/precision(B)": 0.8274511518007345,
+      "test/metrics/recall(B)": 0.7126436781609196,
+      "val/fitness": 0.31209663782340097,
+      "val/metrics/mAP50(B)": 0.8276012384834968,
+      "val/metrics/mAP50-95(B)": 0.31209663782340097,
+      "val/metrics/mAP75(B)": 0.12086727078724052,
+      "val/metrics/precision(B)": 0.8498999850630782,
+      "val/metrics/recall(B)": 0.794251134644478
+    }
+  },
+  {
+    "repo": "duyle2408/levir-yolov8n-p2-plain-ftal-ggcf",
+    "run": "G3_ggcf_refined_assign",
+    "data": {
+      "nms_iou": 0.5,
+      "test/fitness": 0.28281462747659253,
+      "test/metrics/mAP50(B)": 0.7799763613863278,
+      "test/metrics/mAP50-95(B)": 0.28281462747659253,
+      "test/metrics/mAP75(B)": 0.1057709477806199,
+      "test/metrics/precision(B)": 0.8089143371511545,
+      "test/metrics/recall(B)": 0.7442528735632183,
+      "val/fitness": 0.3238751262296109,
+      "val/metrics/mAP50(B)": 0.8318461767072283,
+      "val/metrics/mAP50-95(B)": 0.3238751262296109,
+      "val/metrics/mAP75(B)": 0.13801900620922636,
+      "val/metrics/precision(B)": 0.8339439677024477,
+      "val/metrics/recall(B)": 0.7927382753403933
+    }
+  }
+]

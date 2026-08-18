@@ -330,7 +330,19 @@ __all__ = (
     "MultiCueEvidenceFusion",
     "RawImageCueBank",
     "GTCuePreservationHead",
+    "DedicatedCueSlots",
+    "DetachedResidualFusion",
+    "SplitChannelDetect",
+    "GTChannelSpecialization",
 )
 
 from .raw_cue_fusion import MultiCueEvidenceFusion, RawColorSlotFusion, RawImageCueBank
-from .gt_cue_loss import GTCuePreservationHead, build_gt_cue_targets, compute_gt_cue_loss
+from .gt_cue_loss import (
+    GTCuePreservationHead,
+    DedicatedCueSlots,
+    DetachedResidualFusion,
+    SplitChannelDetect,
+    GTChannelSpecialization,
+    build_gt_cue_targets,
+    compute_gt_cue_loss,
+)
