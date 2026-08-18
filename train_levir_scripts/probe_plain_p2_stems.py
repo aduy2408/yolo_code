@@ -38,6 +38,7 @@ from probe_center_ring_cohorts import iou_matrix, read_labels  # noqa: E402
 # ---------------------------------------------------------------------------
 
 def ap_auc(scores: torch.Tensor, y: torch.Tensor) -> tuple[float, float]:
+    y = y.to(scores.device)
     order = torch.argsort(scores, descending=True)
     sorted_y = y[order].float()
     tp = sorted_y.cumsum(0)
@@ -73,6 +74,12 @@ def train_probe(x: torch.Tensor, y: torch.Tensor, epochs: int) -> nn.Linear:
 
 def evaluate_case(probe: nn.Linear, x_case: torch.Tensor, local_ious: torch.Tensor,
                   y: torch.Tensor, base_scores_case: torch.Tensor | None = None) -> dict:
+    device = x_case.device
+    y = y.to(device)
+    local_ious = local_ious.to(device)
+    if base_scores_case is not None:
+        base_scores_case = base_scores_case.to(device)
+
     with torch.no_grad():
         logits = probe(x_case).squeeze(1)
         scores = torch.sigmoid(logits)
