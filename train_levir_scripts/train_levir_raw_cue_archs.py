@@ -94,7 +94,7 @@ def upload_run_to_hf(
 
     # Verify mandatory remote paths
     try:
-        remote_files = {f.rfilename for f in api.list_repo_files(repo_id=hf_repo_id, repo_type="model")}
+        remote_files = set(api.list_repo_files(repo_id=hf_repo_id, repo_type="model"))
     except Exception as e:
         raise RuntimeError(f"Failed to list remote files for verification: {e}") from e
 
