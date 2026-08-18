@@ -326,4 +326,9 @@ __all__ = (
     "v10GCTSDetect",
     "v10GCTSP3NUDFLDetect",
     "v10P3NUDFLDetect",
+    "RawColorSlotFusion",
+    "MultiCueEvidenceFusion",
+    "RawImageCueBank",
 )
+
+from .raw_cue_fusion import MultiCueEvidenceFusion, RawColorSlotFusion, RawImageCueBank

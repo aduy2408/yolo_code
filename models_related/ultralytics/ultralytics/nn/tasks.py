@@ -68,6 +68,8 @@ from ultralytics.nn.modules import (
     EnSimAM,
     EnSimAMEdgeRepC2f,
     FeatureDGFE,
+    MultiCueEvidenceFusion,
+    RawColorSlotFusion,
     GCTS,
     C3CBAM,
     C3Ghost,
@@ -293,9 +295,9 @@ class BaseModel(torch.nn.Module):
                                 x.append(val)
             if profile and not isinstance(m, (FeatureDGFE, MaskedP2DetailReconstruction)):
                 self._profile_one_layer(m, x, dt)
-            if isinstance(m, FeatureDGFE):
+            if isinstance(m, (FeatureDGFE, RawColorSlotFusion, MultiCueEvidenceFusion)):
                 x = m(x, img0)
-                if m.last_aux is not None:
+                if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
             elif isinstance(m, MaskedP2DetailReconstruction):
                 x = m(x)
@@ -347,9 +349,9 @@ class BaseModel(torch.nn.Module):
                                 x.append(val[1])
                             else:
                                 x.append(val)
-            if isinstance(m, FeatureDGFE):
+            if isinstance(m, (FeatureDGFE, RawColorSlotFusion, MultiCueEvidenceFusion)):
                 x = m(x, img0)
-                if m.last_aux is not None:
+                if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
             elif isinstance(m, MaskedP2DetailReconstruction):
                 x = m(x)
@@ -2461,6 +2463,10 @@ def parse_model(d, ch, verbose=True):
         elif m is P1FusionLocalDetail:
             c2 = ch[f[0]]
             args = [[ch[x] for x in f], *args]
+        elif m is RawColorSlotFusion:
+            c2 = args[0] + args[1] + args[2]  # 24 + 4 + 4 = 32
+        elif m is MultiCueEvidenceFusion:
+            c2 = args[0] + args[1]  # 24 + 8 = 32
         elif m is P1GER:
             c2 = ch[f[0]]
             args = [[ch[x] for x in f], *args]
