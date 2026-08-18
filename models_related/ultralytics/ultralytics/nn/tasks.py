@@ -70,6 +70,7 @@ from ultralytics.nn.modules import (
     FeatureDGFE,
     MultiCueEvidenceFusion,
     RawColorSlotFusion,
+    GTCuePreservationHead,
     GCTS,
     C3CBAM,
     C3Ghost,
@@ -2467,6 +2468,10 @@ def parse_model(d, ch, verbose=True):
             c2 = args[0] + args[1] + args[2]  # 24 + 4 + 4 = 32
         elif m is MultiCueEvidenceFusion:
             c2 = args[0] + args[1]  # 24 + 8 = 32
+        elif m is GTCuePreservationHead:
+            c1 = ch[f]
+            c2 = args[0] if args else 4
+            args = [c1, *args]
         elif m is P1GER:
             c2 = ch[f[0]]
             args = [[ch[x] for x in f], *args]

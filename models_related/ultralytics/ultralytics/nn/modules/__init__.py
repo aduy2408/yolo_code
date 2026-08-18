@@ -329,6 +329,8 @@ __all__ = (
     "RawColorSlotFusion",
     "MultiCueEvidenceFusion",
     "RawImageCueBank",
+    "GTCuePreservationHead",
 )
 
 from .raw_cue_fusion import MultiCueEvidenceFusion, RawColorSlotFusion, RawImageCueBank
+from .gt_cue_loss import GTCuePreservationHead, build_gt_cue_targets, compute_gt_cue_loss
