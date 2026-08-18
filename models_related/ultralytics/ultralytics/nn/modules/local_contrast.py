@@ -165,3 +165,75 @@ class SingleContrastFormationStem(nn.Module):
         z = self.enc(contrast)
         p2 = self.form(z)
         return p2
+
+
+class SidecarResidualFusionStem(nn.Module):
+    """Sidecar P2 Fusion Stem supporting 4 variants (linear_residual, joint_residual, norm_joint_residual, replace_joint)"""
+
+    def __init__(self, c1: int, c2: int, k: int = 17, mode: str = "joint_residual") -> None:
+        super().__init__()
+        self.mode = mode
+        self.k = int(k)
+
+        # Main Path: YOLO standard P2 stem
+        c_mid = max(c2 // 2, 8)
+        self.main_cv1 = Conv(c1, c_mid, 3, 2)
+        self.main_cv2 = Conv(c_mid, c2, 3, 2)
+        self.main_c2f = C2f(c2, c2, n=1, shortcut=True)
+
+        # Sidecar Path: Stride-4 contrast encoder
+        c_rel = max(c2 // 4, 8)
+        self.rel_encoder = nn.Sequential(
+            Conv(c1, c_rel, 3, 2),
+            Conv(c_rel, c_rel, 3, 2),
+            C2f(c_rel, c_rel, n=1, shortcut=True),
+        )
+
+        # Fusion operators
+        if self.mode == "linear_residual":
+            self.proj_r = nn.Conv2d(c_rel, c2, 1)
+            nn.init.zeros_(self.proj_r.weight)
+            nn.init.zeros_(self.proj_r.bias)
+        elif self.mode in {"joint_residual", "replace_joint"}:
+            self.fusion_c2f = C2f(c2 + c_rel, c2, n=1, shortcut=False)
+            if self.mode == "joint_residual":
+                self.proj_joint = nn.Conv2d(c2, c2, 1)
+                nn.init.zeros_(self.proj_joint.weight)
+                nn.init.zeros_(self.proj_joint.bias)
+        elif self.mode == "norm_joint_residual":
+            self.gn_m = nn.GroupNorm(4 if c2 % 4 == 0 else 2, c2)
+            self.gn_r = nn.GroupNorm(4 if c_rel % 4 == 0 else 2, c_rel)
+            self.fusion_c2f = C2f(c2 + c_rel, c2, n=1, shortcut=False)
+            self.proj_joint = nn.Conv2d(c2, c2, 1)
+            nn.init.zeros_(self.proj_joint.weight)
+            nn.init.zeros_(self.proj_joint.bias)
+        else:
+            raise ValueError(f"invalid SidecarResidualFusionStem mode: {self.mode!r}")
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        # 1. Main Path
+        m = self.main_c2f(self.main_cv2(self.main_cv1(x)))
+
+        # 2. Sidecar Contrast Path
+        pad = self.k // 2
+        mean = F.avg_pool2d(F.pad(x, (pad, pad, pad, pad), mode="reflect"), kernel_size=self.k, stride=1)
+        contrast = x - mean
+        r = self.rel_encoder(contrast)
+
+        # 3. Fusion Output F
+        if self.mode == "linear_residual":
+            f = m + self.proj_r(r)
+        elif self.mode == "joint_residual":
+            joint = torch.cat((m, r), dim=1)
+            f = m + self.proj_joint(self.fusion_c2f(joint))
+        elif self.mode == "norm_joint_residual":
+            m_norm = self.gn_m(m)
+            r_norm = self.gn_r(r)
+            joint = torch.cat((m_norm, r_norm), dim=1)
+            f = m + self.proj_joint(self.fusion_c2f(joint))
+        elif self.mode == "replace_joint":
+            joint = torch.cat((m, r), dim=1)
+            f = self.fusion_c2f(joint)
+
+        # Return (M, F) tuple. Downstream Backbone layers take M; Downstream FPN takes F.
+        return m, f

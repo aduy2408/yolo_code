@@ -108,7 +108,7 @@ from .block import (
     DualCollapse,
     NativeCrossReconstruction,
 )
-from .local_contrast import LocalContrastBasisStem, SingleContrastFormationStem
+from .local_contrast import LocalContrastBasisStem, SingleContrastFormationStem, SidecarResidualFusionStem
 from .local_detail import LocalDetailRepC2f
 from .pconv import C2f_PConv
 from .conv import (
@@ -287,6 +287,7 @@ __all__ = (
     "NativeCrossReconstruction",
     "LocalContrastBasisStem",
     "SingleContrastFormationStem",
+    "SidecarResidualFusionStem",
     "Pose",
     "Pose26",
     "P2NUDFLDetect",

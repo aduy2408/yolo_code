@@ -38,6 +38,7 @@ from ultralytics.nn.modules import (
     NativeCrossReconstruction,
     LocalContrastBasisStem,
     SingleContrastFormationStem,
+    SidecarResidualFusionStem,
     ELAN1,
     OBB,
     OBB26,
@@ -268,7 +269,27 @@ class BaseModel(torch.nn.Module):
         max_idx = max(embed)
         for m in self.model:
             if m.f != -1:  # if not from previous layer
-                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+                if isinstance(m.f, int):
+                    x = y[m.f]
+                    if isinstance(x, tuple):
+                        # If a single index f points to a tuple output (like SidecarResidualFusionStem),
+                        # we default to index 0 (the main path M).
+                        x = x[0]
+                else:
+                    # If f is a list/tuple (e.g. [-1, 0]), each j can be index or tuple.
+                    # We map: if y[j] is a tuple, we extract index 1 (the fused representation F) for lateral FPN fusion!
+                    # This lets us specify [0] in FPN Concat config to refer specifically to F.
+                    x = []
+                    for j in m.f:
+                        if j == -1:
+                            x.append(img0)
+                        else:
+                            val = y[j]
+                            if isinstance(val, tuple):
+                                # Extract F (item 1) for FPN lateral fusion connections
+                                x.append(val[1])
+                            else:
+                                x.append(val)
             if profile and not isinstance(m, (FeatureDGFE, MaskedP2DetailReconstruction)):
                 self._profile_one_layer(m, x, dt)
             if isinstance(m, FeatureDGFE):
@@ -281,7 +302,15 @@ class BaseModel(torch.nn.Module):
                     p2_detail_aux.append(m.last_aux)
             else:
                 x = m(x)  # run
-            y.append(x if m.i in self.save else None)  # save output
+            
+            # Handle tuple output from SidecarResidualFusionStem (which outputs (M, F))
+            if isinstance(x, tuple) and m.type.endswith("SidecarResidualFusionStem"):
+                # For next layer's simple -1 input, we pass the main path output (x[0])
+                # We store the full tuple in y so that a list input (like [0, 1]) can access either item by index later.
+                y.append(x if m.i in self.save else None)
+                x = x[0]
+            else:
+                y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
             if m.i in embed:
@@ -301,7 +330,21 @@ class BaseModel(torch.nn.Module):
         y, dgfe_aux, p2_detail_aux = [], [], []
         for m in self.model:
             if m.f != -1:
-                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]
+                if isinstance(m.f, int):
+                    x = y[m.f]
+                    if isinstance(x, tuple):
+                        x = x[0]
+                else:
+                    x = []
+                    for j in m.f:
+                        if j == -1:
+                            x.append(img0)
+                        else:
+                            val = y[j]
+                            if isinstance(val, tuple):
+                                x.append(val[1])
+                            else:
+                                x.append(val)
             if isinstance(m, FeatureDGFE):
                 x = m(x, img0)
                 if m.last_aux is not None:
@@ -312,7 +355,12 @@ class BaseModel(torch.nn.Module):
                     p2_detail_aux.append(m.last_aux)
             else:
                 x = m(x)
-            y.append(x if m.i in self.save else None)
+            
+            if isinstance(x, tuple) and m.type.endswith("SidecarResidualFusionStem"):
+                y.append(x if m.i in self.save else None)
+                x = x[0]
+            else:
+                y.append(x if m.i in self.save else None)
         return self._attach_p2_detail_aux(self._attach_dgfe_aux(x, dgfe_aux), p2_detail_aux), y
 
     def _predict_perturbed_partial(self, api, img0) -> torch.Tensor:
@@ -2369,6 +2417,15 @@ def parse_model(d, ch, verbose=True):
             c1, c2 = ch[f], args[0]
             if c2 != nc:
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, *args[1:]]
+        elif m is SidecarResidualFusionStem:
+            c1, c2 = ch[f], args[0]
+            if c2 != nc:
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            # Since SidecarResidualFusionStem outputs tuple (M, F), we define both channels for downstream tasks.
+            # Downstream Backbone layer takes M (which is c2 channels).
+            # Downstream lateral FPN layer takes F (which is also c2 channels).
+            # So ch[i] is set to c2, representing output channels of this module.
             args = [c1, c2, *args[1:]]
         elif m is NativeCrossReconstruction:
             c1, c2 = [ch[x] for x in f], args[0]
