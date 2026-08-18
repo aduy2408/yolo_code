@@ -49,33 +49,50 @@ from ultralytics.utils.ops import xywh2xyxy  # noqa: E402
 from train_levir_scripts.probe_center_ring_cohorts import iou_matrix, read_labels  # noqa: E402
 
 
-class CustomYOLOWithHooks(nn.Module):
-    """Wrapper around YOLO model to hook backbone C2f (Layer 2) and fused C2f (Layer 18)."""
+def build_hooked_yolo_model(weights_path: Path, device: str):
+    wrapper = YOLO(str(weights_path))
+    net = wrapper.model.to(device).eval()
 
-    def __init__(self, weights_path: Path):
-        super().__init__()
-        self.yolo = YOLO(str(weights_path))
-        self.model = self.yolo.model
-        self.hooked_feats = {}
-        self._register_hooks()
+    def debug_predict_once(x, profile=False, visualize=False, embed=None):
+        y = []
+        for idx, m in enumerate(net.model):
+            if m.f != -1:
+                if isinstance(m.f, int):
+                    x = y[m.f]
+                else:
+                    prev_x = x
+                    x = []
+                    for j in m.f:
+                        if j == -1:
+                            x.append(prev_x)
+                        else:
+                            x.append(y[j])
+            x = m(x)
+            y.append(x if idx in net.save else None)
+        return x
 
-    def _register_hooks(self):
-        # Layer 2: backbone P2 C2f module
-        def hook_layer2(module, inp, out):
-            self.hooked_feats["c2f"] = out[0] if isinstance(out, (list, tuple)) else out
+    net._predict_once = debug_predict_once
 
-        # Layer 18: fused P2 C2f module (post-FPN)
-        def hook_layer18(module, inp, out):
-            self.hooked_feats["c2f_fused"] = out[0] if isinstance(out, (list, tuple)) else out
+    hooked_feats = {}
+    def hook_layer2(module, inp, out):
+        t = out if isinstance(out, torch.Tensor) else out[0]
+        hooked_feats["c2f"] = t.squeeze(0)
 
-        self.model.model[2].register_forward_hook(hook_layer2)
-        self.model.model[18].register_forward_hook(hook_layer18)
+    def hook_layer18(module, inp, out):
+        t = out if isinstance(out, torch.Tensor) else out[0]
+        hooked_feats["c2f_fused"] = t.squeeze(0)
 
-    def forward(self, x: torch.Tensor):
-        self.hooked_feats.clear()
-        preds = self.model(x)
-        decoded = self.model[24](preds)
-        return decoded, preds
+    net.model[2].register_forward_hook(hook_layer2)
+    net.model[18].register_forward_hook(hook_layer18)
+
+    class ForwardWrapper(nn.Module):
+        def forward(self, x):
+            hooked_feats.clear()
+            preds = net(x)
+            decoded = net.model[22](preds) if len(net.model) > 22 else net.model[-1](preds)
+            return decoded, preds
+
+    return ForwardWrapper(), net, hooked_feats
 
 
 def train_pairwise_ranking_probe(diff_vectors: torch.Tensor, epochs: int = 150) -> nn.Linear:
@@ -502,14 +519,25 @@ def main():
 
     print(f"Loaded {len(val_samples)} VAL samples, {len(test_samples)} TEST samples.")
 
-    wrapper = CustomYOLOWithHooks(Path(args.weights)).to(args.device)
-    wrapper.eval()
+    weights_path = Path(args.weights)
+    if not weights_path.exists():
+        fallback1 = ROOT / "runs/plain_p2_only/seed_42/weights/best.pt"
+        fallback2 = ROOT / "runs/checkpoint_cache/duyle2408_levir-ship-yolo-p2_train_yolov8n_p2_baseline_seed42_weights_best.pt"
+        if fallback1.exists():
+            weights_path = fallback1
+        elif fallback2.exists():
+            weights_path = fallback2
+        else:
+            raise FileNotFoundError(f"Checkpoint {args.weights} not found and no fallback checkpoint available.")
+
+    print(f"Using checkpoint weights: {weights_path}")
+    wrapper, net, hooked_feats = build_hooked_yolo_model(weights_path, args.device)
     letterbox = LetterBox(new_shape=(512, 512), auto=False, scaleFill=False, scaleup=False, stride=32)
 
     print("Collecting candidate-quality features on VAL...")
-    val_flat, val_cases = collect_quality_features(wrapper, wrapper.hooked_feats, val_samples, args.device, letterbox)
+    val_flat, val_cases = collect_quality_features(wrapper, hooked_feats, val_samples, args.device, letterbox)
     print("Collecting candidate-quality features on TEST...")
-    test_flat, test_cases = collect_quality_features(wrapper, wrapper.hooked_feats, test_samples, args.device, letterbox)
+    test_flat, test_cases = collect_quality_features(wrapper, hooked_feats, test_samples, args.device, letterbox)
 
     print(f"VAL total candidate vectors: {len(val_flat['f']) if val_flat else 0}")
     print(f"TEST total candidate vectors: {len(test_flat['f']) if test_flat else 0}")
