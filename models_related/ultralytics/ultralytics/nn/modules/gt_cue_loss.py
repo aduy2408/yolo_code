@@ -33,7 +33,12 @@ def compute_raw_color_and_detail(img: torch.Tensor) -> tuple[torch.Tensor, torch
 
 
 class GTCuePreservationHead(nn.Module):
-    """Light auxiliary decoder D_cue(F): 32ch -> 16ch -> 4ch for GT cue target prediction."""
+    """Light auxiliary decoder D_cue(F): 32ch -> 16ch -> 4ch for GT cue target prediction.
+
+    During training, stores the last prediction in self.last_pred so that
+    DetectionModel.loss() can call auxiliary_loss(batch) via the existing dispatch loop.
+    Inference: forward output is discarded by the YAML graph; only Layer 18 feeds Detect.
+    """
 
     def __init__(self, c1: int = 32, c2: int = 4) -> None:
         super().__init__()
@@ -48,10 +53,51 @@ class GTCuePreservationHead(nn.Module):
             nn.SiLU(inplace=True),
         )
         self.conv2 = nn.Conv2d(16, c2, kernel_size=1)
+        self.last_pred: torch.Tensor | None = None
+        self.cue_gain: float = 0.1  # weight multiplier for auxiliary loss
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass taking F (B, 32, H, W) -> T_hat (B, 4, H, W)."""
-        return self.conv2(self.dwconv(self.conv1(x)))
+        """Forward pass taking F (B, 32, H, W) -> T_hat (B, 4, H, W). Caches output for auxiliary_loss."""
+        pred = self.conv2(self.dwconv(self.conv1(x)))
+        if self.training:
+            self.last_pred = pred
+        return pred
+
+    def auxiliary_loss(self, batch: dict) -> tuple[torch.Tensor, dict]:
+        """Compute GT-guided cue preservation loss for DetectionModel.loss() dispatch.
+
+        Expected batch keys: 'img' (B,3,H,W), 'batch_idx' (N,), 'bboxes' (N,4 xywh normalized).
+        Returns (scalar_loss_tensor, metrics_dict).
+        """
+        if self.last_pred is None:
+            # Not in training mode or forward not called yet
+            return self.conv2.weight.sum() * 0.0, {}
+
+        pred_T = self.last_pred
+        self.last_pred = None
+
+        img = batch["img"]
+        batch_idx = batch.get("batch_idx")  # (N,)
+        bboxes = batch.get("bboxes")  # (N, 4) xywh normalized
+
+        if batch_idx is None or bboxes is None or bboxes.numel() == 0:
+            return pred_T.sum() * 0.0, {"gt_cue_loss": 0.0}
+
+        # Build Nx6 targets [img_idx, cls, x, y, w, h]
+        cls = batch.get("cls", torch.zeros(batch_idx.shape[0], 1, device=batch_idx.device))
+        if cls.ndim == 2:
+            cls = cls[:, 0]
+        targets = torch.stack([batch_idx.float(), cls.float(),
+                                bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]], dim=1)
+
+        h_feat, w_feat = pred_T.shape[2], pred_T.shape[3]
+        target_T, pos_mask = build_gt_cue_targets(
+            img, targets, feat_shape=(h_feat, w_feat), p2_stride=img.shape[2] // h_feat
+        )
+
+        loss = compute_gt_cue_loss(pred_T, target_T, pos_mask)
+        n_pos = int(pos_mask.sum().item())
+        return loss * self.cue_gain, {"gt_cue_loss": float(loss.detach()), "gt_cue_n_pos": n_pos}
 
 
 def build_gt_cue_targets(

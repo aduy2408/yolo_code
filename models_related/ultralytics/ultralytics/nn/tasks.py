@@ -760,7 +760,7 @@ class BaseModel(torch.nn.Module):
         assignment_context = getattr(self.criterion, "dbss_assignment_context", None)
         self.criterion.dbss_assignment_context = None
         for module in self.modules():
-            if isinstance(module, (ConflictFineReconstruction, DBSS, DualIrreducibilityHIT, GCTS, v10GCTSDetect)):
+            if isinstance(module, (ConflictFineReconstruction, DBSS, DualIrreducibilityHIT, GCTS, v10GCTSDetect, GTCuePreservationHead)):
                 auxiliary, values = (
                     module.auxiliary_loss(batch, assignment_context) if isinstance(module, DBSS)
                     else module.auxiliary_loss(assignment_context, self.criterion.hyp)
