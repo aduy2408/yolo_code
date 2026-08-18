@@ -277,12 +277,13 @@ class BaseModel(torch.nn.Module):
                         x = x[0]
                 else:
                     # If f is a list/tuple (e.g. [-1, 0]), each j can be index or tuple.
-                    # We map: if y[j] is a tuple, we extract index 1 (the fused representation F) for lateral FPN fusion!
-                    # This lets us specify [0] in FPN Concat config to refer specifically to F.
+                    # When y[j] is a tuple (SidecarResidualFusionStem output), extract F (item 1)
+                    # for lateral FPN fusion connections.
+                    prev_x = x  # save current activation for j == -1 references
                     x = []
                     for j in m.f:
                         if j == -1:
-                            x.append(img0)
+                            x.append(prev_x)  # current (previous layer) activation
                         else:
                             val = y[j]
                             if isinstance(val, tuple):
@@ -335,10 +336,11 @@ class BaseModel(torch.nn.Module):
                     if isinstance(x, tuple):
                         x = x[0]
                 else:
+                    prev_x = x
                     x = []
                     for j in m.f:
                         if j == -1:
-                            x.append(img0)
+                            x.append(prev_x)
                         else:
                             val = y[j]
                             if isinstance(val, tuple):
