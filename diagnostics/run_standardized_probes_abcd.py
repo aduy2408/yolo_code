@@ -536,7 +536,7 @@ def main():
 
     print(f"Using checkpoint weights: {weights_path}")
     wrapper, net, hooked_feats = build_hooked_yolo_model(weights_path, args.device)
-    letterbox = LetterBox(new_shape=(512, 512), auto=False, scaleFill=False, scaleup=False, stride=32)
+    letterbox = LetterBox(new_shape=(512, 512), auto=False, scale_fill=False, scaleup=False, stride=32)
 
     print("Collecting candidate-quality features on VAL...")
     val_flat, val_cases = collect_quality_features(wrapper, hooked_feats, val_samples, args.device, letterbox)
