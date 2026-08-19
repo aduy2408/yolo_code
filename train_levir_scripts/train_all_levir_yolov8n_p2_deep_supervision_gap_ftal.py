@@ -48,8 +48,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hf-repo-id", default=HF_REPO)
     return parser.parse_args()
 
+_base_train_kwargs = workflow.train_kwargs
+
 def train_kwargs(args: argparse.Namespace, data_yaml: Path, seed: int, amp: bool) -> dict[str, object]:
-    kwargs = workflow.train_kwargs(args, data_yaml, seed, amp)
+    kwargs = _base_train_kwargs(args, data_yaml, seed, amp)
     
     # Configure hyperparameters for deep supervision and FTAL
     kwargs.update(
