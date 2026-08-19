@@ -113,6 +113,9 @@ from ultralytics.nn.modules import (
     LocalDetailRepC2f,
     C2f_PConv,
     MaskedP2DetailReconstruction,
+    BackboneP2DeepSupervision,
+    CanonicalRawCropTeacher,
+    RawSidecarSupervised,
     P1FusionLocalDetail,
     P1GER,
     P1PlainFusion,
@@ -304,7 +307,15 @@ class BaseModel(torch.nn.Module):
                 x = m(x, img0)
                 if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
+            elif isinstance(m, RawSidecarSupervised):
+                x = m(x, img0)
+                if m.last_aux is not None:
+                    p2_detail_aux.append(m.last_aux)
             elif isinstance(m, MaskedP2DetailReconstruction):
+                x = m(x)
+                if m.last_aux is not None:
+                    p2_detail_aux.append(m.last_aux)
+            elif isinstance(m, (BackboneP2DeepSupervision, CanonicalRawCropTeacher)):
                 x = m(x)
                 if m.last_aux is not None:
                     p2_detail_aux.append(m.last_aux)
@@ -358,7 +369,15 @@ class BaseModel(torch.nn.Module):
                 x = m(x, img0)
                 if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
+            elif isinstance(m, RawSidecarSupervised):
+                x = m(x, img0)
+                if m.last_aux is not None:
+                    p2_detail_aux.append(m.last_aux)
             elif isinstance(m, MaskedP2DetailReconstruction):
+                x = m(x)
+                if m.last_aux is not None:
+                    p2_detail_aux.append(m.last_aux)
+            elif isinstance(m, (BackboneP2DeepSupervision, CanonicalRawCropTeacher)):
                 x = m(x)
                 if m.last_aux is not None:
                     p2_detail_aux.append(m.last_aux)
@@ -411,7 +430,15 @@ class BaseModel(torch.nn.Module):
                     x = m(x, img0)
                     if m.last_aux is not None:
                         dgfe_aux.append(m.last_aux)
+                elif isinstance(m, RawSidecarSupervised):
+                    x = m(x, img0)
+                    if m.last_aux is not None:
+                        p2_detail_aux.append(m.last_aux)
                 elif isinstance(m, MaskedP2DetailReconstruction):
+                    x = m(x)
+                    if m.last_aux is not None:
+                        p2_detail_aux.append(m.last_aux)
+                elif isinstance(m, (BackboneP2DeepSupervision, CanonicalRawCropTeacher)):
                     x = m(x)
                     if m.last_aux is not None:
                         p2_detail_aux.append(m.last_aux)
@@ -2462,6 +2489,9 @@ def parse_model(d, ch, verbose=True):
         ):
             c2 = ch[f]
             args = [c2, *args]
+        elif m in frozenset({BackboneP2DeepSupervision, CanonicalRawCropTeacher, RawSidecarSupervised}):
+            c2 = ch[f[0]] if isinstance(f, list) else ch[f]
+            args = [c2]
         elif m is ConflictFineReconstruction:
             c2 = ch[f[0]]
             args = [[ch[x] for x in f], *args]

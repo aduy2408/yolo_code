@@ -897,6 +897,95 @@ class MaskedP2DetailReconstruction(nn.Module):
         return masked
 
 
+class BackboneP2DeepSupervision(nn.Module):
+    """Auxiliary training supervision head directly on early P2 features."""
+
+    def __init__(self, c1: int) -> None:
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(c1, c1, 3, padding=1, bias=False),
+            nn.BatchNorm2d(c1),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(c1, 1, 1),
+        )
+        self.last_aux: dict[str, torch.Tensor] | None = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.training:
+            self.last_aux = {"aux_heatmap": self.conv(x)}
+        else:
+            self.last_aux = None
+        return x
+
+
+class CanonicalRawCropTeacher(nn.Module):
+    """Training-only Canonical Raw-Crop Teacher module for distilling P2 features."""
+
+    def __init__(self, c1: int) -> None:
+        super().__init__()
+        self.teacher_encoder = nn.Sequential(
+            nn.Conv2d(3, 16, 3, stride=2, padding=1),
+            nn.GroupNorm(4, 16),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(16, 32, 3, stride=2, padding=1),
+            nn.GroupNorm(4, 32),
+            nn.SiLU(inplace=True),
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+        )
+        self.crop_classifier = nn.Linear(32, 2)
+        self.detector_projector = nn.Sequential(
+            nn.Conv2d(c1, 64, 1),
+            nn.GroupNorm(8, 64),
+            nn.SiLU(inplace=True),
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(64, 32),
+        )
+        self.last_aux: dict[str, torch.Tensor] | None = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Pass-through during training and inference. Calculations happen externally or we store inputs.
+        if self.training:
+            self.last_aux = {"detector_feat": x}
+        else:
+            self.last_aux = None
+        return x
+
+
+class RawSidecarSupervised(nn.Module):
+    """Raw sidecar branch supervised independently prior to fusion."""
+
+    def __init__(self, c1: int) -> None:
+        super().__init__()
+        # Input stem reducing RGB to stride 4 (R8 has channel dimension 8)
+        self.stem = nn.Sequential(
+            nn.Conv2d(3, 16, 3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(16),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(16, 8, 3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(8),
+            nn.SiLU(inplace=True),
+        )
+        self.aux_head = nn.Conv2d(8, 1, 1)
+        self.reduce = nn.Conv2d(c1, c1 - 8, 1)
+        self.last_aux: dict[str, torch.Tensor] | None = None
+
+    def forward(self, x: torch.Tensor, img0: torch.Tensor) -> torch.Tensor:
+        r8 = self.stem(img0)
+        if self.training:
+            self.last_aux = {"aux_heatmap": self.aux_head(r8)}
+        else:
+            self.last_aux = None
+        
+        # Adjust shapes if necessary (e.g. if x has slightly different spatial dimensions due to padding/downsampling)
+        if r8.shape[-2:] != x.shape[-2:]:
+            r8 = F.interpolate(r8, size=x.shape[-2:], mode="bilinear", align_corners=False)
+            
+        x_reduced = self.reduce(x)
+        return torch.cat([x_reduced, r8], dim=1)
+
+
 class MS_Scharr_EnSimAM(nn.Module):
     """Multi-scale local-variance EnSimAM with Scharr edge attention."""
 

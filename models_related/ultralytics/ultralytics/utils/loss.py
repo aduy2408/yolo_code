@@ -10,6 +10,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import random
 
 from ultralytics.utils import LOGGER
 from ultralytics.utils.metrics import CITYSCAPES_WEIGHT, OKS_SIGMA, RLE_WEIGHT, box_iou
@@ -920,6 +921,9 @@ class v8DetectionLoss:
             raise ValueError("dgfe_spatial_target_mode must be 'iou' or 'edge_error'.")
         self.dgfe_edge_error_norm = max(float(getattr(h, "dgfe_edge_error_norm", 0.25)), 1e-9)
         self.p2_detail_rec_gain = float(getattr(h, "p2_detail_rec_gain", 0.0))
+        self.p2_deep_sup_gain = float(getattr(h, "p2_deep_sup_gain", 0.0))
+        self.canonical_teacher_gain = float(getattr(h, "canonical_teacher_gain", 0.0))
+        self.raw_sidecar_gain = float(getattr(h, "raw_sidecar_gain", 0.0))
         self.p2_detail_metrics = {}
         self.rank_gain = float(getattr(h, "rank_loss", 0.0))
         self.rank_tau = float(getattr(h, "rank_tau", 0.25))
@@ -1655,6 +1659,198 @@ class v8DetectionLoss:
         }
         return raw
 
+    def _generate_heatmap_target(self, shape: tuple[int, int], batch: dict[str, torch.Tensor], bs: int) -> torch.Tensor:
+        """Helper to generate a batch of soft Gaussian heatmap targets at stride 4."""
+        h, w = shape
+        device = batch["bboxes"].device
+        target = torch.zeros((bs, 1, h, w), device=device)
+        
+        bboxes = batch["bboxes"]
+        batch_idx = batch["batch_idx"]
+        
+        y_grid, x_grid = torch.meshgrid(
+            torch.arange(h, device=device, dtype=bboxes.dtype),
+            torch.arange(w, device=device, dtype=bboxes.dtype),
+            indexing="ij"
+        )
+        
+        # Stride 4 mapping (LEVIR-Ship is usually 512, down to 128)
+        # Bbox is normalized [x_center, y_center, width, height]
+        for i in range(len(batch_idx)):
+            b = int(batch_idx[i])
+            if b >= bs:
+                continue
+            cx, cy = bboxes[i, 0] * w, bboxes[i, 1] * h
+            # Bbox width and height in grid scale
+            bw, bh = bboxes[i, 2] * w, bboxes[i, 3] * h
+            # Standard deviation proportional to object size (clamp to avoid division by zero)
+            sigma_x = torch.clamp(bw / 6.0, min=1.0)
+            sigma_y = torch.clamp(bh / 6.0, min=1.0)
+            
+            # Distance heatmap
+            d2 = ((x_grid - cx) ** 2) / (2.0 * sigma_x ** 2) + ((y_grid - cy) ** 2) / (2.0 * sigma_y ** 2)
+            heatmap = torch.exp(-d2)
+            target[b, 0] = torch.max(target[b, 0], heatmap)
+            
+        return target
+
+    def _p2_deep_supervision_loss(self, preds: dict[str, Any], batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        aux_list = self._p2_detail_aux_list(preds)
+        if not aux_list:
+            return preds["boxes"].sum() * 0.0
+        
+        heatmap_pred = None
+        for aux in aux_list:
+            if "aux_heatmap" in aux:
+                heatmap_pred = aux["aux_heatmap"]
+                break
+                
+        if heatmap_pred is None:
+            return preds["boxes"].sum() * 0.0
+            
+        heatmap_target = self._generate_heatmap_target(heatmap_pred.shape[-2:], batch, heatmap_pred.shape[0])
+        # Heatmap BCE loss with reduced focal scaling to handle heavy background class imbalance
+        pred_sig = torch.sigmoid(heatmap_pred)
+        pos_loss = -heatmap_target * torch.log(pred_sig + 1e-6) * ((1.0 - pred_sig) ** 2)
+        neg_loss = -(1.0 - heatmap_target) * torch.log(1.0 - pred_sig + 1e-6) * (pred_sig ** 2)
+        loss = (pos_loss + neg_loss).mean()
+        return loss
+
+    def _canonical_teacher_loss(self, preds: dict[str, Any], batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        aux_list = self._p2_detail_aux_list(preds)
+        detector_feat = None
+        for aux in aux_list:
+            if "detector_feat" in aux:
+                detector_feat = aux["detector_feat"]
+                break
+        if detector_feat is None:
+            return preds["boxes"].sum() * 0.0
+
+        # Retrieve the CanonicalRawCropTeacher module
+        teacher_module = None
+        for m in self.model.model:
+            if m.__class__.__name__ == "CanonicalRawCropTeacher":
+                teacher_module = m
+                break
+        if teacher_module is None:
+            return preds["boxes"].sum() * 0.0
+
+        # Inputs to reconstruct: batch image
+        img = batch.get("img")
+        if img is None:
+            return preds["boxes"].sum() * 0.0
+
+        # We construct positive and negative crops
+        # positive = GT crops
+        # negative = Sea background crops
+        bs, _, H, W = img.shape
+        bboxes = batch["bboxes"]
+        batch_idx = batch["batch_idx"]
+        device = img.device
+        
+        pos_crops = []
+        neg_crops = []
+        matched_gt_feats = []
+        
+        # Grid coordinates for sampling detector features at GT center
+        _, _, h, w = detector_feat.shape
+        
+        for i in range(len(batch_idx)):
+            b = int(batch_idx[i])
+            if b >= bs:
+                continue
+            cx, cy, bw, bh = bboxes[i]
+            
+            # Map normalized bbox coordinates to crop coordinates
+            x1 = torch.clamp((cx - bw * 0.75) * W, min=0.0, max=W - 1).int().item()
+            y1 = torch.clamp((cy - bh * 0.75) * H, min=0.0, max=H - 1).int().item()
+            x2 = torch.clamp((cx + bw * 0.75) * W, min=1.0, max=W).int().item()
+            y2 = torch.clamp((cy + bh * 0.75) * H, min=1.0, max=H).int().item()
+            
+            if (x2 - x1) > 2 and (y2 - y1) > 2:
+                crop = img[b, :, y1:y2, x1:x2]
+                pos_crops.append(F.interpolate(crop.unsqueeze(0), size=(32, 32), mode="bilinear", align_corners=False))
+                
+                # Fetch detector feature at GT center cell
+                grid_x = torch.clamp(cx * w, min=0.0, max=w - 1).long().item()
+                grid_y = torch.clamp(cy * h, min=0.0, max=h - 1).long().item()
+                matched_gt_feats.append(detector_feat[b, :, grid_y, grid_x])
+
+                # Sample a random background crop from the same image b
+                # Offset by 2x size of object away from center, reject overlap with any GT in image b
+                for attempt in range(5):
+                    rx = random.randint(0, W - int(bw * 1.5 * W) - 1) if (W - int(bw * 1.5 * W) - 1) > 0 else 0
+                    ry = random.randint(0, H - int(bh * 1.5 * H) - 1) if (H - int(bh * 1.5 * H) - 1) > 0 else 0
+                    rw = int(bw * 1.5 * W)
+                    rh = int(bh * 1.5 * H)
+                    
+                    if rw > 2 and rh > 2:
+                        rx_center = (rx + rw / 2.0) / W
+                        ry_center = (ry + rh / 2.0) / H
+                        
+                        # Verify rx_center/ry_center does not overlap with any GT box in the current image b
+                        overlap = False
+                        for idx_gt in range(len(batch_idx)):
+                            if int(batch_idx[idx_gt]) == b:
+                                g_cx, g_cy, g_bw, g_bh = bboxes[idx_gt]
+                                if abs(rx_center - g_cx.item()) < (rw/W + g_bw.item()) * 0.75 and abs(ry_center - g_cy.item()) < (rh/H + g_bh.item()) * 0.75:
+                                    overlap = True
+                                    break
+                        if not overlap:
+                            bg_crop = img[b, :, ry:ry+rh, rx:rx+rw]
+                            neg_crops.append(F.interpolate(bg_crop.unsqueeze(0), size=(32, 32), mode="bilinear", align_corners=False))
+                            break
+
+        if len(pos_crops) == 0:
+            return preds["boxes"].sum() * 0.0
+
+        pos_crops = torch.cat(pos_crops, dim=0)
+        
+        # 1. Train RawCropEncoder to classify ship vs background (negative sea crops)
+        if len(neg_crops) > 0:
+            neg_crops = torch.cat(neg_crops, dim=0)
+            all_crops = torch.cat([pos_crops, neg_crops], dim=0)
+            labels = torch.cat([torch.ones(len(pos_crops), dtype=torch.long, device=device),
+                                torch.zeros(len(neg_crops), dtype=torch.long, device=device)], dim=0)
+            
+            features = teacher_module.teacher_encoder(all_crops)
+            logits = teacher_module.crop_classifier(features)
+            loss_cls = F.cross_entropy(logits, labels)
+        else:
+            features = teacher_module.teacher_encoder(pos_crops)
+            loss_cls = preds["boxes"].sum() * 0.0
+
+        # 2. Distill detector features at GT towards the stop-gradient raw crop embedding
+        z_raw = teacher_module.teacher_encoder(pos_crops).detach()
+        detector_proj_in = torch.stack(matched_gt_feats, dim=0).unsqueeze(-1).unsqueeze(-1)
+        z_det = teacher_module.detector_projector(detector_proj_in)
+
+        # Distill with cosine similarity
+        loss_distill = (1.0 - F.cosine_similarity(z_det, z_raw, dim=1)).mean()
+
+        return loss_cls + loss_distill
+
+    def _raw_sidecar_loss(self, preds: dict[str, Any], batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        aux_list = self._p2_detail_aux_list(preds)
+        if not aux_list:
+            return preds["boxes"].sum() * 0.0
+        
+        heatmap_pred = None
+        for aux in aux_list:
+            if "aux_heatmap" in aux:
+                heatmap_pred = aux["aux_heatmap"]
+                break
+                
+        if heatmap_pred is None:
+            return preds["boxes"].sum() * 0.0
+            
+        heatmap_target = self._generate_heatmap_target(heatmap_pred.shape[-2:], batch, heatmap_pred.shape[0])
+        pred_sig = torch.sigmoid(heatmap_pred)
+        pos_loss = -heatmap_target * torch.log(pred_sig + 1e-6) * ((1.0 - pred_sig) ** 2)
+        neg_loss = -(1.0 - heatmap_target) * torch.log(1.0 - pred_sig + 1e-6) * (pred_sig ** 2)
+        loss = (pos_loss + neg_loss).mean()
+        return loss
+
     def compute_factorized_support_loss(
         self,
         logits: torch.Tensor,
@@ -1778,9 +1974,12 @@ class v8DetectionLoss:
             + int(self.psd_enabled)
             + int(self.dgfe_rec_gain > 0)
             + int(self.dgfe_spatial_gain > 0)
-            + int(self.p2_detail_rec_gain > 0),
+            + int(self.p2_detail_rec_gain > 0)
+            + int(self.p2_deep_sup_gain > 0)
+            + int(self.canonical_teacher_gain > 0)
+            + int(self.raw_sidecar_gain > 0),
             device=self.device,
-        )  # box, cls, dfl[, boundary][, loc_quality][, quality][, rank][, psd][, dgfe_rec][, dgfe_spatial][, p2_detail]
+        )  # box, cls, dfl[, boundary][, loc_quality][, quality][, rank][, psd][, dgfe_rec][, dgfe_spatial][, p2_detail][, p2_deep_sup][, canonical_teacher][, raw_sidecar]
         pred_distri, coarse_scores = (
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
@@ -2493,6 +2692,19 @@ class v8DetectionLoss:
         if self.p2_detail_rec_gain > 0:
             loss[dgfe_idx] = self._p2_detail_reconstruction_loss(preds) * self.p2_detail_rec_gain
             self.p2_detail_metrics["p2_detail_applied_loss"] = float(loss[dgfe_idx].detach().item())
+            dgfe_idx += 1
+        if self.p2_deep_sup_gain > 0:
+            loss[dgfe_idx] = self._p2_deep_supervision_loss(preds, batch) * self.p2_deep_sup_gain
+            self.p2_detail_metrics["p2_deep_sup_applied_loss"] = float(loss[dgfe_idx].detach().item())
+            dgfe_idx += 1
+        if self.canonical_teacher_gain > 0:
+            loss[dgfe_idx] = self._canonical_teacher_loss(preds, batch) * self.canonical_teacher_gain
+            self.p2_detail_metrics["canonical_teacher_applied_loss"] = float(loss[dgfe_idx].detach().item())
+            dgfe_idx += 1
+        if self.raw_sidecar_gain > 0:
+            loss[dgfe_idx] = self._raw_sidecar_loss(preds, batch) * self.raw_sidecar_gain
+            self.p2_detail_metrics["raw_sidecar_applied_loss"] = float(loss[dgfe_idx].detach().item())
+            dgfe_idx += 1
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,

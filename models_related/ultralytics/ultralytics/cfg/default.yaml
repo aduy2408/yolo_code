@@ -173,6 +173,9 @@ dgfe_neg_gain: 0.25 # (float) EXPERIMENTAL SR-DGFE hard-negative loss gain
 dgfe_spatial_target_mode: iou # (str) EXPERIMENTAL SR-DGFE spatial target mode: iou or edge_error
 dgfe_edge_error_norm: 0.25 # (float) EXPERIMENTAL side error fraction that saturates edge_error DGFE targets
 p2_detail_rec_gain: 0.0 # (float) EXPERIMENTAL masked P2 local-detail reconstruction loss gain
+p2_deep_sup_gain: 0.0 # (float) EXPERIMENTAL deep supervision loss gain
+canonical_teacher_gain: 0.0 # (float) EXPERIMENTAL canonical raw-crop teacher loss gain
+raw_sidecar_gain: 0.0 # (float) EXPERIMENTAL raw sidecar supervision loss gain
 quality_head: false # (bool) EXPERIMENTAL predict IoU quality per anchor for score calibration
 quality_loss: bce # (str) EXPERIMENTAL quality-head loss: bce, bce_balanced, or l1
 quality_gain: 0.5 # (float) EXPERIMENTAL quality-head loss gain for balanced BCE
