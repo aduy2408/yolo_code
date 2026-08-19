@@ -79,11 +79,46 @@ class RawImageCueBank(nn.Module):
 
         return torch.cat([color4, gx, gy, high_pass, dog, variance], dim=1)  # (B, 9, H, W)
 
+    def extract_multi_energy(self, img0: torch.Tensor) -> torch.Tensor:
+        """Extract 9-channel multi-cue map with energy magnitude:
+        
+        Color (4ch): Cb, Cr, O1, O2
+        Edge (2ch): |Gx|, |Gy| via Sobel (energy/strength instead of signed amplitude)
+        Frequency (2ch): |HighPass| (|Y - G3|), |DoG| (|G3 - G7|)
+        Texture (1ch): Local Variance
+        """
+        color4 = self.extract_color(img0)
+
+        # Grayscale Y for geometry/frequency/texture
+        r, g, b = img0[:, 0:1], img0[:, 1:2], img0[:, 2:3]
+        y = 0.299 * r + 0.587 * g + 0.114 * b  # (B, 1, H, W)
+
+        # Edge cues
+        gx = F.conv2d(y, self.sobel_x, padding=1)
+        gy = F.conv2d(y, self.sobel_y, padding=1)
+        edge_x = torch.abs(gx)
+        edge_y = torch.abs(gy)
+
+        # Frequency cues
+        g3 = F.conv2d(y, self.gaussian_3, padding=1)
+        g7 = F.conv2d(y, self.gaussian_7, padding=3)
+        high_pass = torch.abs(y - g3)
+        dog = torch.abs(g3 - g7)
+
+        # Texture cue (Local Variance)
+        y_sq_avg = F.avg_pool2d(y**2, kernel_size=3, stride=1, padding=1)
+        y_avg_sq = (F.avg_pool2d(y, kernel_size=3, stride=1, padding=1))**2
+        variance = (y_sq_avg - y_avg_sq).clamp(min=0.0)
+
+        return torch.cat([color4, edge_x, edge_y, high_pass, dog, variance], dim=1)  # (B, 9, H, W)
+
     def forward(self, img0: torch.Tensor, cue_type: str = "color4") -> torch.Tensor:
         if cue_type == "color4":
             cues = self.extract_color(img0)
         elif cue_type == "multi9":
             cues = self.extract_multi(img0)
+        elif cue_type == "multi9_energy":
+            cues = self.extract_multi_energy(img0)
         else:
             raise ValueError(f"Unknown cue_type: {cue_type}")
         # Deterministic AvgPool4x4 to downsample to stride 4 (128x128)

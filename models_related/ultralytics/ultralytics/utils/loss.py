@@ -2201,6 +2201,9 @@ class v8DetectionLoss:
             cls_target_scores = self.factorized_tal_cls_targets(
                 target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2, assign_bboxes, stride_tensor
             )
+        import os
+        if os.environ.get("FTAL_NORM_MODE", "oldnorm") == "newnorm":
+            cls_target_scores_sum = max(cls_target_scores.sum(), 1)
         assigned_iou = None
         # Use the same coordinate scale as bbox loss. If target_bboxes has already been divided by stride_tensor,
         # do not divide again.

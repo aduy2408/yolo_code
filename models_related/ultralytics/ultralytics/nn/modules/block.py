@@ -1536,6 +1536,9 @@ class KVCompressedAttention(nn.Module):
 
         self.proj = nn.Conv2d(c2, c2, 1, bias=False)
         self.proj_bn = nn.BatchNorm2d(c2)
+        if self.residual:
+            nn.init.zeros_(self.proj_bn.weight)
+            nn.init.zeros_(self.proj_bn.bias)
 
     def _compress_group_weight(self, x: torch.Tensor) -> torch.Tensor:
         """Compress each sr_ratio x sr_ratio token group with learned softmax weights."""
@@ -1776,12 +1779,16 @@ class KVCompressedTransformerEncoder(nn.Module):
         self.norm1 = LayerNorm2d(c2)
         self.attn = KVCompressedAttention(c2, c2, num_heads, sr_ratio, mode, attn_drop=attn_drop, residual=False)
         self.norm2 = LayerNorm2d(c2)
-        # DW-PW FFN: channel expand → spatial mix → channel project
         self.ffn = nn.Sequential(
             Conv(c2, hidden, 1, 1),                    # PW: channel expand
             Conv(hidden, hidden, 3, 1, g=hidden),      # DW: spatial mix in 3×3 neighborhood
             Conv(hidden, c2, 1, 1, act=False),         # PW: channel project
         )
+        # Zero-initialize attention projection and FFN projection BNs for identity behavior
+        nn.init.zeros_(self.attn.proj_bn.weight)
+        nn.init.zeros_(self.attn.proj_bn.bias)
+        nn.init.zeros_(self.ffn[-1].bn.weight)
+        nn.init.zeros_(self.ffn[-1].bn.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply LN -> KVCA -> residual, then LN -> DW-FFN -> residual."""

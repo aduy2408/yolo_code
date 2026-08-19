@@ -37,7 +37,7 @@ class LocalContrastBasisStem(nn.Module):
         fusion_mode: str = "concat",
     ) -> None:
         super().__init__()
-        if mode not in {"relative", "relative_no_cross", "raw", "relative_r_only"}:
+        if mode not in {"relative", "relative_no_cross", "raw", "relative_r_only", "raw_independent"}:
             raise ValueError(f"invalid LocalContrastBasisStem mode: {mode!r}")
         if k_small % 2 == 0 or k_large % 2 == 0 or k_small >= k_large:
             raise ValueError("LocalContrastBasisStem requires odd k_small < k_large")
@@ -56,11 +56,23 @@ class LocalContrastBasisStem(nn.Module):
         # Relative path. Each local basis has 3 signed RGB residual channels +
         # one RGB-vector magnitude channel. The same encoder is reused for 9x9/17x17.
         c_rel = max(c2 // 4, 8)
-        self.rel_encoder = nn.Sequential(
-            Conv(c1 + 1, c_rel, 3, 2),
-            Conv(c_rel, c_rel, 3, 2),
-            C2f(c_rel, c_rel, n=1, shortcut=True),
-        )
+        if self.mode == "raw_independent":
+            self.rel_encoder_small = nn.Sequential(
+                Conv(c1 + 1, c_rel, 3, 2),
+                Conv(c_rel, c_rel, 3, 2),
+                C2f(c_rel, c_rel, n=1, shortcut=True),
+            )
+            self.rel_encoder_large = nn.Sequential(
+                Conv(c1 + 1, c_rel, 3, 2),
+                Conv(c_rel, c_rel, 3, 2),
+                C2f(c_rel, c_rel, n=1, shortcut=True),
+            )
+        else:
+            self.rel_encoder = nn.Sequential(
+                Conv(c1 + 1, c_rel, 3, 2),
+                Conv(c_rel, c_rel, 3, 2),
+                C2f(c_rel, c_rel, n=1, shortcut=True),
+            )
 
         # Cross-scale basis contains short-scale state, long-scale state,
         # channel-wise agreement, and channel-wise discrepancy.
@@ -101,8 +113,12 @@ class LocalContrastBasisStem(nn.Module):
             basis_small = self._raw_basis(x)
             basis_large = self._raw_basis(x)
 
-        rel_small = self.rel_encoder(basis_small)
-        rel_large = self.rel_encoder(basis_large)
+        if self.mode == "raw_independent":
+            rel_small = self.rel_encoder_small(basis_small)
+            rel_large = self.rel_encoder_large(basis_large)
+        else:
+            rel_small = self.rel_encoder(basis_small)
+            rel_large = self.rel_encoder(basis_large)
         if self.mode == "relative_no_cross":
             # Same 4*C width and active parameters, but no explicit cross-scale products/differences.
             scale_state = torch.cat((rel_small, rel_large, rel_small, rel_large), dim=1)
