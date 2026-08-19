@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Train, evaluate, and upload the YOLOv8n LEVIR FPN-only P2-only Attention experiments."""
 
-import os
+import sys
 from pathlib import Path
-import train_all_levir_yolov8n_p2_routing as workflow
 
 ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import train_all_levir_yolov8n_p2_routing as workflow
+
 EXPERIMENT_SLUG = "levir_yolov8n_p2_fpn_only_attention"
 
 # Set experiment name and destination repo

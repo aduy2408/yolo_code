@@ -3,12 +3,16 @@
 
 from __future__ import annotations
 
+import sys
 import argparse
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import train_all_levir_yolov8n_p2_routing as workflow
 
-ROOT = Path(__file__).resolve().parent
 EXPERIMENT = "levir_yolov8n_p2_contrast_basis"
 HF_REPO = "duyle2408/levir-yolov8n-p2-contrast-basis-seed42"
 PLAIN_YAML = ROOT.parent / "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_plain.yaml"
