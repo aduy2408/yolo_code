@@ -91,6 +91,10 @@ def run(args: argparse.Namespace) -> None:
     if not token:
         print("WARNING: HF_TOKEN is not set. Uploads to HuggingFace will be skipped if unauthenticated.")
 
+    args.project = args.project.resolve()
+    args.data_root = args.data_root.resolve()
+    args.dataset_root = args.dataset_root.resolve()
+
     local_ultralytics()
     from ultralytics import YOLO
 
