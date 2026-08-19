@@ -49,11 +49,15 @@ def main() -> None:
     if args.smoke_only:
         return
         
+    uploader = None if getattr(args, "no_upload", False) or args.smoke_only else workflow.Uploader(args)
     for seed in args.seeds:
         for variant in args.variants:
             run_dir = workflow.train(variant, seed, data_yaml, amp[variant], args)
             workflow.evaluate(run_dir, data_yaml, args)
             workflow.write_summaries(args)
+            if uploader:
+                uploader.upload_run(run_dir, variant, seed)
+                uploader.upload_metadata(args, data_yaml)
 
 workflow.parse_args = parse_args
 workflow.main = main
