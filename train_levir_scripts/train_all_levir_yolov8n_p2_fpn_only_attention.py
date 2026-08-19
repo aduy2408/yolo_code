@@ -30,7 +30,7 @@ def parse_args(argv=None):
 
 def main() -> None:
     args = parse_args()
-    args.no_upload = True
+    # Allow uploading by default; use --no-upload to disable.
     
     args.data_root = args.data_root.resolve()
     args.dataset_root = args.dataset_root.resolve()

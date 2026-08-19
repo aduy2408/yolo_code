@@ -13,7 +13,7 @@ EXPERIMENT = "levir_yolov8n_p2_contrast_basis"
 HF_REPO = "duyle2408/levir-yolov8n-p2-contrast-basis-seed42"
 PLAIN_YAML = ROOT.parent / "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_plain.yaml"
 VARIANTS = {
-    "raw_control": ROOT.parent / "models_related/models_config/yolov8/levir/yolov8n_p2_contrast_raw_control.yaml",
+    "raw_independent": ROOT.parent / "models_related/models_config/yolov8/levir/yolov8n_p2_contrast_raw_independent.yaml",
     "contrast_no_cross": ROOT.parent / "models_related/models_config/yolov8/levir/yolov8n_p2_contrast_no_cross.yaml",
     "contrast_basis": ROOT.parent / "models_related/models_config/yolov8/levir/yolov8n_p2_contrast_basis.yaml",
 }

@@ -25,7 +25,7 @@ def local_ultralytics() -> None:
 VARIANTS = {
     "yolov8n_p2_color_slots": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_color_slots.yaml",
     "yolov8n_p2_color_formation": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_color_formation.yaml",
-    "yolov8n_p2_multicue": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_multicue.yaml",
+    "yolov8n_p2_multicue_energy": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_multicue_energy.yaml",
 }
 
 SEEDS = [42]
