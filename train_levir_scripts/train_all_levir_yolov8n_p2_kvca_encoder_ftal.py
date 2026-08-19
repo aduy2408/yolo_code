@@ -67,6 +67,8 @@ def train_kwargs(args: argparse.Namespace, data_yaml: Path, seed: int, amp: bool
     )
     return kwargs
 
+_base_train = workflow.train
+
 def train(variant: str, seed: int, data_yaml: Path, amp: bool, args: argparse.Namespace) -> Path:
     # Set the appropriate FTAL_NORM_MODE environment variable dynamically
     if "oldnorm" in variant:
@@ -75,7 +77,7 @@ def train(variant: str, seed: int, data_yaml: Path, amp: bool, args: argparse.Na
     elif "newnorm" in variant:
         os.environ["FTAL_NORM_MODE"] = "newnorm"
         print(f"\n>>> [FTAL NORM] Setting FTAL_NORM_MODE = newnorm for {variant} <<<\n", flush=True)
-    return workflow.train(variant, seed, data_yaml, amp, args)
+    return _base_train(variant, seed, data_yaml, amp, args)
 
 def main() -> None:
     args = parse_args()
