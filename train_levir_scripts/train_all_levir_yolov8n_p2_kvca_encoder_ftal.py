@@ -47,6 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoke-only", action="store_true")
     parser.add_argument("--no-upload", action="store_true")
     parser.add_argument("--hf-repo-id", default=HF_REPO)
+    parser.add_argument("--variants", nargs="+", choices=list(VARIANTS.keys()), default=list(VARIANTS.keys()))
     return parser.parse_args()
 
 _base_train_kwargs = workflow.train_kwargs
@@ -81,7 +82,6 @@ def train(variant: str, seed: int, data_yaml: Path, amp: bool, args: argparse.Na
 
 def main() -> None:
     args = parse_args()
-    args.variants = list(VARIANTS)
     args.runner = Path(__file__).resolve()
     args.data_root = args.data_root.resolve()
     args.dataset_root = args.dataset_root.resolve()
