@@ -53,6 +53,8 @@ __all__ = (
     "EnSimAMEdgeRepC2f",
     "FeatureDGFE",
     "GCTS",
+    "BasisBranch",
+    "LocalBasisDownsample",
     "MaskedP2DetailReconstruction",
     "C3CBAM",
     "C3Ghost",
@@ -91,6 +93,58 @@ __all__ = (
     "set_boundary_enabled",
     "FactorizedSupportAux",
 )
+
+
+class BasisBranch(nn.Module):
+    """Small depthwise-separable formation block for one local basis component."""
+
+    def __init__(self, c1: int, c2: int) -> None:
+        super().__init__()
+        self.dw = nn.Conv2d(c1, c1, 3, padding=1, groups=c1, bias=False)
+        self.bn1 = nn.BatchNorm2d(c1)
+        self.pw = nn.Conv2d(c1, c2, 1, bias=False)
+        self.bn2 = nn.BatchNorm2d(c2)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.silu(self.bn2(self.pw(F.silu(self.bn1(self.dw(x))))))
+
+
+class LocalBasisDownsample(Conv):
+    """Conv stride-2 plus a gated, Haar-like local-basis residual."""
+
+    _haar = ((1, 1, 1, 1), (1, -1, 1, -1), (1, 1, -1, -1), (1, -1, -1, 1))
+
+    def __init__(self, c1: int, c2: int, k: int = 3, adaptive: bool = False) -> None:
+        if c2 % 4:
+            raise ValueError(f"LocalBasisDownsample requires c2 divisible by 4, got {c2}")
+        super().__init__(c1, c2, k, 2)
+        branch_channels = c2 // 4
+        self.branches = nn.ModuleList(BasisBranch(c1, branch_channels) for _ in range(4))
+        self.basis_fuse = nn.Conv2d(c2, c2, 1, bias=False)
+        self.basis_bn = nn.BatchNorm2d(c2)
+        self.gamma = nn.Parameter(torch.zeros(()))
+        self.adaptive = bool(adaptive)
+        haar = torch.tensor(self._haar, dtype=torch.float32) / 2
+        if self.adaptive:
+            self.register_buffer("basis", haar)
+            self.delta_basis = nn.Parameter(torch.zeros(4, 4))
+        else:
+            self.register_buffer("basis", haar, persistent=True)
+
+    def _basis_residual(self, x: torch.Tensor) -> torch.Tensor:
+        if x.shape[-2] % 2 or x.shape[-1] % 2:
+            x = F.pad(x, (0, x.shape[-1] % 2, 0, x.shape[-2] % 2))
+        phases = torch.stack((x[..., 0::2, 0::2], x[..., 0::2, 1::2], x[..., 1::2, 0::2], x[..., 1::2, 1::2]), dim=2)
+        basis = self.basis + 0.25 * torch.tanh(self.delta_basis) if self.adaptive else self.basis
+        components = torch.einsum("ij,bcjhw->bcihw", basis.to(dtype=x.dtype), phases)
+        formed = torch.cat([branch(components[:, :, i]) for i, branch in enumerate(self.branches)], dim=1)
+        return self.basis_bn(self.basis_fuse(formed))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x) + self.gamma.to(dtype=x.dtype) * self._basis_residual(x)
+
+    def forward_fuse(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward_fuse(x) + self.gamma.to(dtype=x.dtype) * self._basis_residual(x)
 
 
 class GCTS(Conv):
@@ -5170,6 +5224,5 @@ class NativeCrossReconstruction(nn.Module):
             return self.conv_out(torch.cat([B, B_hat, A_proj], dim=1))
         else:
             return self.conv_out(torch.cat([B, A_proj], dim=1))
-
 
 

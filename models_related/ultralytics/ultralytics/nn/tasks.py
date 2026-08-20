@@ -32,6 +32,7 @@ from ultralytics.nn.modules import (
     SemanticStructuralAgreementInjection,
     SemanticPolarityAdaptiveSelection,
     LowRankMultiStateCrossFusion,
+    LocalBasisDownsample,
     DualChannelFormationBackbone,
     DualDownsample,
     DualCollapse,
@@ -2378,6 +2379,7 @@ def parse_model(d, ch, verbose=True):
             LocalContrastBasisStem,
             SingleContrastFormationStem,
             SidecarResidualFusionStem,
+            LocalBasisDownsample,
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
