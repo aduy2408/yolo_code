@@ -23,6 +23,10 @@ Chúng tôi khảo sát vị trí tối ưu của Global Average Pooling (GAP) d
 - **Variant GAP Before**: Đặt GAP ngay trước KVCA Block:
   `P2 output (C2f) -> ChannelAttention -> KVCompressedAttention -> Detect`
 
+### D. YOLOv8 P2 Deep Supervision + GAP + FTAL (oldnorm)
+- **Phương pháp**: Kết hợp cả giám sát auxiliary trực tiếp trên Backbone P2 (`p2_deep_sup_gain=1.0`), cơ chế tự chú ý kênh toàn cục `ChannelAttention` (GAP) tại ngõ ra của FPN P2, và cơ chế gán nhãn nâng cao FTAL (`factorized_tal_target=True`).
+- **Mục tiêu**: Khảo sát sự tương tác tối ưu giữa cải thiện dòng gradient sớm ở backbone và lọc đặc trưng kênh trước Detect head dưới sự hướng dẫn của FTAL.
+
 ---
 
 ## 2. Kết quả Thực nghiệm (Experimental Results)
@@ -31,7 +35,8 @@ Tất cả các mô hình được huấn luyện đồng nhất trong **100 epo
 
 | Model / Variant | Normalization | test/mAP50 | test/mAP50-95 | So với Baseline (mAP50) | Trạng thái |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **KVCA Block + GAP After** | **`oldnorm`** | **0.7844** | **0.2909** | **+3.14%** | Hoàn thành |
+| **P2 Deep Supervision + GAP + FTAL** | **`oldnorm`** | **0.8030** | **0.2992** | **+5.00%** | Hoàn thành |
+| **KVCA Block + GAP After** | **`oldnorm`** | 0.7844 | 0.2909 | **+3.14%** | Hoàn thành |
 | **KVCA Block + GAP After** | **`newnorm`** | 0.7617 | 0.2799 | **+0.87%** | Hoàn thành |
 | **KVCA Encoder** | **`oldnorm`** | 0.7582 | 0.2832 | **+0.52%** | Hoàn thành |
 | **KVCA Block + GAP Before** | **`oldnorm`** | 0.7532 | 0.2835 | **+0.02%** | Hoàn thành |
@@ -43,13 +48,17 @@ Tất cả các mô hình được huấn luyện đồng nhất trong **100 epo
 
 ## 3. Phân tích & Đánh giá (Analysis)
 
-1. **Hiệu quả của việc đặt GAP sau KVCA (GAP After)**:
-   - Cấu hình `KVCA Block + GAP After + oldnorm` đạt hiệu năng vượt trội (**0.7844 Test mAP50**), tăng **+3.14%** so với baseline và gần tiệm cận bản Backbone P2 Deep Supervision tốt nhất (+3.23%).
+1. **Sức mạnh kết hợp của Deep Supervision, GAP và FTAL (D)**:
+   - Bản chạy `P2 Deep Supervision + GAP + FTAL (oldnorm)` đạt kết quả xuất sắc nhất sweeps (**0.8030 Test mAP50**), tăng **+5.00%** so với baseline và cao hơn cả Deep Supervision nguyên bản đơn lẻ (78.53%).
+   - Điều này khẳng định sự tương tác tích cực (magic interaction): Deep supervision định hình đặc trưng sớm tốt ở backbone, GAP giúp lọc kênh tối ưu ở FPN đầu ra, và FTAL cải thiện nhãn gán phân loại.
+
+2. **Hiệu quả của việc đặt GAP sau KVCA (GAP After)**:
+   - Cấu hình `KVCA Block + GAP After + oldnorm` đạt hiệu năng vượt trội (**0.7844 Test mAP50**), tăng **+3.14%** so với baseline.
    - Việc đặt GAP *sau* khối tự chú ý (KVCA) hoạt động như một bộ lọc kênh tối ưu, giúp hiệu chỉnh lại độ quan trọng của các đặc trưng không gian đã được tinh lọc bởi KVCA trước khi đưa vào Detect head.
 
-2. **Ảnh hưởng cực kỳ lớn của FTAL Normalization**:
+3. **Ảnh hưởng cực kỳ lớn của FTAL Normalization**:
    - Ở tất cả các cấu hình, `oldnorm` luôn cho hiệu năng tốt hơn đáng kể so với `newnorm` (ví dụ: `GAP After` giảm từ **78.44%** xuống **76.17%**, `GAP Before` giảm từ **75.32%** xuống **72.15%**).
    - *Giải thích*: Khi dùng `newnorm`, tổng các điểm mục tiêu sau FTAL nhỏ hơn rất nhiều so với TAL gốc. Việc chia cho một mẫu số nhỏ làm thang đo loss (gradient scale) bị đẩy lên rất cao một cách giả tạo, dẫn đến mất ổn định trong tối ưu hóa hội tụ. Việc giữ lại normalization mass cũ (`oldnorm`) hoạt động như một cơ chế ổn định hóa gradient (gradient stabilizer) hiệu quả.
 
-3. **So sánh Encoder vs Block**:
+4. **So sánh Encoder vs Block**:
    - Khối Attention đơn lẻ (`KVCA Block`) khi được bổ trợ bởi GAP sau nó cho kết quả vượt trội hơn so với Transformer Encoder đầy đủ (`KVCA Encoder` chỉ đạt **75.82%**). Điều này chỉ ra rằng lớp FFN (Feed-Forward Network) trong Transformer Encoder có thể quá nặng hoặc dư thừa thông tin đối với các đặc trưng cục bộ sớm ở stride-4.
