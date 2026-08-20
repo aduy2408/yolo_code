@@ -114,6 +114,7 @@ from ultralytics.nn.modules import (
     C2f_PConv,
     MaskedP2DetailReconstruction,
     BackboneP2DeepSupervision,
+    ObjectRelativeFeatureSupervisor,
     CanonicalRawCropTeacher,
     RawSidecarSupervised,
     P1FusionLocalDetail,
@@ -315,7 +316,7 @@ class BaseModel(torch.nn.Module):
                 x = m(x)
                 if m.last_aux is not None:
                     p2_detail_aux.append(m.last_aux)
-            elif isinstance(m, (BackboneP2DeepSupervision, CanonicalRawCropTeacher)):
+            elif isinstance(m, (BackboneP2DeepSupervision, ObjectRelativeFeatureSupervisor, CanonicalRawCropTeacher)):
                 x = m(x)
                 if m.last_aux is not None:
                     p2_detail_aux.append(m.last_aux)
@@ -377,7 +378,7 @@ class BaseModel(torch.nn.Module):
                 x = m(x)
                 if m.last_aux is not None:
                     p2_detail_aux.append(m.last_aux)
-            elif isinstance(m, (BackboneP2DeepSupervision, CanonicalRawCropTeacher)):
+            elif isinstance(m, (BackboneP2DeepSupervision, ObjectRelativeFeatureSupervisor, CanonicalRawCropTeacher)):
                 x = m(x)
                 if m.last_aux is not None:
                     p2_detail_aux.append(m.last_aux)
@@ -438,7 +439,7 @@ class BaseModel(torch.nn.Module):
                     x = m(x)
                     if m.last_aux is not None:
                         p2_detail_aux.append(m.last_aux)
-                elif isinstance(m, (BackboneP2DeepSupervision, CanonicalRawCropTeacher)):
+                elif isinstance(m, (BackboneP2DeepSupervision, ObjectRelativeFeatureSupervisor, CanonicalRawCropTeacher)):
                     x = m(x)
                     if m.last_aux is not None:
                         p2_detail_aux.append(m.last_aux)
@@ -2489,7 +2490,7 @@ def parse_model(d, ch, verbose=True):
         ):
             c2 = ch[f]
             args = [c2, *args]
-        elif m in frozenset({BackboneP2DeepSupervision, CanonicalRawCropTeacher, RawSidecarSupervised}):
+        elif m in frozenset({BackboneP2DeepSupervision, ObjectRelativeFeatureSupervisor, CanonicalRawCropTeacher, RawSidecarSupervised}):
             c2 = ch[f[0]] if isinstance(f, list) else ch[f]
             args = [c2]
         elif m is ConflictFineReconstruction:

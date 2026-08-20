@@ -922,6 +922,12 @@ class v8DetectionLoss:
         self.dgfe_edge_error_norm = max(float(getattr(h, "dgfe_edge_error_norm", 0.25)), 1e-9)
         self.p2_detail_rec_gain = float(getattr(h, "p2_detail_rec_gain", 0.0))
         self.p2_deep_sup_gain = float(getattr(h, "p2_deep_sup_gain", 0.0))
+        self.orfs_gain = float(getattr(h, "orfs_gain", 0.0))
+        self.orfs_center_gain = float(getattr(h, "orfs_center_gain", 1.0))
+        self.orfs_geometry_gain = float(getattr(h, "orfs_geometry_gain", 0.25))
+        self.orfs_core_ratio = float(getattr(h, "orfs_core_ratio", 0.7))
+        self.orfs_warmup_start = int(getattr(h, "orfs_warmup_start", 0))
+        self.orfs_warmup_end = int(getattr(h, "orfs_warmup_end", 0))
         self.canonical_teacher_gain = float(getattr(h, "canonical_teacher_gain", 0.0))
         self.raw_sidecar_gain = float(getattr(h, "raw_sidecar_gain", 0.0))
         self.p2_detail_metrics = {}
@@ -1716,6 +1722,105 @@ class v8DetectionLoss:
         loss = (pos_loss + neg_loss).mean()
         return loss
 
+    def _orfs_aux_list(self, preds: dict[str, Any]) -> list[dict[str, torch.Tensor]]:
+        return [aux for aux in self._p2_detail_aux_list(preds) if "orfs_structure_pred" in aux]
+
+    def _orfs_targets(
+        self, shape: tuple[int, int], batch: dict[str, torch.Tensor], bs: int, dtype: torch.dtype
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Build [center, left, top, right, bottom] targets from normalized YOLO boxes."""
+        h, w = shape
+        device = batch["bboxes"].device
+        bboxes = batch["bboxes"]
+        batch_idx = batch["batch_idx"]
+        center = torch.zeros((bs, h, w), device=device, dtype=dtype)
+        geometry = torch.zeros((bs, 4, h, w), device=device, dtype=dtype)
+        geometry_mask = torch.zeros((bs, h, w), device=device, dtype=torch.bool)
+        best_center_distance = torch.full((bs, h, w), float("inf"), device=device, dtype=dtype)
+        y_grid, x_grid = torch.meshgrid(
+            torch.arange(h, device=device, dtype=dtype) + 0.5,
+            torch.arange(w, device=device, dtype=dtype) + 0.5,
+            indexing="ij",
+        )
+
+        core_ratio = min(max(self.orfs_core_ratio, 0.0), 1.0)
+        for i in range(len(batch_idx)):
+            b = int(batch_idx[i])
+            if not 0 <= b < bs:
+                continue
+            cx, cy, bw, bh = bboxes[i]
+            bw = bw.clamp_min(1e-6)
+            bh = bh.clamp_min(1e-6)
+            cxf, cyf, bwf, bhf = cx * w, cy * h, bw * w, bh * h
+            sigma_x = (bwf / 6.0).clamp_min(1e-3)
+            sigma_y = (bhf / 6.0).clamp_min(1e-3)
+            gaussian = torch.exp(
+                -((x_grid - cxf).square() / (2.0 * sigma_x.square())
+                  + (y_grid - cyf).square() / (2.0 * sigma_y.square()))
+            )
+            center[b] = torch.maximum(center[b], gaussian)
+
+            x1, y1 = cxf - bwf / 2.0, cyf - bhf / 2.0
+            x2, y2 = cxf + bwf / 2.0, cyf + bhf / 2.0
+            core = (
+                (x_grid >= cxf - core_ratio * bwf / 2.0)
+                & (x_grid <= cxf + core_ratio * bwf / 2.0)
+                & (y_grid >= cyf - core_ratio * bhf / 2.0)
+                & (y_grid <= cyf + core_ratio * bhf / 2.0)
+            )
+            relative_center_distance = ((x_grid - cxf) / bwf).square() + ((y_grid - cyf) / bhf).square()
+            assign = core & (relative_center_distance < best_center_distance[b])
+            if assign.any():
+                geometry[b, 0][assign] = ((x_grid - x1) / bwf)[assign]
+                geometry[b, 1][assign] = ((y_grid - y1) / bhf)[assign]
+                geometry[b, 2][assign] = ((x2 - x_grid) / bwf)[assign]
+                geometry[b, 3][assign] = ((y2 - y_grid) / bhf)[assign]
+                best_center_distance[b][assign] = relative_center_distance[assign]
+                geometry_mask[b][assign] = True
+        return center, geometry, geometry_mask
+
+    def _orfs_gain_value(self) -> float:
+        if self.orfs_warmup_end <= self.orfs_warmup_start:
+            return self.orfs_gain
+        progress = (float(self.epoch) - self.orfs_warmup_start) / (self.orfs_warmup_end - self.orfs_warmup_start)
+        return self.orfs_gain * min(max(progress, 0.0), 1.0)
+
+    def _orfs_structure_loss(self, preds: dict[str, Any], batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        aux_list = self._orfs_aux_list(preds)
+        if not aux_list:
+            return preds["boxes"].sum() * 0.0
+        losses = []
+        metrics = []
+        for aux in aux_list:
+            pred = aux["orfs_structure_pred"]
+            center, geometry, geometry_mask = self._orfs_targets(
+                pred.shape[-2:], batch, pred.shape[0], pred.dtype
+            )
+            center = center.unsqueeze(1)
+            geometry = geometry.to(device=pred.device, dtype=pred.dtype)
+            geometry_mask = geometry_mask.to(device=pred.device)
+            pred_center, pred_geometry = pred[:, :1], pred[:, 1:]
+            prob = pred_center.sigmoid()
+            center_bce = F.binary_cross_entropy_with_logits(pred_center, center, reduction="none")
+            center_loss = (
+                center_bce * (1.0 - prob).square() * center
+                + center_bce * prob.square() * (1.0 - center)
+            ).flatten(1).mean(1).mean()
+            if geometry_mask.any():
+                geo_loss = F.smooth_l1_loss(
+                    pred_geometry.permute(0, 2, 3, 1)[geometry_mask],
+                    geometry.permute(0, 2, 3, 1)[geometry_mask],
+                    reduction="mean",
+                )
+            else:
+                geo_loss = pred_geometry.sum() * 0.0
+            losses.append(self.orfs_center_gain * center_loss + self.orfs_geometry_gain * geo_loss)
+            metrics.append((center_loss.detach(), geo_loss.detach()))
+        if metrics:
+            self.p2_detail_metrics["orfs_center_raw_loss"] = float(torch.stack([x[0] for x in metrics]).mean())
+            self.p2_detail_metrics["orfs_geometry_raw_loss"] = float(torch.stack([x[1] for x in metrics]).mean())
+        return torch.stack(losses).mean()
+
     def _canonical_teacher_loss(self, preds: dict[str, Any], batch: dict[str, torch.Tensor]) -> torch.Tensor:
         aux_list = self._p2_detail_aux_list(preds)
         detector_feat = None
@@ -1976,10 +2081,11 @@ class v8DetectionLoss:
             + int(self.dgfe_spatial_gain > 0)
             + int(self.p2_detail_rec_gain > 0)
             + int(self.p2_deep_sup_gain > 0)
+            + int(self.orfs_gain > 0)
             + int(self.canonical_teacher_gain > 0)
             + int(self.raw_sidecar_gain > 0),
             device=self.device,
-        )  # box, cls, dfl[, boundary][, loc_quality][, quality][, rank][, psd][, dgfe_rec][, dgfe_spatial][, p2_detail][, p2_deep_sup][, canonical_teacher][, raw_sidecar]
+        )  # box, cls, dfl[, boundary][, loc_quality][, quality][, rank][, psd][, dgfe_rec][, dgfe_spatial][, p2_detail][, p2_deep_sup][, orfs][, canonical_teacher][, raw_sidecar]
         pred_distri, coarse_scores = (
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
@@ -2699,6 +2805,12 @@ class v8DetectionLoss:
         if self.p2_deep_sup_gain > 0:
             loss[dgfe_idx] = self._p2_deep_supervision_loss(preds, batch) * self.p2_deep_sup_gain
             self.p2_detail_metrics["p2_deep_sup_applied_loss"] = float(loss[dgfe_idx].detach().item())
+            dgfe_idx += 1
+        if self.orfs_gain > 0:
+            current_orfs_gain = self._orfs_gain_value()
+            loss[dgfe_idx] = self._orfs_structure_loss(preds, batch) * current_orfs_gain
+            self.p2_detail_metrics["orfs_applied_loss"] = float(loss[dgfe_idx].detach().item())
+            self.p2_detail_metrics["orfs_gain"] = current_orfs_gain
             dgfe_idx += 1
         if self.canonical_teacher_gain > 0:
             loss[dgfe_idx] = self._canonical_teacher_loss(preds, batch) * self.canonical_teacher_gain

@@ -66,7 +66,7 @@ def create_fixed_split(data_root: Path, output: Path, seed: int) -> Path:
         if generated.exists():
             shutil.rmtree(generated)
     start = 0
-    manifest = {"seed": seed, "splits": {}}
+    manifest = {"seed": seed, "nms_iou": 0.5, "splits": {}}
     for split, count in PUBLISHED_COUNTS.items():
         selected = stems[start:start + count]
         start += count

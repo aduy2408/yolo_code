@@ -91,6 +91,8 @@ class DetectionTrainer(BaseTrainer):
             names += ("p2_detail_loss",)
         if float(getattr(self.args, "p2_deep_sup_gain", 0.0)) > 0:
             names += ("p2_deep_sup_loss",)
+        if float(getattr(self.args, "orfs_gain", 0.0)) > 0:
+            names += ("orfs_loss",)
         if float(getattr(self.args, "canonical_teacher_gain", 0.0)) > 0:
             names += ("canonical_teacher_loss",)
         if float(getattr(self.args, "raw_sidecar_gain", 0.0)) > 0:

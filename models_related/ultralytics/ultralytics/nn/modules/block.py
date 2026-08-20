@@ -918,6 +918,35 @@ class BackboneP2DeepSupervision(nn.Module):
         return x
 
 
+class ObjectRelativeFeatureSupervisor(nn.Module):
+    """Train-only, class-agnostic supervision for normalized object structure."""
+
+    def __init__(self, c1: int, hidden: int = 64, structure_dim: int = 5) -> None:
+        super().__init__()
+        if structure_dim != 5:
+            raise ValueError("ObjectRelativeFeatureSupervisor currently requires structure_dim=5")
+        groups = max(min(8, hidden), 1)
+        while hidden % groups:
+            groups -= 1
+        self.projector = nn.Sequential(
+            nn.Conv2d(c1, hidden, 1, bias=False),
+            nn.GroupNorm(groups, hidden),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden, hidden, 3, padding=1, bias=False),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(hidden, structure_dim, 1),
+        )
+        self.last_aux: dict[str, torch.Tensor] | None = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.training:
+            pred = self.projector(x)
+            self.last_aux = {"orfs_structure_pred": pred, "orfs_feature_shape": pred.shape[-2:]}
+        else:
+            self.last_aux = None
+        return x
+
+
 class CanonicalRawCropTeacher(nn.Module):
     """Training-only Canonical Raw-Crop Teacher module for distilling P2 features."""
 
@@ -5141,7 +5170,6 @@ class NativeCrossReconstruction(nn.Module):
             return self.conv_out(torch.cat([B, B_hat, A_proj], dim=1))
         else:
             return self.conv_out(torch.cat([B, A_proj], dim=1))
-
 
 
 
