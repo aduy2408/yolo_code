@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import train_all_levir_yolov8n_p2_routing as workflow
 
 ROOT = Path(__file__).resolve().parent
@@ -66,6 +68,7 @@ def main() -> None:
     workflow.train_kwargs = train_kwargs
 
     data_yaml = workflow.prepare_fixed_split(args)
+    uploader = None if args.no_upload or args.smoke_only else workflow.Uploader(args)
     amp = {variant: args.amp for variant in args.variants}
     if not args.no_smoke:
         amp = {variant: workflow.smoke(variant, data_yaml, args, amp=args.amp) for variant in args.variants}
@@ -76,6 +79,9 @@ def main() -> None:
             run_dir = workflow.train(variant, seed, data_yaml, amp[variant], args)
             workflow.evaluate(run_dir, data_yaml, args)
             workflow.write_summaries(args)
+            if uploader:
+                uploader.upload_run(run_dir, variant, seed)
+                uploader.upload_metadata(args, data_yaml)
 
 
 if __name__ == "__main__":
