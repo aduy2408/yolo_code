@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import train_all_levir_yolov8n_p2_local_basis as base
 
-ROOT = Path(__file__).resolve().parent
 CONFIG_ROOT = ROOT.parent / "models_related/models_config/yolov8/levir"
 base.EXPERIMENT = "levir_yolov8n_p2_lbd_expanded"
 base.HF_REPO = "duyle2408/levir-yolov8n-p2-local-basis"
