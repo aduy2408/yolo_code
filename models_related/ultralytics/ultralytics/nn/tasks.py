@@ -33,6 +33,7 @@ from ultralytics.nn.modules import (
     SemanticPolarityAdaptiveSelection,
     LowRankMultiStateCrossFusion,
     LocalBasisDownsample,
+    LocalBasisDownsampleExpanded,
     DualChannelFormationBackbone,
     DualDownsample,
     DualCollapse,
@@ -2450,6 +2451,11 @@ def parse_model(d, ch, verbose=True):
                     args.extend((True, 1.2))
             if m is C2fCIB:
                 legacy = False
+        elif m is LocalBasisDownsampleExpanded:
+            c1, base_c2, k, adaptive, basis_channels = ch[f], args[0], *args[1:]
+            base_c2 = make_divisible(min(base_c2, max_channels) * width, 8)
+            c2 = base_c2 + int(basis_channels)
+            args = [c1, base_c2, k, adaptive, int(basis_channels)]
         elif m is LocalContrastBasisStem:
             c1, c2 = ch[f], args[0]
             if c2 != nc:

@@ -55,6 +55,7 @@ __all__ = (
     "GCTS",
     "BasisBranch",
     "LocalBasisDownsample",
+    "LocalBasisDownsampleExpanded",
     "MaskedP2DetailReconstruction",
     "C3CBAM",
     "C3Ghost",
@@ -145,6 +146,39 @@ class LocalBasisDownsample(Conv):
 
     def forward_fuse(self, x: torch.Tensor) -> torch.Tensor:
         return super().forward_fuse(x) + self.gamma.to(dtype=x.dtype) * self._basis_residual(x)
+
+
+class LocalBasisDownsampleExpanded(Conv):
+    """Conv stride-2 concatenated with a dedicated local-basis channel subspace."""
+
+    _haar = LocalBasisDownsample._haar
+
+    def __init__(self, c1: int, c2: int, k: int = 3, adaptive: bool = False, basis_channels: int = 16) -> None:
+        if basis_channels < 4 or basis_channels % 4:
+            raise ValueError(f"basis_channels must be a positive multiple of 4, got {basis_channels}")
+        super().__init__(c1, c2, k, 2)
+        branch_channels = basis_channels // 4
+        self.basis_channels = basis_channels
+        self.adaptive = bool(adaptive)
+        self.branches = nn.ModuleList(BasisBranch(c1, branch_channels) for _ in range(4))
+        haar = torch.tensor(self._haar, dtype=torch.float32) / 2
+        self.register_buffer("basis", haar)
+        if self.adaptive:
+            self.delta_basis = nn.Parameter(torch.zeros(4, 4))
+
+    def _basis_features(self, x: torch.Tensor) -> torch.Tensor:
+        if x.shape[-2] % 2 or x.shape[-1] % 2:
+            x = F.pad(x, (0, x.shape[-1] % 2, 0, x.shape[-2] % 2))
+        phases = torch.stack((x[..., 0::2, 0::2], x[..., 0::2, 1::2], x[..., 1::2, 0::2], x[..., 1::2, 1::2]), dim=2)
+        basis = self.basis + 0.25 * torch.tanh(self.delta_basis) if self.adaptive else self.basis
+        components = torch.einsum("ij,bcjhw->bcihw", basis.to(dtype=x.dtype), phases)
+        return torch.cat([branch(components[:, :, i]) for i, branch in enumerate(self.branches)], dim=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.cat((super().forward(x), self._basis_features(x)), dim=1)
+
+    def forward_fuse(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.cat((super().forward_fuse(x), self._basis_features(x)), dim=1)
 
 
 class GCTS(Conv):
@@ -5224,5 +5258,4 @@ class NativeCrossReconstruction(nn.Module):
             return self.conv_out(torch.cat([B, B_hat, A_proj], dim=1))
         else:
             return self.conv_out(torch.cat([B, A_proj], dim=1))
-
 
