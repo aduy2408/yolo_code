@@ -92,7 +92,7 @@ def summarize(rows: list[dict], q_thr: float, p_thr: float) -> dict:
         "high_quality_low_confidence_count": len(special),
         "high_quality_low_confidence_fraction": len(special) / max(len(rows), 1),
         "high_quality_low_confidence_mean_bce_gradient": float(np.mean([r["bce_gradient"] for r in special])) if special else None,
-        "d_top_quartile_count": sum(row["q_times_one_minus_p"] >= np.quantile(d, 0.75) for row in rows),
+        "d_top_quartile_count": int(sum(row["q_times_one_minus_p"] >= np.quantile(d, 0.75) for row in rows)),
     }
 
 
