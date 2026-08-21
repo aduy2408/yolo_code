@@ -8,6 +8,7 @@ import csv
 import json
 import math
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import cv2
@@ -107,6 +108,8 @@ def main() -> None:
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     wrapper = YOLO(args.checkpoint)
     net = wrapper.model.to(device).eval()
+    if isinstance(net.args, dict):
+        net.args = SimpleNamespace(**net.args)
     criterion = v8DetectionLoss(net)
     factorized = bool(getattr(net.args, "factorized_tal_target", False))
     rows: list[dict] = []
