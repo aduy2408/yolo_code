@@ -113,6 +113,9 @@ def main() -> None:
         net.args = get_cfg(overrides=net.args)
     elif isinstance(net.args, SimpleNamespace) and not hasattr(net.args, "box"):
         net.args = get_cfg(overrides=vars(net.args))
+    for key, value in {"box": 7.5, "cls": 0.5, "dfl": 1.5}.items():
+        if not hasattr(net.args, key):
+            setattr(net.args, key, value)
     criterion = v8DetectionLoss(net)
     factorized = bool(getattr(net.args, "factorized_tal_target", False))
     rows: list[dict] = []
