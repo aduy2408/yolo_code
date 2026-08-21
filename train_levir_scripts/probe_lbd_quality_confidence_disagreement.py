@@ -164,7 +164,7 @@ def main() -> None:
         "target_semantics": "FTAL target" if factorized else "standard TAL target (checkpoint metadata)",
         "thresholds": {"q": args.q_thr, "p": args.p_thr},
         "summary": summarize(rows, args.q_thr, args.p_thr),
-    }, indent=2) + "\n")
+    }, indent=2, default=lambda value: value.item() if hasattr(value, "item") else str(value)) + "\n")
     with args.output.with_suffix(".csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]) if rows else [])
         writer.writeheader(); writer.writerows(rows)
