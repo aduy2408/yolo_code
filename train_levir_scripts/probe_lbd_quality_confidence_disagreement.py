@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "models_related/ultralytics"))
 
 from ultralytics import YOLO  # noqa: E402
+from ultralytics.cfg import get_cfg  # noqa: E402
 from ultralytics.utils.loss import v8DetectionLoss  # noqa: E402
 from ultralytics.utils.metrics import bbox_iou  # noqa: E402
 from ultralytics.utils.tal import make_anchors  # noqa: E402
@@ -109,7 +110,9 @@ def main() -> None:
     wrapper = YOLO(args.checkpoint)
     net = wrapper.model.to(device).eval()
     if isinstance(net.args, dict):
-        net.args = SimpleNamespace(**net.args)
+        net.args = get_cfg(overrides=net.args)
+    elif isinstance(net.args, SimpleNamespace) and not hasattr(net.args, "box"):
+        net.args = get_cfg(overrides=vars(net.args))
     criterion = v8DetectionLoss(net)
     factorized = bool(getattr(net.args, "factorized_tal_target", False))
     rows: list[dict] = []
