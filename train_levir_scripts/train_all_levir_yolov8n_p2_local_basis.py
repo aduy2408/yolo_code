@@ -28,6 +28,7 @@ workflow.VARIANTS = VARIANTS
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS))
     parser.add_argument("--seeds", nargs="+", type=int, default=[42])
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--data-root", type=Path, default=ROOT.parent / "LevirShipData")
@@ -51,7 +52,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    args.variants = list(VARIANTS)
+    args.variants = list(args.variants)
     args.runner = Path(__file__).resolve()
     args.data_root = args.data_root.resolve()
     args.dataset_root = args.dataset_root.resolve()
