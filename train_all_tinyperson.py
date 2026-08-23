@@ -548,6 +548,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--patience", type=int, default=20)
     parser.add_argument("--hf-repo-id", default="duyle2408/tinyperson-yolov8n-baselines")
+    parser.add_argument("--skip-upload", action="store_true", help="Do not upload runs to Hugging Face")
+    parser.add_argument("--prepare-only", action="store_true", help="Prepare and validate corner datasets, then exit")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS))
     return parser.parse_args(argv)
@@ -560,10 +562,16 @@ def main() -> None:
         args.dataset_root.resolve(),
         args.project.resolve(),
     )
-    uploader = Uploader(args.hf_repo_id)
+    uploader = None if args.skip_upload or args.prepare_only else Uploader(args.hf_repo_id)
 
     # 1. Prepare test set (shared across seeds)
     test_out_dir = prepare_test_set(args.data_root, args.dataset_root)
+
+    if args.prepare_only:
+        for seed in args.seeds:
+            prepare_seed_dataset(args.data_root, args.dataset_root, test_out_dir, seed)
+        print("TinyPerson dataset preparation complete!", flush=True)
+        return
 
     # 2. Run sequential seed experiments
     for seed in args.seeds:
@@ -578,7 +586,8 @@ def main() -> None:
             write_summaries(args)
             if not complete(run_dir):
                 raise RuntimeError(f"Required post-evaluation artifacts are incomplete: {run_dir}")
-            uploader.upload_run(variant, seed, run_dir)
+            if uploader is not None:
+                uploader.upload_run(variant, seed, run_dir)
 
     write_summaries(args)
     print("TinyPerson training matrix complete!", flush=True)
