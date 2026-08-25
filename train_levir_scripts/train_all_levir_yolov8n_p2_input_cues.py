@@ -19,7 +19,11 @@ import train_all_levir_yolov8n_p2_routing as workflow
 CONFIG_ROOT = ROOT.parent / "models_related/models_config/yolov8/levir"
 BASELINE = CONFIG_ROOT / "yolov8n_p2_levir_baseline.yaml"
 TEMPLATE = CONFIG_ROOT / "yolov8n_p2_input_cue_template.yaml"
-VARIANTS = ("rgb_control", "sobel_xy", "laplacian_split", "log", "haar", "lab_ab", "ycbcr_cbcr", "chromatic_edge", "local_zscore", "structure_coherence", "top_hat")
+VARIANTS = (
+    "rgb_control", "sobel_xy", "laplacian_split", "log", "haar", "lab_ab",
+    "ycbcr_cbcr", "chromatic_edge", "local_zscore", "structure_coherence", "top_hat",
+    "robust_ring_contrast", "lbp_stats", "multiscale_tophat", "local_rank", "phase_coherence",
+)
 GENERATED = CONFIG_ROOT / "generated_input_cues"
 
 

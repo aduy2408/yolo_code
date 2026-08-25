@@ -26,6 +26,11 @@ EXPECTED_CHANNELS = {
     "local_zscore": 1,
     "structure_coherence": 1,
     "top_hat": 1,
+    "robust_ring_contrast": 2,
+    "lbp_stats": 2,
+    "multiscale_tophat": 2,
+    "local_rank": 1,
+    "phase_coherence": 1,
 }
 
 
@@ -89,6 +94,32 @@ def test_top_hat_uses_opening_not_closing():
 def test_haar_detail_filters_preserve_full_resolution():
     cue = InputCueBank("haar")(torch.rand(1, 3, 32, 32))
     assert cue.shape == (1, 3, 32, 32)
+
+
+def test_new_cues_have_expected_semantics():
+    image = torch.full((1, 3, 32, 32), 0.5)
+    image[:, :, 16, 16] = 1.0
+    ring = InputCueBank("robust_ring_contrast")(image)
+    assert ring[0, 0, 16, 16] > ring[0, 1, 16, 16]
+    lbp = InputCueBank("lbp_stats")(torch.full_like(image, 0.5))
+    assert torch.allclose(lbp[:, 0], torch.ones_like(lbp[:, 0]))
+    assert torch.allclose(lbp[:, 1], torch.zeros_like(lbp[:, 1]))
+    morphology = InputCueBank("multiscale_tophat")(image)
+    assert morphology[0, 0, 16, 16] > 0.9
+    assert 0.0 <= float(InputCueBank("local_rank")(image).min())
+    assert float(InputCueBank("local_rank")(image).max()) <= 1.0
+    phase = InputCueBank("phase_coherence")(image)
+    assert phase.shape == (1, 1, 32, 32)
+
+
+def test_cues_are_detached_inside_stem():
+    stem = InputCueConv(3, 8, 3, 2, "robust_ring_contrast")
+    rgb = torch.rand(1, 3, 32, 32, requires_grad=True)
+    with torch.no_grad():
+        cue = stem.cue_bank(rgb)
+    assert not cue.requires_grad
+    stem(rgb).mean().backward()
+    assert rgb.grad is not None
 
 
 def test_runner_defaults_and_resolved_configs():

@@ -20,6 +20,11 @@ VARIANTS = (
     "local_zscore",
     "structure_coherence",
     "top_hat",
+    "robust_ring_contrast",
+    "lbp_stats",
+    "multiscale_tophat",
+    "local_rank",
+    "phase_coherence",
 )
 
 _CUE_CHANNELS = {
@@ -33,12 +38,36 @@ _CUE_CHANNELS = {
     "local_zscore": 1,
     "structure_coherence": 1,
     "top_hat": 1,
+    "robust_ring_contrast": 2,
+    "lbp_stats": 2,
+    "multiscale_tophat": 2,
+    "local_rank": 1,
+    "phase_coherence": 1,
 }
 
 
 def _kernel(kernel: list[list[float]], channels: int, device, dtype):
     value = torch.tensor(kernel, device=device, dtype=dtype)
     return value.view(1, 1, *value.shape).repeat(channels, 1, 1, 1)
+
+
+def _shift_samples(image, offsets):
+    radius = max(max(abs(dy), abs(dx)) for dy, dx in offsets)
+    _, _, height, width = image.shape
+    padded = F.pad(image, (radius, radius, radius, radius), mode="reflect")
+    return torch.cat(
+        [padded[:, :, radius + dy:radius + dy + height, radius + dx:radius + dx + width] for dy, dx in offsets],
+        dim=1,
+    )
+
+
+def _dilation(image, kernel_size):
+    radius = kernel_size // 2
+    return F.max_pool2d(F.pad(image, (radius, radius, radius, radius), mode="reflect"), kernel_size, stride=1)
+
+
+def _erosion(image, kernel_size):
+    return -_dilation(-image, kernel_size)
 
 
 class InputCueBank(nn.Module):
@@ -124,9 +153,71 @@ class InputCueBank(nn.Module):
             jxx, jyy, jxy = mean(gx.square()), mean(gy.square()), mean(gx * gy)
             return ((jxx - jyy).square() + 4 * jxy.square()).sqrt() / (jxx + jyy + self.eps)
         if self.cue_type == "top_hat":
-            eroded = -F.max_pool2d(-y, 5, stride=1, padding=2)
-            opened = F.max_pool2d(eroded, 5, stride=1, padding=2)
+            opened = _dilation(_erosion(y, 5), 5)
             return (y - opened).clamp(0, 1)
+        if self.cue_type == "robust_ring_contrast":
+            center = _shift_samples(y, [
+                (-1, -1), (-1, 0), (-1, 1),
+                (0, -1), (0, 0), (0, 1),
+                (1, -1), (1, 0), (1, 1),
+            ])
+            ring = _shift_samples(y, [
+                (-4, -4), (-4, -2), (-4, 0), (-4, 2), (-4, 4),
+                (-2, -4), (-2, 4), (0, -4), (0, 4),
+                (2, -4), (2, 4), (4, -4), (4, -2), (4, 0), (4, 2), (4, 4),
+            ])
+            center_median = center.median(dim=1, keepdim=True).values
+            ring_median = ring.median(dim=1, keepdim=True).values
+            mad = (ring - ring_median).abs().median(dim=1, keepdim=True).values
+            contrast = ((center_median - ring_median) / (1.4826 * mad + 1e-3)).clamp(-3, 3) / 3
+            return torch.cat((contrast.relu(), (-contrast).relu()), dim=1)
+        if self.cue_type == "lbp_stats":
+            neighbors = _shift_samples(y, [
+                (-1, -1), (-1, 0), (-1, 1), (0, 1),
+                (1, 1), (1, 0), (1, -1), (0, -1),
+            ])
+            bits = (neighbors >= y).to(y.dtype)
+            transitions = (bits != torch.roll(bits, shifts=-1, dims=1)).to(y.dtype).mean(dim=1, keepdim=True)
+            return torch.cat((bits.mean(dim=1, keepdim=True), transitions), dim=1)
+        if self.cue_type == "multiscale_tophat":
+            whites, blacks = [], []
+            for kernel_size in (5, 11, 21):
+                opened = _dilation(_erosion(y, kernel_size), kernel_size)
+                closed = _erosion(_dilation(y, kernel_size), kernel_size)
+                whites.append((y - opened).clamp_min(0))
+                blacks.append((closed - y).clamp_min(0))
+            white = torch.stack(whites, dim=1).amax(dim=1)
+            black = torch.stack(blacks, dim=1).amax(dim=1)
+            return torch.cat((white, black), dim=1).clamp(0, 1)
+        if self.cue_type == "local_rank":
+            kernel_size = 5
+            radius = kernel_size // 2
+            patches = F.unfold(F.pad(y, (radius, radius, radius, radius), mode="reflect"), kernel_size)
+            center = y.flatten(2)
+            mask = torch.ones(kernel_size * kernel_size, dtype=torch.bool, device=y.device)
+            mask[kernel_size * kernel_size // 2] = False
+            rank = (patches[:, mask] < center).to(y.dtype).mean(dim=1)
+            return rank.view(y.shape[0], 1, y.shape[2], y.shape[3])
+        if self.cue_type == "phase_coherence":
+            coordinates = torch.arange(-4, 5, device=y.device, dtype=y.dtype)
+            yy, xx = torch.meshgrid(coordinates, coordinates, indexing="ij")
+            filters = []
+            for wavelength in (3.0, 5.0):
+                sigma = 0.5 * wavelength
+                for angle in (0.0, torch.pi / 4, torch.pi / 2, 3 * torch.pi / 4):
+                    x_theta = xx * torch.cos(torch.as_tensor(angle, device=y.device, dtype=y.dtype)) + yy * torch.sin(torch.as_tensor(angle, device=y.device, dtype=y.dtype))
+                    y_theta = -xx * torch.sin(torch.as_tensor(angle, device=y.device, dtype=y.dtype)) + yy * torch.cos(torch.as_tensor(angle, device=y.device, dtype=y.dtype))
+                    envelope = torch.exp(-(x_theta.square() + 0.5**2 * y_theta.square()) / (2 * sigma**2))
+                    even = envelope * torch.cos(2 * torch.pi * x_theta / wavelength)
+                    odd = envelope * torch.sin(2 * torch.pi * x_theta / wavelength)
+                    filters.extend((even / (even.abs().sum() + self.eps), odd / (odd.abs().sum() + self.eps)))
+            bank = torch.stack(filters).unsqueeze(1)
+            response = F.conv2d(F.pad(y, (4, 4, 4, 4), mode="reflect"), bank)
+            response = response.view(y.shape[0], 2, 4, 2, y.shape[2], y.shape[3]).permute(0, 2, 1, 3, 4, 5)
+            even, odd = response[:, :, :, 0], response[:, :, :, 1]
+            amplitude = (even.square() + odd.square() + self.eps).sqrt()
+            phase = ((even.sum(dim=2).square() + odd.sum(dim=2).square() + self.eps).sqrt() / (amplitude.sum(dim=2) + self.eps))
+            return phase.max(dim=1, keepdim=True).values.clamp(0, 1)
         raise AssertionError(self.cue_type)
 
 
@@ -149,7 +240,9 @@ class InputCueConv(Conv):
         return self.act(self.conv(self._with_cue(rgb)))
 
     def _with_cue(self, rgb):
-        return torch.cat((rgb, self.cue_bank(rgb)), dim=1)
+        with torch.no_grad():
+            cue = self.cue_bank(rgb)
+        return torch.cat((rgb, cue), dim=1)
 
 
 def cue_channels(cue_type: str) -> int:
