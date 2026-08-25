@@ -117,6 +117,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--smoke-only", action="store_true")
     parser.add_argument("--no-upload", action="store_true")
     parser.add_argument("--hf-repo-id", default=workflow.HF_REPO)
+    parser.set_defaults(runner=Path(__file__).resolve())
     return parser.parse_args(argv)
 
 
