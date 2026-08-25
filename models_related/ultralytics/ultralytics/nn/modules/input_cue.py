@@ -218,7 +218,9 @@ class InputCueBank(nn.Module):
             response = response.view(y.shape[0], 2, 4, 2, y.shape[2], y.shape[3]).permute(0, 2, 1, 3, 4, 5)
             even, odd = response[:, :, :, 0], response[:, :, :, 1]
             amplitude = (even.square() + odd.square()).sqrt()
-            phase = ((even.sum(dim=2).square() + odd.sum(dim=2).square()).sqrt() / (amplitude.sum(dim=2) + self.eps))
+            amplitude_sum = amplitude.sum(dim=2)
+            numerator = (even.sum(dim=2).square() + odd.sum(dim=2).square()).sqrt()
+            phase = torch.where(amplitude_sum > self.eps, numerator / (amplitude_sum + self.eps), torch.zeros_like(numerator))
             return phase.max(dim=1, keepdim=True).values.clamp(0, 1)
         raise AssertionError(self.cue_type)
 
