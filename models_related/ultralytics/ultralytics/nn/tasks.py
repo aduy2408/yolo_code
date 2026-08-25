@@ -41,6 +41,7 @@ from ultralytics.nn.modules import (
     LocalContrastBasisStem,
     SingleContrastFormationStem,
     SidecarResidualFusionStem,
+    InputCueConv,
     ELAN1,
     OBB,
     OBB26,
@@ -2381,6 +2382,7 @@ def parse_model(d, ch, verbose=True):
             SingleContrastFormationStem,
             SidecarResidualFusionStem,
             LocalBasisDownsample,
+            InputCueConv,
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments

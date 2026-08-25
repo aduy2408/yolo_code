@@ -117,6 +117,7 @@ from .block import (
 from .local_contrast import LocalContrastBasisStem, SingleContrastFormationStem, SidecarResidualFusionStem
 from .local_detail import LocalDetailRepC2f
 from .pconv import C2f_PConv
+from .input_cue import InputCueBank, InputCueConv, VARIANTS as INPUT_CUE_VARIANTS, copy_rgb_stem_weights, cue_channels
 from .conv import (
     CBAM,
     ChannelAttention,
@@ -183,6 +184,11 @@ from .transformer import (
 
 __all__ = (
     "AIFI",
+    "InputCueBank",
+    "InputCueConv",
+    "INPUT_CUE_VARIANTS",
+    "copy_rgb_stem_weights",
+    "cue_channels",
     "C1",
     "C2",
     "C2PSA",
