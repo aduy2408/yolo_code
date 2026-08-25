@@ -157,6 +157,28 @@ a directed acyclic graph (DAG):
 
 These rules keep the kernel, UI, and saved artifact consistent.
 
+## Training Experiment Guardrails
+
+For any multi-run training experiment launched through the marimo workflow:
+
+- Every full run MUST be configured with the requested epoch budget. For the
+  standard ablation protocol, use `epochs=100`.
+- Full runs MUST disable early stopping with `patience=0`. Do not rely on the
+  Ultralytics default, and do not confuse smoke-test `patience=0` with the
+  full-run setting.
+- Every completed run MUST be uploaded to the configured Hugging Face dataset
+  immediately after training and evaluation, before starting the next run.
+  Upload the run directory, checkpoint artifacts, metadata, and current
+  summaries as specified by the experiment.
+- The launcher MUST fail closed if Hugging Face authentication is unavailable.
+  Do not silently add `--no-upload` or proceed with an upload-required
+  experiment without clearly marking the run as blocked and obtaining an
+  explicit user decision.
+- Before launch, inspect and record the effective command-line values for
+  `epochs`, `patience`, upload flags, and Hugging Face repository. After each
+  run, verify the log, local completion marker, and upload result before
+  continuing.
+
 When `cm` submits a cell body, marimo parses its top-level definitions and
 references. A top-level name enters the graph unless it is private with a
 leading underscore.
