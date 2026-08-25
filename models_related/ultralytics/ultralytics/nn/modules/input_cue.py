@@ -142,7 +142,14 @@ class InputCueConv(Conv):
         self.cue_bank = InputCueBank(cue_type)
 
     def forward(self, rgb):
-        return super().forward(torch.cat((rgb, self.cue_bank(rgb)), dim=1))
+        return super().forward(self._with_cue(rgb))
+
+    def forward_fuse(self, rgb):
+        """Apply the fused stem while preserving inside-model cue computation."""
+        return self.act(self.conv(self._with_cue(rgb)))
+
+    def _with_cue(self, rgb):
+        return torch.cat((rgb, self.cue_bank(rgb)), dim=1)
 
 
 def cue_channels(cue_type: str) -> int:

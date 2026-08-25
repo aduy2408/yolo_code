@@ -70,6 +70,14 @@ def test_checkpoint_reload():
     assert torch.equal(source(x), target(x))
 
 
+@pytest.mark.parametrize("cue_type", INPUT_CUE_VARIANTS)
+def test_fused_forward_still_computes_cue(cue_type):
+    stem = InputCueConv(3, 8, 3, 2, cue_type).eval()
+    stem.forward = stem.forward_fuse
+    output = stem(torch.rand(1, 3, 32, 32))
+    assert output.shape == (1, 8, 16, 16)
+
+
 def test_top_hat_uses_opening_not_closing():
     size = 9
     image = torch.zeros(1, 3, size, size)
