@@ -47,7 +47,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
-    uploader = plain.Uploader(args.hf_repo_id)
+    uploader = plain.plain.Uploader(args.hf_repo_id)
     data_yaml = plain.plain.base.prepare_split(args)
     for seed in args.seeds:
         run_dir = plain.plain.train(VARIANT, data_yaml, seed, args)
