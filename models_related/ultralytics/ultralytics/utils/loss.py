@@ -990,7 +990,7 @@ class v8DetectionLoss:
                 raise ValueError("factorized_tal_tau must be in (0, 1]")
             if self.factorized_tal_kappa <= 0 or not 0 <= self.factorized_tal_lambda <= 1 or self.factorized_tal_s_max <= 0:
                 raise ValueError("factorized TAL kappa/s_max must be positive and lambda must be in [0, 1]")
-            if self.factorized_tal_mode not in {"current", "mass_preserve", "geometry", "agreement_gate"}:
+            if self.factorized_tal_mode not in {"legacy", "current", "mass_preserve", "geometry", "agreement_gate"}:
                 raise ValueError(f"unknown factorized_tal_mode: {self.factorized_tal_mode}")
         self.loc_assign = bool(getattr(h, "loc_assign", False))
         self.loc_assign_topk = int(getattr(h, "loc_assign_topk", 3))
@@ -1156,8 +1156,15 @@ class v8DetectionLoss:
         """Return per-GT factorized classification targets and small scalar diagnostics."""
         eps = 1e-12
         mode = self.factorized_tal_mode
-        if mode not in {"current", "mass_preserve", "geometry", "agreement_gate"}:
+        if mode not in {"legacy", "current", "mass_preserve", "geometry", "agreement_gate"}:
             raise ValueError(f"unknown factorized_tal_mode: {mode}")
+        if mode == "legacy":
+            # Exact historical FTAL from commit a68b00e. The ceiling is the
+            # maximum TAL target score itself. Do not substitute recomputed
+            # IoU or the current q.sum(-1)/u_max formulation here.
+            q_max = q.max().clamp_min(eps)
+            q_new = q_max.pow(self.factorized_tal_tau) * (q / q_max).clamp(0, 1).pow(self.factorized_tal_kappa)
+            return q + lam * (torch.where(q > 0, q_new, q) - q), {}
         q_score = q.sum(-1)
         q_max = q_score.max().clamp_min(eps)
         u_max = u.max().clamp_min(eps)
