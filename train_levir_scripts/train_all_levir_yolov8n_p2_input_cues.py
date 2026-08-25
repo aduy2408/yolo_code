@@ -46,14 +46,16 @@ workflow.VARIANTS = CONFIGS
 def model_for(variant: str, pretrained: str):
     workflow.local_ultralytics()
     from ultralytics import YOLO
-    from ultralytics.nn.modules import InputCueConv
+    from ultralytics.nn.modules import InputCueConv, copy_rgb_stem_weights
 
+    rgb_model = YOLO(pretrained)
     model = YOLO(CONFIGS[variant])
     model.load(pretrained, smart_transfer=False)
     if variant != "rgb_control":
         stem = model.model.model[0]
         if not isinstance(stem, InputCueConv):
             raise TypeError(f"Expected InputCueConv stem for {variant}, got {type(stem).__name__}")
+        copy_rgb_stem_weights(model.model, rgb_model.model)
         with __import__("torch").no_grad():
             stem.conv.weight[:, 3:].zero_()
     return model

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import shutil
 from pathlib import Path
 
 import pytest
@@ -69,6 +70,19 @@ def test_checkpoint_reload():
     assert torch.equal(source(x), target(x))
 
 
+def test_top_hat_uses_opening_not_closing():
+    size = 9
+    image = torch.zeros(1, 3, size, size)
+    image[:, :, size // 2, size // 2] = 1
+    cue = InputCueBank("top_hat")(image)
+    assert cue[0, 0, size // 2, size // 2] > 0.99
+
+
+def test_haar_detail_filters_preserve_full_resolution():
+    cue = InputCueBank("haar")(torch.rand(1, 3, 32, 32))
+    assert cue.shape == (1, 3, 32, 32)
+
+
 def test_runner_defaults_and_resolved_configs():
     import train_all_levir_yolov8n_p2_input_cues as runner
 
@@ -77,3 +91,28 @@ def test_runner_defaults_and_resolved_configs():
     assert args.seeds == [42]
     assert set(runner.CONFIGS) == set(runner.VARIANTS)
     assert all(path.is_file() for path in runner.CONFIGS.values())
+
+
+@pytest.mark.skipif(not (ROOT / "yolov8n.pt").is_file(), reason="local pretrained YOLOv8n checkpoint is unavailable")
+def test_runner_model_for_pretrained_identity():
+    """The real runner must copy official RGB stem weights before zeroing cue channels."""
+    import train_all_levir_yolov8n_p2_input_cues as runner
+    from ultralytics import YOLO
+    from ultralytics.nn.modules import InputCueConv
+
+    weights = str(ROOT / "yolov8n.pt")
+    rgb_stem = YOLO(weights).model.eval().model[0]
+    x = torch.rand(2, 3, 64, 64)
+    try:
+        with torch.no_grad():
+            expected = rgb_stem(x)
+        for variant in runner.VARIANTS[1:]:
+            cue_model = runner.model_for(variant, weights).model.eval()
+            cue_stem = cue_model.model[0]
+            assert isinstance(cue_stem, InputCueConv)
+            assert torch.count_nonzero(cue_stem.conv.weight[:, 3:]) == 0
+            with torch.no_grad():
+                actual = cue_stem(x)
+            assert torch.allclose(actual, expected, atol=1e-5, rtol=1e-5), variant
+    finally:
+        shutil.rmtree(runner.GENERATED, ignore_errors=True)

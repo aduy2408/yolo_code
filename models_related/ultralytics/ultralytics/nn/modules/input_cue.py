@@ -56,8 +56,8 @@ class InputCueBank(nn.Module):
         return 0.299 * rgb[:, 0:1] + 0.587 * rgb[:, 1:2] + 0.114 * rgb[:, 2:3]
 
     def sobel(self, image):
-        gx = _kernel([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], image.shape[1], image.device, image.dtype)
-        gy = _kernel([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], image.shape[1], image.device, image.dtype)
+        gx = _kernel([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], image.shape[1], image.device, image.dtype) / 4
+        gy = _kernel([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], image.shape[1], image.device, image.dtype) / 4
         return (
             F.conv2d(image, gx, padding=1, groups=image.shape[1]),
             F.conv2d(image, gy, padding=1, groups=image.shape[1]),
@@ -74,16 +74,25 @@ class InputCueBank(nn.Module):
             lap = F.conv2d(y, _kernel([[0, 1, 0], [1, -4, 1], [0, 1, 0]], 1, y.device, y.dtype), padding=1)
             return torch.cat((lap.relu().clamp(0, 1), (-lap).relu().clamp(0, 1)), dim=1)
         if self.cue_type == "log":
-            blur = F.avg_pool2d(F.pad(y, (1, 1, 1, 1), mode="reflect"), 3, stride=1)
-            log = F.conv2d(blur, _kernel([[0, 1, 0], [1, -4, 1], [0, 1, 0]], 1, y.device, y.dtype), padding=1)
+            coords = torch.arange(-2, 3, device=y.device, dtype=y.dtype)
+            yy, xx = torch.meshgrid(coords, coords, indexing="ij")
+            gaussian = torch.exp(-(xx.square() + yy.square()) / 2)
+            gaussian = gaussian / gaussian.sum()
+            blur = F.conv2d(F.pad(y, (2, 2, 2, 2), mode="reflect"), gaussian.view(1, 1, 5, 5))
+            laplacian = _kernel([[0, 1, 0], [1, -4, 1], [0, 1, 0]], 1, y.device, y.dtype)
+            log = F.conv2d(F.pad(blur, (1, 1, 1, 1), mode="reflect"), laplacian)
             return log.clamp(-1, 1)
         if self.cue_type == "haar":
+            scale = 2**-0.5
             filters = [
-                [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]],
-                [[-1, -1, -1], [0, 0, 0], [1, 1, 1]],
-                [[1, -1, 0], [-1, 0, 1], [0, 1, -1]],
+                [[scale, -scale], [scale, -scale]],
+                [[scale, scale], [-scale, -scale]],
+                [[scale, -scale], [-scale, scale]],
             ]
-            return torch.cat([F.conv2d(y, _kernel(f, 1, y.device, y.dtype), padding=1).clamp(-1, 1) for f in filters], 1)
+            return torch.cat(
+                [F.conv2d(F.pad(y, (0, 1, 0, 1), mode="reflect"), _kernel(f, 1, y.device, y.dtype)).clamp(-1, 1) for f in filters],
+                1,
+            )
         if self.cue_type == "lab_ab":
             rgb_lin = torch.where(rgb > 0.04045, ((rgb + 0.055) / 1.055).pow(2.4), rgb / 12.92)
             r, g, b = rgb_lin[:, 0:1], rgb_lin[:, 1:2], rgb_lin[:, 2:3]
@@ -97,7 +106,7 @@ class InputCueBank(nn.Module):
         if self.cue_type == "ycbcr_cbcr":
             cb = -0.168736 * rgb[:, 0:1] - 0.331264 * rgb[:, 1:2] + 0.5 * rgb[:, 2:3]
             cr = 0.5 * rgb[:, 0:1] - 0.418688 * rgb[:, 1:2] - 0.081312 * rgb[:, 2:3]
-            return torch.cat((cb.clamp(-1, 1), cr.clamp(-1, 1)), 1)
+            return torch.cat(((2 * cb).clamp(-1, 1), (2 * cr).clamp(-1, 1)), 1)
         if self.cue_type == "chromatic_edge":
             rg = rgb[:, 0:1] - rgb[:, 1:2]
             by = rgb[:, 2:3] - (rgb[:, 0:1] + rgb[:, 1:2]) / 2
@@ -115,7 +124,8 @@ class InputCueBank(nn.Module):
             jxx, jyy, jxy = mean(gx.square()), mean(gy.square()), mean(gx * gy)
             return ((jxx - jyy).square() + 4 * jxy.square()).sqrt() / (jxx + jyy + self.eps)
         if self.cue_type == "top_hat":
-            opened = -F.max_pool2d(-F.max_pool2d(y, 5, stride=1, padding=2), 5, stride=1, padding=2)
+            eroded = -F.max_pool2d(-y, 5, stride=1, padding=2)
+            opened = F.max_pool2d(eroded, 5, stride=1, padding=2)
             return (y - opened).clamp(0, 1)
         raise AssertionError(self.cue_type)
 
