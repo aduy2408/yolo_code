@@ -98,7 +98,7 @@ def test_haar_detail_filters_preserve_full_resolution():
 
 def test_new_cues_have_expected_semantics():
     image = torch.full((1, 3, 32, 32), 0.5)
-    image[:, :, 16, 16] = 1.0
+    image[:, :, 15:18, 15:18] = 1.0
     ring = InputCueBank("robust_ring_contrast")(image)
     assert ring[0, 0, 16, 16] > ring[0, 1, 16, 16]
     lbp = InputCueBank("lbp_stats")(torch.full_like(image, 0.5))
