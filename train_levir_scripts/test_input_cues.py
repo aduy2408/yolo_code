@@ -122,6 +122,11 @@ def test_cues_are_detached_inside_stem():
     assert rgb.grad is not None
 
 
+def test_phase_coherence_constant_image_is_near_zero():
+    cue = InputCueBank("phase_coherence")(torch.full((1, 3, 32, 32), 0.5))
+    assert cue.abs().amax() < 1e-4
+
+
 def test_runner_defaults_and_resolved_configs():
     import train_all_levir_yolov8n_p2_input_cues as runner
 

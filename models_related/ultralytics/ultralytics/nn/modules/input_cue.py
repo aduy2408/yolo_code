@@ -112,7 +112,7 @@ class InputCueBank(nn.Module):
             log = F.conv2d(F.pad(blur, (1, 1, 1, 1), mode="reflect"), laplacian)
             return log.clamp(-1, 1)
         if self.cue_type == "haar":
-            scale = 2**-0.5
+            scale = 0.5
             filters = [
                 [[scale, -scale], [scale, -scale]],
                 [[scale, scale], [-scale, -scale]],
@@ -210,13 +210,15 @@ class InputCueBank(nn.Module):
                     envelope = torch.exp(-(x_theta.square() + 0.5**2 * y_theta.square()) / (2 * sigma**2))
                     even = envelope * torch.cos(2 * torch.pi * x_theta / wavelength)
                     odd = envelope * torch.sin(2 * torch.pi * x_theta / wavelength)
+                    even = even - even.mean()
+                    odd = odd - odd.mean()
                     filters.extend((even / (even.abs().sum() + self.eps), odd / (odd.abs().sum() + self.eps)))
             bank = torch.stack(filters).unsqueeze(1)
             response = F.conv2d(F.pad(y, (4, 4, 4, 4), mode="reflect"), bank)
             response = response.view(y.shape[0], 2, 4, 2, y.shape[2], y.shape[3]).permute(0, 2, 1, 3, 4, 5)
             even, odd = response[:, :, :, 0], response[:, :, :, 1]
-            amplitude = (even.square() + odd.square() + self.eps).sqrt()
-            phase = ((even.sum(dim=2).square() + odd.sum(dim=2).square() + self.eps).sqrt() / (amplitude.sum(dim=2) + self.eps))
+            amplitude = (even.square() + odd.square()).sqrt()
+            phase = ((even.sum(dim=2).square() + odd.sum(dim=2).square()).sqrt() / (amplitude.sum(dim=2) + self.eps))
             return phase.max(dim=1, keepdim=True).values.clamp(0, 1)
         raise AssertionError(self.cue_type)
 
