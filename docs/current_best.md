@@ -34,6 +34,8 @@ Canonical model file:
 models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_cbam_channel_only.yaml
 ```
 
+The `cbam` part is a legacy filename from the attention ablation family. It does **not** mean full CBAM is enabled. The YAML contains only `ChannelAttention` at the P2 output. There is no spatial-attention branch.
+
 Required topology:
 
 - `P2 -> GAP ChannelAttention -> shared Detect`
