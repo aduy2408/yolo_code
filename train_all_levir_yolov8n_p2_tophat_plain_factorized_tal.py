@@ -25,6 +25,8 @@ SETTINGS = {
 }
 
 _config = yaml.safe_load(BASE_CONFIG.read_text(encoding="utf-8"))
+_config["ggcf_refine"] = False
+_config["ggcf_geometry"] = False
 _config["backbone"][0] = [-1, 1, "InputCueConv", [64, 3, 2, "top_hat"]]
 CONFIG.parent.mkdir(parents=True, exist_ok=True)
 CONFIG.write_text(yaml.safe_dump(_config, sort_keys=False), encoding="utf-8")
