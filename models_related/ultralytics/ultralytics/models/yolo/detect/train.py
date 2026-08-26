@@ -97,6 +97,10 @@ class DetectionTrainer(BaseTrainer):
             names += ("canonical_teacher_loss",)
         if float(getattr(self.args, "raw_sidecar_gain", 0.0)) > 0:
             names += ("raw_sidecar_loss",)
+        if float(getattr(self.args, "evidence_aux_gain", 0.0)) > 0:
+            names += ("evidence_aux_loss",)
+        if float(getattr(self.args, "aug_state_gain", 0.0)) > 0:
+            names += ("aug_state_loss",)
         return names
 
     def build_dataset(self, img_path: str, mode: str = "train", batch: int | None = None):

@@ -930,6 +930,8 @@ class v8DetectionLoss:
         self.orfs_warmup_end = int(getattr(h, "orfs_warmup_end", 0))
         self.canonical_teacher_gain = float(getattr(h, "canonical_teacher_gain", 0.0))
         self.raw_sidecar_gain = float(getattr(h, "raw_sidecar_gain", 0.0))
+        self.evidence_aux_gain = float(getattr(h, "evidence_aux_gain", 0.0))
+        self.aug_state_gain = float(getattr(h, "aug_state_gain", 0.0))
         self.p2_detail_metrics = {}
         self.rank_gain = float(getattr(h, "rank_loss", 0.0))
         self.rank_tau = float(getattr(h, "rank_tau", 0.25))
@@ -1916,6 +1918,28 @@ class v8DetectionLoss:
         loss = (pos_loss + neg_loss).mean()
         return loss
 
+    def _evidence_aux_loss(self, preds: dict[str, Any], batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        """Supervise the gradient-isolated evidence heatmap using the P2 target."""
+        aux_list = self._p2_detail_aux_list(preds)
+        heatmap_pred = next((aux["evidence_heatmap"] for aux in aux_list if "evidence_heatmap" in aux), None)
+        if heatmap_pred is None:
+            return preds["boxes"].sum() * 0.0
+        target = self._generate_heatmap_target(heatmap_pred.shape[-2:], batch, heatmap_pred.shape[0])
+        pred_sig = torch.sigmoid(heatmap_pred)
+        pos = -target * torch.log(pred_sig + 1e-6) * (1.0 - pred_sig).pow(2)
+        neg = -(1.0 - target) * torch.log(1.0 - pred_sig + 1e-6) * pred_sig.pow(2)
+        return (pos + neg).mean()
+
+    def _aug_state_loss(self, preds: dict[str, Any], batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        """Regress the final-image resolution scale when the dataloader provides it."""
+        aux_list = self._p2_detail_aux_list(preds)
+        pred = next((aux["resolution_pred"] for aux in aux_list if "resolution_pred" in aux), None)
+        target = batch.get("resolution_scale")
+        if pred is None or target is None:
+            return preds["boxes"].sum() * 0.0
+        target = target.to(device=pred.device, dtype=pred.dtype).reshape_as(pred).clamp(0.0, 1.0)
+        return F.smooth_l1_loss(pred, target)
+
     def compute_factorized_support_loss(
         self,
         logits: torch.Tensor,
@@ -2043,7 +2067,9 @@ class v8DetectionLoss:
             + int(self.p2_deep_sup_gain > 0)
             + int(self.orfs_gain > 0)
             + int(self.canonical_teacher_gain > 0)
-            + int(self.raw_sidecar_gain > 0),
+            + int(self.raw_sidecar_gain > 0)
+            + int(getattr(self, "evidence_aux_gain", 0.0) > 0)
+            + int(getattr(self, "aug_state_gain", 0.0) > 0),
             device=self.device,
         )  # box, cls, dfl[, boundary][, loc_quality][, quality][, rank][, psd][, dgfe_rec][, dgfe_spatial][, p2_detail][, p2_deep_sup][, orfs][, canonical_teacher][, raw_sidecar]
         pred_distri, coarse_scores = (
@@ -2779,6 +2805,14 @@ class v8DetectionLoss:
         if self.raw_sidecar_gain > 0:
             loss[dgfe_idx] = self._raw_sidecar_loss(preds, batch) * self.raw_sidecar_gain
             self.p2_detail_metrics["raw_sidecar_applied_loss"] = float(loss[dgfe_idx].detach().item())
+            dgfe_idx += 1
+        if getattr(self, "evidence_aux_gain", 0.0) > 0:
+            loss[dgfe_idx] = self._evidence_aux_loss(preds, batch) * self.evidence_aux_gain
+            self.p2_detail_metrics["evidence_aux_applied_loss"] = float(loss[dgfe_idx].detach().item())
+            dgfe_idx += 1
+        if getattr(self, "aug_state_gain", 0.0) > 0:
+            loss[dgfe_idx] = self._aug_state_loss(preds, batch) * self.aug_state_gain
+            self.p2_detail_metrics["aug_state_applied_loss"] = float(loss[dgfe_idx].detach().item())
             dgfe_idx += 1
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),

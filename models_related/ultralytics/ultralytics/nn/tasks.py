@@ -120,6 +120,9 @@ from ultralytics.nn.modules import (
     ObjectRelativeFeatureSupervisor,
     CanonicalRawCropTeacher,
     RawSidecarSupervised,
+    AugmentationAwareEvidence,
+    GradientIsolatedEvidence,
+    ScaleDisappearanceEvidence,
     P1FusionLocalDetail,
     P1GER,
     P1PlainFusion,
@@ -311,10 +314,12 @@ class BaseModel(torch.nn.Module):
                 x = m(x, img0)
                 if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
-            elif isinstance(m, RawSidecarSupervised):
+            elif isinstance(m, (RawSidecarSupervised, GradientIsolatedEvidence, AugmentationAwareEvidence)):
                 x = m(x, img0)
                 if m.last_aux is not None:
                     p2_detail_aux.append(m.last_aux)
+            elif isinstance(m, ScaleDisappearanceEvidence):
+                x = m(x)
             elif isinstance(m, MaskedP2DetailReconstruction):
                 x = m(x)
                 if m.last_aux is not None:
@@ -373,10 +378,12 @@ class BaseModel(torch.nn.Module):
                 x = m(x, img0)
                 if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
-            elif isinstance(m, RawSidecarSupervised):
+            elif isinstance(m, (RawSidecarSupervised, GradientIsolatedEvidence, AugmentationAwareEvidence)):
                 x = m(x, img0)
                 if m.last_aux is not None:
                     p2_detail_aux.append(m.last_aux)
+            elif isinstance(m, ScaleDisappearanceEvidence):
+                x = m(x)
             elif isinstance(m, MaskedP2DetailReconstruction):
                 x = m(x)
                 if m.last_aux is not None:
@@ -434,10 +441,12 @@ class BaseModel(torch.nn.Module):
                     x = m(x, img0)
                     if m.last_aux is not None:
                         dgfe_aux.append(m.last_aux)
-                elif isinstance(m, RawSidecarSupervised):
+                elif isinstance(m, (RawSidecarSupervised, GradientIsolatedEvidence, AugmentationAwareEvidence)):
                     x = m(x, img0)
                     if m.last_aux is not None:
                         p2_detail_aux.append(m.last_aux)
+                elif isinstance(m, ScaleDisappearanceEvidence):
+                    x = m(x)
                 elif isinstance(m, MaskedP2DetailReconstruction):
                     x = m(x)
                     if m.last_aux is not None:
@@ -2503,6 +2512,16 @@ def parse_model(d, ch, verbose=True):
         elif m in frozenset({BackboneP2DeepSupervision, ObjectRelativeFeatureSupervisor, CanonicalRawCropTeacher, RawSidecarSupervised}):
             c2 = ch[f[0]] if isinstance(f, list) else ch[f]
             args = [c2]
+        elif m in frozenset({GradientIsolatedEvidence, AugmentationAwareEvidence}):
+            c1 = ch[f[0]] if isinstance(f, list) else ch[f]
+            evidence_ch = int(args[0]) if args else 8
+            c2 = c1 + evidence_ch
+            args = [c1, *args]
+        elif m is ScaleDisappearanceEvidence:
+            c_fine, c_coarse = (ch[x] for x in f)
+            out_ch = int(args[0]) if args else 8
+            c2 = out_ch
+            args = [c_fine, c_coarse, out_ch, *args[1:]]
         elif m is ConflictFineReconstruction:
             c2 = ch[f[0]]
             args = [[ch[x] for x in f], *args]

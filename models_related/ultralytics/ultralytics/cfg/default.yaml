@@ -202,6 +202,8 @@ orfs_warmup_start: 5 # (int) ORFS gain warmup start epoch
 orfs_warmup_end: 15 # (int) ORFS gain warmup end epoch
 canonical_teacher_gain: 0.0 # (float) EXPERIMENTAL canonical raw-crop teacher loss gain
 raw_sidecar_gain: 0.0 # (float) EXPERIMENTAL raw sidecar supervision loss gain
+evidence_aux_gain: 0.0 # (float) EXPERIMENTAL gradient-isolated evidence heatmap loss gain
+aug_state_gain: 0.0 # (float) EXPERIMENTAL augmentation-state regression loss gain
 quality_head: false # (bool) EXPERIMENTAL predict IoU quality per anchor for score calibration
 quality_loss: bce # (str) EXPERIMENTAL quality-head loss: bce, bce_balanced, or l1
 quality_gain: 0.5 # (float) EXPERIMENTAL quality-head loss gain for balanced BCE

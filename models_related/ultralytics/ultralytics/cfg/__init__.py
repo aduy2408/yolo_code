@@ -192,6 +192,8 @@ CFG_FLOAT_KEYS = frozenset(
         "orfs_warmup_end",
         "canonical_teacher_gain",
         "raw_sidecar_gain",
+        "evidence_aux_gain",
+        "aug_state_gain",
         "quality_gain",
         "quality_neg_gain",
         "quality_pos_iou_thr",

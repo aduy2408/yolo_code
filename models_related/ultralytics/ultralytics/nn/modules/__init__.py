@@ -181,6 +181,7 @@ from .transformer import (
     TransformerEncoderLayer,
     TransformerLayer,
 )
+from .evidence import AugmentationAwareEvidence, GradientIsolatedEvidence, ScaleDisappearanceEvidence
 
 __all__ = (
     "AIFI",
@@ -235,6 +236,9 @@ __all__ = (
     "ObjectRelativeFeatureSupervisor",
     "CanonicalRawCropTeacher",
     "RawSidecarSupervised",
+    "GradientIsolatedEvidence",
+    "AugmentationAwareEvidence",
+    "ScaleDisappearanceEvidence",
     "C3CBAM",
     "C3Ghost",
     "C3k2",

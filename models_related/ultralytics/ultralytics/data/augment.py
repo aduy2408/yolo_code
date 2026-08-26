@@ -3306,6 +3306,7 @@ class ResolutionDegrade(BaseTransform):
         self.p, self.scale, self.dataset = float(p), tuple(map(float, scale)), dataset
 
     def __call__(self, labels):
+        labels["resolution_scale"] = 1.0
         if self.p <= 0 or random.random() >= self.p:
             return labels
         image = labels["img"]
@@ -3313,6 +3314,7 @@ class ResolutionDegrade(BaseTransform):
         scale = random.uniform(*self.scale)
         small = cv2.resize(image, (max(32, round(w * scale)), max(32, round(h * scale))), interpolation=cv2.INTER_AREA)
         labels["img"] = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+        labels["resolution_scale"] = scale
         if self.dataset is not None:
             self.dataset.images_degraded = getattr(self.dataset, "images_degraded", 0) + 1
             self.dataset.resolution_scales = getattr(self.dataset, "resolution_scales", [])
