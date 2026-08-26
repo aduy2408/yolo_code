@@ -3065,10 +3065,21 @@ class AlternatePartialClipPipeline:
         )
         self.clean_control_enabled = bool(getattr(hyp, "clean_control_enabled", False))
         self.viewport_mosaic_enabled = bool(getattr(hyp, "viewport_mosaic_enabled", False))
+        self.mosaic_postprocess_enabled = bool(getattr(hyp, "mosaic_postprocess_enabled", False))
         self.viewport_enabled = bool(getattr(hyp, "viewport_enabled", False))
         self.occlusion_enabled = bool(getattr(hyp, "occlusion_enabled", False))
         self.resolution_enabled = bool(getattr(hyp, "resolution_enabled", False))
         self.mosaic = Mosaic(dataset, imgsz=imgsz, p=getattr(hyp, "mosaic", 0.0))
+        self.mosaic_random_perspective = RandomPerspective(
+            degrees=hyp.degrees,
+            translate=hyp.translate,
+            scale=hyp.scale,
+            shear=hyp.shear,
+            perspective=hyp.perspective,
+            size=(imgsz, imgsz),
+        )
+        if self.viewport_mosaic_enabled:
+            self.viewport.p = 1.0
         self.viewport.output_size = (imgsz, imgsz)
         
     def __call__(self, labels: dict) -> dict:
@@ -3076,9 +3087,20 @@ class AlternatePartialClipPipeline:
         import random
 
         variant = os.environ.get("YOLO_VARIANT", "")
-        custom = self.clean_control_enabled or self.viewport_mosaic_enabled or self.viewport_enabled or self.occlusion_enabled or self.resolution_enabled
+        custom = (
+            self.clean_control_enabled
+            or self.viewport_mosaic_enabled
+            or self.mosaic_postprocess_enabled
+            or self.viewport_enabled
+            or self.occlusion_enabled
+            or self.resolution_enabled
+        )
         if custom:
-            labels = self.mosaic(labels) if self.viewport_mosaic_enabled else self.letterbox(labels)
+            if self.mosaic_postprocess_enabled:
+                labels = self.mosaic(labels)
+                labels = self.mosaic_random_perspective(labels)
+            else:
+                labels = self.mosaic(labels) if self.viewport_mosaic_enabled else self.letterbox(labels)
             if self.viewport_enabled:
                 labels = self.viewport(labels)
             if self.occlusion_enabled:

@@ -16,6 +16,27 @@ AUGMENTATIONS = {
     "resolution_degrade": {"resolution_enabled": True, "mosaic": 0.0},
     "viewport_occlusion": {"viewport_enabled": True, "occlusion_enabled": True, "mosaic": 0.0},
     "viewport_mosaic": {"viewport_mosaic_enabled": True, "viewport_enabled": True, "mosaic": 1.0},
+    "mosaic_occlusion": {"mosaic_postprocess_enabled": True, "occlusion_enabled": True, "mosaic": 1.0},
+    "mosaic_resolution_degrade": {"mosaic_postprocess_enabled": True, "resolution_enabled": True, "mosaic": 1.0},
+    "mosaic_occlusion_resolution": {
+        "mosaic_postprocess_enabled": True,
+        "occlusion_enabled": True,
+        "resolution_enabled": True,
+        "mosaic": 1.0,
+    },
+    "viewport_mosaic_occlusion": {
+        "viewport_mosaic_enabled": True,
+        "viewport_enabled": True,
+        "occlusion_enabled": True,
+        "mosaic": 1.0,
+    },
+    "viewport_mosaic_all": {
+        "viewport_mosaic_enabled": True,
+        "viewport_enabled": True,
+        "occlusion_enabled": True,
+        "resolution_enabled": True,
+        "mosaic": 1.0,
+    },
 }
 
 
