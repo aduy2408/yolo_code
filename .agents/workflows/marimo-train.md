@@ -224,6 +224,7 @@ A useful status report distinguishes:
 
 ```text
 process_alive
+observed_status
 process_command
 latest_artifact_mtime
 log_mtime
@@ -231,9 +232,11 @@ required_artifacts
 upload_verified
 ```
 
-`process_alive=true` does not mean training is progressing. Check epoch/log or
-artifact timestamps when diagnosing a stall. Check `nvidia-smi` only when GPU
-state is relevant.
+`process_alive=true` does not mean training is progressing. When the PID is
+dead, use `observed_status` rather than trusting a stale `state.json`:
+`not_running_unverified` is not completion. Check epoch/log or artifact
+timestamps when diagnosing a stall. Check `nvidia-smi` only when GPU state is
+relevant.
 
 ## 8. Recovery rules
 

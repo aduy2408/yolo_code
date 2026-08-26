@@ -264,15 +264,28 @@ def status(run_dir: Path, *, pid_file: str = "train.pid", log_file: str = "train
             pass
     alive = is_pid_alive(pid) if pid is not None else False
     latest = newest_mtime(run_dir)
+    state = read_json(state_path) if state_path.is_file() else None
+    required_present = all(
+        (run_dir / item).is_file() for item in DEFAULT_REQUIRED_ARTIFACTS
+    )
+    if alive:
+        observed_status = "running"
+    elif (run_dir / "upload_complete.json").is_file() and required_present:
+        observed_status = "complete_verified"
+    elif latest is not None or state is not None:
+        observed_status = "not_running_unverified"
+    else:
+        observed_status = "not_started_or_unknown"
     result = {
         "run_dir": str(run_dir),
         "pid": pid,
         "process_alive": alive,
+        "observed_status": observed_status,
         "process_command": process_command(pid) if alive and pid else "",
         "latest_artifact_mtime": latest,
         "log_exists": log_path.is_file(),
         "log_mtime": log_path.stat().st_mtime if log_path.is_file() else None,
-        "state": read_json(state_path) if state_path.is_file() else None,
+        "state": state,
         "upload_verified": (run_dir / "upload_complete.json").is_file(),
         "required_artifacts": {
             item: (run_dir / item).is_file() for item in DEFAULT_REQUIRED_ARTIFACTS
