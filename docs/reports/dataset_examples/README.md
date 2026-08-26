@@ -13,7 +13,7 @@ For LEVIR-Ship and TinyPerson, original-plus-zoom figures are also available und
 - `zoomed_examples/levir_ship/`
 - `zoomed_examples/tiny_person/`
 
-These figures show the full image with red ground-truth boxes, a yellow dashed crop region, connector lines, and an enlarged crop with the red boxes repeated. The crop is a fixed local window selected to contain the densest nearby group of ground-truth objects, rather than the union of all annotations in the image.
+These figures show the full image with red ground-truth boxes, a yellow dashed crop region, connector lines, and an enlarged crop with the red boxes repeated. The crop is tightly centered on one object; a second object is included only when its center is very close to the first.
 
 Recreate them from the repository root with:
 
