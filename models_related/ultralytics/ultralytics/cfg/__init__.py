@@ -329,6 +329,7 @@ CFG_INT_KEYS = frozenset(
         "hf_atten_blur_kernel",
         "hf_atten_mask_grid",
         "viewport_min_box_size",
+        "clean_tail_epoch",
         "ring_radius",
         "ggcf_patch",
         "ggcf_infer_k",

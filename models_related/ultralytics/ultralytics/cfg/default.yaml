@@ -129,6 +129,7 @@ factorized_tal_warmup_start: 5 # (int) EXPERIMENTAL epoch before factorized TAL 
 factorized_tal_warmup_end: 15 # (int) EXPERIMENTAL epoch where factorized TAL reaches full strength
 factorized_tal_p2_only: true # (bool) EXPERIMENTAL apply factorized TAL targets only to P2 positives
 viewport_enabled: false # (bool) EXPERIMENTAL enable RandomViewport through the training variant
+clean_tail_epoch: null # (int) switch scheduled custom augmentation back to canonical Mosaic + RandomPerspective
 viewport_p: 0.5 # (float) RandomViewport image probability
 viewport_scale_min: 0.8 # (float) RandomViewport minimum isotropic scale
 viewport_scale_max: 1.25 # (float) RandomViewport maximum isotropic scale

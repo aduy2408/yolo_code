@@ -3069,6 +3069,7 @@ class AlternatePartialClipPipeline:
         self.viewport_enabled = bool(getattr(hyp, "viewport_enabled", False))
         self.occlusion_enabled = bool(getattr(hyp, "occlusion_enabled", False))
         self.resolution_enabled = bool(getattr(hyp, "resolution_enabled", False))
+        self.clean_tail_epoch = getattr(hyp, "clean_tail_epoch", None)
         self.mosaic = Mosaic(dataset, imgsz=imgsz, p=getattr(hyp, "mosaic", 0.0))
         self.mosaic_random_perspective = RandomPerspective(
             degrees=hyp.degrees,
@@ -3096,6 +3097,16 @@ class AlternatePartialClipPipeline:
             or self.resolution_enabled
         )
         if custom:
+            # Late clean tail: use the canonical Mosaic -> RandomPerspective path
+            # after the scheduled regularization phase.
+            epoch = getattr(self.dataset, "epoch", None)
+            if self.clean_tail_epoch is not None and epoch is not None and epoch >= self.clean_tail_epoch:
+                labels = self.mosaic(labels)
+                labels = self.mosaic_random_perspective(labels)
+                labels = self.hsv(labels)
+                labels = self.flip_lr(labels)
+                labels = self.flip_ud(labels)
+                return labels
             if self.mosaic_postprocess_enabled:
                 labels = self.mosaic(labels)
                 labels = self.mosaic_random_perspective(labels)
