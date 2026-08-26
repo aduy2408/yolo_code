@@ -17,7 +17,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+from matplotlib.patches import ConnectionPatch, Rectangle
 from PIL import Image, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -131,6 +131,60 @@ def plot_sheet(items, dataset_label: str, class_name: str, output_path: Path) ->
     plt.close(fig)
 
 
+def zoom_bounds(boxes: list[tuple[float, float, float, float]], width: int, height: int) -> tuple[int, int, int, int]:
+    """Return a padded crop containing all annotated objects."""
+    x1 = min(box[0] for box in boxes)
+    y1 = min(box[1] for box in boxes)
+    x2 = max(box[2] for box in boxes)
+    y2 = max(box[3] for box in boxes)
+    padding = max(24.0, 0.75 * max(x2 - x1, y2 - y1))
+    return (
+        max(0, int(x1 - padding)),
+        max(0, int(y1 - padding)),
+        min(width, int(x2 + padding)),
+        min(height, int(y2 + padding)),
+    )
+
+
+def plot_zoom_one(item, output_path: Path) -> None:
+    """Plot the full image with a crop indication next to its enlarged view."""
+    _, image_path, label_path = item
+    image = Image.open(image_path).convert("RGB")
+    width, height = image.size
+    boxes = read_boxes(label_path, width, height)
+    left, top, right, bottom = zoom_bounds(boxes, width, height)
+    crop = image.crop((left, top, right, bottom))
+
+    fig, (ax_original, ax_zoom) = plt.subplots(
+        1, 2, figsize=(11, 5.8), dpi=180, gridspec_kw={"width_ratios": (1.15, 1)}
+    )
+    box_color = "#ff3b30"
+    crop_color = "#ffd60a"
+    line_width = max(1.8, min(width, height) / 120)
+
+    ax_original.imshow(image)
+    for x1, y1, x2, y2 in boxes:
+        ax_original.add_patch(Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, edgecolor=box_color, linewidth=line_width))
+    ax_original.add_patch(
+        Rectangle((left, top), right - left, bottom - top, fill=False, edgecolor=crop_color, linewidth=line_width * 1.4, linestyle="--")
+    )
+    ax_original.axis("off")
+
+    ax_zoom.imshow(crop)
+    for x1, y1, x2, y2 in boxes:
+        ax_zoom.add_patch(Rectangle((x1 - left, y1 - top), x2 - x1, y2 - y1, fill=False, edgecolor=box_color, linewidth=line_width * 1.2))
+    ax_zoom.text(0.03, 0.97, "ZOOM", transform=ax_zoom.transAxes, va="top", ha="left", color="#111111", fontsize=11, weight="bold", bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none", "pad": 2})
+    ax_zoom.axis("off")
+
+    # Explicit connectors make the crop-to-zoom relationship clear in a report.
+    for source_xy, target_xy in [((right, top), (0, 1)), ((right, bottom), (0, 0))]:
+        fig.add_artist(ConnectionPatch(source_xy, target_xy, coordsA=ax_original.transData, coordsB=ax_zoom.transAxes, color=crop_color, linewidth=1.4, alpha=0.9))
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0.08)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", choices=["all", *DATASETS], default="all")
@@ -148,6 +202,10 @@ def main() -> None:
         for index, item in enumerate(items, start=1):
             plot_one(item, config["label"], config["class_name"], dataset_dir / f"example_{index}.png", index)
         plot_sheet(items, config["label"], config["class_name"], dataset_dir / "contact_sheet.png")
+        if name in {"levir_ship", "tiny_person"}:
+            zoom_dir = args.output_dir / "zoomed_examples" / name
+            for index, item in enumerate(items, start=1):
+                plot_zoom_one(item, zoom_dir / f"example_{index}.png")
         print(f"{name}: " + ", ".join(f"{count} boxes ({path.name})" for count, path, _ in items))
         print(f"  output: {dataset_dir}")
 

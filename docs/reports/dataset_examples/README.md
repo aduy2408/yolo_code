@@ -8,6 +8,13 @@ These figures show ground-truth YOLO bounding boxes in red for three validation 
 
 Each directory contains `example_1.png` through `example_3.png` and a `contact_sheet.png` for direct use in the report.
 
+For LEVIR-Ship and TinyPerson, original-plus-zoom figures are also available under:
+
+- `zoomed_examples/levir_ship/`
+- `zoomed_examples/tiny_person/`
+
+These figures show the full image with red ground-truth boxes, a yellow dashed crop region, connector lines, and an enlarged crop with the red boxes repeated.
+
 Recreate them from the repository root with:
 
 ```bash
