@@ -226,7 +226,7 @@ def main() -> None:
         plot_sheet(items, config["label"], config["class_name"], dataset_dir / "contact_sheet.png")
         if name in {"levir_ship", "tiny_person"}:
             zoom_dir = args.output_dir / "zoomed_examples" / name
-            crop_fraction = (0.55, 0.55) if name == "levir_ship" else (0.38, 0.48)
+            crop_fraction = (0.60, 0.60) if name == "levir_ship" else (0.38, 0.48)
             for index, item in enumerate(items, start=1):
                 plot_zoom_one(item, zoom_dir / f"example_{index}.png", crop_fraction)
         print(f"{name}: " + ", ".join(f"{count} boxes ({path.name})" for count, path, _ in items))
