@@ -85,6 +85,24 @@ mosaic: 1.0
 close_mosaic: 10
 translate: 0.1
 scale: 0.5
+degrees: 0.0
+shear: 0.0
+perspective: 0.0
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+flipud: 0.0
+fliplr: 0.5
+bgr: 0.0
+mixup: 0.0
+cutmix: 0.0
+copy_paste: 0.0
+```
+
+Training therefore uses the normal single-image/mosaic Ultralytics path: Mosaic followed by RandomPerspective,
+then HSV and flips. `close_mosaic: 10` disables Mosaic for only the final ten epochs; RandomPerspective remains active.
+This is distinct from the matched augmentation-control experiments, which explicitly set `mosaic: 0.0` and use
+`LetterBox -> HSV -> flip` as the clean control.
 
 ## Canonical launcher
 
