@@ -3184,8 +3184,6 @@ class RandomViewport(BaseTransform):
             labels["bboxes"] = boxes[keep]
             if "cls" in labels:
                 labels["cls"] = np.asarray(labels["cls"])[keep]
-            labels["viewport_visibility"] = visibility[keep]
-            labels["viewport_scale"] = scale
             return labels
         if instances is None or not len(instances):
             return labels
@@ -3196,8 +3194,6 @@ class RandomViewport(BaseTransform):
         labels["instances"] = filter_instances(instances, keep)
         labels["instances"].update(bboxes=boxes[keep])
         labels["cls"] = labels["cls"][keep]
-        labels["viewport_visibility"] = visibility[keep]
-        labels["viewport_scale"] = scale
         if self.dataset is not None:
             self.dataset.viewport_applied = getattr(self.dataset, "viewport_applied", 0) + 1
             self.dataset.viewport_gt_before = getattr(self.dataset, "viewport_gt_before", 0) + len(keep)
