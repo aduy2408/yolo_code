@@ -340,32 +340,35 @@ def predict_merged_test(run_dir: Path, test_out_dir: Path, data_root: Path, args
     image_paths = [str(test_out_dir / "images" / f"test_{record['image_id']}.jpg") for record in records]
     by_original: dict[int, list[dict]] = defaultdict(list)
     model = YOLO(run_dir / "weights/best.pt")
-    predictions = model.predict(
-        source=image_paths,
-        imgsz=args.imgsz,
-        batch=args.batch_size,
-        device=args.device,
-        workers=args.workers,
-        conf=0.001,
-        iou=0.5,
-        max_det=300,
-        stream=True,
-        verbose=False,
-    )
-    for record, result in zip(records, predictions):
-        original_id = original_id_by_name[record["file_name"]]
-        corner = record["corner"]
-        boxes = result.boxes
-        if boxes is None or len(boxes) == 0:
-            continue
-        xyxy = boxes.xyxy.detach().cpu().tolist()
-        scores = boxes.conf.detach().cpu().tolist()
-        classes = boxes.cls.detach().cpu().tolist()
-        for box, score, cls in zip(xyxy, scores, classes):
-            if int(cls) != 0:
+    chunk_size = max(args.batch_size * 8, 32)
+    for start in range(0, len(records), chunk_size):
+        chunk_records = records[start : start + chunk_size]
+        predictions = model.predict(
+            source=image_paths[start : start + chunk_size],
+            imgsz=args.imgsz,
+            batch=args.batch_size,
+            device=args.device,
+            workers=args.workers,
+            conf=0.001,
+            iou=0.5,
+            max_det=300,
+            stream=True,
+            verbose=False,
+        )
+        for record, result in zip(chunk_records, predictions):
+            original_id = original_id_by_name[record["file_name"]]
+            corner = record["corner"]
+            boxes = result.boxes
+            if boxes is None or len(boxes) == 0:
                 continue
-            translated = [box[0] + corner[0], box[1] + corner[1], box[2] + corner[0], box[3] + corner[1]]
-            by_original[original_id].append({"xyxy": translated, "score": float(score)})
+            xyxy = boxes.xyxy.detach().cpu().tolist()
+            scores = boxes.conf.detach().cpu().tolist()
+            classes = boxes.cls.detach().cpu().tolist()
+            for box, score, cls in zip(xyxy, scores, classes):
+                if int(cls) != 0:
+                    continue
+                translated = [box[0] + corner[0], box[1] + corner[1], box[2] + corner[0], box[3] + corner[1]]
+                by_original[original_id].append({"xyxy": translated, "score": float(score)})
 
     detections = []
     for original_id, items in by_original.items():
@@ -439,7 +442,7 @@ def train(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace) ->
         amp=True,
         plots=False,
         project=str(args.project / variant),
-        name=f"seed_{seed}",
+        name=f"seed_{seed}_corner_sw640_sh512",
         exist_ok=True,
         **VARIANTS[variant],
     )
