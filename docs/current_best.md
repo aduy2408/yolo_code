@@ -75,6 +75,17 @@ checkpoint: best.pt
 
 The fixed LEVIR-Ship split is 2,320 train, 788 validation, and 788 test images.
 
+## Canonical augmentation protocol
+
+The canonical launcher does not override the Ultralytics augmentation hyperparameters, so the reference run uses the
+standard defaults from `models_related/ultralytics/ultralytics/cfg/default.yaml`:
+
+```yaml
+mosaic: 1.0
+close_mosaic: 10
+translate: 0.1
+scale: 0.5
+
 ## Canonical launcher
 
 The exact runner is:
