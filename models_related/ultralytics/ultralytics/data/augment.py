@@ -3051,12 +3051,37 @@ class AlternatePartialClipPipeline:
         self.flip_ud = RandomFlip(direction="vertical", p=hyp.flipud, flip_idx=flip_idx)
         self.partial_clip = TargetedPartialClip(dataset)
         self.partial_clip.p_max = 1.0  # Apply 100% since routing probability is handled here
+        self.viewport = RandomViewport(
+            p=getattr(hyp, "viewport_p", 0.5), scale=(getattr(hyp, "viewport_scale_min", 0.8), getattr(hyp, "viewport_scale_max", 1.25)),
+            translate=getattr(hyp, "viewport_translate", 0.15), min_visibility=getattr(hyp, "viewport_min_visibility", 0.4),
+            min_box_size=getattr(hyp, "viewport_min_box_size", 2), fill=getattr(hyp, "viewport_fill", 114), dataset=dataset,
+        )
+        self.occlusion = BBoxPartialOcclusion(
+            p=getattr(hyp, "occlusion_p", 0.3), object_prob=getattr(hyp, "occlusion_object_prob", 0.5),
+            occ_ratio=(getattr(hyp, "occlusion_min", 0.1), getattr(hyp, "occlusion_max", 0.35)), dataset=dataset,
+        )
+        self.resolution = ResolutionDegrade(
+            p=getattr(hyp, "resolution_p", 0.25), scale=(getattr(hyp, "resolution_scale_min", 0.65), getattr(hyp, "resolution_scale_max", 1.0)), dataset=dataset,
+        )
         
     def __call__(self, labels: dict) -> dict:
         import os
         import random
         
         variant = os.environ.get("YOLO_VARIANT", "")
+        custom = any(name in variant for name in ("random_viewport", "bbox_occlusion", "resolution_degrade"))
+        if custom:
+            labels = self.letterbox(labels)
+            if "random_viewport" in variant:
+                labels = self.viewport(labels)
+            if "bbox_occlusion" in variant:
+                labels = self.occlusion(labels)
+            if "resolution_degrade" in variant:
+                labels = self.resolution(labels)
+            labels = self.hsv(labels)
+            labels = self.flip_lr(labels)
+            labels = self.flip_ud(labels)
+            return labels
         if "partial_clip" not in variant:
             return self.normal_pipeline(labels)
             
@@ -3071,6 +3096,167 @@ class AlternatePartialClipPipeline:
         else:
             return self.normal_pipeline(labels)
 
+
+
+def crop_pad(image: np.ndarray, x0: int, y0: int, out_w: int, out_h: int, fill: int = 114) -> np.ndarray:
+    """Crop at ``(x0, y0)`` and pad outside pixels to a fixed output size."""
+    canvas = np.full((out_h, out_w, image.shape[2]), fill, dtype=image.dtype)
+    sx1, sy1 = max(0, x0), max(0, y0)
+    sx2, sy2 = min(image.shape[1], x0 + out_w), min(image.shape[0], y0 + out_h)
+    if sx2 <= sx1 or sy2 <= sy1:
+        return canvas
+    dx, dy = max(0, -x0), max(0, -y0)
+    canvas[dy:dy + sy2 - sy1, dx:dx + sx2 - sx1] = image[sy1:sy2, sx1:sx2]
+    return canvas
+
+
+def viewport_boxes(boxes: np.ndarray, x0: int, y0: int, width: int, height: int,
+                   min_visibility: float = 0.4, min_box_size: float = 2.0):
+    """Translate, clip, and visibility-filter absolute ``xyxy`` boxes."""
+    boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+    shifted = boxes.copy()
+    shifted[:, [0, 2]] -= x0
+    shifted[:, [1, 3]] -= y0
+    before = np.clip(shifted[:, 2] - shifted[:, 0], 0, None) * np.clip(shifted[:, 3] - shifted[:, 1], 0, None)
+    clipped = shifted.copy()
+    clipped[:, [0, 2]] = clipped[:, [0, 2]].clip(0, width)
+    clipped[:, [1, 3]] = clipped[:, [1, 3]].clip(0, height)
+    after = np.clip(clipped[:, 2] - clipped[:, 0], 0, None) * np.clip(clipped[:, 3] - clipped[:, 1], 0, None)
+    visibility = after / (before + 1e-9)
+    keep = (visibility >= min_visibility) & ((clipped[:, 2] - clipped[:, 0]) >= min_box_size) & ((clipped[:, 3] - clipped[:, 1]) >= min_box_size)
+    return clipped, keep, visibility
+
+
+class RandomViewport(BaseTransform):
+    """Random isotropic scale, translation, crop/pad, and bbox clipping."""
+
+    def __init__(self, p=0.5, scale=(0.8, 1.25), translate=0.15, min_visibility=0.4,
+                 min_box_size=2, fill=114, dataset=None):
+        self.p, self.scale, self.translate = float(p), tuple(map(float, scale)), float(translate)
+        self.min_visibility, self.min_box_size, self.fill, self.dataset = float(min_visibility), float(min_box_size), int(fill), dataset
+
+    def __call__(self, labels):
+        if self.p <= 0 or random.random() >= self.p:
+            return labels
+        image = labels["img"]
+        h, w = image.shape[:2]
+        scale = random.uniform(*self.scale)
+        nw, nh = max(1, round(w * scale)), max(1, round(h * scale))
+        resized = cv2.resize(image, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        x0 = int(round((nw - w) / 2 + random.uniform(-self.translate, self.translate) * w))
+        y0 = int(round((nh - h) / 2 + random.uniform(-self.translate, self.translate) * h))
+        labels["img"] = crop_pad(resized, x0, y0, w, h, self.fill)
+        instances = labels.get("instances")
+        if instances is None and "bboxes" in labels:
+            boxes, keep, visibility = viewport_boxes(np.asarray(labels["bboxes"], dtype=np.float32) * scale, x0, y0, w, h, self.min_visibility, self.min_box_size)
+            labels["bboxes"] = boxes[keep]
+            if "cls" in labels:
+                labels["cls"] = np.asarray(labels["cls"])[keep]
+            labels["viewport_visibility"] = visibility[keep]
+            labels["viewport_scale"] = scale
+            return labels
+        if instances is None or not len(instances):
+            return labels
+        if instances.normalized:
+            instances.denormalize(w, h)
+        instances.convert_bbox("xyxy")
+        boxes, keep, visibility = viewport_boxes(instances.bboxes * scale, x0, y0, w, h, self.min_visibility, self.min_box_size)
+        labels["instances"] = instances[keep]
+        labels["instances"].update(bboxes=boxes[keep])
+        labels["cls"] = labels["cls"][keep]
+        labels["viewport_visibility"] = visibility[keep]
+        labels["viewport_scale"] = scale
+        if self.dataset is not None:
+            self.dataset.viewport_applied = getattr(self.dataset, "viewport_applied", 0) + 1
+            self.dataset.viewport_gt_before = getattr(self.dataset, "viewport_gt_before", 0) + len(keep)
+            self.dataset.viewport_gt_after = getattr(self.dataset, "viewport_gt_after", 0) + int(keep.sum())
+            self.dataset.viewport_visibility_logged = getattr(self.dataset, "viewport_visibility_logged", [])
+            self.dataset.viewport_visibility_logged.extend(visibility.tolist())
+        return labels
+
+
+class BBoxPartialOcclusion(BaseTransform):
+    """Occlude a random edge of selected ground-truth boxes without changing labels."""
+
+    def __init__(self, p=0.3, object_prob=0.5, occ_ratio=(0.1, 0.35), mode="edge", fill="local_mean", dataset=None):
+        if mode != "edge":
+            raise ValueError("BBoxPartialOcclusion currently supports mode='edge' only")
+        self.p, self.object_prob, self.occ_ratio, self.fill, self.dataset = float(p), float(object_prob), tuple(map(float, occ_ratio)), fill, dataset
+
+    def __call__(self, labels):
+        if self.p <= 0 or random.random() >= self.p:
+            return labels
+        image, instances = labels["img"], labels.get("instances")
+        if instances is None and "bboxes" in labels:
+            boxes = np.asarray(labels["bboxes"], dtype=np.float32).reshape(-1, 4)
+            h, w = image.shape[:2]
+            for x1, y1, x2, y2 in boxes.astype(int):
+                if random.random() >= self.object_prob:
+                    continue
+                ratio, side = random.uniform(*self.occ_ratio), random.choice(("left", "right", "top", "bottom"))
+                if side in ("left", "right"):
+                    amount = max(1, round((x2 - x1) * ratio))
+                    ox1, ox2 = (x1, x1 + amount) if side == "left" else (x2 - amount, x2)
+                    oy1, oy2 = y1, y2
+                else:
+                    amount = max(1, round((y2 - y1) * ratio))
+                    oy1, oy2 = (y1, y1 + amount) if side == "top" else (y2 - amount, y2)
+                    ox1, ox2 = x1, x2
+                ox1, oy1, ox2, oy2 = max(0, ox1), max(0, oy1), min(w, ox2), min(h, oy2)
+                if ox2 > ox1 and oy2 > oy1:
+                    value = image.mean(axis=(0, 1)) if self.fill == "local_mean" else self.fill
+                    image[oy1:oy2, ox1:ox2] = np.asarray(value, dtype=image.dtype)
+            return labels
+        if instances is None or not len(instances):
+            return labels
+        h, w = image.shape[:2]
+        if instances.normalized:
+            instances.denormalize(w, h)
+        instances.convert_bbox("xyxy")
+        count = 0
+        for x1, y1, x2, y2 in instances.bboxes.astype(int):
+            if random.random() >= self.object_prob:
+                continue
+            ratio, side = random.uniform(*self.occ_ratio), random.choice(("left", "right", "top", "bottom"))
+            if side in ("left", "right"):
+                amount = max(1, round((x2 - x1) * ratio))
+                ox1, ox2 = (x1, x1 + amount) if side == "left" else (x2 - amount, x2)
+                oy1, oy2 = y1, y2
+            else:
+                amount = max(1, round((y2 - y1) * ratio))
+                oy1, oy2 = (y1, y1 + amount) if side == "top" else (y2 - amount, y2)
+                ox1, ox2 = x1, x2
+            ox1, oy1, ox2, oy2 = max(0, ox1), max(0, oy1), min(w, ox2), min(h, oy2)
+            if ox2 <= ox1 or oy2 <= oy1:
+                continue
+            value = image.mean(axis=(0, 1)) if self.fill == "local_mean" else self.fill
+            image[oy1:oy2, ox1:ox2] = np.asarray(value, dtype=image.dtype)
+            count += 1
+        if count and self.dataset is not None:
+            self.dataset.images_occluded = getattr(self.dataset, "images_occluded", 0) + 1
+            self.dataset.objects_occluded = getattr(self.dataset, "objects_occluded", 0) + count
+        return labels
+
+
+class ResolutionDegrade(BaseTransform):
+    """Downsample and restore an image to simulate limited sensor resolution."""
+
+    def __init__(self, p=0.25, scale=(0.65, 1.0), dataset=None):
+        self.p, self.scale, self.dataset = float(p), tuple(map(float, scale)), dataset
+
+    def __call__(self, labels):
+        if self.p <= 0 or random.random() >= self.p:
+            return labels
+        image = labels["img"]
+        h, w = image.shape[:2]
+        scale = random.uniform(*self.scale)
+        small = cv2.resize(image, (max(32, round(w * scale)), max(32, round(h * scale))), interpolation=cv2.INTER_AREA)
+        labels["img"] = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+        if self.dataset is not None:
+            self.dataset.images_degraded = getattr(self.dataset, "images_degraded", 0) + 1
+            self.dataset.resolution_scales = getattr(self.dataset, "resolution_scales", [])
+            self.dataset.resolution_scales.append(scale)
+        return labels
 
 
 # Classification augmentations -----------------------------------------------------------------------------------------
