@@ -159,6 +159,13 @@ These rules keep the kernel, UI, and saved artifact consistent.
 
 ## Training Experiment Guardrails
 
+When the live notebook is being used to train or evaluate models, also read
+the repository policy workflow `.agents/workflows/marimo-train.md`. Use the
+repository helper `utils/marimo_ops.py` for deterministic preflight, detached
+launch, status, and artifact checks instead of recreating those snippets in a
+scratchpad. The skill owns live-kernel interaction; the workflow and helper
+own experiment execution and evidence.
+
 For any multi-run training experiment launched through the marimo workflow:
 
 - Every full run MUST be configured with the requested epoch budget. For the

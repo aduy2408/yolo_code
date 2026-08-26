@@ -1,113 +1,279 @@
 ---
-description: Hướng dẫn phát triển code tại local và chạy huấn luyện YOLO trên Marimo
+description: Canonical local-to-Marimo training workflow with deterministic preflight, detached launch, monitoring, recovery, and upload verification
 ---
-# Local to Marimo Training Workflow
+# Canonical Local → Marimo Training Workflow
 
-Sử dụng checklist này khi bạn muốn phát triển/cải tiến mô hình ở local và đẩy lên chạy huấn luyện trên server Marimo.
-Hãy chú ý răng khi được nhắc để dùng workflow này, nếu người dùng chưa đưa auth token marimo thì hãy làm việc và test đầy đầy đủ rồi hỏi lại auth marimo sau.
-## 1. Đồng bộ mã nguồn lên GitHub (Local)
+This workflow is the **policy layer**. Reusable checks live in
+`utils/marimo_ops.py`; do not re-invent PID, Git SHA, artifact, or detached
+launch logic in every experiment runner.
 
-Kích hoạt môi trường và kiểm tra tính đúng đắn trước khi commit:
-```bash
-conda activate ml2
-python -m py_compile train_levir_scripts/train_all_levir.py
+## Operating model
+
+Keep these states separate:
+
+```text
+local implementation
+→ local validation
+→ pushed commit
+→ exact remote checkout
+→ Marimo environment verified
+→ smoke passed
+→ detached training progressing
+→ training complete
+→ evaluation complete
+→ per-run upload verified
+→ report updated
 ```
 
-Commit và đẩy code lên nhánh chính (`main`)(không cần thiết phải selective, bạn có thể commit all, nếu trên server marimo cần pull đang bị dirty bạn có thể xóa luôn yolo_code và clone về repo mớimới):
-```bash
-git add .
-git commit -m "feat(levir): description of changes"
-git push origin main
+A live Marimo kernel, a live PID, a local marker, or one successful upload call
+is not completion evidence by itself.
+
+## Agent decision rules
+
+- If the user asks for Marimo execution, do not train/evaluate/upload locally.
+- Use local only for implementation, static checks, focused tests, and bounded smoke tests.
+- Use the workflow when the task involves a long-running remote experiment.
+- Use the `marimo-pair` skill only for live-kernel interaction. Keep orchestration
+  logic in repository code, not in ad-hoc scratchpad snippets.
+- Prefer Git synchronization over direct file patching on `/marimo`.
+- Never print, echo, commit, or store auth tokens in notebook cells, logs, or
+  process arguments. Pass them through the live kernel environment to the
+  detached child process.
+- Do not overwrite a dirty remote checkout blindly. Use a clean checkout or
+  stop and report the conflict.
+
+## 1. Local experiment contract
+
+Before coding, record:
+
+```text
+hypothesis:
+control:
+variant:
+primary metric and decision gate:
+secondary metrics:
+fixed split and seeds:
+image size / batch / epochs / patience:
+NMS IoU: 0.5
+non-goals:
 ```
 
-## 2. Kết nối và đồng bộ trên Marimo Server
+Use the smallest matched experiment that answers one question. Do not change
+architecture, optimizer, resolution, augmentation, and schedule together
+unless the experiment explicitly studies that interaction.
 
-Kết nối với Marimo kernel thông qua `marimo-pair` helper:
-```bash
-bash .agents/skills/marimo-pair/scripts/execute-code.sh \
-  --url "$MARIMO_URL" --session "$MARIMO_SESSION" <<'PY'
-import marimo as mo
-mo.status.toast("🚀 Connected — ready to pair on LEVIR training!")
-PY
+## 2. Local validation gates
+
+Run in order, stopping at the first failure:
+
+```text
+syntax/compile
+→ local import and registration
+→ YAML/model construction
+→ dummy forward and output shape
+→ focused unit/synthetic test
+→ one-batch or bounded smoke train
+→ smoke evaluation with iou=0.5
+→ git diff --check
 ```
 
-Trên terminal của Marimo server (hoặc thông qua marimo-pair shell), di chuyển vào `/marimo/yolo_code` và kéo code mới nhất về:
-```bash
-cd /marimo/yolo_code
-git pull --ff-only origin main
+For custom Ultralytics modules, check the full registration path:
+
+```text
+models_related/ultralytics/ultralytics/nn/modules/block.py
+models_related/ultralytics/ultralytics/nn/modules/__init__.py
+models_related/ultralytics/ultralytics/nn/tasks.py
+model YAML
+runner
+focused test
 ```
 
-## 3. Khởi chạy huấn luyện (Detached Process)
+Do not call a partial CPU smoke run a successful full validation.
 
-`HF_TOKEN` là biến trong live marimo kernel, không mặc định nằm trong `os.environ`. Khi launch qua `marimo-pair`, lấy biến này từ kernel globals và truyền riêng vào `env` của detached subprocess; không in token ra output, log hay notebook cell. Đồng thời đảm bảo không có PID nào đang chạy trùng lặp.
+## 3. Commit and handoff
 
-Upload Hugging Face là bước **bắt buộc** của mọi training runner. Runner phải fail fast trước khi train nếu thiếu `HF_TOKEN` hoặc `hf_repo_id`; không dùng `--no-upload`, không hard-code `no_upload=True`, và không chờ toàn bộ matrix xong mới upload.
+Commit only the experiment files and required tests/docs. Record the SHA:
 
-## Protocol inference/evaluation bắt buộc
+```bash
+git status --short
+git diff --check
+git diff --stat
+git add <experiment-files> <tests> <docs>
+git commit -m "<scoped message>"
+git push origin <branch>
+git rev-parse HEAD
+```
 
-- Mọi validation, test evaluation và inference YOLO phải truyền explicit `iou=0.5`; không dùng NMS IoU mặc định của Ultralytics.
-- Runner phải gọi `model.val(..., iou=0.5)` và `model.predict(..., iou=0.5)`.
-- Mọi metrics JSON, manifest, summary và report phải ghi `nms_iou: 0.5`.
-- Không so sánh kết quả khác NMS IoU. Artifact không ghi threshold phải được xác minh từ runner hoặc re-evaluate trước khi dùng.
-- AP50/AP75 là matching threshold của metric, không phải NMS threshold và không thay thế yêu cầu `iou=0.5`.
+The handoff record must include:
+
+```text
+experiment name
+commit SHA
+runner and model YAML
+Python executable expected on Marimo
+data root and fixed split
+variants and seeds
+full command
+epochs and patience
+HF repo and remote prefix
+required artifacts
+NMS IoU=0.5
+known partial checks
+```
+
+## 4. Marimo preflight
+
+Run the following **inside the live Marimo environment**, not local:
+
+```bash
+/marimo/mmdet-venv/bin/python -m utils.marimo_ops preflight \
+  --repo /marimo/yolo_code \
+  --expected-sha "$EXPECTED_SHA" \
+  --python /marimo/mmdet-venv/bin/python \
+  --epochs 100 \
+  --patience 0 \
+  --upload-required \
+  --hf-repo-id "$HF_REPO_ID"
+```
+
+If the utility is not importable from the remote checkout, run it by path or
+set the repository root in `PYTHONPATH`. The output must show:
+
+```text
+correct executable
+correct Git SHA
+clean worktree
+requested epochs
+requested patience
+upload required
+HF repository configured
+```
+
+Also inspect CUDA, dataset, checkpoint, and dependencies. Do not silently fall
+back from the requested Marimo venv to system Python.
+
+## 5. Runner contract
+
+Every multi-run runner must:
+
+- process one `variant/seed` at a time unless parallelism is explicitly tested;
+- use explicit `epochs` and `patience` values;
+- use explicit `iou=0.5` for validation, test, and inference;
+- fail closed if upload is required but auth/repository is absent;
+- write a manifest containing commit SHA, command, seed, split, and NMS IoU;
+- be restart-safe and skip only after verifying artifacts and remote paths;
+- upload and verify each completed run before starting the next run.
+
+Minimum local run contract:
+
+```text
+weights/best.pt
+weights/last.pt
+results.csv
+evaluation_metrics.json
+args.yaml or equivalent manifest
+```
+
+Minimum remote completion contract:
+
+```text
+all required local artifacts uploaded
+remote paths listed and verified
+upload_complete.json written only after verification
+```
+
+Existing runners may call the shared helper:
 
 ```python
-_env = os.environ.copy()
-_env["HF_TOKEN"] = HF_TOKEN
-_process = subprocess.Popen(command, cwd="/marimo/yolo_code", env=_env, ...)
+from utils.marimo_ops import artifacts, launch_detached, preflight, status
 ```
-Khởi chạy script huấn luyện trong thư mục `train_levir_scripts/` và lưu PID:
+
+## 6. Detached launch
+
+Never attach a long training job to the request stream. Use the shared helper:
 
 ```bash
-# Thí nghiệm P2 Baseline
-python train_levir_scripts/train_all_levir.py --data-root "$LEVIR_DATA_ROOT" --device cuda \
-  >> runs/levir_ship_baselines/train_all.log 2>&1 &
-echo $! > runs/levir_ship_baselines/train_all.pid
-
-# Thí nghiệm P2 NUDFL-PC-CFR
-python train_levir_scripts/train_all_levir_yolov8n_p2_nudfl_pc_cfr.py --data-root "$LEVIR_DATA_ROOT" --device cuda \
-  >> runs/levir_yolov8n_p2_nudfl_pc_cfr/train_all.log 2>&1 &
-echo $! > runs/levir_yolov8n_p2_nudfl_pc_cfr/train_all.pid
+/marimo/mmdet-venv/bin/python -m utils.marimo_ops launch \
+  --cwd /marimo/yolo_code \
+  --run-dir /marimo/yolo_code/runs/<experiment> \
+  -- \
+  /marimo/mmdet-venv/bin/python train_all_<experiment>.py \
+  --epochs 100 --patience 0 --upload
 ```
 
-Mỗi runner phải xử lý tuần tự theo đơn vị `variant/seed`:
+The helper creates durable:
 
 ```text
-train clean exit
-  → kiểm tra best.pt, last.pt, results.csv
-  → evaluate best.pt trên val và test
-  → ghi evaluation_metrics.json + config/manifest
-  → upload toàn bộ run lên HF
-  → gọi list_repo_files để xác minh các remote path bắt buộc
-  → ghi upload_complete.json
-  → mới chuyển sang variant/seed tiếp theo
+train.pid
+train.log
+state.json
 ```
 
-Các remote path tối thiểu phải có sau mỗi run:
+It refuses to launch if the recorded PID is still alive.
 
-```text
-runs/<variant>/seed_<seed>/weights/best.pt
-runs/<variant>/seed_<seed>/weights/last.pt
-runs/<variant>/seed_<seed>/results.csv
-runs/<variant>/seed_<seed>/evaluation_metrics.json
-runs/<variant>/seed_<seed>/args.yaml
-```
+## 7. Initial health check
 
-Nếu thí nghiệm đánh giá nhiều checkpoint, thay `evaluation_metrics.json` bằng toàn bộ file được yêu cầu, ví dụ `evaluation_metrics_best.json` và `evaluation_metrics_last.json`. Upload thêm YAML model, runner, fixed-split manifest và summary hiện có sau mỗi run để repo luôn khôi phục được trạng thái mới nhất.
+After launch, check briefly. Do not repeatedly stream long logs:
 
-Upload phải retry lỗi mạng ít nhất 3 lần. Khi restart, runner được phép reuse local training/evaluation hoàn chỉnh, nhưng chỉ skip upload sau khi đã xác minh đủ remote paths; marker local, PID hoặc lời gọi upload thành công chưa phải bằng chứng artifact đã có trên HF. Nếu upload/verification lỗi, dừng matrix thay vì âm thầm chuyển sang run kế tiếp.
-
-## 4. Giám sát tiến trình
-
-Sau khi launch detached, chỉ kiểm tra ngắn để xác nhận PID còn sống và log đã bắt đầu ghi. Không poll/tail log dài liên tục vì rất tốn token.
-
-Nếu cần chắc hơn, chỉ poll tối đa đến sau **1 epoch train + validation** đầu tiên rồi dừng. Từ đó để runner tự chạy; nếu có lỗi hoặc cần đọc log sâu, người dùng sẽ báo.
-
-Ví dụ kiểm tra ngắn:
 ```bash
-pid=$(cat /marimo/yolo_code/runs/levir_ship_baselines/train_all.pid)
-ps -o pid,stat,etime,cmd -p "$pid"
-tail -80 /marimo/yolo_code/runs/levir_ship_baselines/train_all.log
+/marimo/mmdet-venv/bin/python -m utils.marimo_ops status \
+  --run-dir /marimo/yolo_code/runs/<experiment>
 ```
 
-Chỉ báo một run hoàn tất khi đồng thời có clean exit, train artifacts, val/test evaluation, config/manifest và remote HF verification. Không kết luận hoàn tất từ PID, toast, `best.pt`, metric một split hoặc marker upload đơn lẻ.
+A useful status report distinguishes:
+
+```text
+process_alive
+process_command
+latest_artifact_mtime
+log_mtime
+required_artifacts
+upload_verified
+```
+
+`process_alive=true` does not mean training is progressing. Check epoch/log or
+artifact timestamps when diagnosing a stall. Check `nvidia-smi` only when GPU
+state is relevant.
+
+## 8. Recovery rules
+
+- Kernel dead, detached process progressing: reconnect and inspect; do not
+  restart blindly.
+- PID alive, logs/artifacts stale: classify as stalled/unknown; inspect process
+  tree and GPU before deciding.
+- State says `running`, PID dead: reconcile as interrupted, not complete.
+- Training complete, test/summary failed: reuse checkpoint with test-only or
+  summary-only; do not retrain automatically.
+- Local artifacts complete, upload marker absent: verify remote paths and upload
+  before continuing.
+- Upload/verification fails: stop the matrix. Do not silently continue.
+- Wrong SHA or dirty checkout: stop before launch.
+
+## 9. Completion and post-run
+
+Only report a run complete when all are true:
+
+```text
+clean training exit
++ evaluation complete
++ required artifacts present
++ metrics finite and protocol recorded
++ upload_complete.json exists
++ remote paths verified
+```
+
+Then update the report with:
+
+```text
+variant/seed
+commit SHA
+split and data provenance
+checkpoint path
+NMS IoU
+val/test metrics
+HF artifact path
+limitations and failed/partial runs
+```
+
+Do not choose a scientific winner from validation alone when a matched test
+result is available.
