@@ -29,6 +29,7 @@ VARIANTS = {
     },
     "yolov8n_p2p3_plain_gap": {
         "factorized_tal_target": True,
+        "factorized_tal_mode": "legacy",
         "factorized_tal_tau": 0.75,
         "factorized_tal_kappa": 1.5,
         "factorized_tal_lambda": 0.5,
