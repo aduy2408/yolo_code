@@ -18,7 +18,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-from PIL import Image
+from PIL import Image, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -107,18 +107,25 @@ def plot_one(item, dataset_label: str, class_name: str, output_path: Path, numbe
 
 
 def plot_sheet(items, dataset_label: str, class_name: str, output_path: Path) -> None:
-    fig, axes = plt.subplots(1, len(items), figsize=(15, 5.8), dpi=180, squeeze=False)
+    # Put every panel on the same square canvas. This keeps the three columns
+    # aligned even though the source datasets have different aspect ratios.
+    fig, axes = plt.subplots(1, len(items), figsize=(15, 5), dpi=180, squeeze=False)
     for index, (item, ax) in enumerate(zip(items, axes[0]), start=1):
         count, image_path, label_path = item
         image = Image.open(image_path).convert("RGB")
         width, height = image.size
-        ax.imshow(image)
+        canvas_size = max(width, height)
+        canvas = Image.new("RGB", (canvas_size, canvas_size), "white")
+        fitted = ImageOps.contain(image, (canvas_size, canvas_size))
+        canvas.paste(fitted, ((canvas_size - fitted.width) // 2, (canvas_size - fitted.height) // 2))
+        ax.imshow(canvas)
+        offset_x = (canvas_size - fitted.width) / 2
+        offset_y = (canvas_size - fitted.height) / 2
         for x1, y1, x2, y2 in read_boxes(label_path, width, height):
-            ax.add_patch(Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, edgecolor="#ff3b30", linewidth=max(1.5, min(width, height) / 140)))
-        ax.set_title(f"Example {index}\n{count} {class_name}(s)", fontsize=12)
+            ax.add_patch(Rectangle((x1 + offset_x, y1 + offset_y), x2 - x1, y2 - y1, fill=False, edgecolor="#ff3b30", linewidth=max(1.5, min(width, height) / 140)))
         ax.axis("off")
-    fig.suptitle(f"{dataset_label} dataset examples with ground-truth boxes", fontsize=16, y=0.98)
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
+        ax.set_aspect("equal")
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0.02)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, bbox_inches="tight", facecolor="white")
     plt.close(fig)
