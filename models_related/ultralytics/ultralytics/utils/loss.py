@@ -974,7 +974,6 @@ class v8DetectionLoss:
         self.factorized_tal_warmup_start = int(getattr(h, "factorized_tal_warmup_start", 5))
         self.factorized_tal_warmup_end = int(getattr(h, "factorized_tal_warmup_end", 15))
         self.factorized_tal_p2_only = bool(getattr(h, "factorized_tal_p2_only", True))
-        self.factorized_tal_mode = str(getattr(h, "factorized_tal_mode", "current")).lower()
         self.factorized_tal_metrics = {}
         self.crc_gate_coeff = float(getattr(self.model, "crc_gate_coeff", 0.5))
         self.crc_contrast_coeff = float(getattr(self.model, "crc_contrast_coeff", 0.2))
@@ -990,8 +989,6 @@ class v8DetectionLoss:
                 raise ValueError("factorized_tal_tau must be in (0, 1]")
             if self.factorized_tal_kappa <= 0 or not 0 <= self.factorized_tal_lambda <= 1 or self.factorized_tal_s_max <= 0:
                 raise ValueError("factorized TAL kappa/s_max must be positive and lambda must be in [0, 1]")
-            if self.factorized_tal_mode not in {"legacy", "current", "mass_preserve", "geometry", "agreement_gate"}:
-                raise ValueError(f"unknown factorized_tal_mode: {self.factorized_tal_mode}")
         self.loc_assign = bool(getattr(h, "loc_assign", False))
         self.loc_assign_topk = int(getattr(h, "loc_assign_topk", 3))
         self.loc_assign_max_stride = float(getattr(h, "loc_assign_max_stride", 8.0))
@@ -1153,58 +1150,14 @@ class v8DetectionLoss:
     def factorize_tal_targets(
         self, q: torch.Tensor, u: torch.Tensor, lam: float
     ) -> tuple[torch.Tensor, dict[str, float]]:
-        """Return per-GT factorized classification targets and small scalar diagnostics."""
+        """Return historical per-GT factorized classification targets."""
         eps = 1e-12
-        mode = self.factorized_tal_mode
-        if mode not in {"legacy", "current", "mass_preserve", "geometry", "agreement_gate"}:
-            raise ValueError(f"unknown factorized_tal_mode: {mode}")
-        if mode == "legacy":
-            # Exact historical FTAL from commit a68b00e. The ceiling is the
-            # maximum TAL target score itself. Do not substitute recomputed
-            # IoU or the current q.sum(-1)/u_max formulation here.
-            q_max = q.max().clamp_min(eps)
-            q_new = q_max.pow(self.factorized_tal_tau) * (q / q_max).clamp(0, 1).pow(self.factorized_tal_kappa)
-            return q + lam * (torch.where(q > 0, q_new, q) - q), {}
-        q_score = q.sum(-1)
-        q_max = q_score.max().clamp_min(eps)
-        u_max = u.max().clamp_min(eps)
-        metrics = {
-            "tal_iou_top1_agreement": float((q_score.argmax() == u.argmax()).item()),
-        }
-
-        if mode == "agreement_gate" and q_score.argmax() != u.argmax():
-            metrics.update(n_ftal_gt=0.0, n_bypassed_gt=1.0, gate_on_fraction=0.0, gate_on_fraction_small=0.0)
-            return q, metrics
-
-        if mode == "geometry":
-            r = (u / u_max).clamp(0, 1)
-        else:
-            r = (q_score / q_max).clamp(0, 1)
-        q_new_score = u_max.pow(self.factorized_tal_tau) * r.pow(self.factorized_tal_kappa)
-
-        if mode == "mass_preserve":
-            old_mass = q_score.sum()
-            new_mass = q_new_score.sum()
-            scale = old_mass / new_mass.clamp_min(eps)
-            q_new_score = (q_new_score * scale).clamp(0, 1)
-            metrics.update(
-                mp_scale_mean=float(scale.detach().item()),
-                mp_saturation_frac=float((q_new_score >= 1).to(torch.float32).mean().detach().item()),
-                mass_ratio_before=1.0,
-                mass_ratio_after=float((q_new_score.sum() / old_mass.clamp_min(eps)).detach().item()),
-            )
-
-        geo_prob = q_new_score / q_new_score.sum().clamp_min(eps)
-        metrics.update(
-            geo_target_neff=float((1.0 / geo_prob.square().sum().clamp_min(eps)).detach().item()),
-            geo_target_entropy=float(-(geo_prob * geo_prob.clamp_min(eps).log()).sum().detach().item()),
-        )
-        if mode == "agreement_gate":
-            metrics.update(n_ftal_gt=1.0, n_bypassed_gt=0.0, gate_on_fraction=1.0, gate_on_fraction_small=1.0)
-
-        scale = (q_new_score / q_score.clamp_min(eps)).unsqueeze(-1)
-        q_new = torch.where(q > 0, q * scale, q)
-        return q + lam * (q_new - q), metrics
+        # Exact historical FTAL from commit a68b00e. The ceiling is the
+        # maximum TAL target score itself, not recomputed IoU or a summed
+        # target score across anchors.
+        q_max = q.max().clamp_min(eps)
+        q_new = q_max.pow(self.factorized_tal_tau) * (q / q_max).clamp(0, 1).pow(self.factorized_tal_kappa)
+        return q + lam * (torch.where(q > 0, q_new, q) - q), {}
 
     def factorized_tal_cls_targets(
         self,

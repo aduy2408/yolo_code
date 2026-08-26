@@ -286,7 +286,7 @@ CFG_CHOICE_KEYS = {
     "quality_score_mode": {"cls_mul_q", "sqrt_cls_mul_q", "cls_mul_q2"},
     "dgfe_spatial_target_mode": {"iou", "edge_error"},
     "positive_support_mode": {"dominant", "random", "none"},
-    "factorized_tal_mode": {"legacy", "current", "mass_preserve", "geometry", "agreement_gate"},
+    "factorized_tal_mode": {"legacy"},
     "verifier_mode": {"a1_box_fovea", "a3_semantic_structural", "a4_raw_adapted", "none"},
 }
 CFG_INT_KEYS = frozenset(

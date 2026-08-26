@@ -32,7 +32,7 @@ def train_variant(augmentation: str, data_yaml: Path, seed: int, args: argparse.
         name=f"seed_{seed}", exist_ok=True,
         factorized_tal_s_max=32.0, factorized_tal_warmup_start=5,
         factorized_tal_warmup_end=15, factorized_tal_p2_only=True,
-        factorized_tal_target=True, factorized_tal_tau=0.75,
+        factorized_tal_target=True, factorized_tal_mode="legacy", factorized_tal_tau=0.75,
         factorized_tal_kappa=1.5, factorized_tal_lambda=0.5,
         **AUGMENTATIONS[augmentation],
     )

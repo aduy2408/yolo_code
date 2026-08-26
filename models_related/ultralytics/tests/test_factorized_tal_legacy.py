@@ -19,18 +19,3 @@ def test_legacy_factorized_tal_matches_historical_formula_and_ignores_iou_ceilin
     actual, metrics = loss.factorize_tal_targets(q, u, lam)
     torch.testing.assert_close(actual, expected)
     assert metrics == {}
-
-
-def test_legacy_factorized_tal_is_distinct_from_current_iou_ceiling():
-    loss = object.__new__(v8DetectionLoss)
-    loss.factorized_tal_tau = 0.75
-    loss.factorized_tal_kappa = 1.5
-    q = torch.tensor([[0.65], [0.40]])
-    u = torch.tensor([0.99, 0.98])
-
-    loss.factorized_tal_mode = "legacy"
-    legacy, _ = loss.factorize_tal_targets(q, u, 0.5)
-    loss.factorized_tal_mode = "current"
-    current, _ = loss.factorize_tal_targets(q, u, 0.5)
-
-    assert not torch.equal(legacy, current)
