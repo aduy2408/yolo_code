@@ -131,28 +131,48 @@ def plot_sheet(items, dataset_label: str, class_name: str, output_path: Path) ->
     plt.close(fig)
 
 
-def zoom_bounds(boxes: list[tuple[float, float, float, float]], width: int, height: int) -> tuple[int, int, int, int]:
-    """Return a padded crop containing all annotated objects."""
-    x1 = min(box[0] for box in boxes)
-    y1 = min(box[1] for box in boxes)
-    x2 = max(box[2] for box in boxes)
-    y2 = max(box[3] for box in boxes)
-    padding = max(24.0, 0.75 * max(x2 - x1, y2 - y1))
-    return (
-        max(0, int(x1 - padding)),
-        max(0, int(y1 - padding)),
-        min(width, int(x2 + padding)),
-        min(height, int(y2 + padding)),
-    )
+def zoom_bounds(
+    boxes: list[tuple[float, float, float, float]],
+    width: int,
+    height: int,
+    crop_fraction: tuple[float, float],
+) -> tuple[int, int, int, int]:
+    """Find a fixed-size local window containing the densest GT cluster.
+
+    A fixed window prevents sparse objects spread over an image from making the
+    crop expand to the full frame. Candidate centers come from GT centers and a
+    small image grid; ties prefer the window containing larger objects.
+    """
+    crop_width = max(32, min(width - 1, int(width * crop_fraction[0])))
+    crop_height = max(32, min(height - 1, int(height * crop_fraction[1])))
+    max_left = width - crop_width
+    max_top = height - crop_height
+    centers = [(0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])) for box in boxes]
+    candidates = centers + [
+        (width * x, height * y)
+        for x in (0.2, 0.4, 0.6, 0.8)
+        for y in (0.2, 0.4, 0.6, 0.8)
+    ]
+
+    best = None
+    for center_x, center_y in candidates:
+        left = int(max(0, min(max_left, center_x - crop_width / 2)))
+        top = int(max(0, min(max_top, center_y - crop_height / 2)))
+        right, bottom = left + crop_width, top + crop_height
+        inside = [box for box in boxes if left <= 0.5 * (box[0] + box[2]) <= right and top <= 0.5 * (box[1] + box[3]) <= bottom]
+        score = (len(inside), sum((box[2] - box[0]) * (box[3] - box[1]) for box in inside))
+        if best is None or score > best[0]:
+            best = (score, (left, top, right, bottom))
+    return best[1]
 
 
-def plot_zoom_one(item, output_path: Path) -> None:
+def plot_zoom_one(item, output_path: Path, crop_fraction: tuple[float, float]) -> None:
     """Plot the full image with a crop indication next to its enlarged view."""
     _, image_path, label_path = item
     image = Image.open(image_path).convert("RGB")
     width, height = image.size
     boxes = read_boxes(label_path, width, height)
-    left, top, right, bottom = zoom_bounds(boxes, width, height)
+    left, top, right, bottom = zoom_bounds(boxes, width, height, crop_fraction)
     crop = image.crop((left, top, right, bottom))
 
     fig, (ax_original, ax_zoom) = plt.subplots(
@@ -172,7 +192,9 @@ def plot_zoom_one(item, output_path: Path) -> None:
 
     ax_zoom.imshow(crop)
     for x1, y1, x2, y2 in boxes:
-        ax_zoom.add_patch(Rectangle((x1 - left, y1 - top), x2 - x1, y2 - y1, fill=False, edgecolor=box_color, linewidth=line_width * 1.2))
+        center_x, center_y = 0.5 * (x1 + x2), 0.5 * (y1 + y2)
+        if left <= center_x <= right and top <= center_y <= bottom:
+            ax_zoom.add_patch(Rectangle((x1 - left, y1 - top), x2 - x1, y2 - y1, fill=False, edgecolor=box_color, linewidth=line_width * 1.2))
     ax_zoom.text(0.03, 0.97, "ZOOM", transform=ax_zoom.transAxes, va="top", ha="left", color="#111111", fontsize=11, weight="bold", bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none", "pad": 2})
     ax_zoom.axis("off")
 
@@ -204,8 +226,9 @@ def main() -> None:
         plot_sheet(items, config["label"], config["class_name"], dataset_dir / "contact_sheet.png")
         if name in {"levir_ship", "tiny_person"}:
             zoom_dir = args.output_dir / "zoomed_examples" / name
+            crop_fraction = (0.55, 0.55) if name == "levir_ship" else (0.38, 0.48)
             for index, item in enumerate(items, start=1):
-                plot_zoom_one(item, zoom_dir / f"example_{index}.png")
+                plot_zoom_one(item, zoom_dir / f"example_{index}.png", crop_fraction)
         print(f"{name}: " + ", ".join(f"{count} boxes ({path.name})" for count, path, _ in items))
         print(f"  output: {dataset_dir}")
 
