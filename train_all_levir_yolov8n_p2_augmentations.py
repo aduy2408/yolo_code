@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import train_all_levir_yolov8n_p2_gap_factorized_tal as base
+import train_all_levir_yolov8n_p2_gap_scale_temper as base
 
 ROOT = Path(__file__).resolve().parent
 AUGMENTATIONS = {
