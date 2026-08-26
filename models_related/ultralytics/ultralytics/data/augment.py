@@ -3064,18 +3064,21 @@ class AlternatePartialClipPipeline:
             p=getattr(hyp, "resolution_p", 0.25), scale=(getattr(hyp, "resolution_scale_min", 0.65), getattr(hyp, "resolution_scale_max", 1.0)), dataset=dataset,
         )
         self.clean_control_enabled = bool(getattr(hyp, "clean_control_enabled", False))
+        self.viewport_mosaic_enabled = bool(getattr(hyp, "viewport_mosaic_enabled", False))
         self.viewport_enabled = bool(getattr(hyp, "viewport_enabled", False))
         self.occlusion_enabled = bool(getattr(hyp, "occlusion_enabled", False))
         self.resolution_enabled = bool(getattr(hyp, "resolution_enabled", False))
+        self.mosaic = Mosaic(dataset, imgsz=imgsz, p=getattr(hyp, "mosaic", 0.0))
+        self.viewport.output_size = (imgsz, imgsz)
         
     def __call__(self, labels: dict) -> dict:
         import os
         import random
 
         variant = os.environ.get("YOLO_VARIANT", "")
-        custom = self.clean_control_enabled or self.viewport_enabled or self.occlusion_enabled or self.resolution_enabled
+        custom = self.clean_control_enabled or self.viewport_mosaic_enabled or self.viewport_enabled or self.occlusion_enabled or self.resolution_enabled
         if custom:
-            labels = self.letterbox(labels)
+            labels = self.mosaic(labels) if self.viewport_mosaic_enabled else self.letterbox(labels)
             if self.viewport_enabled:
                 labels = self.viewport(labels)
             if self.occlusion_enabled:
@@ -3158,24 +3161,26 @@ class RandomViewport(BaseTransform):
     """Random isotropic scale, translation, crop/pad, and bbox clipping."""
 
     def __init__(self, p=0.5, scale=(0.8, 1.25), translate=0.15, min_visibility=0.4,
-                 min_box_size=2, fill=114, dataset=None):
+                 min_box_size=2, fill=114, dataset=None, output_size=None):
         self.p, self.scale, self.translate = float(p), tuple(map(float, scale)), float(translate)
         self.min_visibility, self.min_box_size, self.fill, self.dataset = float(min_visibility), float(min_box_size), int(fill), dataset
+        self.output_size = tuple(output_size) if output_size is not None else None
 
     def __call__(self, labels):
         if self.p <= 0 or random.random() >= self.p:
             return labels
         image = labels["img"]
         h, w = image.shape[:2]
+        out_h, out_w = self.output_size or (h, w)
         scale = random.uniform(*self.scale)
         nw, nh = max(1, round(w * scale)), max(1, round(h * scale))
         resized = cv2.resize(image, (nw, nh), interpolation=cv2.INTER_LINEAR)
-        x0 = int(round((nw - w) / 2 + random.uniform(-self.translate, self.translate) * w))
-        y0 = int(round((nh - h) / 2 + random.uniform(-self.translate, self.translate) * h))
-        labels["img"] = crop_pad(resized, x0, y0, w, h, self.fill)
+        x0 = int(round((nw - out_w) / 2 + random.uniform(-self.translate, self.translate) * out_w))
+        y0 = int(round((nh - out_h) / 2 + random.uniform(-self.translate, self.translate) * out_h))
+        labels["img"] = crop_pad(resized, x0, y0, out_w, out_h, self.fill)
         instances = labels.get("instances")
         if instances is None and "bboxes" in labels:
-            boxes, keep, visibility = viewport_boxes(np.asarray(labels["bboxes"], dtype=np.float32) * scale, x0, y0, w, h, self.min_visibility, self.min_box_size)
+            boxes, keep, visibility = viewport_boxes(np.asarray(labels["bboxes"], dtype=np.float32) * scale, x0, y0, out_w, out_h, self.min_visibility, self.min_box_size)
             labels["bboxes"] = boxes[keep]
             if "cls" in labels:
                 labels["cls"] = np.asarray(labels["cls"])[keep]
@@ -3187,7 +3192,7 @@ class RandomViewport(BaseTransform):
         if instances.normalized:
             instances.denormalize(w, h)
         instances.convert_bbox("xyxy")
-        boxes, keep, visibility = viewport_boxes(instances.bboxes * scale, x0, y0, w, h, self.min_visibility, self.min_box_size)
+        boxes, keep, visibility = viewport_boxes(instances.bboxes * scale, x0, y0, out_w, out_h, self.min_visibility, self.min_box_size)
         labels["instances"] = filter_instances(instances, keep)
         labels["instances"].update(bboxes=boxes[keep])
         labels["cls"] = labels["cls"][keep]

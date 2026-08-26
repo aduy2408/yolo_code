@@ -369,6 +369,7 @@ CFG_BOOL_KEYS = frozenset(
         "occlusion_enabled",
         "resolution_enabled",
         "clean_control_enabled",
+        "viewport_mosaic_enabled",
         "ring_context",
         "ggcf_refine",
         "ggcf_geometry",

@@ -10,11 +10,12 @@ import train_all_levir_yolov8n_p2_gap_factorized_tal as base
 
 ROOT = Path(__file__).resolve().parent
 AUGMENTATIONS = {
-    "clean_control": {"clean_control_enabled": True},
-    "random_viewport": {"viewport_enabled": True},
-    "bbox_occlusion": {"occlusion_enabled": True},
-    "resolution_degrade": {"resolution_enabled": True},
-    "viewport_occlusion": {"viewport_enabled": True, "occlusion_enabled": True},
+    "clean_control": {"clean_control_enabled": True, "mosaic": 0.0},
+    "random_viewport": {"viewport_enabled": True, "mosaic": 0.0},
+    "bbox_occlusion": {"occlusion_enabled": True, "mosaic": 0.0},
+    "resolution_degrade": {"resolution_enabled": True, "mosaic": 0.0},
+    "viewport_occlusion": {"viewport_enabled": True, "occlusion_enabled": True, "mosaic": 0.0},
+    "viewport_mosaic": {"viewport_mosaic_enabled": True, "viewport_enabled": True, "mosaic": 1.0},
 }
 
 
@@ -27,7 +28,7 @@ def train_variant(augmentation: str, data_yaml: Path, seed: int, args: argparse.
     base.model_for(args.pretrained).train(
         data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
         device=args.device, workers=args.workers, patience=0, seed=seed, deterministic=True,
-        amp=True, plots=False, mosaic=0.0, project=str(args.project / variant),
+        amp=True, plots=False, project=str(args.project / variant),
         name=f"seed_{seed}", exist_ok=True,
         factorized_tal_s_max=32.0, factorized_tal_warmup_start=5,
         factorized_tal_warmup_end=15, factorized_tal_p2_only=True,
@@ -52,7 +53,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
-    parser.add_argument("--augmentations", nargs="+", choices=list(AUGMENTATIONS), default=["clean_control", "random_viewport"])
+    parser.add_argument("--augmentations", nargs="+", choices=list(AUGMENTATIONS), default=["clean_control", "random_viewport", "viewport_mosaic"])
     return parser.parse_args(argv)
 
 
