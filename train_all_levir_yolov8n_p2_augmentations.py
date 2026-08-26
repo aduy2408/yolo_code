@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 
 import train_all_levir_yolov8n_p2_gap_factorized_tal as base
 
 ROOT = Path(__file__).resolve().parent
 AUGMENTATIONS = {
+    "clean_control": {"clean_control_enabled": True},
     "random_viewport": {"viewport_enabled": True},
     "bbox_occlusion": {"occlusion_enabled": True},
     "resolution_degrade": {"resolution_enabled": True},
@@ -23,26 +23,18 @@ def train_variant(augmentation: str, data_yaml: Path, seed: int, args: argparse.
     run_dir = args.project / variant / f"seed_{seed}"
     if base.training_complete(run_dir, args.epochs):
         return run_dir
-    previous = os.environ.get("YOLO_VARIANT")
-    os.environ["YOLO_VARIANT"] = augmentation
-    try:
-        base.seed_everything(seed)
-        base.model_for(args.pretrained).train(
-            data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
-            device=args.device, workers=args.workers, patience=0, seed=seed, deterministic=True,
-            amp=True, plots=False, mosaic=0.0, project=str(args.project / variant),
-            name=f"seed_{seed}", exist_ok=True,
-            factorized_tal_s_max=32.0, factorized_tal_warmup_start=5,
-            factorized_tal_warmup_end=15, factorized_tal_p2_only=True,
-            factorized_tal_target=True, factorized_tal_tau=0.75,
-            factorized_tal_kappa=1.5, factorized_tal_lambda=0.5,
-            **AUGMENTATIONS[augmentation],
-        )
-    finally:
-        if previous is None:
-            os.environ.pop("YOLO_VARIANT", None)
-        else:
-            os.environ["YOLO_VARIANT"] = previous
+    base.seed_everything(seed)
+    base.model_for(args.pretrained).train(
+        data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
+        device=args.device, workers=args.workers, patience=0, seed=seed, deterministic=True,
+        amp=True, plots=False, mosaic=0.0, project=str(args.project / variant),
+        name=f"seed_{seed}", exist_ok=True,
+        factorized_tal_s_max=32.0, factorized_tal_warmup_start=5,
+        factorized_tal_warmup_end=15, factorized_tal_p2_only=True,
+        factorized_tal_target=True, factorized_tal_tau=0.75,
+        factorized_tal_kappa=1.5, factorized_tal_lambda=0.5,
+        **AUGMENTATIONS[augmentation],
+    )
     if not base.training_complete(run_dir, args.epochs):
         raise RuntimeError(f"{variant}: required training artifacts are incomplete")
     return run_dir
@@ -60,7 +52,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
-    parser.add_argument("--augmentations", nargs="+", choices=list(AUGMENTATIONS), default=["random_viewport"])
+    parser.add_argument("--augmentations", nargs="+", choices=list(AUGMENTATIONS), default=["clean_control", "random_viewport"])
     return parser.parse_args(argv)
 
 

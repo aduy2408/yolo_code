@@ -3063,20 +3063,24 @@ class AlternatePartialClipPipeline:
         self.resolution = ResolutionDegrade(
             p=getattr(hyp, "resolution_p", 0.25), scale=(getattr(hyp, "resolution_scale_min", 0.65), getattr(hyp, "resolution_scale_max", 1.0)), dataset=dataset,
         )
+        self.clean_control_enabled = bool(getattr(hyp, "clean_control_enabled", False))
+        self.viewport_enabled = bool(getattr(hyp, "viewport_enabled", False))
+        self.occlusion_enabled = bool(getattr(hyp, "occlusion_enabled", False))
+        self.resolution_enabled = bool(getattr(hyp, "resolution_enabled", False))
         
     def __call__(self, labels: dict) -> dict:
         import os
         import random
-        
+
         variant = os.environ.get("YOLO_VARIANT", "")
-        custom = any(name in variant for name in ("random_viewport", "bbox_occlusion", "resolution_degrade"))
+        custom = self.clean_control_enabled or self.viewport_enabled or self.occlusion_enabled or self.resolution_enabled
         if custom:
             labels = self.letterbox(labels)
-            if "random_viewport" in variant:
+            if self.viewport_enabled:
                 labels = self.viewport(labels)
-            if "bbox_occlusion" in variant:
+            if self.occlusion_enabled:
                 labels = self.occlusion(labels)
-            if "resolution_degrade" in variant:
+            if self.resolution_enabled:
                 labels = self.resolution(labels)
             labels = self.hsv(labels)
             labels = self.flip_lr(labels)
@@ -3127,6 +3131,29 @@ def viewport_boxes(boxes: np.ndarray, x0: int, y0: int, width: int, height: int,
     return clipped, keep, visibility
 
 
+def filter_instances(instances: Instances, keep: np.ndarray) -> Instances:
+    """Filter Instances while tolerating the valid box-only ``segments=None`` form."""
+    if instances.segments is None:
+        instances._bboxes.bboxes = instances.bboxes[keep]
+        if instances.keypoints is not None:
+            instances.keypoints = instances.keypoints[keep]
+        return instances
+    return instances[keep]
+
+
+def local_mean_fill(image: np.ndarray, x1: int, y1: int, x2: int, y2: int):
+    """Return the mean color from a one-box-width ring around a bbox."""
+    h, w = image.shape[:2]
+    pad_x, pad_y = max(1, x2 - x1), max(1, y2 - y1)
+    rx1, ry1 = max(0, x1 - pad_x), max(0, y1 - pad_y)
+    rx2, ry2 = min(w, x2 + pad_x), min(h, y2 + pad_y)
+    region = image[ry1:ry2, rx1:rx2]
+    mask = np.ones(region.shape[:2], dtype=bool)
+    mask[max(0, y1 - ry1):min(ry2 - ry1, y2 - ry1), max(0, x1 - rx1):min(rx2 - rx1, x2 - rx1)] = False
+    values = region[mask]
+    return values.mean(axis=0) if len(values) else image.mean(axis=(0, 1))
+
+
 class RandomViewport(BaseTransform):
     """Random isotropic scale, translation, crop/pad, and bbox clipping."""
 
@@ -3161,7 +3188,7 @@ class RandomViewport(BaseTransform):
             instances.denormalize(w, h)
         instances.convert_bbox("xyxy")
         boxes, keep, visibility = viewport_boxes(instances.bboxes * scale, x0, y0, w, h, self.min_visibility, self.min_box_size)
-        labels["instances"] = instances[keep]
+        labels["instances"] = filter_instances(instances, keep)
         labels["instances"].update(bboxes=boxes[keep])
         labels["cls"] = labels["cls"][keep]
         labels["viewport_visibility"] = visibility[keep]
@@ -3204,7 +3231,7 @@ class BBoxPartialOcclusion(BaseTransform):
                     ox1, ox2 = x1, x2
                 ox1, oy1, ox2, oy2 = max(0, ox1), max(0, oy1), min(w, ox2), min(h, oy2)
                 if ox2 > ox1 and oy2 > oy1:
-                    value = image.mean(axis=(0, 1)) if self.fill == "local_mean" else self.fill
+                    value = local_mean_fill(image, x1, y1, x2, y2) if self.fill == "local_mean" else self.fill
                     image[oy1:oy2, ox1:ox2] = np.asarray(value, dtype=image.dtype)
             return labels
         if instances is None or not len(instances):
@@ -3229,7 +3256,7 @@ class BBoxPartialOcclusion(BaseTransform):
             ox1, oy1, ox2, oy2 = max(0, ox1), max(0, oy1), min(w, ox2), min(h, oy2)
             if ox2 <= ox1 or oy2 <= oy1:
                 continue
-            value = image.mean(axis=(0, 1)) if self.fill == "local_mean" else self.fill
+            value = local_mean_fill(image, x1, y1, x2, y2) if self.fill == "local_mean" else self.fill
             image[oy1:oy2, ox1:ox2] = np.asarray(value, dtype=image.dtype)
             count += 1
         if count and self.dataset is not None:

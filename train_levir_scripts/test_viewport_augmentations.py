@@ -14,6 +14,7 @@ from ultralytics.data.augment import (  # noqa: E402
     RandomViewport,
     ResolutionDegrade,
     crop_pad,
+    local_mean_fill,
     viewport_boxes,
 )
 from ultralytics.utils.instance import Instances  # noqa: E402
@@ -50,7 +51,6 @@ def test_viewport_identity_preserves_image_and_labels(monkeypatch):
     labels = sample([[10, 20, 30, 40]])
     original = labels["img"].copy()
     monkeypatch.setattr("ultralytics.data.augment.random.random", lambda: 0.0)
-    monkeypatch.setattr("ultralytics.data.augment.random.uniform", lambda a, b: 1.0 if (a, b) == (0.8, 1.25) else 0.0)
     transformed = RandomViewport(p=1.0, scale=(1.0, 1.0), translate=0.0)(labels)
     assert np.array_equal(transformed["img"], original)
     assert np.allclose(transformed["instances"].bboxes, [[10, 20, 30, 40]])
@@ -59,7 +59,6 @@ def test_viewport_identity_preserves_image_and_labels(monkeypatch):
 def test_viewport_transform_updates_instances_and_cls(monkeypatch):
     labels = sample([[10, 10, 30, 30], [90, 10, 100, 20]])
     monkeypatch.setattr("ultralytics.data.augment.random.random", lambda: 0.0)
-    monkeypatch.setattr("ultralytics.data.augment.random.uniform", lambda a, b: 1.0 if a == 0.8 else 0.0)
     transformed = RandomViewport(p=1.0, scale=(1.0, 1.0), translate=0.0)(labels)
     assert len(transformed["instances"]) == 2
     assert transformed["cls"].shape == (2, 1)
@@ -85,3 +84,9 @@ def test_resolution_degrade_keeps_shape_and_boxes(monkeypatch):
     transformed = ResolutionDegrade(p=1.0, scale=(0.65, 0.65))(labels)
     assert transformed["img"].shape == (100, 100, 3)
     assert np.allclose(transformed["instances"].bboxes, [[20, 20, 60, 60]])
+
+
+def test_local_mean_fill_uses_bbox_ring_not_whole_image():
+    image = np.full((20, 20, 3), 20, dtype=np.uint8)
+    image[8:12, 8:12] = 200
+    assert np.allclose(local_mean_fill(image, 8, 8, 12, 12), [20, 20, 20])

@@ -144,6 +144,7 @@ resolution_enabled: false # (bool) EXPERIMENTAL enable resolution degradation
 resolution_p: 0.25 # (float) image probability for resolution degradation
 resolution_scale_min: 0.65 # (float) minimum downsample scale
 resolution_scale_max: 1.0 # (float) maximum downsample scale
+clean_control_enabled: false # (bool) matched single-image LetterBox/HSV/flip control
 ring_context: false # (bool) EXPERIMENTAL P2 classification-only ring context adapter
 ring_radius: 5 # (int) EXPERIMENTAL ring context annulus radius
 head_share_mode: none # (str) EXPERIMENTAL Detect topology: none, share1, or full
