@@ -80,6 +80,30 @@ def train_variant(variant: str, data_yaml: Path, seed: int, args: argparse.Names
     return run_dir
 
 
+class Uploader(base.Uploader):
+    """Use the evidence experiment's artifact contract, not scale-temper's."""
+
+    REQUIRED = (
+        "weights/best.pt",
+        "weights/last.pt",
+        "results.csv",
+        "args.yaml",
+        "evaluation_metrics.json",
+        "config.yaml",
+        "experiment_manifest.json",
+        "factorized_tal_diagnostic.json",
+        "ranking_summary.json",
+    )
+
+    def upload_run(self, variant: str, seed: int, run_dir: Path) -> None:
+        old_required = base.REQUIRED
+        try:
+            base.REQUIRED = self.REQUIRED
+            super().upload_run(variant, seed, run_dir)
+        finally:
+            base.REQUIRED = old_required
+
+
 def write_metadata(variant: str, run_dir: Path, seed: int, args: argparse.Namespace) -> None:
     shutil.copy2(VARIANTS[variant][0], run_dir / "config.yaml")
     manifest = {
@@ -124,7 +148,7 @@ def main() -> None:
     for variant in args.variants:
         preflight_variant(variant)
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
-    uploader = base.Uploader(args.hf_repo_id)
+    uploader = Uploader(args.hf_repo_id)
     data_yaml = base.prepare_split(args)
     for seed in args.seeds:
         for variant in args.variants:
