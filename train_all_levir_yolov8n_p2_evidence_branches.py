@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-import train_all_levir_yolov8n_p2_gap_factorized_tal as base
+import train_all_levir_yolov8n_p2_gap_scale_temper as base
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_ROOT = ROOT / "models_related/models_config/yolov8/levir"
