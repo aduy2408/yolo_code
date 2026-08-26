@@ -37,6 +37,21 @@ class MarimoOpsError(RuntimeError):
     """A preflight, launch, status, or artifact contract failure."""
 
 
+def require_training_context(*, hf_repo_id: str | None = None) -> None:
+    """Require the shared Marimo launch context for upload-required runners."""
+    if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
+        raise MarimoOpsError(
+            "Marimo training must be launched with `python -m utils.marimo_ops launch`"
+        )
+    if not os.environ.get("HF_TOKEN"):
+        raise MarimoOpsError("HF_TOKEN is required for upload-required Marimo training")
+    expected_repo = os.environ.get("MARIMO_HF_REPO_ID")
+    if expected_repo and hf_repo_id and expected_repo != hf_repo_id:
+        raise MarimoOpsError(
+            f"HF repository mismatch: expected {expected_repo}, got {hf_repo_id}"
+        )
+
+
 def now_utc() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -359,13 +374,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             command = list(args.command)
             if command and command[0] == "--":
                 command = command[1:]
+            launch_env = os.environ.copy()
+            launch_env["MARIMO_TRAIN_WORKFLOW"] = "1"
+            if "--hf-repo-id" in command:
+                index = command.index("--hf-repo-id")
+                if index + 1 < len(command):
+                    launch_env["MARIMO_HF_REPO_ID"] = command[index + 1]
             launch_detached(
                 command,
                 cwd=args.cwd,
                 log_path=args.run_dir / args.log_file,
                 pid_path=args.run_dir / args.pid_file,
                 state_path=args.run_dir / args.state_file,
-                env=os.environ.copy(),
+                env=launch_env,
             )
         return 0
     except MarimoOpsError as exc:

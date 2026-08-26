@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 import train_all_levir_yolov8n_p2_gap_scale_temper as base
+from utils.marimo_ops import require_training_context
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_ROOT = ROOT / "models_related/models_config/yolov8/levir"
@@ -113,6 +114,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    require_training_context(hf_repo_id=args.hf_repo_id)
     if args.epochs != 100:
         raise ValueError("standard evidence ablations require --epochs 100")
     if args.patience != 0:

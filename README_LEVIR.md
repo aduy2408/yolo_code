@@ -30,8 +30,7 @@ Sau khi sắp xếp lại, cấu trúc thư mục chính như sau:
 ├── models_related/
 │   ├── ultralytics/          # Mã nguồn core YOLO được tùy biến (nn/tasks.py, utils/loss.py,...)
 │   └── models_config/        # Các file YAML cấu hình kiến trúc model cho từng thực nghiệm
-└── .ai-bridge/               # Cầu nối thông tin kế hoạch và trạng thái giữa các phiên làm việc
-    └── codex-status.md       # Lưu vết nhanh trạng thái Codex cho các session sau
+└── README_LEVIR.md            # Tài liệu tổng quan và hướng dẫn nhanh
 ```
 
 ---

@@ -18,11 +18,38 @@ from utils.marimo_ops import (
     is_pid_alive,
     launch_detached,
     preflight,
+    require_training_context,
     status,
 )
 
 
 class MarimoOpsTests(unittest.TestCase):
+    def test_training_context_is_fail_closed(self) -> None:
+        old_marker = os.environ.pop("MARIMO_TRAIN_WORKFLOW", None)
+        old_token = os.environ.pop("HF_TOKEN", None)
+        old_repo = os.environ.pop("MARIMO_HF_REPO_ID", None)
+        try:
+            with self.assertRaises(MarimoOpsError):
+                require_training_context(hf_repo_id="test/repo")
+            os.environ["MARIMO_TRAIN_WORKFLOW"] = "1"
+            with self.assertRaises(MarimoOpsError):
+                require_training_context(hf_repo_id="test/repo")
+            os.environ["HF_TOKEN"] = "test-token"
+            os.environ["MARIMO_HF_REPO_ID"] = "other/repo"
+            with self.assertRaises(MarimoOpsError):
+                require_training_context(hf_repo_id="test/repo")
+            os.environ["MARIMO_HF_REPO_ID"] = "test/repo"
+            require_training_context(hf_repo_id="test/repo")
+        finally:
+            for key, value in {
+                "MARIMO_TRAIN_WORKFLOW": old_marker,
+                "HF_TOKEN": old_token,
+                "MARIMO_HF_REPO_ID": old_repo,
+            }.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
     def test_current_process_is_alive(self) -> None:
         self.assertTrue(is_pid_alive(__import__("os").getpid()))
         self.assertFalse(is_pid_alive(-1))

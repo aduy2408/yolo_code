@@ -182,11 +182,16 @@ remote paths listed and verified
 upload_complete.json written only after verification
 ```
 
-Existing runners may call the shared helper:
+Selected Marimo runners must use the shared helper. A direct background launch
+from a notebook cell is a policy violation:
 
 ```python
 from utils.marimo_ops import artifacts, launch_detached, preflight, status
 ```
+
+The helper injects `MARIMO_TRAIN_WORKFLOW=1`; upload-required runners reject
+direct invocation without that marker. This makes the workflow requirement a
+runtime gate rather than an instruction the agent can accidentally skip.
 
 ## 6. Detached launch
 
