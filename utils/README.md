@@ -65,7 +65,40 @@ Công cụ điều khiển remote Marimo Server từ terminal local vô cùng nh
   python3 utils/marimo_run.py -c "import torch; print(torch.cuda.is_available())"
   ```
 * **Chạy một file Python nội bộ của local lên server**:
-  ```bash
-  python3 utils/marimo_run.py -f train_levir_scripts/get_model_stats.py
-  ```
+```bash
+python3 utils/marimo_run.py -f train_levir_scripts/get_model_stats.py
+```
 
+### 7. `marimo_ops.py`
+Các thao tác deterministic cho runner chạy trên Marimo. Đây là helper opt-in
+cho runner mới hoặc runner đang được chọn, không phải yêu cầu migrate hàng loạt
+các runner cũ.
+
+```bash
+# Kiểm tra remote checkout trước khi chạy
+python3 -m utils.marimo_ops preflight \
+  --repo /marimo/yolo_code \
+  --expected-sha "$EXPECTED_SHA" \
+  --python /marimo/mmdet-venv/bin/python \
+  --epochs 100 --patience 0 \
+  --upload-required --hf-repo-id "$HF_REPO_ID"
+
+# Chạy detached, tạo train.pid, train.log và state.json
+python3 -m utils.marimo_ops launch \
+  --cwd /marimo/yolo_code \
+  --run-dir /marimo/yolo_code/runs/<experiment> \
+  -- /marimo/mmdet-venv/bin/python train_all_<experiment>.py \
+  --epochs 100 --patience 0 --upload
+
+# Kiểm tra process, tiến độ, artifact và trạng thái upload
+python3 -m utils.marimo_ops status \
+  --run-dir /marimo/yolo_code/runs/<experiment>
+
+# Kiểm tra artifact contract trước khi báo run hoàn tất
+python3 -m utils.marimo_ops artifacts \
+  --run-dir /marimo/yolo_code/runs/<experiment>
+```
+
+`status` cố ý phân biệt `process_alive` với `observed_status`. Ví dụ,
+`not_running_unverified` nghĩa là PID đã chết nhưng chưa đủ bằng chứng để kết
+luận run hoàn tất. Xem policy đầy đủ tại `.agents/workflows/marimo-train.md`.
