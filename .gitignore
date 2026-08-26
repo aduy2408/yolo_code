@@ -231,10 +231,11 @@ misc_varroa/
 .codex/
 diagnostics/
 .agents/
-.ai-bridge/
 investigate*/
 DRE*/
 .i
 VisDrone2019/
 TinyPerson*/
 scratch/
+# Local Pi runtime state
+.atl/
