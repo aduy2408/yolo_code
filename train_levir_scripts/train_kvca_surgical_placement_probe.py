@@ -24,7 +24,7 @@ CONFIGS = {
 }
 KVCA_LAYERS = {"A": 16, "B": 18, "C": 19}
 EXPECTED_KVCA = {"A": (64, 4), "B": (96, 8), "C": (32, 8)}
-REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml", "evaluation_metrics.json", "experiment_manifest.json", "ranking_summary.json")
+REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml", "evaluation_metrics.json", "experiment_manifest.json", "ranking_summary.json", "gradient_receptivity.json")
 
 
 def local_ultralytics() -> None:
@@ -106,6 +106,42 @@ def freeze_except_probe(model, placement: str) -> list[str]:
     return frozen
 
 
+def install_gradient_probe(model, placement: str, run_dir: Path, limit: int = 500) -> None:
+    """Record residual-output gradient norms for the first bounded train batches."""
+    import torch
+
+    probe = model.model.model[KVCA_LAYERS[placement]]
+    rows: list[dict[str, float | int]] = []
+    holder: dict[str, torch.Tensor] = {}
+
+    def capture(_module, _inputs, output):
+        if torch.is_tensor(output) and output.requires_grad:
+            output.retain_grad()
+            holder["output"] = output
+
+    handle = probe.register_forward_hook(capture)
+
+    def on_batch_end(trainer):
+        if len(rows) >= limit:
+            return
+        output = holder.pop("output", None)
+        if output is None or output.grad is None:
+            return
+        rows.append({"batch": len(rows), "g_total_l2": float(output.grad.detach().float().norm().cpu())})
+        if len(rows) == limit:
+            handle.remove()
+            run_dir.mkdir(parents=True, exist_ok=True)
+            (run_dir / "gradient_receptivity.json").write_text(json.dumps({"placement": placement, "batches": rows}, indent=2) + "\n")
+
+    def on_train_end(trainer):
+        handle.remove()
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "gradient_receptivity.json").write_text(json.dumps({"placement": placement, "batches": rows}, indent=2) + "\n")
+
+    model.add_callback("on_train_batch_end", on_batch_end)
+    model.add_callback("on_train_end", on_train_end)
+
+
 def assert_identity_initialization(model, placement: str, imgsz: int, device: str) -> dict[str, float]:
     local_ultralytics()
     import torch
@@ -127,6 +163,7 @@ def train_one(placement: str, data_yaml: Path, args: argparse.Namespace) -> Path
     seed_everything(args.seed)
     model = model_for(placement, args.canonical_checkpoint)
     freeze_except_probe(model, placement)
+    install_gradient_probe(model, placement, run_dir, args.gradient_batches)
     model.train(
         data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
         device=args.device, workers=args.workers, patience=args.patience, seed=args.seed,
@@ -202,6 +239,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--project", type=Path, default=ROOT / "runs/levir_kvca_surgical_placement_probe")
     p.add_argument("--canonical-checkpoint", required=True)
     p.add_argument("--ranking-limit", type=int)
+    p.add_argument("--gradient-batches", type=int, default=500)
     return p.parse_args(argv)
 
 
