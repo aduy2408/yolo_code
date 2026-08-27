@@ -183,6 +183,7 @@ def assert_identity_initialization(model, placement: str, imgsz: int, device: st
     local_ultralytics()
     import torch
     probe = model.model.model[KVCA_LAYERS[placement]]
+    probe = probe.to(device)
     probe.eval()
     x = torch.randn(1, probe.c2, imgsz // (8 if placement == "A" else 4), imgsz // (8 if placement == "A" else 4), device=device)
     with torch.inference_mode():
