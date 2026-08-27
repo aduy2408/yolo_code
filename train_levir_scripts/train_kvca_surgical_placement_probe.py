@@ -61,6 +61,7 @@ def model_for(placement: str, checkpoint: str):
     model = YOLO(CONFIGS[placement])
     source = YOLO(checkpoint).model
     source_state = source.state_dict()
+    target_state = model.model.state_dict()
     probe_index = KVCA_LAYERS[placement]
     mapped = {}
     for key, value in source_state.items():
@@ -70,15 +71,26 @@ def model_for(placement: str, checkpoint: str):
             if index >= probe_index:
                 parts[1] = str(index + 1)
             key = ".".join(parts)
-        if key in model.model.state_dict() and model.model.state_dict()[key].shape == value.shape:
+        if key in target_state and target_state[key].shape == value.shape:
             mapped[key] = value
+    expected_source_keys = set()
+    for key, value in source_state.items():
+        parts = key.split(".")
+        if len(parts) > 2 and parts[0] == "model" and parts[1].isdigit() and int(parts[1]) >= probe_index:
+            parts[1] = str(int(parts[1]) + 1)
+            key = ".".join(parts)
+        expected_source_keys.add(key)
+    unmapped_source = sorted(expected_source_keys - set(mapped))
+    if unmapped_source:
+        raise RuntimeError(f"{placement}: canonical transfer missed {len(unmapped_source)} tensors: {unmapped_source[:8]}")
     missing, unexpected = model.model.load_state_dict(mapped, strict=False)
     loaded_source_keys = len(mapped)
-    if not loaded_source_keys:
-        raise RuntimeError(f"{placement}: canonical checkpoint transfer loaded no tensors")
+    probe_keys = {f"model.{probe_index}.{key}" for key in model.model.model[probe_index].state_dict()}
+    if set(missing) != probe_keys:
+        raise RuntimeError(f"{placement}: target missing keys are not exactly KVCA keys: {sorted(set(missing) ^ probe_keys)[:8]}")
     if unexpected:
         raise RuntimeError(f"{placement}: unexpected transferred tensors: {unexpected[:5]}")
-    model._surgical_transfer = {"loaded_tensors": loaded_source_keys, "missing_target_keys": list(missing)}
+    model._surgical_transfer = {"loaded_tensors": loaded_source_keys, "source_tensors": len(source_state), "missing_target_keys": list(missing)}
     # YOLO.train() rebuilds a DetectionModel when the wrapper has no checkpoint
     # object. Mark this manually-remapped wrapper as checkpoint-backed so the
     # trainer clones this exact target module instead of starting from YAML.
@@ -130,6 +142,15 @@ def install_gradient_probe(model, placement: str, run_dir: Path, limit: int = 50
         # that live module, not the pre-trainer wrapper module.
         nonlocal handle
         probe = trainer.model.model[KVCA_LAYERS[placement]]
+        probe.eval()
+        import torch
+        side = 64 if placement == "A" else 128
+        x = torch.randn(1, probe.c2, side, side, device=next(probe.parameters()).device)
+        with torch.inference_mode():
+            max_abs = float((probe(x) - x).abs().max().cpu())
+        if max_abs > 1e-6:
+            raise AssertionError(f"{placement}: trainer model lost zero-init identity, max_abs={max_abs}")
+        probe.train()
         handle = probe.register_forward_hook(capture)
 
     def on_batch_end(trainer):
@@ -138,7 +159,8 @@ def install_gradient_probe(model, placement: str, run_dir: Path, limit: int = 50
         output = holder.pop("output", None)
         if output is None or output.grad is None:
             return
-        rows.append({"batch": len(rows), "g_total_l2": float(output.grad.detach().float().norm().cpu())})
+        grad = output.grad.detach().float()
+        rows.append({"batch": len(rows), "g_rms": float(grad.square().mean().sqrt().cpu()), "numel": int(grad.numel())})
         if len(rows) == limit:
             if handle is not None:
                 handle.remove()
@@ -176,6 +198,7 @@ def train_one(placement: str, data_yaml: Path, args: argparse.Namespace) -> Path
         return run_dir
     seed_everything(args.seed)
     model = model_for(placement, args.canonical_checkpoint)
+    args.transfer = model._surgical_transfer
     freeze_except_probe(model, placement)
     install_gradient_probe(model, placement, run_dir, args.gradient_batches)
     model.train(
@@ -184,8 +207,8 @@ def train_one(placement: str, data_yaml: Path, args: argparse.Namespace) -> Path
         deterministic=True, amp=args.amp, plots=False, project=str(args.project / placement),
         name=f"seed_{args.seed}", exist_ok=True, freeze=[i for i in range(len(model.model.model)) if i != KVCA_LAYERS[placement]],
         factorized_tal_target=True, factorized_tal_tau=0.75, factorized_tal_kappa=1.5,
-        factorized_tal_lambda=0.5, factorized_tal_s_max=32.0, factorized_tal_warmup_start=5,
-        factorized_tal_warmup_end=15, factorized_tal_p2_only=True,
+        factorized_tal_lambda=0.5, factorized_tal_s_max=32.0, factorized_tal_mode="legacy",
+        factorized_tal_warmup_start=0, factorized_tal_warmup_end=0, factorized_tal_p2_only=True,
     )
     return run_dir
 
@@ -194,7 +217,7 @@ def evaluate(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> dict[s
     local_ultralytics()
     from ultralytics import YOLO
     metrics: dict[str, float | str] = {"checkpoint": "best.pt", "nms_iou": 0.5}
-    for split in ("val", "test"):
+    for split in ("val",):
         result = YOLO(run_dir / "weights/best.pt").val(data=str(data_yaml), split=split, imgsz=args.imgsz, batch=args.batch_size, device=args.device, workers=args.workers, plots=False, iou=0.5, project=str(run_dir / "evaluation"), name=split, exist_ok=True)
         metrics.update({f"{split}/{key}": float(value) for key, value in result.results_dict.items()})
         metrics[f"{split}/metrics/mAP75(B)"] = float(result.box.map75)
@@ -214,12 +237,22 @@ def write_ranking_summary(run_dir: Path, args: argparse.Namespace) -> None:
     if isinstance(device, str) and device.isdigit():
         import torch
         device = f"cuda:{device}" if torch.cuda.is_available() else "cpu"
-    rows = ranking.inspect_model("surgical", run_dir / "weights/best.pt", images, argparse.Namespace(imgsz=args.imgsz, device=device, expected_seed=args.seed))
+    ranking_args = argparse.Namespace(imgsz=args.imgsz, device=device, expected_seed=args.seed)
+    rows = ranking.inspect_model("surgical", run_dir / "weights/best.pt", images, ranking_args)
+    canonical_rows = ranking.inspect_model("canonical", Path(args.canonical_checkpoint), images, ranking_args)
+    probe_summary = ranking.descriptive_summary(rows)
+    canonical_summary = ranking.descriptive_summary(canonical_rows)
+    probe_all = probe_summary["all"]
+    canonical_all = canonical_summary["all"]
+    delta_keys = ("iou_topscore", "best_iou_confidence", "confidence_iou_spearman", "pos_hardneg_margin", "rank_gap")
+    deltas = {key: probe_all[key]["mean"] - canonical_all[key]["mean"] for key in delta_keys}
     ranking_summary = {
         "protocol": {"split": "val", "seed": args.seed, "nms_iou": 0.5,
                      "candidate_rule": "decoded P2 anchor center inside GT; overlapping anchors assigned to highest-IoU GT",
                      "prediction_stage": "decoded P2 boxes and sigmoid class scores before threshold and NMS"},
-        "raw_p2": ranking.descriptive_summary(rows),
+        "raw_p2": probe_summary,
+        "canonical_raw_p2": canonical_summary,
+        "delta_probe_minus_canonical": deltas,
     }
     (run_dir / "ranking_summary.json").write_text(json.dumps(ranking_summary, indent=2, sort_keys=True) + "\n")
 
@@ -233,7 +266,9 @@ def write_manifest(placement: str, run_dir: Path, args: argparse.Namespace) -> N
         "kvca_channels": EXPECTED_KVCA[placement][0], "kvca_sr_ratio": EXPECTED_KVCA[placement][1],
         "heads": 4, "zero_init_residual": True, "frozen_existing_parameters": True,
         "epochs": args.epochs, "patience": args.patience, "imgsz": args.imgsz,
-        "batch_size": args.batch_size, "nms_iou": 0.5, "ftal": {"tau": 0.75, "kappa": 1.5, "lambda": 0.5},
+        "batch_size": args.batch_size, "nms_iou": 0.5,
+        "ftal": {"mode": "legacy", "tau": 0.75, "kappa": 1.5, "lambda": 0.5, "warmup_start": 0, "warmup_end": 0, "p2_only": True},
+        "transfer": getattr(args, "transfer", None),
     }
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 

@@ -22,7 +22,7 @@ from ultralytics.data.augment import LetterBox  # noqa: E402
 from ultralytics.utils.metrics import box_iou  # noqa: E402
 
 MODEL_ORDER = ("baseline_p2_p3", "cbam_p2", "baseline_p2_p5")
-EXPECTED_LEVELS = {"baseline_p2_p3": 2, "cbam_p2": 1, "baseline_p2_p5": 4}
+EXPECTED_LEVELS = {"baseline_p2_p3": 2, "cbam_p2": 1, "baseline_p2_p5": 4, "canonical": 1, "surgical": 1}
 METRICS = ("iou_best", "iou_topscore", "rank_gap", "confidence_iou_spearman", "best_iou_confidence", "best_iou_score_rank", "pos_hardneg_margin")
 GROUPS = ("all", "tiny", "small", "large")
 

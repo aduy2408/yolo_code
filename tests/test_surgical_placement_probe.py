@@ -30,6 +30,14 @@ class SurgicalPlacementConfigTests(unittest.TestCase):
         self.assertEqual(args.batch_size, 8)
         self.assertEqual(args.seed, 42)
 
+    def test_probe_uses_full_ftal_and_val_only_screen(self):
+        text = Path(probe.__file__).read_text()
+        self.assertIn('factorized_tal_mode="legacy"', text)
+        self.assertIn("factorized_tal_warmup_start=0", text)
+        self.assertIn("factorized_tal_warmup_end=0", text)
+        self.assertIn('for split in ("val",):', text)
+        self.assertIn("unmapped_source", text)
+
 
 if __name__ == "__main__":
     unittest.main()
