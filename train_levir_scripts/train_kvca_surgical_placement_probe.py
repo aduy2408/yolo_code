@@ -79,6 +79,11 @@ def model_for(placement: str, checkpoint: str):
     if unexpected:
         raise RuntimeError(f"{placement}: unexpected transferred tensors: {unexpected[:5]}")
     model._surgical_transfer = {"loaded_tensors": loaded_source_keys, "missing_target_keys": list(missing)}
+    # YOLO.train() rebuilds a DetectionModel when the wrapper has no checkpoint
+    # object. Mark this manually-remapped wrapper as checkpoint-backed so the
+    # trainer clones this exact target module instead of starting from YAML.
+    model.ckpt = {"epoch": -1, "optimizer": None}
+    model.ckpt_path = checkpoint
     layer = model.model.model[KVCA_LAYERS[placement]]
     if not isinstance(layer, KVCompressedAttention):
         raise TypeError(f"{placement}: expected KVCompressedAttention at layer {KVCA_LAYERS[placement]}, got {type(layer).__name__}")
@@ -111,16 +116,21 @@ def install_gradient_probe(model, placement: str, run_dir: Path, limit: int = 50
     """Record residual-output gradient norms for the first bounded train batches."""
     import torch
 
-    probe = model.model.model[KVCA_LAYERS[placement]]
     rows: list[dict[str, float | int]] = []
     holder: dict[str, torch.Tensor] = {}
+    handle = None
 
     def capture(_module, _inputs, output):
         if torch.is_tensor(output) and output.requires_grad:
             output.retain_grad()
             holder["output"] = output
 
-    handle = probe.register_forward_hook(capture)
+    def on_train_start(trainer):
+        # The trainer clones the target model during YOLO.train(). Attach to
+        # that live module, not the pre-trainer wrapper module.
+        nonlocal handle
+        probe = trainer.model.model[KVCA_LAYERS[placement]]
+        handle = probe.register_forward_hook(capture)
 
     def on_batch_end(trainer):
         if len(rows) >= limit:
@@ -130,15 +140,18 @@ def install_gradient_probe(model, placement: str, run_dir: Path, limit: int = 50
             return
         rows.append({"batch": len(rows), "g_total_l2": float(output.grad.detach().float().norm().cpu())})
         if len(rows) == limit:
-            handle.remove()
+            if handle is not None:
+                handle.remove()
             run_dir.mkdir(parents=True, exist_ok=True)
             (run_dir / "gradient_receptivity.json").write_text(json.dumps({"placement": placement, "batches": rows}, indent=2) + "\n")
 
     def on_train_end(trainer):
-        handle.remove()
+        if handle is not None:
+            handle.remove()
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "gradient_receptivity.json").write_text(json.dumps({"placement": placement, "batches": rows}, indent=2) + "\n")
 
+    model.add_callback("on_train_start", on_train_start)
     model.add_callback("on_train_batch_end", on_batch_end)
     model.add_callback("on_train_end", on_train_end)
 
@@ -240,7 +253,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--dataset-root", type=Path, default=ROOT / "datasets")
     p.add_argument("--project", type=Path, default=ROOT / "runs/levir_kvca_surgical_placement_probe")
     p.add_argument("--canonical-checkpoint", required=True)
-    p.add_argument("--hf-repo-id", required=True)
+    p.add_argument("--hf-repo-id", default=None, help="Optional Hugging Face repo for artifact upload")
     p.add_argument("--ranking-limit", type=int)
     p.add_argument("--gradient-batches", type=int, default=500)
     return p.parse_args(argv)
@@ -252,12 +265,14 @@ def main() -> None:
     args = parse_args()
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
     data_yaml = prepare_split(args)
-    require_training_context(hf_repo_id=args.hf_repo_id)
+    if args.hf_repo_id:
+        require_training_context(hf_repo_id=args.hf_repo_id)
     local_ultralytics()
-    import train_all_levir_yolov8n_p2_gap_scale_temper as upload_base
-    upload_base.REQUIRED = REQUIRED
-    Uploader = upload_base.Uploader
-    uploader = Uploader(args.hf_repo_id)
+    uploader = None
+    if args.hf_repo_id:
+        import train_all_levir_yolov8n_p2_gap_scale_temper as upload_base
+        upload_base.REQUIRED = REQUIRED
+        uploader = upload_base.Uploader(args.hf_repo_id)
     for placement in args.placements:
         run_dir = train_one(placement, data_yaml, args)
         evaluate(run_dir, data_yaml, args)
@@ -266,7 +281,8 @@ def main() -> None:
         missing = [path for path in REQUIRED if not (run_dir / path).is_file()]
         if missing:
             raise RuntimeError(f"{placement}: missing required artifacts: {missing}")
-        uploader.upload_run(placement, args.seed, run_dir)
+        if uploader is not None:
+            uploader.upload_run(placement, args.seed, run_dir)
 
 
 if __name__ == "__main__":
