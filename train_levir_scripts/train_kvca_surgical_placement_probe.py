@@ -238,6 +238,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--dataset-root", type=Path, default=ROOT / "datasets")
     p.add_argument("--project", type=Path, default=ROOT / "runs/levir_kvca_surgical_placement_probe")
     p.add_argument("--canonical-checkpoint", required=True)
+    p.add_argument("--hf-repo-id", required=True)
     p.add_argument("--ranking-limit", type=int)
     p.add_argument("--gradient-batches", type=int, default=500)
     return p.parse_args(argv)
