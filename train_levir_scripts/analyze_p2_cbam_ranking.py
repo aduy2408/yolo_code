@@ -23,7 +23,7 @@ from ultralytics.utils.metrics import box_iou  # noqa: E402
 
 MODEL_ORDER = ("baseline_p2_p3", "cbam_p2", "baseline_p2_p5")
 EXPECTED_LEVELS = {"baseline_p2_p3": 2, "cbam_p2": 1, "baseline_p2_p5": 4}
-METRICS = ("iou_best", "iou_topscore", "rank_gap", "confidence_iou_spearman", "best_iou_confidence", "best_iou_score_rank")
+METRICS = ("iou_best", "iou_topscore", "rank_gap", "confidence_iou_spearman", "best_iou_confidence", "best_iou_score_rank", "pos_hardneg_margin")
 GROUPS = ("all", "tiny", "small", "large")
 
 
@@ -148,6 +148,16 @@ def inspect_model(name: str, checkpoint: Path, images: list[Path], args: argpars
                     best_iou_confidence=float(candidate_scores[best_index]),
                     best_iou_score_rank=int((candidate_scores > candidate_scores[best_index]).sum()) + 1,
                 )
+                # Nearby unassigned P2 candidates provide a deterministic hard-negative score.
+                assigned = torch.cat(candidates) if any(len(item) for item in candidates) else torch.empty(0, dtype=torch.long, device=boxes.device)
+                center = (gt_box[:2] + gt_box[2:]) / 2
+                radius = max(float(gt_box[2] - gt_box[0]), float(gt_box[3] - gt_box[1])) * 2.0
+                nearby = torch.linalg.vector_norm(centers - center[None], dim=1) <= max(radius, 4.0)
+                unassigned = torch.ones(len(scores), dtype=torch.bool, device=scores.device)
+                if len(assigned):
+                    unassigned[assigned] = False
+                hardneg = scores[nearby & unassigned]
+                row["pos_hardneg_margin"] = float(candidate_scores.max() - hardneg.max()) if len(hardneg) else math.nan
                 if row["iou_best"] + 1e-7 < row["iou_topscore"] or row["rank_gap"] < 0:
                     raise AssertionError(f"Invalid ranking metrics for {image_path.name} GT {gt_index}")
             rows.append(row)
