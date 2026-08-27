@@ -244,9 +244,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main() -> None:
+    from utils.marimo_ops import require_training_context
+
     args = parse_args()
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
     data_yaml = prepare_split(args)
+    require_training_context(hf_repo_id=args.hf_repo_id)
+    local_ultralytics()
+    from train_all_levir_yolov8n_p2_gap_scale_temper import Uploader
+    uploader = Uploader(args.hf_repo_id)
     for placement in args.placements:
         run_dir = train_one(placement, data_yaml, args)
         evaluate(run_dir, data_yaml, args)
@@ -255,6 +261,7 @@ def main() -> None:
         missing = [path for path in REQUIRED if not (run_dir / path).is_file()]
         if missing:
             raise RuntimeError(f"{placement}: missing required artifacts: {missing}")
+        uploader.upload_run(placement, args.seed, run_dir)
 
 
 if __name__ == "__main__":
