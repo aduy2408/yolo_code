@@ -20,11 +20,13 @@ ULTRALYTICS = ROOT / "models_related/ultralytics"
 CANONICAL_CONFIG = ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_cbam_channel_only.yaml"
 CONFIGS = {
     "A": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_a_p3_context.yaml",
+    "A-R": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_a_p3_receptance_kvca.yaml",
     "B": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_b_fusion_input.yaml",
     "C": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_c_final_p2.yaml",
 }
 KVCA_LAYERS = {"A": 16, "B": 18, "C": 19}
 EXPECTED_KVCA = {"A": (64, 4), "B": (96, 8), "C": (32, 8)}
+EXPECTED_KVCA["A-R"] = (64, 4)
 REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml", "evaluation_metrics.json", "experiment_manifest.json", "ranking_summary.json", "gradient_receptivity.json")
 
 
@@ -56,7 +58,7 @@ def prepare_split(args: argparse.Namespace) -> Path:
 def model_for(placement: str, checkpoint: str):
     local_ultralytics()
     from ultralytics import YOLO
-    from ultralytics.nn.modules import KVCompressedAttention
+    from ultralytics.nn.modules import KVCompressedAttention, ReceptanceKVCompressedAttention
 
     model = YOLO(CONFIGS[placement])
     source = YOLO(checkpoint).model
@@ -100,6 +102,8 @@ def model_for(placement: str, checkpoint: str):
     layer = model.model.model[KVCA_LAYERS[placement]]
     if not isinstance(layer, KVCompressedAttention):
         raise TypeError(f"{placement}: expected KVCompressedAttention at layer {KVCA_LAYERS[placement]}, got {type(layer).__name__}")
+    if placement == "A-R" and not isinstance(layer, ReceptanceKVCompressedAttention):
+        raise TypeError(f"{placement}: expected ReceptanceKVCompressedAttention, got {type(layer).__name__}")
     expected_channels, expected_sr = EXPECTED_KVCA[placement]
     if layer.c2 != expected_channels or layer.sr_ratio != expected_sr or layer.num_heads != 4:
         raise ValueError(f"{placement}: unexpected KVCA config c2={layer.c2}, heads={layer.num_heads}, sr={layer.sr_ratio}")

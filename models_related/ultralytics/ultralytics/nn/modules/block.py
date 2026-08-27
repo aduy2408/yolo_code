@@ -71,6 +71,7 @@ __all__ = (
     "FullSelfAttention",
     "GlobalChannelContextCalibration",
     "KVCompressedAttention",
+    "ReceptanceKVCompressedAttention",
     "PatchKVCompressedAttention",
     "KVCompressedAttentionPartial",
     "KVCompressedTransformerEncoder",
@@ -1699,6 +1700,75 @@ class KVCompressedAttention(nn.Module):
 
         out = out.transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
         out = self.proj_bn(self.proj(out))
+        return x + out if self.residual else out
+
+
+class ReceptanceKVCompressedAttention(KVCompressedAttention):
+    """KV-compressed attention with a per-channel, per-location receptance gate.
+
+    The inherited attention core is intentionally left unchanged.  The gate is
+    applied to the raw SDPA result before the output projection, and the
+    zero-initialized projection BatchNorm preserves exact residual identity at
+    initialization.
+    """
+
+    def __init__(
+        self,
+        c1: int,
+        c2: int,
+        num_heads: int = 4,
+        sr_ratio: int = 2,
+        mode: str = "group_weight",
+        attn_drop: float = 0.0,
+        residual: bool = True,
+    ):
+        super().__init__(c1, c2, num_heads, sr_ratio, mode, attn_drop, residual)
+        self.receptance = nn.Conv2d(c2, c2, 1, bias=True)
+        nn.init.zeros_(self.receptance.weight)
+        nn.init.zeros_(self.receptance.bias)
+        self.capture_receptance = False
+        self.last_receptance = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the unchanged KVCA attention core followed by receptance."""
+        x = self.input_proj(x)
+        b, c, h, w = x.shape
+
+        q = self.q(x).flatten(2).transpose(1, 2)
+        q = q.reshape(b, h * w, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+        q = self.q_norm(q)
+
+        if self.mode == "group_weight" and self.group_score is not None:
+            kv_source = self._compress_group_weight(x)
+            kv = self.kv(kv_source).flatten(2).transpose(1, 2)
+            kv = kv.reshape(b, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            k, v = kv[0], kv[1]
+        else:
+            k_src = self.k_compress(x)
+            v_src = self.v_compress(x)
+            k = self.k_proj(k_src)
+            v = self.v_proj(v_src)
+
+            def _to_heads(t):
+                n = t.shape[2] * t.shape[3]
+                return t.flatten(2).transpose(1, 2).reshape(b, n, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+
+            k = _to_heads(k)
+            v = _to_heads(v)
+
+        a = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            dropout_p=self.attn_drop_p if self.training else 0.0,
+            scale=self.scale,
+        )
+        a = a.transpose(1, 2).reshape(b, h * w, c).transpose(1, 2).reshape(b, c, h, w)
+        g = torch.sigmoid(self.receptance(x))
+        if self.capture_receptance:
+            self.last_receptance = g.detach()
+        a = g * a
+        out = self.proj_bn(self.proj(a))
         return x + out if self.residual else out
 
 
@@ -5258,4 +5328,3 @@ class NativeCrossReconstruction(nn.Module):
             return self.conv_out(torch.cat([B, B_hat, A_proj], dim=1))
         else:
             return self.conv_out(torch.cat([B, A_proj], dim=1))
-
