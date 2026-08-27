@@ -21,12 +21,14 @@ CANONICAL_CONFIG = ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_
 CONFIGS = {
     "A": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_a_p3_context.yaml",
     "A-R": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_a_p3_receptance_kvca.yaml",
+    "A-P": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_a_p3_partial_kvca.yaml",
     "B": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_b_fusion_input.yaml",
     "C": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_c_final_p2.yaml",
 }
-KVCA_LAYERS = {"A": 16, "B": 18, "C": 19}
+KVCA_LAYERS = {"A": 16, "A-R": 16, "A-P": 16, "B": 18, "C": 19}
 EXPECTED_KVCA = {"A": (64, 4), "B": (96, 8), "C": (32, 8)}
 EXPECTED_KVCA["A-R"] = (64, 4)
+EXPECTED_KVCA["A-P"] = (64, 4)
 REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml", "evaluation_metrics.json", "experiment_manifest.json", "ranking_summary.json", "gradient_receptivity.json")
 
 
@@ -58,7 +60,7 @@ def prepare_split(args: argparse.Namespace) -> Path:
 def model_for(placement: str, checkpoint: str):
     local_ultralytics()
     from ultralytics import YOLO
-    from ultralytics.nn.modules import KVCompressedAttention, ReceptanceKVCompressedAttention
+    from ultralytics.nn.modules import KVCompressedAttention, ReceptanceKVCompressedAttention, SurgicalPartialKVCompressedAttention
 
     model = YOLO(CONFIGS[placement])
     source = YOLO(checkpoint).model
@@ -104,9 +106,16 @@ def model_for(placement: str, checkpoint: str):
         raise TypeError(f"{placement}: expected KVCompressedAttention at layer {KVCA_LAYERS[placement]}, got {type(layer).__name__}")
     if placement == "A-R" and not isinstance(layer, ReceptanceKVCompressedAttention):
         raise TypeError(f"{placement}: expected ReceptanceKVCompressedAttention, got {type(layer).__name__}")
+    if placement == "A-P" and not isinstance(layer, SurgicalPartialKVCompressedAttention):
+        raise TypeError(f"{placement}: expected SurgicalPartialKVCompressedAttention, got {type(layer).__name__}")
     expected_channels, expected_sr = EXPECTED_KVCA[placement]
-    if layer.c2 != expected_channels or layer.sr_ratio != expected_sr or layer.num_heads != 4:
-        raise ValueError(f"{placement}: unexpected KVCA config c2={layer.c2}, heads={layer.num_heads}, sr={layer.sr_ratio}")
+    if placement == "A-P":
+        actual_c2, actual_heads, actual_sr = layer.c2, layer.attn.num_heads, layer.attn.sr_ratio
+    else:
+        actual_c2, actual_heads, actual_sr = layer.c2, layer.num_heads, layer.sr_ratio
+    expected_heads = 2 if placement == "A-P" else 4
+    if actual_c2 != expected_channels or actual_sr != expected_sr or actual_heads != expected_heads:
+        raise ValueError(f"{placement}: unexpected KVCA config c2={actual_c2}, heads={actual_heads}, sr={actual_sr}")
     head = model.model.model[-1]
     if head.f != [20] or head.stride.tolist() != [4.0]:
         raise ValueError(f"{placement}: expected GAP P2 Detect from [20], stride [4.0], got {head.f}, {head.stride.tolist()}")
@@ -149,7 +158,7 @@ def install_gradient_probe(model, placement: str, run_dir: Path, limit: int = 50
         probe = trainer.model.model[KVCA_LAYERS[placement]]
         probe.eval()
         import torch
-        side = 64 if placement == "A" else 128
+        side = 64 if placement in {"A", "A-R", "A-P"} else 128
         x = torch.randn(1, probe.c2, side, side, device=next(probe.parameters()).device)
         with torch.inference_mode():
             max_abs = float((probe(x) - x).abs().max().cpu())
@@ -189,7 +198,7 @@ def assert_identity_initialization(model, placement: str, imgsz: int, device: st
     probe = model.model.model[KVCA_LAYERS[placement]]
     probe = probe.to(device)
     probe.eval()
-    x = torch.randn(1, probe.c2, imgsz // (8 if placement == "A" else 4), imgsz // (8 if placement == "A" else 4), device=device)
+    x = torch.randn(1, probe.c2, imgsz // (8 if placement in {"A", "A-R", "A-P"} else 4), imgsz // (8 if placement in {"A", "A-R", "A-P"} else 4), device=device)
     with torch.inference_mode():
         y = probe(x)
     max_abs = float((y - x).abs().max().cpu())
@@ -222,12 +231,19 @@ def train_one(placement: str, data_yaml: Path, args: argparse.Namespace) -> Path
 def evaluate(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> dict[str, float | str]:
     local_ultralytics()
     from ultralytics import YOLO
+    from ultralytics.nn.modules import ReceptanceKVCompressedAttention
+    evaluation_model = YOLO(run_dir / "weights/best.pt")
+    receptance_probe = evaluation_model.model.model[KVCA_LAYERS["A-R"]] if run_dir.parent.name == "A-R" else None
+    if isinstance(receptance_probe, ReceptanceKVCompressedAttention):
+        receptance_probe.capture_receptance = True
     metrics: dict[str, float | str] = {"checkpoint": "best.pt", "nms_iou": 0.5}
     for split in ("val",):
-        result = YOLO(run_dir / "weights/best.pt").val(data=str(data_yaml), split=split, imgsz=args.imgsz, batch=args.batch_size, device=args.device, workers=args.workers, plots=False, iou=0.5, project=str(run_dir / "evaluation"), name=split, exist_ok=True)
+        result = evaluation_model.val(data=str(data_yaml), split=split, imgsz=args.imgsz, batch=args.batch_size, device=args.device, workers=args.workers, plots=False, iou=0.5, project=str(run_dir / "evaluation"), name=split, exist_ok=True)
         metrics.update({f"{split}/{key}": float(value) for key, value in result.results_dict.items()})
         metrics[f"{split}/metrics/mAP75(B)"] = float(result.box.map75)
     (run_dir / "evaluation_metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n")
+    if isinstance(receptance_probe, ReceptanceKVCompressedAttention) and receptance_probe.last_receptance is not None:
+        (run_dir / "receptance_diagnostics.json").write_text(json.dumps({"source": "last_validation_batch", "stats": receptance_probe.receptance_statistics()}, indent=2, sort_keys=True) + "\n")
     return metrics
 
 

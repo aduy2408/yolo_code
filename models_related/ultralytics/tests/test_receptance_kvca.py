@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from ultralytics.nn.modules import KVCompressedAttention, ReceptanceKVCompressedAttention
+from ultralytics.nn.modules import KVCompressedAttention, ReceptanceKVCompressedAttention, SurgicalPartialKVCompressedAttention
 from ultralytics.nn.tasks import DetectionModel
 
 
@@ -61,3 +61,14 @@ def test_receptance_kvca_preserves_common_attention_core():
         gated.proj_bn.bias.copy_(bare.proj_bn.bias)
     x = torch.randn(1, 8, 8, 8)
     assert torch.allclose(gated(x), bare(x), atol=1e-5, rtol=1e-5)
+
+
+def test_surgical_partial_kvca_is_identity_safe_and_keeps_local_bypass():
+    module = SurgicalPartialKVCompressedAttention(64, 64, num_heads=4, sr_ratio=4, mode="group_weight").eval()
+    x = torch.randn(1, 64, 8, 8)
+    with torch.no_grad():
+        y = module(x)
+    assert y.shape == x.shape
+    assert torch.max((y - x).abs()).item() < 1e-6
+    assert module.attn.num_heads == 2
+    assert not hasattr(module, "out_proj")

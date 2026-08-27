@@ -74,6 +74,7 @@ __all__ = (
     "ReceptanceKVCompressedAttention",
     "PatchKVCompressedAttention",
     "KVCompressedAttentionPartial",
+    "SurgicalPartialKVCompressedAttention",
     "KVCompressedTransformerEncoder",
     "M3NATFuse",
     "Proto",
@@ -1771,6 +1772,21 @@ class ReceptanceKVCompressedAttention(KVCompressedAttention):
         out = self.proj_bn(self.proj(a))
         return x + out if self.residual else out
 
+    def receptance_statistics(self) -> dict[str, float]:
+        """Summarize the most recently captured gate without retaining its graph."""
+        if self.last_receptance is None:
+            raise RuntimeError("No receptance captured; set capture_receptance=True and run a forward pass first")
+        g = self.last_receptance.float()
+        return {
+            "mean": float(g.mean().cpu()),
+            "std": float(g.std(unbiased=False).cpu()),
+            "p10": float(torch.quantile(g, 0.10).cpu()),
+            "p50": float(torch.quantile(g, 0.50).cpu()),
+            "p90": float(torch.quantile(g, 0.90).cpu()),
+            "fraction_below_0.25": float((g < 0.25).float().mean().cpu()),
+            "fraction_above_0.75": float((g > 0.75).float().mean().cpu()),
+        }
+
 
 class GlobalChannelContextCalibration(nn.Module):
     """Calibrate local features using global cross-channel relationships without spatial content transport."""
@@ -2039,6 +2055,47 @@ class KVCompressedAttentionPartial(nn.Module):
         x_attn, x_bypass = x.chunk(2, dim=1)
         x_attn = self.attn(x_attn)
         return self.out_proj(torch.cat([x_attn, x_bypass], dim=1))
+
+
+class SurgicalPartialKVCompressedAttention(nn.Module):
+    """Identity-safe partial KVCA for a surgical ablation.
+
+    Half of the channels use KVCA and half bypass it.  Unlike the legacy
+    ``KVCompressedAttentionPartial``, this probe has no learned post-concat
+    projection, so its default KVCA residual initialization is an exact
+    identity when ``c1 == c2``.
+    """
+
+    def __init__(
+        self,
+        c1: int,
+        c2: int,
+        num_heads: int = 4,
+        sr_ratio: int = 2,
+        mode: str = "dwconv",
+        attn_drop: float = 0.0,
+    ):
+        super().__init__()
+        if c2 % 2 != 0:
+            raise ValueError(f"SurgicalPartialKVCompressedAttention requires even c2, got {c2}")
+        c_attn = c2 // 2
+        self.c2 = c2
+        self.input_proj = nn.Identity() if c1 == c2 else Conv(c1, c2, 1, 1)
+        self.attn = KVCompressedAttention(
+            c_attn,
+            c_attn,
+            num_heads=max(1, num_heads // 2),
+            sr_ratio=sr_ratio,
+            mode=mode,
+            attn_drop=attn_drop,
+            residual=True,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply KVCA to the first channel half and bypass the second half."""
+        x = self.input_proj(x)
+        x_attn, x_bypass = x.chunk(2, dim=1)
+        return torch.cat([self.attn(x_attn), x_bypass], dim=1)
 
 
 class _TopKGroupKVAttentionBase(nn.Module):
