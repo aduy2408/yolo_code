@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
 import sys
 from pathlib import Path
 
@@ -211,6 +212,7 @@ def write_ranking_summary(run_dir: Path, args: argparse.Namespace) -> None:
 
 
 def write_manifest(placement: str, run_dir: Path, args: argparse.Namespace) -> None:
+    shutil.copy2(CONFIGS[placement], run_dir / "config.yaml")
     manifest = {
         "placement": placement, "seed": args.seed, "split_seed": 42,
         "canonical_config": str(CANONICAL_CONFIG), "probe_config": str(CONFIGS[placement]),
@@ -252,7 +254,9 @@ def main() -> None:
     data_yaml = prepare_split(args)
     require_training_context(hf_repo_id=args.hf_repo_id)
     local_ultralytics()
-    from train_all_levir_yolov8n_p2_gap_scale_temper import Uploader
+    import train_all_levir_yolov8n_p2_gap_scale_temper as upload_base
+    upload_base.REQUIRED = REQUIRED
+    Uploader = upload_base.Uploader
     uploader = Uploader(args.hf_repo_id)
     for placement in args.placements:
         run_dir = train_one(placement, data_yaml, args)
