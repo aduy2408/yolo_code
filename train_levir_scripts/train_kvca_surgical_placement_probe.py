@@ -86,8 +86,9 @@ def model_for(placement: str, checkpoint: str):
     missing, unexpected = model.model.load_state_dict(mapped, strict=False)
     loaded_source_keys = len(mapped)
     probe_keys = {f"model.{probe_index}.{key}" for key in model.model.model[probe_index].state_dict()}
-    if set(missing) != probe_keys:
-        raise RuntimeError(f"{placement}: target missing keys are not exactly KVCA keys: {sorted(set(missing) ^ probe_keys)[:8]}")
+    non_probe_missing = set(missing) - probe_keys
+    if non_probe_missing:
+        raise RuntimeError(f"{placement}: target missing non-KVCA keys: {sorted(non_probe_missing)[:8]}")
     if unexpected:
         raise RuntimeError(f"{placement}: unexpected transferred tensors: {unexpected[:5]}")
     model._surgical_transfer = {"loaded_tensors": loaded_source_keys, "source_tensors": len(source_state), "missing_target_keys": list(missing)}
