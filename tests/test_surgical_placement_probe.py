@@ -19,7 +19,8 @@ class SurgicalPlacementConfigTests(unittest.TestCase):
         for placement, path in probe.CONFIGS.items():
             text = path.read_text()
             channels, sr = probe.EXPECTED_KVCA[placement]
-            self.assertIn(f"KVCompressedAttention, [{channels}, 4, {sr}, group_weight, 0.0]", text)
+            nominal = channels * 4
+            self.assertIn(f"KVCompressedAttention, [{nominal}, 4, {sr}, group_weight, 0.0]", text)
 
     def test_runner_defaults_match_protocol(self):
         args = probe.parse_args(["--canonical-checkpoint", "checkpoint.pt"])

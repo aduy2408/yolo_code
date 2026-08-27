@@ -24,6 +24,6 @@ head:
   - [-1, 1, nn.Upsample, [null, 2, nearest]]
   - [[-1, 2], 1, Concat, [1]]
   - [-1, 3, C2f, [128]]
-  - [-1, 1, KVCompressedAttention, [32, 4, 8, group_weight, 0.0]]  # C: final P2, stride 4, SR 8
+  - [-1, 1, KVCompressedAttention, [128, 4, 8, group_weight, 0.0]]  # C: final P2, scaled C=32, stride 4, SR 8
   - [-1, 1, ChannelAttention, []]
   - [[20], 1, Detect, [nc]]
