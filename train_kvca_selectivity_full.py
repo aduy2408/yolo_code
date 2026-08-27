@@ -61,6 +61,8 @@ def model_for(variant: str, pretrained: str):
 
     model = YOLO(CONFIGS[variant])
     model.load(pretrained, smart_transfer=True)
+    for parameter in model.model.parameters():
+        parameter.requires_grad = True
     layer = model.model.model[16]
     expected = ReceptanceKVCompressedAttention if variant == "A-R" else SurgicalPartialKVCompressedAttention
     if not isinstance(layer, expected):
