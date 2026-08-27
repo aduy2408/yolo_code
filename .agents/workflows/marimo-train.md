@@ -43,6 +43,10 @@ is not completion evidence by itself.
 - Never print, echo, commit, or store auth tokens in notebook cells, logs, or
   process arguments. Pass them through the live kernel environment to the
   detached child process.
+- **HF_TOKEN is provided by the live Marimo global kernel namespace, not by
+  `os.environ` in the notebook scratchpad.** Read it from the kernel's global
+  state and pass it only through the detached child-process environment. Never
+  print the token or persist it in notebook/file output.
 - Do not overwrite a dirty remote checkout blindly. Use a clean checkout or
   stop and report the conflict.
 
