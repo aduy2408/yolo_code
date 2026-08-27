@@ -102,12 +102,14 @@ def model_for(placement: str, checkpoint: str):
     model.ckpt = {"epoch": -1, "optimizer": None}
     model.ckpt_path = checkpoint
     layer = model.model.model[KVCA_LAYERS[placement]]
-    if not isinstance(layer, KVCompressedAttention):
-        raise TypeError(f"{placement}: expected KVCompressedAttention at layer {KVCA_LAYERS[placement]}, got {type(layer).__name__}")
-    if placement == "A-R" and not isinstance(layer, ReceptanceKVCompressedAttention):
-        raise TypeError(f"{placement}: expected ReceptanceKVCompressedAttention, got {type(layer).__name__}")
-    if placement == "A-P" and not isinstance(layer, SurgicalPartialKVCompressedAttention):
-        raise TypeError(f"{placement}: expected SurgicalPartialKVCompressedAttention, got {type(layer).__name__}")
+    if placement == "A-P":
+        if not isinstance(layer, SurgicalPartialKVCompressedAttention):
+            raise TypeError(f"{placement}: expected SurgicalPartialKVCompressedAttention, got {type(layer).__name__}")
+    else:
+        if not isinstance(layer, KVCompressedAttention):
+            raise TypeError(f"{placement}: expected KVCompressedAttention at layer {KVCA_LAYERS[placement]}, got {type(layer).__name__}")
+        if placement == "A-R" and not isinstance(layer, ReceptanceKVCompressedAttention):
+            raise TypeError(f"{placement}: expected ReceptanceKVCompressedAttention, got {type(layer).__name__}")
     expected_channels, expected_sr = EXPECTED_KVCA[placement]
     if placement == "A-P":
         actual_c2, actual_heads, actual_sr = layer.c2, layer.attn.num_heads, layer.attn.sr_ratio
