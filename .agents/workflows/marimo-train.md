@@ -35,6 +35,10 @@ is not completion evidence by itself.
 - Use the workflow when the task involves a long-running remote experiment.
 - Use the `marimo-pair` skill only for live-kernel interaction. Keep orchestration
   logic in repository code, not in ad-hoc scratchpad snippets.
+- Connect to the live Marimo runtime through the repository command-line helper
+  (`utils/marimo_run.py`) and its configured API credentials. Do not open or
+  probe the Marimo URL through a browser as a substitute for that connection.
+  Browser interaction is out of scope unless the user explicitly requests it.
 - Prefer Git synchronization over direct file patching on `/marimo`.
 - Never print, echo, commit, or store auth tokens in notebook cells, logs, or
   process arguments. Pass them through the live kernel environment to the
