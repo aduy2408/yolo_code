@@ -169,7 +169,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main() -> None:
-    from train_levir_scripts import train_all_levir_yolov8n_p2_gap_scale_temper as upload_base
+    import train_all_levir_yolov8n_p2_gap_scale_temper as upload_base
     from utils.marimo_ops import require_training_context
 
     args = parse_args()
