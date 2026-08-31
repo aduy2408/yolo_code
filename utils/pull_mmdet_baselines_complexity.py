@@ -113,13 +113,22 @@ def model_fingerprint(python: str, config: Path, mmdet_root: Path) -> str:
     return subprocess.check_output([python, "-c", code], env=env, text=True).strip()
 
 
-def measure_complexity(python: str, config: Path, mmdet_root: Path) -> tuple[dict[str, float], str]:
+def measure_complexity(
+    python: str,
+    config: Path,
+    mmdet_root: Path,
+    ann_file: Path,
+    image_root: Path,
+) -> tuple[dict[str, float], str]:
     command = [
         python,
         str(mmdet_root / "tools/analysis_tools/get_flops.py"),
         str(config),
         "--num-images",
         "1",
+        "--cfg-options",
+        f"val_dataloader.dataset.ann_file={ann_file}",
+        f"val_dataloader.dataset.data_prefix.img={image_root}/",
     ]
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join((str(mmdet_root), env.get("PYTHONPATH", "")))
@@ -131,8 +140,10 @@ def measure_complexity(python: str, config: Path, mmdet_root: Path) -> tuple[dic
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        check=True,
+        check=False,
     )
+    if result.returncode:
+        raise RuntimeError(f"MMDetection FLOPs command failed ({result.returncode}):\n{result.stdout}")
     return parse_complexity_output(result.stdout), result.stdout
 
 
@@ -144,6 +155,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--mmdet-root", type=Path, required=True)
     parser.add_argument("--python", required=True)
+    parser.add_argument("--ann-file", type=Path, required=True)
+    parser.add_argument("--image-root", type=Path, required=True)
     return parser.parse_args()
 
 
@@ -215,7 +228,13 @@ def main() -> None:
         if len(fingerprints) != 1:
             raise RuntimeError(f"{model}: model configs differ across seeds: {fingerprints}")
         config = Path(model_rows[0]["config_path"])
-        metrics, raw = measure_complexity(args.python, config, args.mmdet_root)
+        metrics, raw = measure_complexity(
+            args.python,
+            config,
+            args.mmdet_root,
+            args.ann_file,
+            args.image_root,
+        )
         complexities[model] = {
             **metrics,
             "input_size": [512, 512],
@@ -233,6 +252,8 @@ def main() -> None:
         "seeds": seeds,
         "mmdet_root": str(args.mmdet_root.resolve()),
         "python": str(Path(args.python).resolve()),
+        "complexity_ann_file": str(args.ann_file.resolve()),
+        "complexity_image_root": str(args.image_root.resolve()),
         "inventories": inventories,
     }
     (args.output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
