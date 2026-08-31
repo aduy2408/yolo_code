@@ -97,3 +97,26 @@
 ## Notes
 
 - duyle2408/varroa-yolo-baselines-missing-part3-missing: train results without test summary rows: yolo11n_seed42, yolo11n_seed43, yolo11n_seed44, yolo11s_seed42
+
+## Complexity at 512x512
+
+Parameters and GFLOPs are invariant across seeds for each architecture. YOLO values
+were measured with Ultralytics `model.info/get_flops`; MMDetection values were
+measured with `tools/analysis_tools/get_flops.py` on the fixed validation split.
+
+| Framework | Model | Seeds | Parameters (M) | GFLOPs |
+| --- | --- | --- | ---: | ---: |
+| YOLO | YOLOv5nu | 42, 43, 44 | 2.879 | 4.593 |
+| YOLO | YOLOv8n | 42, 43, 44 | 3.381 | 5.244 |
+| YOLO | YOLOv9t | 42, 43, 44 | 2.283 | 5.023 |
+| YOLO | YOLOv10n | 42, 43, 44 | 3.077 | 5.371 |
+| YOLO | YOLO11n | 42, 43, 44 | 2.960 | 4.122 |
+| MMDetection | ATSS | 42, 43, 44 | 32.113 | 51.504 |
+| MMDetection | Cascade R-CNN | 42, 43, 44 | 69.152 | 90.978 |
+| MMDetection | Faster R-CNN | 42, 43, 44 | 41.348 | 63.179 |
+| MMDetection | FCOS | 42, 43, 44 | 32.113 | 50.291 |
+| MMDetection | RetinaNet | 42, 43, 44 | 36.330 | 52.203 |
+| MMDetection | RTMDet | 42, 43, 44 | 8.856 | 9.440 |
+
+Artifact locations: `/marimo/yolo_eval_runs/levir_yolo_complexity` and
+`/marimo/mmdet_models/levir_baselines`.
