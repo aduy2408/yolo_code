@@ -144,6 +144,64 @@ def aggregate(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return output
 
 
+def result_paths(models: Iterable[str], seeds: Iterable[int]) -> list[str]:
+    paths = ["manifest.json", "results.json", "summary.json"]
+    for model in models:
+        for seed in seeds:
+            root = f"{model}/seed_{seed}"
+            paths.extend(
+                (
+                    f"{root}/metrics.json",
+                    f"{root}/validation_predictions.json",
+                    f"{root}/test_predictions.json",
+                )
+            )
+    return paths
+
+
+def upload_results(
+    api: Any,
+    *,
+    repo_id: str,
+    output_dir: Path,
+    path_prefix: str,
+    models: list[str],
+    seeds: list[int],
+) -> None:
+    expected_local = result_paths(models, seeds)
+    missing_local = [path for path in expected_local if not (output_dir / path).is_file()]
+    if missing_local:
+        raise RuntimeError(f"Refusing incomplete upload; missing: {missing_local}")
+    api.upload_folder(
+        repo_id=repo_id,
+        repo_type="dataset",
+        folder_path=str(output_dir),
+        path_in_repo=path_prefix,
+        ignore_patterns=["train.log", "train.pid", "state.json", "upload_complete.json"],
+    )
+    remote_files = set(api.list_repo_files(repo_id, repo_type="dataset"))
+    expected_remote = {f"{path_prefix}/{path}" for path in expected_local}
+    missing_remote = sorted(expected_remote - remote_files)
+    if missing_remote:
+        raise RuntimeError(f"Hugging Face verification failed: {missing_remote}")
+    marker = {
+        "repo_id": repo_id,
+        "path_prefix": path_prefix,
+        "verified_files": sorted(expected_remote),
+    }
+    marker_path = output_dir / "upload_complete.json"
+    marker_path.write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+    marker_remote = f"{path_prefix}/{marker_path.name}"
+    api.upload_file(
+        repo_id=repo_id,
+        repo_type="dataset",
+        path_or_fileobj=str(marker_path),
+        path_in_repo=marker_remote,
+    )
+    if marker_remote not in set(api.list_repo_files(repo_id, repo_type="dataset")):
+        raise RuntimeError(f"Hugging Face marker verification failed: {marker_remote}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hf-repo-id", default=HF_REPO_ID)
@@ -160,6 +218,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iou", type=float, default=0.5)
     parser.add_argument("--max-det", type=int, default=300)
     parser.add_argument("--limit", type=int, default=0, help="Per-split smoke-test limit; 0 uses all images")
+    parser.add_argument("--upload-results", action="store_true")
+    parser.add_argument("--hf-path-prefix", default="evaluation/coco_fixedsplit42")
     return parser.parse_args()
 
 
@@ -269,6 +329,15 @@ def main() -> None:
     (args.output_dir / "results.json").write_text(json.dumps(rows, indent=2) + "\n")
     summary = aggregate(rows)
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    if args.upload_results:
+        upload_results(
+            HfApi(token=token),
+            repo_id=args.hf_repo_id,
+            output_dir=args.output_dir,
+            path_prefix=args.hf_path_prefix.strip("/"),
+            models=models,
+            seeds=seeds,
+        )
     print(json.dumps(summary, indent=2), flush=True)
 
 

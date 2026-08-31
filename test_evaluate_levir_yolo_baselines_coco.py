@@ -28,3 +28,18 @@ def test_aggregate_uses_sample_standard_deviation():
     summary = MODULE.aggregate(rows)[0]
     assert summary["test"]["map_50_95"] == {"mean": 0.3, "sample_std": 0.1}
     assert summary["test"]["ap_large"] == {"mean": -1.0, "sample_std": 0.0}
+
+
+def test_result_paths_cover_each_model_seed_and_split():
+    paths = MODULE.result_paths(["yolov8n"], [42, 43])
+    assert paths == [
+        "manifest.json",
+        "results.json",
+        "summary.json",
+        "yolov8n/seed_42/metrics.json",
+        "yolov8n/seed_42/validation_predictions.json",
+        "yolov8n/seed_42/test_predictions.json",
+        "yolov8n/seed_43/metrics.json",
+        "yolov8n/seed_43/validation_predictions.json",
+        "yolov8n/seed_43/test_predictions.json",
+    ]
