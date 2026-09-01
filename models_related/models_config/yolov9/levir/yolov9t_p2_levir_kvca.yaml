@@ -1,0 +1,40 @@
+# YOLOv9t-P2 + KVCA on the final P2 feature before the PAN transition.
+# YOLOv9t-P2 detector for LEVIR-Ship.
+# GELAN backbone with an additional stride-4 detection level.
+nc: 1
+scale: t
+scales: {t: [0.33, 0.25, 1024]}
+
+backbone:
+  - [-1, 1, Conv, [16, 3, 2]] # 0-P1/2
+  - [-1, 1, Conv, [32, 3, 2]] # 1-P2/4
+  - [-1, 1, ELAN1, [32, 32, 16]] # 2
+  - [-1, 1, AConv, [64]] # 3-P3/8
+  - [-1, 1, RepNCSPELAN4, [64, 64, 32, 3]] # 4
+  - [-1, 1, AConv, [96]] # 5-P4/16
+  - [-1, 1, RepNCSPELAN4, [96, 96, 48, 3]] # 6
+  - [-1, 1, AConv, [128]] # 7-P5/32
+  - [-1, 1, RepNCSPELAN4, [128, 128, 64, 3]] # 8
+  - [-1, 1, SPPELAN, [128, 64]] # 9
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, nearest]]
+  - [[-1, 6], 1, Concat, [1]] # cat backbone P4
+  - [-1, 1, RepNCSPELAN4, [96, 96, 48, 3]] # 12 P4 FPN
+  - [-1, 1, nn.Upsample, [None, 2, nearest]]
+  - [[-1, 4], 1, Concat, [1]] # cat backbone P3
+  - [-1, 1, RepNCSPELAN4, [64, 64, 32, 3]] # 15 P3 FPN
+  - [-1, 1, nn.Upsample, [None, 2, nearest]]
+  - [[-1, 2], 1, Concat, [1]] # cat backbone P2
+  - [-1, 1, RepNCSPELAN4, [32, 32, 16]] # 18 P2 FPN
+  - [-1, 1, KVCompressedAttention, [32, 4, 8, group_weight]] # KVCA, group-weight compression
+  - [-1, 1, AConv, [32]] # 19 P2 -> P3
+  - [[-1, 16], 1, Concat, [1]]
+  - [-1, 1, RepNCSPELAN4, [64, 64, 32, 3]] # 21 P3 PAN
+  - [-1, 1, AConv, [64]]
+  - [[-1, 13], 1, Concat, [1]]
+  - [-1, 1, RepNCSPELAN4, [96, 96, 48, 3]] # 24 P4 PAN
+  - [-1, 1, AConv, [96]]
+  - [[-1, 9], 1, Concat, [1]]
+  - [-1, 1, RepNCSPELAN4, [128, 128, 64, 3]] # 27 P5 PAN
+  - [[19, 22, 25, 28], 1, Detect, [nc]] # Detect(P2, P3, P4, P5)
