@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 import train_all_tinyperson as workflow
-from train_all_tinyperson_yolo_baselines import MODELS, SEEDS, Uploader, selected_jobs
+from train_all_tinyperson_yolo_baselines import MODELS, SEEDS, Uploader, selected_jobs, standard_ultralytics
 
 ROOT = Path(__file__).resolve().parent
 
