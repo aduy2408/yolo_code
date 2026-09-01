@@ -7,7 +7,7 @@ import argparse
 from pathlib import Path
 
 import train_all_tinyperson as workflow
-from train_all_tinyperson_yolo_baselines import MODELS, SEEDS, selected_jobs
+from train_all_tinyperson_yolo_baselines import MODELS, SEEDS, selected_jobs, standard_ultralytics
 
 ROOT = Path(__file__).resolve().parent
 
@@ -34,6 +34,7 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError("machine-index must be in [0, machine-count)")
     args.data_root, args.dataset_root, args.project = args.data_root.resolve(), args.dataset_root.resolve(), args.project.resolve()
     test_out = workflow.prepare_test_set(args.data_root, args.dataset_root)
+    standard_ultralytics()
     for model_name, seed in selected_jobs(args.models, args.seeds, args.machine_index, args.machine_count):
         seed_dir = args.dataset_root / f"tinyperson_seed_{seed}_corner_sw640_sh512"
         run_dir = args.project / model_name / f"seed_{seed}_corner_sw640_sh512"

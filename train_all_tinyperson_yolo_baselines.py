@@ -46,6 +46,16 @@ def workflow():
     return module
 
 
+def standard_ultralytics():
+    """Load the installed upstream package, not the repository custom fork."""
+    local_path = str(ROOT / "models_related/ultralytics")
+    while local_path in sys.path:
+        sys.path.remove(local_path)
+    from ultralytics import YOLO
+
+    return YOLO
+
+
 def complete(run_dir: Path) -> bool:
     return all((run_dir / path).is_file() for path in REQUIRED)
 
@@ -109,8 +119,7 @@ def train_one(model_name: str, seed: int, data_yaml: Path, args: argparse.Namesp
         print(f"Reusing completed training: {run_dir}", flush=True)
         return run_dir
     module.seed_everything(seed)
-    module.local_ultralytics()
-    from ultralytics import YOLO
+    YOLO = standard_ultralytics()
 
     last = run_dir / "weights/last.pt"
     model = YOLO(str(last) if last.is_file() else MODELS[model_name])
@@ -190,7 +199,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--patience", type=int, default=20)
+    parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--hf-repo-id", default="duyle2408/tinyperson-yolo-baselines")
     parser.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS))
     parser.add_argument("--models", nargs="+", choices=list(MODELS), default=list(MODELS))
@@ -221,6 +230,7 @@ def main(argv: list[str] | None = None) -> None:
     for model_name, seed in selected_jobs(args.models, args.seeds, args.machine_index, args.machine_count):
         seed_dir = args.dataset_root / f"tinyperson_seed_{seed}_corner_sw640_sh512"
         run_dir = train_one(model_name, seed, seed_dir / "tinyperson.yaml", args)
+        standard_ultralytics()
         module.evaluate(run_dir, seed_dir / "tinyperson.yaml", test_out_dir, args.data_root, args)
         write_metadata(model_name, seed, run_dir, seed_dir / "tinyperson.yaml", args)
         if not complete(run_dir):

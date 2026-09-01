@@ -30,4 +30,5 @@ def test_parse_defaults_are_three_seeds_and_upload_repo() -> None:
     assert args.seeds == [42, 43, 44]
     assert args.models == list(runner.MODELS)
     assert args.machine_count == 1
+    assert args.patience == 0
     assert args.hf_repo_id == "duyle2408/tinyperson-yolo-baselines"

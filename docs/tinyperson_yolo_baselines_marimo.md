@@ -30,7 +30,7 @@ Run the same command on both machines, changing only the index:
   --data-root /marimo/TinyPersonData \
   --dataset-root /marimo/yolo_code/datasets \
   --project /marimo/yolo_code/runs/tinyperson_yolo_baselines \
-  --epochs 100 --patience 20 --imgsz 640 --batch-size 8 \
+  --epochs 100 --patience 0 --imgsz 640 --batch-size 8 \
   --machine-index 0 --machine-count 2 \
   --hf-repo-id duyle2408/tinyperson-yolo-baselines
 
