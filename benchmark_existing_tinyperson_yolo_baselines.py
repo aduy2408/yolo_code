@@ -28,6 +28,7 @@ def parse_args(argv=None):
     p.add_argument('--machine-index', type=int, default=0)
     p.add_argument('--machine-count', type=int, default=1)
     p.add_argument('--force', action='store_true', help='Recompute TinyBenchmark metrics even when upload marker exists')
+    p.add_argument('--complexity-only', action='store_true', help='Only measure params/GFLOPs for uploaded checkpoints')
     return p.parse_args(argv)
 
 
@@ -46,7 +47,20 @@ def main(argv=None):
             print(f'Skip incomplete/non-uploaded run: {run_dir}', flush=True)
             continue
         seed_dir = args.dataset_root / f'tinyperson_seed_{seed}_corner_sw640_sh512'
-        workflow.evaluate(run_dir, seed_dir / 'tinyperson.yaml', test_out, args.data_root, args)
+        if not args.complexity_only:
+            workflow.evaluate(run_dir, seed_dir / 'tinyperson.yaml', test_out, args.data_root, args)
+        manifest_path = run_dir / 'experiment_manifest.json'
+        manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
+        YOLO = standard_ultralytics()
+        model = YOLO(run_dir / 'weights/best.pt')
+        manifest['params'] = sum(parameter.numel() for parameter in model.model.parameters())
+        try:
+            from ultralytics.utils.torch_utils import get_flops
+            manifest['gflops'] = float(get_flops(model.model, imgsz=args.imgsz))
+        except Exception as exc:
+            manifest['gflops'] = None
+            manifest['gflops_error'] = f'{type(exc).__name__}: {exc}'
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
         uploader.upload_and_verify(model_name, seed, run_dir)
         print(f'Benchmarked and uploaded {model_name}/seed_{seed}', flush=True)
 
