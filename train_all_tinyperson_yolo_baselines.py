@@ -28,6 +28,7 @@ MODELS = {
     "yolov10": "yolov10n.pt",
     "yolov11": "yolo11n.pt",
 }
+USING_LOCAL_FORK = False
 REQUIRED = (
     "weights/best.pt",
     "weights/last.pt",
@@ -47,13 +48,34 @@ def workflow():
 
 
 def standard_ultralytics():
-    """Load the installed upstream package, not the repository custom fork."""
+    """Load upstream Ultralytics, falling back to the repo fork when needed."""
     local_path = str(ROOT / "models_related/ultralytics")
     while local_path in sys.path:
         sys.path.remove(local_path)
-    from ultralytics import YOLO
+    try:
+        from ultralytics import YOLO
+    except ModuleNotFoundError:
+        global USING_LOCAL_FORK
+        USING_LOCAL_FORK = True
+        sys.path.insert(0, local_path)
+        from ultralytics import YOLO
 
     return YOLO
+
+
+BASELINE_OVERRIDES = {
+    "factorized_tal_target": False,
+    "factorized_support_gain": 0.0,
+    "scale_temper_target": False,
+    "loc_assign": False,
+    "ggcf_refine": False,
+    "ggcf_assign_refined": False,
+    "positive_support_dropout": False,
+    "box_consensus_gain": 0.0,
+    "quality_gain": 0.0,
+    "boundary_contrast": 0.0,
+    "evidence_aux_gain": 0.0,
+}
 
 
 def complete(run_dir: Path) -> bool:
@@ -129,6 +151,7 @@ def train_one(model_name: str, seed: int, data_yaml: Path, args: argparse.Namesp
         patience=args.patience, seed=seed, deterministic=True, amp=True,
         plots=False, project=str(args.project / model_name),
         name=f"seed_{seed}_corner_sw640_sh512", exist_ok=True,
+        **(BASELINE_OVERRIDES if USING_LOCAL_FORK else {}),
     )
     if last.is_file():
         model.train(resume=True)
