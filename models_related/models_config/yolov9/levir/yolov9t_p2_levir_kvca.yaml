@@ -29,10 +29,10 @@ head:
   - [-1, 1, RepNCSPELAN4, [32, 32, 16]] # 18 P2 FPN
   - [-1, 1, KVCompressedAttention, [32, 4, 8, group_weight]] # KVCA, group-weight compression
   - [-1, 1, AConv, [32]] # 19 P2 -> P3
-  - [[-1, 16], 1, Concat, [1]]
+  - [[-1, 15], 1, Concat, [1]]
   - [-1, 1, RepNCSPELAN4, [64, 64, 32, 3]] # 21 P3 PAN
   - [-1, 1, AConv, [64]]
-  - [[-1, 13], 1, Concat, [1]]
+  - [[-1, 12], 1, Concat, [1]]
   - [-1, 1, RepNCSPELAN4, [96, 96, 48, 3]] # 24 P4 PAN
   - [-1, 1, AConv, [96]]
   - [[-1, 9], 1, Concat, [1]]
