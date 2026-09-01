@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Benchmark completed TinyPerson baseline checkpoints without retraining."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import train_all_tinyperson as workflow
+from train_all_tinyperson_yolo_baselines import MODELS, SEEDS, Uploader, selected_jobs
+
+ROOT = Path(__file__).resolve().parent
+
+
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--data-root', type=Path, required=True)
+    p.add_argument('--dataset-root', type=Path, default=ROOT / 'datasets')
+    p.add_argument('--project', type=Path, default=ROOT / 'runs/tinyperson_yolo_baselines')
+    p.add_argument('--imgsz', type=int, default=640)
+    p.add_argument('--batch-size', type=int, default=8)
+    p.add_argument('--device', default='cuda')
+    p.add_argument('--workers', type=int, default=4)
+    p.add_argument('--hf-repo-id', default='duyle2408/tinyperson-yolo-baselines')
+    p.add_argument('--models', nargs='+', choices=list(MODELS), default=list(MODELS))
+    p.add_argument('--seeds', type=int, nargs='+', default=list(SEEDS))
+    p.add_argument('--machine-index', type=int, default=0)
+    p.add_argument('--machine-count', type=int, default=1)
+    return p.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if not 0 <= args.machine_index < args.machine_count:
+        raise ValueError('machine-index must be in [0, machine-count)')
+    args.data_root = args.data_root.resolve(); args.dataset_root = args.dataset_root.resolve(); args.project = args.project.resolve()
+    test_out = workflow.prepare_test_set(args.data_root, args.dataset_root)
+    uploader = Uploader(args.hf_repo_id)
+    for model_name, seed in selected_jobs(args.models, args.seeds, args.machine_index, args.machine_count):
+        run_dir = args.project / model_name / f'seed_{seed}_corner_sw640_sh512'
+        if not (run_dir / 'upload_complete.json').is_file():
+            print(f'Skip incomplete/non-uploaded run: {run_dir}', flush=True)
+            continue
+        seed_dir = args.dataset_root / f'tinyperson_seed_{seed}_corner_sw640_sh512'
+        workflow.evaluate(run_dir, seed_dir / 'tinyperson.yaml', test_out, args.data_root, args)
+        uploader.upload_and_verify(model_name, seed, run_dir)
+        print(f'Benchmarked and uploaded {model_name}/seed_{seed}', flush=True)
+
+
+if __name__ == '__main__':
+    main()
