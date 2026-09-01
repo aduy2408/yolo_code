@@ -387,28 +387,87 @@ def predict_merged_test(run_dir: Path, test_out_dir: Path, data_root: Path, args
     return output
 
 
+def mean_ap50_75(result) -> float:
+    """Mean AP over the six IoU thresholds 0.50, ..., 0.75."""
+    all_ap = result.box.all_ap
+    if getattr(all_ap, "ndim", 0) != 2 or all_ap.shape[1] < 6:
+        raise ValueError(f"expected per-class AP for at least six IoU thresholds, got {getattr(all_ap, 'shape', None)}")
+    return float(all_ap[:, :6].mean())
+
+
+def precision_ap(precision, iou_index: int, area_index: int) -> float:
+    """Average a TinyBenchmark precision slice, ignoring its -1 sentinel."""
+    import numpy as np
+
+    values = np.asarray(precision[iou_index, :, :, area_index, -1])
+    values = values[values > -1]
+    return float(values.mean()) if values.size else -1.0
+
+
+def evaluate_tiny_benchmark(prediction_path: Path, merged_gt_path: Path) -> dict[str, float]:
+    """Extract explicit metrics from TinyBenchmark's precision tensor."""
+    import importlib.util
+    import numpy as np
+    from pycocotools.coco import COCO
+
+    evaluator_path = ROOT / "vendor/tinyperson_cocoeval.py"
+    spec = importlib.util.spec_from_file_location("tinyperson_cocoeval", evaluator_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load TinyBenchmark evaluator from {evaluator_path}")
+    evaluator_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(evaluator_module)
+    COCOeval, Params = evaluator_module.COCOeval, evaluator_module.Params
+
+    Params.EVAL_STRANDARD = "tiny"
+    coco_gt = COCO(str(merged_gt_path))
+    coco_dt = coco_gt.loadRes(str(prediction_path))
+    # TinyBenchmark predates NumPy's integer-only linspace ``num`` argument.
+    old_linspace = evaluator_module.np.linspace
+    def compatible_linspace(start, stop, num=50, *args, **kwargs):
+        if isinstance(num, (float, np.floating)):
+            num = int(num)
+        return old_linspace(start, stop, num, *args, **kwargs)
+    evaluator_module.np.linspace = compatible_linspace
+    try:
+        evaluator = COCOeval(coco_gt, coco_dt, "bbox", True, True)
+    finally:
+        evaluator_module.np.linspace = old_linspace
+    evaluator.params.iouThrs = np.linspace(0.50, 0.75, 6)
+    had_np_float = hasattr(evaluator_module.np, "float")
+    if not had_np_float:
+        evaluator_module.np.float = float
+    try:
+        evaluator.evaluate()
+        evaluator.accumulate()
+    finally:
+        if not had_np_float:
+            del evaluator_module.np.float
+
+    area_indices = {name: evaluator.params.areaRngLbl.index(name) for name in ("tiny1", "tiny2", "tiny3", "small")}
+    all_ap = [precision_ap(evaluator.eval["precision"], index, evaluator.params.areaRngLbl.index("all")) for index in range(6)]
+    valid_all_ap = [value for value in all_ap if value > -1]
+    metrics = {
+        "test_merged/AP50": all_ap[0],
+        "test_merged/AP75": all_ap[-1],
+        "test_merged/mAP50-75": float(np.mean(valid_all_ap)) if valid_all_ap else -1.0,
+    }
+    for name, area_index in area_indices.items():
+        metrics[f"test_merged/AP50-{name.title()}"] = precision_ap(evaluator.eval["precision"], 0, area_index)
+    return metrics
+
+
 def evaluate_merged_test(run_dir: Path, test_out_dir: Path, data_root: Path, args: argparse.Namespace) -> dict[str, float]:
     """Evaluate merged detections with TinyBenchmark when its optional stack is available."""
     prediction_path = predict_merged_test(run_dir, test_out_dir, data_root, args)
     merged_gt_path = data_root / TEST_MERGED_JSON
     metrics: dict[str, float] = {"test_merged/available": 0.0}
-    benchmark_root = ROOT / "TinyBenchmark" / "tiny_benchmark"
-    if not benchmark_root.is_dir() or not merged_gt_path.is_file():
+    benchmark_root = ROOT / "vendor"
+    if not (benchmark_root / "tinyperson_cocoeval.py").is_file() or not merged_gt_path.is_file():
         print("TinyBenchmark evaluator unavailable; merged detections were still written.", flush=True)
         return metrics
     sys.path.insert(0, str(benchmark_root))
     try:
-        from MyPackage.tools.evaluate.evaluate_tiny import evaluate_ap
-
-        results = evaluate_ap(
-            str(prediction_path),
-            str(merged_gt_path),
-            ignore_uncertain=True,
-            use_iod_for_ignore=True,
-            eval_standard="tiny",
-        )
-        for key, value in results.results["bbox"].items():
-            metrics[f"test_merged/{key}"] = float(value)
+        metrics.update(evaluate_tiny_benchmark(prediction_path, merged_gt_path))
         metrics["test_merged/available"] = 1.0
     except Exception as exc:
         print(f"TinyBenchmark AP evaluator unavailable: {type(exc).__name__}: {exc}", flush=True)
@@ -454,7 +513,17 @@ def train(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace) ->
 def evaluate(run_dir: Path, data_yaml: Path, test_out_dir: Path, data_root: Path, args: argparse.Namespace) -> dict:
     output = run_dir / "evaluation_metrics.json"
     if output.is_file():
-        return json.loads(output.read_text(encoding="utf-8"))
+        cached = json.loads(output.read_text(encoding="utf-8"))
+        required_metrics = [
+            *(f"{split}/metrics/mAP50-75(B)" for split in ("val", "test")),
+            "test_merged/mAP50-75",
+            "test_merged/AP50-Tiny1",
+            "test_merged/AP50-Tiny2",
+            "test_merged/AP50-Tiny3",
+            "test_merged/AP50-Small",
+        ]
+        if all(key in cached for key in required_metrics):
+            return cached
     local_ultralytics()
     from ultralytics import YOLO
 
@@ -475,6 +544,7 @@ def evaluate(run_dir: Path, data_yaml: Path, test_out_dir: Path, data_root: Path
         )
         metrics.update({f"{split}/{key}": float(value) for key, value in result.results_dict.items()})
         metrics[f"{split}/metrics/mAP75(B)"] = float(result.box.map75)
+        metrics[f"{split}/metrics/mAP50-75(B)"] = mean_ap50_75(result)
     metrics.update(evaluate_merged_test(run_dir, test_out_dir, data_root, args))
     output.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return metrics
