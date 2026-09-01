@@ -443,7 +443,7 @@ def evaluate_tiny_benchmark(prediction_path: Path, merged_gt_path: Path) -> dict
         if not had_np_float:
             del evaluator_module.np.float
 
-    area_indices = {name: evaluator.params.areaRngLbl.index(name) for name in ("tiny1", "tiny2", "tiny3", "small")}
+    area_indices = {name: evaluator.params.areaRngLbl.index(name) for name in ("tiny1", "tiny2", "tiny3", "small", "medium")}
     all_ap = [precision_ap(evaluator.eval["precision"], index, evaluator.params.areaRngLbl.index("all")) for index in range(6)]
     valid_all_ap = [value for value in all_ap if value > -1]
     metrics = {
@@ -524,6 +524,7 @@ def evaluate(run_dir: Path, data_yaml: Path, test_out_dir: Path, data_root: Path
             "test_merged/AP-Tiny2",
             "test_merged/AP-Tiny3",
             "test_merged/AP-Small",
+            "test_merged/AP-Medium",
         ]
         if all(key in cached for key in required_metrics):
             return cached

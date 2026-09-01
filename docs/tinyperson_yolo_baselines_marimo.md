@@ -65,3 +65,7 @@ To rerun evaluation without retraining, use:
 The evaluator calls the same `val`, `test`, merged-corner prediction,
 coordinate translation, TinyBenchmark AP, and NMS IoU `0.5` flow used by the
 previous TinyPerson training runner.
+
+Merged-test metrics include AP50, AP75, mAP50-75, AP-Tiny1/2/3, AP-Small,
+and AP-Medium. AP-Medium uses the standard COCO area range `32^2` to `96^2`
+pixels and is averaged over IoU thresholds `0.50` through `0.75`.
