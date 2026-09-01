@@ -27,6 +27,7 @@ def parse_args(argv=None):
     p.add_argument('--seeds', type=int, nargs='+', default=list(SEEDS))
     p.add_argument('--machine-index', type=int, default=0)
     p.add_argument('--machine-count', type=int, default=1)
+    p.add_argument('--force', action='store_true', help='Recompute TinyBenchmark metrics even when upload marker exists')
     return p.parse_args(argv)
 
 
@@ -39,7 +40,9 @@ def main(argv=None):
     uploader = Uploader(args.hf_repo_id)
     for model_name, seed in selected_jobs(args.models, args.seeds, args.machine_index, args.machine_count):
         run_dir = args.project / model_name / f'seed_{seed}_corner_sw640_sh512'
-        if not (run_dir / 'upload_complete.json').is_file():
+        metrics_path = run_dir / 'evaluation_metrics.json'
+        has_tiny_metrics = metrics_path.is_file() and 'test_merged/AP50-Tiny1' in json.loads(metrics_path.read_text())
+        if not args.force and (not (run_dir / 'upload_complete.json').is_file() or has_tiny_metrics):
             print(f'Skip incomplete/non-uploaded run: {run_dir}', flush=True)
             continue
         seed_dir = args.dataset_root / f'tinyperson_seed_{seed}_corner_sw640_sh512'
