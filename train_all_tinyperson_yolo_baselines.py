@@ -184,8 +184,9 @@ def write_metadata(model_name: str, seed: int, run_dir: Path, data_yaml: Path, a
     model = YOLO(run_dir / "weights/best.pt")
     manifest["params"] = sum(parameter.numel() for parameter in model.model.parameters())
     try:
-        from ultralytics.utils.torch_utils import get_flops
-        manifest["gflops"] = float(get_flops(model.model, imgsz=args.imgsz))
+        from ultralytics.utils.torch_utils import get_flops, get_flops_with_torch_profiler
+        gflops = float(get_flops(model.model, imgsz=args.imgsz))
+        manifest["gflops"] = gflops if gflops > 0 else float(get_flops_with_torch_profiler(model.model, imgsz=args.imgsz))
     except Exception as exc:
         manifest["gflops"] = None
         manifest["gflops_error"] = f"{type(exc).__name__}: {exc}"
