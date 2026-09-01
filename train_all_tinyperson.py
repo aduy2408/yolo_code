@@ -453,6 +453,9 @@ def evaluate_tiny_benchmark(prediction_path: Path, merged_gt_path: Path) -> dict
     }
     for name, area_index in area_indices.items():
         metrics[f"test_merged/AP50-{name.title()}"] = precision_ap(evaluator.eval["precision"], 0, area_index)
+        area_ap = [precision_ap(evaluator.eval["precision"], index, area_index) for index in range(6)]
+        valid_area_ap = [value for value in area_ap if value > -1]
+        metrics[f"test_merged/AP-{name.title()}"] = float(np.mean(valid_area_ap)) if valid_area_ap else -1.0
     return metrics
 
 
@@ -517,10 +520,10 @@ def evaluate(run_dir: Path, data_yaml: Path, test_out_dir: Path, data_root: Path
         required_metrics = [
             *(f"{split}/metrics/mAP50-75(B)" for split in ("val", "test")),
             "test_merged/mAP50-75",
-            "test_merged/AP50-Tiny1",
-            "test_merged/AP50-Tiny2",
-            "test_merged/AP50-Tiny3",
-            "test_merged/AP50-Small",
+            "test_merged/AP-Tiny1",
+            "test_merged/AP-Tiny2",
+            "test_merged/AP-Tiny3",
+            "test_merged/AP-Small",
         ]
         if all(key in cached for key in required_metrics):
             return cached

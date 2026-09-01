@@ -41,7 +41,7 @@ def main(argv=None):
     for model_name, seed in selected_jobs(args.models, args.seeds, args.machine_index, args.machine_count):
         run_dir = args.project / model_name / f'seed_{seed}_corner_sw640_sh512'
         metrics_path = run_dir / 'evaluation_metrics.json'
-        has_tiny_metrics = metrics_path.is_file() and 'test_merged/AP50-Tiny1' in json.loads(metrics_path.read_text())
+        has_tiny_metrics = metrics_path.is_file() and 'test_merged/AP-Tiny1' in json.loads(metrics_path.read_text())
         if not args.force and (not (run_dir / 'upload_complete.json').is_file() or has_tiny_metrics):
             print(f'Skip incomplete/non-uploaded run: {run_dir}', flush=True)
             continue
