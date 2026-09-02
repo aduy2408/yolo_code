@@ -52,28 +52,6 @@ The aggregate validation values were recovered from the per-run `results.csv` fi
 
 The five repositories contain the source training logs and test summaries. Validation was therefore reconstructed from the uploaded per-run `results.csv` files using the best-validation-epoch rule, rather than from an invented or unrelated summary file.
 
-### Varroa: MMDetection baseline validation
-
-The MMDetection baseline summary was checked against the downloaded result
-artifacts from `varroa_mmdet_runs`, `varroa_mmdet_runs_seed43`,
-`varroa_mmdet_runs_newmodels`, `varroa_mmdet_runs_dgfe`, and
-`varroa_mmdet_runs_cascadercnn_true`. Only rows with `variant=base` are included
-here. DGFE/API and other experimental variants are excluded. Duplicate rows were
-deduplicated by `(model, variant, seed)`, keeping the latest result artifact.
-Values are mean +/- sample standard deviation over seeds 42, 43, and 44.
-
-| Model | Seeds | Val mAP50 | Val AP75 | Val mAP50-95 | Val AP-small | Val AP-medium |
-|---|---:|---:|---:|---:|---:|---:|
-| Cascade R-CNN | 42,43,44 | 0.9000 +/- 0.0104 | 0.1210 +/- 0.0156 | 0.3340 +/- 0.0121 | 0.3340 +/- 0.0087 | 0.3407 +/- 0.0162 |
-| Faster R-CNN | 42,43,44 | 0.8967 +/- 0.0156 | 0.1157 +/- 0.0124 | 0.3383 +/- 0.0099 | 0.3333 +/- 0.0199 | 0.3497 +/- 0.0095 |
-| FCOS | 42,43,44 | 0.7773 +/- 0.1753 | 0.0690 +/- 0.0340 | 0.2553 +/- 0.0741 | 0.2680 +/- 0.0207 | 0.2777 +/- 0.0959 |
-
-The MMDetection source summary reports these metrics under
-`coco/bbox_mAP`, `coco/bbox_mAP_50`, `coco/bbox_mAP_75`,
-`coco/bbox_mAP_s`, and `coco/bbox_mAP_m`. The repositories also contain
-experimental DGFE/API rows and duplicate seed-42 artifacts; those are not part
-of this baseline table.
-
 ### Separate Varroa DBSS/HIT experiment
 
 The following table is not the source of the thesis baseline rows. It is retained only as a separate ablation reference from `varroa-yolo-dbss-hit-3seed`; the current snapshot contains seeds 42 and 43 despite the repository name containing `3seed`.
