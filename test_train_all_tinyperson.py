@@ -42,6 +42,21 @@ def test_write_corner_crop_uses_corner_and_dynamic_shape(tmp_path: Path) -> None
     assert label_out.read_text(encoding="utf-8") == "0 0.500000 0.500000 0.500000 0.333333\n"
 
 
+def test_mean_ap50_75_uses_first_six_thresholds() -> None:
+    import numpy as np
+
+    result = type("Result", (), {"box": type("Box", (), {"all_ap": np.arange(10, dtype=float)[None, :]})()})()
+    assert tiny.mean_ap50_75(result) == 2.5
+
+
+def test_tiny_precision_ap_ignores_missing_slices() -> None:
+    import numpy as np
+
+    precision = np.full((1, 3, 1, 1, 1), -1.0)
+    precision[0, :, 0, 0, 0] = [0.25, 0.5, -1.0]
+    assert tiny.precision_ap(precision, 0, 0) == 0.375
+
+
 def test_nms_matches_corner_merge_behavior() -> None:
     detections = [
         {"xyxy": [0, 0, 10, 10], "score": 0.9},

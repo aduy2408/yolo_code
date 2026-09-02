@@ -8,10 +8,14 @@ import os
 import sys
 from pathlib import Path
 
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from misc.prepare_levir_ship import prepare
 
 
-ROOT = Path(__file__).resolve().parent
 MODELS = ("yolov5nu.pt", "yolov8n.pt", "yolov9t.pt", "yolov10n.pt", "yolo11n.pt")
 SEEDS = (42, 43, 44)
 

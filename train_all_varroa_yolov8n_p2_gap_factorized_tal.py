@@ -162,10 +162,20 @@ def train(variant: str, seed: int, args: argparse.Namespace) -> Path:
     return run_dir
 
 
+def mean_ap50_75(result) -> float:
+    """Mean AP over the six IoU thresholds 0.50, ..., 0.75."""
+    all_ap = result.box.all_ap
+    if getattr(all_ap, "ndim", 0) != 2 or all_ap.shape[1] < 6:
+        raise ValueError(f"expected per-class AP for at least six IoU thresholds, got {getattr(all_ap, 'shape', None)}")
+    return float(all_ap[:, :6].mean())
+
+
 def evaluate(run_dir: Path, args: argparse.Namespace) -> dict:
     output = run_dir / "evaluation_metrics.json"
     if output.is_file():
-        return json.loads(output.read_text(encoding="utf-8"))
+        cached = json.loads(output.read_text(encoding="utf-8"))
+        if all(f"{split}/metrics/mAP50-75(B)" in cached for split in ("val", "test")):
+            return cached
     local_ultralytics()
     from ultralytics import YOLO
 
@@ -186,6 +196,7 @@ def evaluate(run_dir: Path, args: argparse.Namespace) -> dict:
         )
         metrics.update({f"{split}/{key}": float(value) for key, value in result.results_dict.items()})
         metrics[f"{split}/metrics/mAP75(B)"] = float(result.box.map75)
+        metrics[f"{split}/metrics/mAP50-75(B)"] = mean_ap50_75(result)
     output.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return metrics
 

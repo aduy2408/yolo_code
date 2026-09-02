@@ -62,3 +62,50 @@ Tất cả các mô hình được huấn luyện đồng nhất trong **100 epo
 
 4. **So sánh Encoder vs Block**:
    - Khối Attention đơn lẻ (`KVCA Block`) khi được bổ trợ bởi GAP sau nó cho kết quả vượt trội hơn so với Transformer Encoder đầy đủ (`KVCA Encoder` chỉ đạt **75.82%**). Điều này chỉ ra rằng lớp FFN (Feed-Forward Network) trong Transformer Encoder có thể quá nặng hoặc dư thừa thông tin đối với các đặc trưng cục bộ sớm ở stride-4.
+
+---
+
+## 4. Local-Basis Downsample P1→P2
+
+Thí nghiệm seed 42 dùng cùng split LEVIR-Ship, 100 epochs, 512px và đánh giá test với NMS IoU **0.5**. Module giữ nguyên nhánh `Conv → BN → SiLU` pretrained, bổ sung residual Haar-like local-basis path với `gamma=0` khi khởi tạo.
+
+| Variant | Precision | Recall | AP50 | AP75 | mAP50-95 |
+|---|---:|---:|---:|---:|---:|
+| Plain Control | 0.8049 | 0.6223 | 0.7530 | 0.1353 | 0.2741 |
+| **LBD fixed Haar** | **0.8400** | **0.7618** | **0.8149** | **0.1541** | **0.3156** |
+| LBD adaptive Haar | 0.7621 | 0.6767 | 0.7255 | 0.0801 | 0.2529 |
+
+`LBD fixed` tăng **+0.0619 AP50** và **+0.0415 mAP50-95** so với Plain Control. `LBD adaptive` giảm tương ứng **-0.0275 AP50** và **-0.0212 mAP50-95**. Vì mới có một seed, đây là kết quả định hướng; fixed Haar được giữ làm variant có tín hiệu, adaptive bị loại khỏi ưu tiên tiếp theo.
+
+Artifact nguồn: [HF dataset repo](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-local-basis), [fixed metrics](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-local-basis/blob/main/runs/lbd_fixed/seed_42/evaluation_metrics.json), [adaptive metrics](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-local-basis/blob/main/runs/lbd_adaptive/seed_42/evaluation_metrics.json).
+
+## 5. Tổng hợp các ablation LBD trên hai Marimo server
+
+Các run dưới đây được đánh giá trên **test split 788 ảnh**, với `imgsz=512`, 100 epochs và explicit NMS IoU **`0.5`**. `mAP50-95` là fitness được ghi trong `evaluation_metrics.json`. Các checkpoint `best.pt` và `last.pt` của những run hoàn tất đã được upload lên Hugging Face dataset repo `duyle2408/levir-yolov8n-p2-local-basis`.
+
+| Server | Variant | Seed | Test mAP50 | Test mAP50-95 | Precision | Recall |
+|---|---|---:|---:|---:|---:|---:|
+| Marimo 1 | LBD fixed | 43 | 0.7958 | **0.3040** | 0.8325 | 0.7496 |
+| Marimo 1 | LBD fixed | 44 | **0.8106** | 0.2998 | 0.8428 | 0.7703 |
+| Marimo 1 | LBD fixed, no GAP/FTAL | 42 | 0.7595 | 0.2923 | 0.7835 | 0.7279 |
+| Marimo 1 | LBD adaptive, no GAP/FTAL | 42 | 0.7677 | 0.2878 | 0.8053 | 0.7069 |
+| Marimo 1 | Conv48 consistent | 42 | 0.7695 | 0.2843 | **0.8248** | 0.6899 |
+| Marimo 1 | LBD48 fixed consistent | 42 | 0.7455 | 0.2711 | 0.7643 | 0.6850 |
+| Marimo 1 | LBD48 adaptive consistent | 42 | 0.7690 | 0.2781 | 0.8052 | 0.7128 |
+| Marimo 2 | Conv48 | 42 | 0.7010 | 0.2668 | 0.7552 | 0.6383 |
+| Marimo 2 | LBD48 fixed | 42 | 0.7927 | 0.2891 | 0.8082 | 0.7388 |
+| Marimo 2 | LBD48 adaptive | 42 | 0.7913 | 0.3019 | 0.8366 | 0.7208 |
+
+### Nhận xét
+
+- Kết quả tốt nhất theo **test mAP50** là `LBD fixed`, seed 44: **0.8106**.
+- Kết quả tốt nhất theo **test mAP50-95** là `LBD fixed`, seed 43: **0.3040**.
+- Trong nhóm consistent giữ nguyên 48 channels qua P2 backbone, neck, GAP và Detect, `Conv48 consistent` đạt mAP50 cao nhất (**0.7695**); hai biến thể LBD consistent chưa vượt được control.
+- Ở nhóm expanded nhưng chưa giữ channel consistent, `LBD48 fixed` và `LBD48 adaptive` lần lượt đạt **0.7927** và **0.7913 mAP50**, cao hơn `Conv48` (**0.7010**).
+- Các run consistent seed 42 và các run expanded seed 42 là kết quả một seed; chưa dùng để kết luận độ ổn định giữa seed.
+
+Artifact tổng hợp:
+
+- Marimo 1: `runs/levir_yolov8n_p2_lbd_expanded_consistent/summary_runs.csv`, `summary_aggregate.csv`.
+- Marimo 1: `runs/levir_yolov8n_p2_local_basis/summary_runs.csv` và `runs/levir_yolov8n_p2_local_basis_nogap/summary_runs.csv`.
+- Marimo 2: `runs/levir_yolov8n_p2_lbd_expanded/summary_runs.csv`, `summary_aggregate.csv`.
