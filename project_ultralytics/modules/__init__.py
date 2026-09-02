@@ -1,6 +1,7 @@
 """Project-specific neural modules built on clean Ultralytics primitives."""
 
 from .evidence import AugmentationAwareEvidence, GradientIsolatedEvidence, ScaleDisappearanceEvidence
+from .fusion import WeightedAdd
 from .attention import (
     FullSelfAttention,
     GlobalChannelContextCalibration,
@@ -40,6 +41,7 @@ from .raw_cue_fusion import MultiCueEvidenceFusion, RawColorSlotFusion, RawImage
 
 __all__ = (
     "AugmentationAwareEvidence",
+    "WeightedAdd",
     "AmplitudePerturbation",
     "BiLevelRoutingAttention",
     "CBAM",

@@ -64,6 +64,7 @@ from .modules import (
     SurgicalPartialKVCompressedAttention,
     TopKAdaptiveGroupKVAttention,
     TopKGlobalGroupKVAttention,
+    WeightedAdd,
 )
 
 CUSTOM_MODULES = {
@@ -113,6 +114,7 @@ CUSTOM_MODULES = {
         SurgicalPartialKVCompressedAttention,
         TopKAdaptiveGroupKVAttention,
         TopKGlobalGroupKVAttention,
+        WeightedAdd,
     )
 }
 
