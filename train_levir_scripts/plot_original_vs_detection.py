@@ -39,8 +39,6 @@ def main() -> None:
         ax.axis("off")
     axes[0].imshow(image)
     gt_boxes = args.gt_box or DEFAULT_GTS
-    for x1, y1, x2, y2 in gt_boxes:
-        axes[0].add_patch(plt.Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, color="#e53935", linewidth=2.5))
     axes[0].set_title("(a) Original image", fontsize=13, weight="bold", pad=8)
 
     axes[1].imshow(image)
