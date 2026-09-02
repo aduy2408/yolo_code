@@ -12,6 +12,7 @@ from typing import Any
 from ultralytics.utils.loss import v8DetectionLoss
 
 from .detection_loss_adapter import FactorizedTALDetectionLoss
+from .parser import project_parser
 
 LOSS_ADAPTERS: dict[str, type] = {
     "upstream": v8DetectionLoss,
@@ -70,4 +71,9 @@ def train_with_loss_adapter(model: Any, *, loss_adapter: str = "ftal", **train_k
     train = getattr(model, "train", None)
     if not callable(train):
         raise TypeError("Expected a YOLO wrapper with train()")
-    return train(**train_kwargs)
+    from ultralytics.nn import tasks
+
+    # Ultralytics' trainer reconstructs DetectionModel from the YAML. Keep the
+    # project parser active for that second construction as well.
+    with project_parser(tasks):
+        return train(**train_kwargs)

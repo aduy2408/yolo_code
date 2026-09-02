@@ -157,6 +157,36 @@ Migrated module families currently include evidence/cue fusion, feature calibrat
 
 The registry is deliberately separate from the upstream parser. Automatic loading of every historical custom YAML through a clean upstream `YOLO(...)` entrypoint is not yet promised. Use the legacy fork for historical reproduction and use project modules directly or through an explicit adapter while parser integration is being completed.
 
+The first project-owned parser bridge is now available for YAMLs using the
+migrated `WeightedAdd` module:
+
+```python
+from project_ultralytics import load_project_model
+from project_ultralytics.training import train_with_loss_adapter
+
+model = load_project_model(
+    "tests/assets/project_weighted_add.yaml",
+    task="detect",
+)
+
+train_with_loss_adapter(
+    model,
+    loss_adapter="ftal",
+    data="datasets/varroa_yolo/varroa.yaml",
+    epochs=1,
+    imgsz=64,
+    batch=1,
+    workers=0,
+    device="cpu",
+    project="/home/duylearch/.jcode/scratch/project_runs",
+    name="project_yaml_ftal_smoke",
+)
+```
+
+The bridge is intentionally explicit and scoped. It does not modify the
+upstream package or silently make every legacy YAML compatible. More migrated
+module families will be added with parser rules and tests one batch at a time.
+
 ## Testing
 
 Use the configured ML environment:
