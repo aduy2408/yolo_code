@@ -158,7 +158,8 @@ Migrated module families currently include evidence/cue fusion, feature calibrat
 The registry is deliberately separate from the upstream parser. Automatic loading of every historical custom YAML through a clean upstream `YOLO(...)` entrypoint is not yet promised. Use the legacy fork for historical reproduction and use project modules directly or through an explicit adapter while parser integration is being completed.
 
 The first project-owned parser bridge is now available for YAMLs using the
-migrated `WeightedAdd` module:
+migrated `WeightedAdd`, `ChannelAttention`, `CBAM`, `SpatialAttention`, and
+`KVCompressedAttention` modules:
 
 ```python
 from project_ultralytics import load_project_model

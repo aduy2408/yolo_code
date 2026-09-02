@@ -25,6 +25,18 @@ def _project_parse_model(upstream_tasks: ModuleType):
                 raise ValueError(\"WeightedAdd YAML layer requires a non-empty list of input indices\")
             c2 = ch[f[0]]
             args = [len(f)]
+        elif m is ChannelAttention:
+            c2 = ch[f]
+            args = [c2, *args]
+        elif m is CBAM:
+            c2 = ch[f]
+            args = [c2, *args]
+        elif m is SpatialAttention:
+            c2 = ch[f]
+        elif m is KVCompressedAttention:
+            c1, c2 = ch[f], args[0]
+            c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, *args[1:]]
 """
     if marker not in source:
         raise RuntimeError("Unsupported upstream parse_model layout: WeightedAdd insertion point not found")
