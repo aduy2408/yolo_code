@@ -96,6 +96,9 @@ def _project_parse_model(upstream_tasks: ModuleType):
             c1 = [ch[x] for x in f]
             c2 = int(args[0]) if args else 8
             args = [*c1, *args]
+        elif m is DetectClsAttention:
+            c2 = ch[f[0]] if isinstance(f, list) else ch[f]
+            args = [*args, reg_max, end2end, [ch[x] for x in f]]
 """
     if marker not in source:
         raise RuntimeError("Unsupported upstream parse_model layout: WeightedAdd insertion point not found")
