@@ -6,24 +6,24 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import ConnectionPatch
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_IMAGE = ROOT / "datasets/levir_ship_yolo_seed42/images/test/GF1_WFV3_E122.4_N37.3_20190805_L2A0004161911_9728_5120.png"
-DEFAULT_GTS = ((310.0, 42.0, 338.0, 67.0), (390.0, 28.0, 415.0, 56.0))
+DEFAULT_GT = (310.0, 42.0, 338.0, 67.0)
 
 
-def draw_gt(ax, boxes: tuple[tuple[float, ...], ...]) -> None:
-    for x1, y1, x2, y2 in boxes:
-        ax.add_patch(plt.Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, color="#e53935", linewidth=2.4))
+def draw_gt(ax, box: tuple[float, ...]) -> None:
+    x1, y1, x2, y2 = box
+    ax.add_patch(plt.Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, color="#e53935", linewidth=2.4))
 
 
 def draw_zoom_indicator(ax, roi: tuple[float, ...], target_ax) -> None:
     x1, y1, x2, y2 = roi
     ax.add_patch(plt.Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, color="#ffd600", linewidth=2.5))
-    # Connect the lower-right ROI corner toward the local crop, matching the
-    # visual convention of the supplied paper figure.
-    ax.annotate("", xy=(1.0, 1.0), xycoords=target_ax.transAxes, xytext=(x2, y2), textcoords=ax.transData, arrowprops=dict(arrowstyle="-", color="#e53935", linewidth=1.6, linestyle="--"))
+    for source, destination in [((x1, y2), (0, 1)), ((x2, y2), (1, 1))]:
+        target_ax.figure.add_artist(ConnectionPatch(source, destination, coordsA=ax.transData, coordsB=target_ax.transAxes, color="#e53935", linewidth=1.5, linestyle="--"))
 
 
 def main() -> None:
@@ -33,12 +33,9 @@ def main() -> None:
     args = parser.parse_args()
 
     image = Image.open(args.image).convert("RGB")
-    boxes = DEFAULT_GTS
-    x1 = min(b[0] for b in boxes)
-    y1 = min(b[1] for b in boxes)
-    x2 = max(b[2] for b in boxes)
-    y2 = max(b[3] for b in boxes)
-    pad = max(35, int(max(x2 - x1, y2 - y1) * 2.8))
+    box = DEFAULT_GT
+    x1, y1, x2, y2 = box
+    pad = max(22, int(max(x2 - x1, y2 - y1) * 1.25))
     cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
     roi = (max(0, cx - pad), max(0, cy - pad), min(image.width, cx + pad), min(image.height, cy + pad))
     local = image.crop(tuple(map(int, roi)))
@@ -55,12 +52,12 @@ def main() -> None:
     ax_orig.imshow(image)
     ax_orig.set_title("(a) Image input", fontsize=13, weight="bold", pad=8)
     ax_gt.imshow(image)
-    draw_gt(ax_gt, boxes)
+    draw_gt(ax_gt, box)
     ax_gt.set_title("(b) Ground-truth output", fontsize=13, weight="bold", pad=8)
     ax_local_orig.imshow(local, interpolation="nearest")
     ax_local_orig.set_title("(c) Local region", fontsize=12, weight="bold", pad=8)
     ax_local_gt.imshow(local, interpolation="nearest")
-    draw_gt(ax_local_gt, tuple((b[0] - roi[0], b[1] - roi[1], b[2] - roi[0], b[3] - roi[1]) for b in boxes))
+    draw_gt(ax_local_gt, (x1 - roi[0], y1 - roi[1], x2 - roi[0], y2 - roi[1]))
     ax_local_gt.set_title("(d) Local region with GT", fontsize=12, weight="bold", pad=8)
     draw_zoom_indicator(ax_orig, roi, ax_local_orig)
     draw_zoom_indicator(ax_gt, roi, ax_local_gt)
