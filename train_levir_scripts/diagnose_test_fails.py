@@ -71,7 +71,7 @@ def main():
         gt_boxes = np.array(gt_boxes)
         
         # Run prediction
-        res = model.predict(img_path, conf=0.25, verbose=False)[0]
+        res = model.predict(img_path, conf=0.25, iou=0.5, verbose=False)[0]
         pred_boxes = res.boxes.xyxy.cpu().numpy() if len(res.boxes) > 0 else np.zeros((0, 4))
         
         total_gt_count += len(gt_boxes)

@@ -239,3 +239,7 @@ TinyPerson*/
 scratch/
 # Local Pi runtime state
 .atl/
+
+# Local experiment helpers and benchmark artifacts
+/.jcode_*.py
+/TinyBenchmark/
