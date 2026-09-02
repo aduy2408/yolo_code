@@ -153,20 +153,21 @@ PY
 that names a custom class cannot be loaded by clean upstream `YOLO(...)` until
 that class and its parser/runtime call contract have been migrated explicitly.
 
-Migrated module families currently include evidence/cue fusion, feature calibration, CBAM, KV attention, routing attention, NAT wrappers, PConv, input-cue modules, raw-cue fusion, `WeightedAdd`, and dual-stream formation (`DualChannelFormationBackbone`, `DualDownsample`, `DualCollapse`). Losses include Wise-IoU, boundary contrastive, localization quality, and FTAL target/loss helpers.
+Migrated module families currently include evidence/cue fusion, feature calibration, CBAM, KV attention, routing attention, NAT wrappers, PConv, input-cue modules, raw-cue fusion, `WeightedAdd`, and dual-stream formation (`DualChannelFormationBackbone`, `DualDownsample`, `DualCollapse`). The first project-owned detection head is `DetectClsAttention` with `cbam`, `kvca`, and `kvca_block` variants. Losses include Wise-IoU, boundary contrastive, localization quality, and FTAL target/loss helpers.
 
 The registry is deliberately separate from the upstream parser. Automatic loading of every historical custom YAML through a clean upstream `YOLO(...)` entrypoint is not yet promised. Use the legacy fork for historical reproduction and use project modules directly or through an explicit adapter while parser integration is being completed.
 
-The first project-owned parser bridge is now available for YAMLs using the
-migrated `WeightedAdd`, `ChannelAttention`, `CBAM`, `SpatialAttention`, and
-`KVCompressedAttention` modules:
+The project-owned parser bridge currently supports YAMLs using the migrated
+`WeightedAdd`, attention/block, input-cue, evidence/cue, calibration, and
+`DetectClsAttention` modules. For example:
 
 ```python
 from project_ultralytics import load_project_model
 from project_ultralytics.training import train_with_loss_adapter
 
 model = load_project_model(
-    "tests/assets/project_weighted_add.yaml",
+    "models_related/models_config/yolov8/levir/"
+    "yolov8n_p2_fpn_only_kvca_clsonly.yaml",
     task="detect",
 )
 
@@ -180,13 +181,15 @@ train_with_loss_adapter(
     workers=0,
     device="cpu",
     project="/home/duylearch/.jcode/scratch/project_runs",
-    name="project_yaml_ftal_smoke",
+    name="project_detect_cls_attention_ftal_smoke",
 )
 ```
 
 The bridge is intentionally explicit and scoped. It does not modify the
-upstream package or silently make every legacy YAML compatible. More migrated
-module families will be added with parser rules and tests one batch at a time.
+upstream package or silently make every legacy YAML compatible. The remaining
+historical heads, including NUDFL, HV-decoupled, and GCTS variants, are not yet
+migrated. Use the legacy fork for those experiments until their project-owned
+replacement is available.
 
 ## Testing
 
@@ -199,7 +202,7 @@ PYTHONPATH=. conda run -n ml2 pytest -q tests/test_project_fusion.py tests/test_
 
 The YAML corpus test checks all architecture YAMLs for valid structure and loads representative historical YAMLs through the legacy fork. It is a regression boundary, not a claim that all old YAMLs are clean-upstream compatible.
 
-The historical sweep currently covers 262 architecture YAMLs. NAT/natten API differences are server-specific and intentionally excluded from fixes. Unusual empty argument lists such as `ChannelAttention []` are normal for the legacy parser because channel arguments are injected by parser branches.
+The historical sweep currently covers 262 architecture YAMLs. NAT/natten API differences are server-specific and intentionally excluded from fixes. Unusual empty argument lists such as `ChannelAttention []` are normal for the legacy parser because channel arguments are injected by parser branches. The corpus regression test is not a claim that all 262 files are clean-upstream compatible.
 
 ## Migration workflow
 
