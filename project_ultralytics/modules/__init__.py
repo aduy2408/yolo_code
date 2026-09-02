@@ -31,4 +31,4 @@ __all__ = (
     "ScaleDisappearanceEvidence",
     "SingleContrastFormationStem",
     "SplitChannelDetect",
-]
+)
