@@ -7,6 +7,7 @@ import inspect
 from types import ModuleType
 from typing import Any
 
+from .modules import cue_channels
 from .registry import CUSTOM_MODULES
 
 
@@ -64,6 +65,12 @@ def _project_parse_model(upstream_tasks: ModuleType):
         elif m in {P2FeatureProbe, P2AmplitudeCalibrator, MatchedChannelPerturbation, ResidualDWConv, ResidualDWConv5}:
             c2 = ch[f]
             args = [c2, *args]
+        elif m is InputCueConv:
+            c1, c2 = ch[f], args[0]
+            c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, *args[1:]]
+        elif m is InputCueBank:
+            c2 = cue_channels(args[0])
 """
     if marker not in source:
         raise RuntimeError("Unsupported upstream parse_model layout: WeightedAdd insertion point not found")

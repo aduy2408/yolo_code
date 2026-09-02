@@ -33,7 +33,7 @@ from .gt_cue_loss import (
     GTCuePreservationHead,
     SplitChannelDetect,
 )
-from .input_cue import InputCueBank, InputCueConv
+from .input_cue import InputCueBank, InputCueConv, cue_channels
 from .local_contrast import LocalContrastBasisStem, SidecarResidualFusionStem, SingleContrastFormationStem
 from .nat import C2fNAT, NATBlock
 from .routing_attention import BiLevelRoutingAttention
