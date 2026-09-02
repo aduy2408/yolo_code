@@ -74,6 +74,7 @@ def test_historical_yaml_corpus_is_valid_and_nonempty() -> None:
         "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_plain.yaml",
         "models_related/models_config/yolov8/kvca_sweep/yolov8_kvca_a_sc_avg_p2sr4_p3sr4.yaml",
         "models_related/models_config/yolov8/levir/yolov8n_p2_surgical_a_p3_context.yaml",
+        "models_related/models_config/yolov8/varroa/yolov8_varroa_compare_baseline_p2p3_edge_pooling_srdgfe_noapi.yaml",
     ],
 )
 def test_representative_custom_yamls_load_on_legacy_oracle(relative_path: str) -> None:
