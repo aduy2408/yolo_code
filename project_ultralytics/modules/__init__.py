@@ -31,6 +31,7 @@ from .gt_cue_loss import (
 )
 from .input_cue import InputCueBank, InputCueConv
 from .local_contrast import LocalContrastBasisStem, SidecarResidualFusionStem, SingleContrastFormationStem
+from .nat import C2fNAT, NATBlock
 from .routing_attention import BiLevelRoutingAttention
 from .pconv import C2f_PConv, FasterNetBlock, PConv
 from .raw_cue_fusion import MultiCueEvidenceFusion, RawColorSlotFusion, RawImageCueBank
@@ -40,6 +41,7 @@ __all__ = (
     "AmplitudePerturbation",
     "BiLevelRoutingAttention",
     "C2f_PConv",
+    "C2fNAT",
     "DedicatedCueSlots",
     "DetachedResidualFusion",
     "FasterNetBlock",
@@ -60,6 +62,7 @@ __all__ = (
     "P2AmplitudeCalibrator",
     "P2FeatureProbe",
     "PConv",
+    "NATBlock",
     "PatchKVCompressedAttention",
     "RawColorSlotFusion",
     "RawImageCueBank",
