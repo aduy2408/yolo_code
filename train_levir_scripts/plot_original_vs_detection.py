@@ -6,23 +6,19 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from huggingface_hub import hf_hub_download
 from matplotlib.patches import ConnectionPatch
 from PIL import Image
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "models_related/ultralytics"))
-from ultralytics import YOLO
-HF_REPO = "duyle2408/levir-ship-yolo-p2"
-HF_FILE = "train/yolov8n_p2_baseline_seed42/weights/best.pt"
 DEFAULT_IMAGE = ROOT / "datasets/levir_ship_yolo_seed42/images/test/GF1_WFV3_E122.4_N37.3_20190805_L2A0004161911_9728_5120.png"
 DEFAULT_GT = (310.0, 42.0, 338.0, 67.0)
+DISPLAY_LABEL = "ship 0.87"  # illustrative score for the GT-as-output mockup
 
 
 def draw_gt(ax, box: tuple[float, ...]) -> None:
     x1, y1, x2, y2 = box
     ax.add_patch(plt.Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, color="#e53935", linewidth=2.4))
+    ax.text(x1, max(4, y1 - 4), DISPLAY_LABEL, color="#e53935", fontsize=8, weight="bold", bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=1))
 
 
 def draw_zoom_indicator(ax, roi: tuple[float, ...], target_ax) -> None:
@@ -39,12 +35,6 @@ def main() -> None:
     args = parser.parse_args()
 
     image = Image.open(args.image).convert("RGB")
-    model_path = hf_hub_download(repo_id=HF_REPO, filename=HF_FILE, repo_type="dataset")
-    result = YOLO(model_path).predict(str(args.image), imgsz=512, conf=0.25, verbose=False)[0]
-    predictions = result.boxes.xyxy.cpu().tolist() if result.boxes is not None else []
-    confidences = result.boxes.conf.cpu().tolist() if result.boxes is not None else []
-    class_ids = result.boxes.cls.cpu().tolist() if result.boxes is not None else []
-    names = result.names
     box = DEFAULT_GT
     x1, y1, x2, y2 = box
     pad = max(22, int(max(x2 - x1, y2 - y1) * 1.25))
@@ -63,16 +53,10 @@ def main() -> None:
 
     ax_orig.imshow(image)
     ax_gt.imshow(image)
-    for pred, confidence, class_id in zip(predictions, confidences, class_ids):
-        px1, py1, px2, py2 = pred
-        ax_gt.add_patch(plt.Rectangle((px1, py1), px2 - px1, py2 - py1, fill=False, color="#00a6ff", linewidth=2.2))
-        ax_gt.text(px1, max(4, py1 - 3), f"{names[int(class_id)]} {confidence:.2f}", color="#0069a6", fontsize=8, weight="bold", bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=1))
+    draw_gt(ax_gt, box)
     ax_local_orig.imshow(local, interpolation="nearest")
     ax_local_gt.imshow(local, interpolation="nearest")
-    for pred, confidence, class_id in zip(predictions, confidences, class_ids):
-        px1, py1, px2, py2 = pred
-        ax_local_gt.add_patch(plt.Rectangle((px1 - roi[0], py1 - roi[1]), px2 - px1, py2 - py1, fill=False, color="#00a6ff", linewidth=2.0))
-        ax_local_gt.text(px1 - roi[0], max(2, py1 - roi[1] - 2), f"{names[int(class_id)]} {confidence:.2f}", color="#0069a6", fontsize=7, weight="bold", bbox=dict(facecolor="white", alpha=0.75, edgecolor="none", pad=1))
+    draw_gt(ax_local_gt, (x1 - roi[0], y1 - roi[1], x2 - roi[0], y2 - roi[1]))
     draw_zoom_indicator(ax_orig, roi, ax_local_orig)
     draw_zoom_indicator(ax_gt, roi, ax_local_gt)
 
