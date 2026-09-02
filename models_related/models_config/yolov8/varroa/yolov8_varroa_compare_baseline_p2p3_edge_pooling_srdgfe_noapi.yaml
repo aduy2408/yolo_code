@@ -56,4 +56,4 @@ head:
 
   # - [22, 1, EnSimAM, []]            # 29-P3 final
 
-  - [[19, 29], 1, Detect, [nc]]
+  - [[19, 28], 1, Detect, [nc]]
