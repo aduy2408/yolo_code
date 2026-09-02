@@ -31,12 +31,14 @@ from .gt_cue_loss import (
 )
 from .input_cue import InputCueBank, InputCueConv
 from .local_contrast import LocalContrastBasisStem, SidecarResidualFusionStem, SingleContrastFormationStem
+from .routing_attention import BiLevelRoutingAttention
 from .pconv import C2f_PConv, FasterNetBlock, PConv
 from .raw_cue_fusion import MultiCueEvidenceFusion, RawColorSlotFusion, RawImageCueBank
 
 __all__ = (
     "AugmentationAwareEvidence",
     "AmplitudePerturbation",
+    "BiLevelRoutingAttention",
     "C2f_PConv",
     "DedicatedCueSlots",
     "DetachedResidualFusion",

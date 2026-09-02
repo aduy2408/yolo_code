@@ -12,6 +12,7 @@ from collections.abc import MutableMapping
 from .modules import (
     AmplitudePerturbation,
     AugmentationAwareEvidence,
+    BiLevelRoutingAttention,
     C2f_PConv,
     DedicatedCueSlots,
     DetachedResidualFusion,
@@ -51,8 +52,9 @@ from .modules import (
 CUSTOM_MODULES = {
     cls.__name__: cls
     for cls in (
-    AugmentationAwareEvidence,
+        AugmentationAwareEvidence,
         AmplitudePerturbation,
+        BiLevelRoutingAttention,
         C2f_PConv,
         DedicatedCueSlots,
         DetachedResidualFusion,
