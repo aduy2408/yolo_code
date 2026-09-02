@@ -9,6 +9,14 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 
+from .detection_loss import (
+    FactorizedTALConfig,
+    ScaleTemperedTALConfig,
+    factorized_tal_cls_targets,
+    factorize_tal_targets,
+    positive_confidence_rescue_loss,
+    scale_tempered_cls_targets,
+)
 from .losses import BoundaryContrastiveLoss, LocalizationQualityLoss, WiseIouLoss
 from .modules import (
     AmplitudePerturbation,
@@ -109,6 +117,13 @@ CUSTOM_MODULES = {
 
 CUSTOM_LOSSES = {
     cls.__name__: cls for cls in (BoundaryContrastiveLoss, LocalizationQualityLoss, WiseIouLoss)
+}
+
+CUSTOM_DETECTION_LOSS = {
+    "factorized_tal_cls_targets": factorized_tal_cls_targets,
+    "factorize_tal_targets": factorize_tal_targets,
+    "positive_confidence_rescue_loss": positive_confidence_rescue_loss,
+    "scale_tempered_cls_targets": scale_tempered_cls_targets,
 }
 
 
