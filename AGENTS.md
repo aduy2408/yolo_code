@@ -22,3 +22,13 @@ The policy is enforced at runtime too: upload-required runners must receive the
 `MARIMO_TRAIN_WORKFLOW=1` context injected by the shared launch helper and must
 have a valid `HF_TOKEN`. `AGENTS.md` is not a substitute for those fail-closed
 checks.
+
+## Local Python testing
+
+When local smoke tests need PyTorch or Ultralytics dependencies, use the Conda environment `ml2`:
+
+```bash
+conda run -n ml2 python ...
+```
+
+Do not assume the system Python has the project ML dependencies.

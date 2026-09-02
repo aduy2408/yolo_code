@@ -1,6 +1,18 @@
 """Project-specific neural modules built on clean Ultralytics primitives."""
 
 from .evidence import AugmentationAwareEvidence, GradientIsolatedEvidence, ScaleDisappearanceEvidence
+from .attention import (
+    FullSelfAttention,
+    GlobalChannelContextCalibration,
+    KVCompressedAttention,
+    KVCompressedAttentionPartial,
+    KVCompressedTransformerEncoder,
+    PatchKVCompressedAttention,
+    ReceptanceKVCompressedAttention,
+    SurgicalPartialKVCompressedAttention,
+    TopKAdaptiveGroupKVAttention,
+    TopKGlobalGroupKVAttention,
+)
 from .feature_calibration import (
     AmplitudePerturbation,
     LearnableGlobalScalar,
@@ -29,11 +41,16 @@ __all__ = (
     "DedicatedCueSlots",
     "DetachedResidualFusion",
     "FasterNetBlock",
+    "FullSelfAttention",
+    "GlobalChannelContextCalibration",
     "GTChannelSpecialization",
     "GTCuePreservationHead",
     "GradientIsolatedEvidence",
     "InputCueBank",
     "InputCueConv",
+    "KVCompressedAttention",
+    "KVCompressedAttentionPartial",
+    "KVCompressedTransformerEncoder",
     "LearnableGlobalScalar",
     "LocalContrastBasisStem",
     "MultiCueEvidenceFusion",
@@ -41,12 +58,17 @@ __all__ = (
     "P2AmplitudeCalibrator",
     "P2FeatureProbe",
     "PConv",
+    "PatchKVCompressedAttention",
     "RawColorSlotFusion",
     "RawImageCueBank",
+    "ReceptanceKVCompressedAttention",
     "ResidualDWConv",
     "ResidualDWConv5",
     "ScaleDisappearanceEvidence",
     "SidecarResidualFusionStem",
     "SingleContrastFormationStem",
     "SplitChannelDetect",
+    "SurgicalPartialKVCompressedAttention",
+    "TopKAdaptiveGroupKVAttention",
+    "TopKGlobalGroupKVAttention",
 )
