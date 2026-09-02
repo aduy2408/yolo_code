@@ -19,15 +19,29 @@ from ultralytics import YOLO  # noqa: E402
 
 HF_REPO = "duyle2408/levir-ship-yolo-p2"
 HF_FILE = "train/yolov8n_p2_baseline_seed42/weights/best.pt"
-DEFAULT_IMAGE = ROOT / "datasets/levir_ship_yolo_seed42/images/test/GF6_WFV_E131.8_N38.0_20200910_L1A1120034675-2_2560_10752.png"
-# A relatively visible small target: 15 x 20 px in the 512 x 512 tile.
-DEFAULT_BOX = (158.0, 346.0, 173.0, 366.0)
+DEFAULT_IMAGE = ROOT / "datasets/levir_ship_yolo_seed42/images/test/GF6_WFV_E132.4_N35.8_20200914_L1A1120035552-1_6144_17285.png"
+# Verified baseline miss with strong early activation: 13 x 15 px in the tile.
+DEFAULT_BOX = (444.0, 254.0, 457.0, 269.0)
 STAGES = ((18, 4, "P2", "stride 4"), (21, 8, "P3", "stride 8"), (24, 16, "P4", "stride 16"))
 
 
 def norm01(x: np.ndarray) -> np.ndarray:
     lo, hi = np.percentile(x, [2, 99])
     return np.clip((x - lo) / (hi - lo + 1e-8), 0, 1)
+
+
+def target_background_ratio(feature: np.ndarray, box: tuple[float, ...], stride: int) -> float:
+    height, width = feature.shape
+    x1, y1, x2, y2 = box
+    fx1, fy1 = max(0, int(x1 / stride)), max(0, int(y1 / stride))
+    fx2, fy2 = min(width, max(fx1 + 1, int(np.ceil(x2 / stride)))), min(height, max(fy1 + 1, int(np.ceil(y2 / stride))))
+    target = feature[fy1:fy2, fx1:fx2].mean()
+    span_x, span_y = max(1, fx2 - fx1), max(1, fy2 - fy1)
+    if fx2 + span_x <= width:
+        background = feature[fy1:fy2, fx2:fx2 + span_x].mean()
+    else:
+        background = feature[fy1:fy2, max(0, fx1 - span_x):fx1].mean()
+    return float(target / (background + 1e-8))
 
 
 def main() -> None:
@@ -55,7 +69,7 @@ def main() -> None:
     feature_maps = []
     for _, stride, name, stride_label in STAGES:
         raw = captures[name].detach().abs().mean(dim=1)[0].cpu().numpy()
-        feature_maps.append((name, stride, stride_label, norm01(raw), raw.shape))
+        feature_maps.append((name, stride, stride_label, norm01(raw), raw.shape, target_background_ratio(raw, args.box, stride)))
 
     pad = max(30, int(max(x2 - x1, y2 - y1) * 3.5))
     cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
@@ -81,15 +95,15 @@ def main() -> None:
 
     inner = gs[0, 2].subgridspec(1, 3, wspace=0.06)
     feature_axes = [fig.add_subplot(inner[0, i]) for i in range(3)]
-    for ax, (name, stride, stride_label, heatmap, shape) in zip(feature_axes, feature_maps):
+    for ax, (name, stride, stride_label, heatmap, shape, ratio) in zip(feature_axes, feature_maps):
         ax.imshow(heatmap, cmap="plasma", interpolation="nearest")
         ax.add_patch(plt.Rectangle((x1 / stride, y1 / stride), (x2 - x1) / stride, (y2 - y1) / stride, fill=False, color="#ffd600", linewidth=2, linestyle="--"))
-        ax.set_title(f"{name}\n{stride_label}\n{shape[1]}×{shape[0]}", fontsize=10, pad=7)
+        ax.set_title(f"{name}\n{stride_label}\n{shape[1]}×{shape[0]}\nT/B = {ratio:.2f}", fontsize=10, pad=7)
         ax.axis("off")
     ax_container.set_title("(c) Progressive feature maps", pad=8, y=1.02)
 
     fig.suptitle("Small-object representation under progressive downsampling", fontsize=16, weight="bold", y=0.99)
-    fig.text(0.5, 0.015, "YOLOv8n-P2 baseline downloaded from Hugging Face · yellow box marks the same 15×20 px target · heatmaps are channel-mean |activation|", ha="center", fontsize=9, color="#444444")
+    fig.text(0.5, 0.015, "YOLOv8n-P2 baseline downloaded from Hugging Face · yellow box marks the same 13×15 px target · T/B = target/background activation", ha="center", fontsize=9, color="#444444")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, dpi=300, bbox_inches="tight", facecolor="white")
     plt.close(fig)
