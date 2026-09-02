@@ -153,7 +153,7 @@ PY
 that names a custom class cannot be loaded by clean upstream `YOLO(...)` until
 that class and its parser/runtime call contract have been migrated explicitly.
 
-Migrated module families currently include evidence/cue fusion, feature calibration, CBAM, KV attention, routing attention, NAT wrappers, PConv, input-cue modules, raw-cue fusion, `WeightedAdd`, and dual-stream formation (`DualChannelFormationBackbone`, `DualDownsample`, `DualCollapse`). The first project-owned detection head is `DetectClsAttention` with `cbam`, `kvca`, and `kvca_block` variants. Losses include Wise-IoU, boundary contrastive, localization quality, and FTAL target/loss helpers.
+Migrated module families currently include evidence/cue fusion, feature calibration, CBAM, KV attention, routing attention, NAT wrappers, PConv, input-cue modules, raw-cue fusion, `WeightedAdd`, and dual-stream formation (`DualChannelFormationBackbone`, `DualDownsample`, `DualCollapse`). Project-owned detection heads include `DetectClsAttention` (`cbam`, `kvca`, `kvca_block`) and the structural `P2NUDFLDetect` codebook head. Losses include Wise-IoU, boundary contrastive, localization quality, and FTAL target/loss helpers.
 
 The registry is deliberately separate from the upstream parser. Automatic loading of every historical custom YAML through a clean upstream `YOLO(...)` entrypoint is not yet promised. Use the legacy fork for historical reproduction and use project modules directly or through an explicit adapter while parser integration is being completed.
 
@@ -187,9 +187,11 @@ train_with_loss_adapter(
 
 The bridge is intentionally explicit and scoped. It does not modify the
 upstream package or silently make every legacy YAML compatible. The remaining
-historical heads, including NUDFL, HV-decoupled, and GCTS variants, are not yet
-migrated. Use the legacy fork for those experiments until their project-owned
-replacement is available.
+historical heads, including HV-decoupled and GCTS variants, are not yet
+migrated. `P2NUDFLDetect` currently preserves its codebook metadata; the
+matching non-uniform DFL loss behavior is not yet wired into the project loss
+adapter. Use the legacy fork for experiments that depend on those missing
+semantics.
 
 ## Testing
 

@@ -10,6 +10,26 @@ from .attention import KVCompressedAttention, KVCompressedTransformerEncoder
 from .cbam import CBAM
 
 
+P2_NUDFL_BINS = (
+    0.0,
+    0.35,
+    0.70,
+    1.05,
+    1.40,
+    1.80,
+    2.30,
+    2.90,
+    3.60,
+    4.50,
+    5.60,
+    6.90,
+    8.40,
+    10.20,
+    12.40,
+    15.00,
+)
+
+
 class DetectClsAttention(Detect):
     """YOLO Detect with an optional P2 classification-feature attention block.
 
@@ -52,3 +72,16 @@ class DetectClsAttention(Detect):
             return preds
         y = self._inference(preds)
         return y if self.export else (y, preds)
+
+
+class P2NUDFLDetect(Detect):
+    """Detect head carrying the historical P2 non-uniform DFL codebook.
+
+    The project head preserves the codebook as metadata for a future project
+    loss adapter. Clean upstream DFL still performs the standard projection
+    until that loss adapter is explicitly migrated.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.register_buffer("p2_dfl_bins", torch.tensor(P2_NUDFL_BINS), persistent=True)

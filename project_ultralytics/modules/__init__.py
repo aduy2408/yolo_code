@@ -26,7 +26,7 @@ from .feature_calibration import (
     ResidualDWConv5,
 )
 from .dual_stream import DualChannelFormationBackbone, DualCollapse, DualDownsample
-from .detection_heads import DetectClsAttention
+from .detection_heads import DetectClsAttention, P2NUDFLDetect
 from .gt_cue_loss import (
     DedicatedCueSlots,
     DetachedResidualFusion,
@@ -54,6 +54,7 @@ __all__ = (
     "C2fNAT",
     "DedicatedCueSlots",
     "DetectClsAttention",
+    "P2NUDFLDetect",
     "DualChannelFormationBackbone",
     "DualCollapse",
     "DualDownsample",

@@ -20,3 +20,10 @@ def test_load_project_detect_cls_attention_head(relative_path: str, variant: str
     head = model.model.model[-1]
     assert head.__class__.__name__ == "DetectClsAttention"
     assert head.attn_type == variant
+
+
+def test_load_project_p2_nudfl_head() -> None:
+    model = load_project_model(ROOT / "tests/assets/project_p2_nudfl.yaml", task="detect", verbose=False)
+    head = model.model.model[-1]
+    assert head.__class__.__name__ == "P2NUDFLDetect"
+    assert head.p2_dfl_bins.numel() == 16
