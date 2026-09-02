@@ -13,6 +13,8 @@ from .attention import (
     TopKAdaptiveGroupKVAttention,
     TopKGlobalGroupKVAttention,
 )
+from .cbam import CBAM, ChannelAttention, SpatialAttention
+from .cbam_blocks import C2fCBAM, C3CBAM
 from .feature_calibration import (
     AmplitudePerturbation,
     LearnableGlobalScalar,
@@ -40,6 +42,10 @@ __all__ = (
     "AugmentationAwareEvidence",
     "AmplitudePerturbation",
     "BiLevelRoutingAttention",
+    "CBAM",
+    "C2fCBAM",
+    "C3CBAM",
+    "ChannelAttention",
     "C2f_PConv",
     "C2fNAT",
     "DedicatedCueSlots",
@@ -73,6 +79,7 @@ __all__ = (
     "SidecarResidualFusionStem",
     "SingleContrastFormationStem",
     "SplitChannelDetect",
+    "SpatialAttention",
     "SurgicalPartialKVCompressedAttention",
     "TopKAdaptiveGroupKVAttention",
     "TopKGlobalGroupKVAttention",
