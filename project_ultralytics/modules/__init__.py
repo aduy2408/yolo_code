@@ -25,6 +25,7 @@ from .feature_calibration import (
     ResidualDWConv,
     ResidualDWConv5,
 )
+from .dual_stream import DualChannelFormationBackbone, DualCollapse, DualDownsample
 from .gt_cue_loss import (
     DedicatedCueSlots,
     DetachedResidualFusion,
@@ -51,6 +52,9 @@ __all__ = (
     "C2f_PConv",
     "C2fNAT",
     "DedicatedCueSlots",
+    "DualChannelFormationBackbone",
+    "DualCollapse",
+    "DualDownsample",
     "DetachedResidualFusion",
     "FasterNetBlock",
     "FullSelfAttention",
