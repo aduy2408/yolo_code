@@ -43,14 +43,14 @@ The Varroa baseline table in the thesis is assembled from the five repositories 
 - `varroa-yolo-baselines-part1-full`
 - `varroa-yolo-baselines-part2-full`
 
-The aggregate test values currently recovered from these five repositories are summarized in [`misc/baseline_reuslts/BASELINE_RESULTS_SUMMARY.md`](../../misc/baseline_reuslts/BASELINE_RESULTS_SUMMARY.md). For the thesis rows, the relevant test aggregates are:
+The aggregate validation values were recovered from the per-run `results.csv` files in the corresponding full repositories by selecting the epoch with the highest validation `mAP50-95`. The relevant validation/test aggregates are:
 
-| Model | Seeds | Test mAP50 | Test mAP50-95 | Test Precision | Test Recall |
-|---|---:|---:|---:|---:|---:|
-| YOLOv8-n | 42,43,44 | 0.9002 ± 0.0081 | 0.3262 ± 0.0051 | 0.8998 ± 0.0046 | 0.8965 ± 0.0128 |
-| YOLOv10-n | 42,43,44 | 0.8800 ± 0.0089 | 0.3333 ± 0.0049 | 0.8439 ± 0.0147 | 0.8328 ± 0.0156 |
+| Model | Seeds | Val mAP50 | Val mAP50-95 | Val Precision | Val Recall | Test mAP50 | Test mAP50-95 | Test Precision | Test Recall |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| YOLOv8-n | 42,43,44 | 0.9107 ± 0.0049 | 0.3522 ± 0.0035 | 0.9084 ± 0.0077 | 0.8858 ± 0.0058 | 0.9002 ± 0.0081 | 0.3262 ± 0.0051 | 0.8998 ± 0.0046 | 0.8965 ± 0.0128 |
+| YOLOv10-n | 42,43,44 | 0.8798 ± 0.0129 | 0.3395 ± 0.0074 | 0.8452 ± 0.0133 | 0.8318 ± 0.0096 | 0.8800 ± 0.0089 | 0.3333 ± 0.0049 | 0.8439 ± 0.0147 | 0.8328 ± 0.0156 |
 
-The five baseline repositories contain the source training logs and test summaries. They do not expose one single common validation-summary CSV in the same format as the test aggregate, so validation values should be recovered from the corresponding per-run `results.csv` files using the documented best-validation-epoch rule before adding them to the thesis table.
+The five repositories contain the source training logs and test summaries. Validation was therefore reconstructed from the uploaded per-run `results.csv` files using the best-validation-epoch rule, rather than from an invented or unrelated summary file.
 
 ### Separate Varroa DBSS/HIT experiment
 
