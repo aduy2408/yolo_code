@@ -34,24 +34,35 @@ def main() -> None:
     model = YOLO(model_path)
     result = model.predict(str(args.image), imgsz=512, conf=args.conf, verbose=False)[0]
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 5.4), facecolor="white")
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8.5), facecolor="white", gridspec_kw={"height_ratios": (1.35, 1)})
+    axes = axes.ravel()
     for ax in axes:
         ax.axis("off")
+    detections = result.boxes.xyxy.cpu().tolist() if result.boxes is not None else []
     axes[0].imshow(image)
     gt_boxes = args.gt_box or DEFAULT_GTS
     axes[0].set_title("(a) Original image", fontsize=13, weight="bold", pad=8)
-
     axes[1].imshow(image)
-    detections = result.boxes.xyxy.cpu().tolist() if result.boxes is not None else []
-    for box in detections:
-        dx1, dy1, dx2, dy2 = box
-        axes[1].add_patch(plt.Rectangle((dx1, dy1), dx2 - dx1, dy2 - dy1, fill=False, color="#00a6ff", linewidth=2))
-    for x1, y1, x2, y2 in gt_boxes:
-        axes[1].add_patch(plt.Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, color="#e53935", linewidth=2.5, linestyle="--"))
-    axes[1].set_title(f"(b) Baseline detections ({len(detections)} boxes)", fontsize=13, weight="bold", pad=8)
+    axes[1].set_title(f"(b) Baseline output ({len(detections)} predictions)", fontsize=13, weight="bold", pad=8)
 
-    fig.suptitle("Original image versus baseline detection", fontsize=16, weight="bold", y=0.98)
-    fig.text(0.5, 0.015, f"YOLOv8n-P2 baseline downloaded from Hugging Face · blue = prediction · red dashed = ground truth · threshold = {args.conf:.2f}", ha="center", fontsize=9, color="#444444")
+    # Keep both full-image panels clean. The local crops are shown separately,
+    # as in the reference style, without drawing any bounding boxes.
+    x1 = min(b[0] for b in gt_boxes)
+    y1 = min(b[1] for b in gt_boxes)
+    x2 = max(b[2] for b in gt_boxes)
+    y2 = max(b[3] for b in gt_boxes)
+    pad = max(28, int(max(x2 - x1, y2 - y1) * 3.0))
+    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+    zx1, zy1 = max(0, int(cx - pad)), max(0, int(cy - pad))
+    zx2, zy2 = min(image.width, int(cx + pad)), min(image.height, int(cy + pad))
+    local = image.crop((zx1, zy1, zx2, zy2))
+    axes[2].imshow(local, interpolation="nearest")
+    axes[2].set_title("(c) Local region: original", fontsize=12, weight="bold", pad=8)
+    axes[3].imshow(local, interpolation="nearest")
+    axes[3].set_title("(d) Local region: baseline output", fontsize=12, weight="bold", pad=8)
+
+    fig.suptitle("Original image versus baseline output", fontsize=16, weight="bold", y=0.98)
+    fig.text(0.5, 0.015, f"YOLOv8n-P2 baseline downloaded from Hugging Face · full images and local crops shown without bbox overlays · threshold = {args.conf:.2f}", ha="center", fontsize=9, color="#444444")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, dpi=300, bbox_inches="tight", facecolor="white")
     plt.close(fig)
