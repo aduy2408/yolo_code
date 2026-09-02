@@ -81,7 +81,7 @@ class RawImageCueBank(nn.Module):
 
     def extract_multi_energy(self, img0: torch.Tensor) -> torch.Tensor:
         """Extract 9-channel multi-cue map with energy magnitude:
-        
+
         Color (4ch): Cb, Cr, O1, O2
         Edge (2ch): |Gx|, |Gy| via Sobel (energy/strength instead of signed amplitude)
         Frequency (2ch): |HighPass| (|Y - G3|), |DoG| (|G3 - G7|)
