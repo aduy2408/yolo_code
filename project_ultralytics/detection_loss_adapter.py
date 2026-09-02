@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+
+def _arg(obj: Any, name: str, default: Any) -> Any:
+    """Read an attribute from namespace-style or dict-style model args."""
+    return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
+
+
 import torch
 
 from ultralytics.utils.loss import v8DetectionLoss
@@ -30,28 +36,28 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
         super().__init__(model, tal_topk, tal_topk2)
         h = model.args
         self.loss_names = ("box_loss", "cls_loss", "dfl_loss" if self.use_dfl else "l1_loss")
-        self.factorized_tal_enabled = bool(getattr(h, "factorized_tal_target", False))
+        self.factorized_tal_enabled = bool(_arg(h, "factorized_tal_target", False))
         self.factorized_tal_config = FactorizedTALConfig(
-            tau=float(getattr(h, "factorized_tal_tau", 0.75)),
-            kappa=float(getattr(h, "factorized_tal_kappa", 1.5)),
-            lambda_=float(getattr(h, "factorized_tal_lambda", 0.5)),
-            small_object_max_size=float(getattr(h, "factorized_tal_s_max", 32.0)),
-            warmup_start=int(getattr(h, "factorized_tal_warmup_start", 5)),
-            warmup_end=int(getattr(h, "factorized_tal_warmup_end", 15)),
-            p2_only=bool(getattr(h, "factorized_tal_p2_only", True)),
+            tau=float(_arg(h, "factorized_tal_tau", 0.75)),
+            kappa=float(_arg(h, "factorized_tal_kappa", 1.5)),
+            lambda_=float(_arg(h, "factorized_tal_lambda", 0.5)),
+            small_object_max_size=float(_arg(h, "factorized_tal_s_max", 32.0)),
+            warmup_start=int(_arg(h, "factorized_tal_warmup_start", 5)),
+            warmup_end=int(_arg(h, "factorized_tal_warmup_end", 15)),
+            p2_only=bool(_arg(h, "factorized_tal_p2_only", True)),
         )
-        self.scale_temper_enabled = bool(getattr(h, "scale_temper_target", False))
+        self.scale_temper_enabled = bool(_arg(h, "scale_temper_target", False))
         self.scale_temper_config = ScaleTemperedTALConfig(
-            s1=float(getattr(h, "scale_temper_s1", 16.0)),
-            s2=float(getattr(h, "scale_temper_s2", 32.0)),
-            tau_min=float(getattr(h, "scale_temper_tau_min", 0.5)),
-            lambda_=float(getattr(h, "scale_temper_lambda", 0.5)),
-            warmup_start=int(getattr(h, "scale_temper_warmup_start", 5)),
-            warmup_end=int(getattr(h, "scale_temper_warmup_end", 15)),
-            p2_only=bool(getattr(h, "scale_temper_p2_only", True)),
+            s1=float(_arg(h, "scale_temper_s1", 16.0)),
+            s2=float(_arg(h, "scale_temper_s2", 32.0)),
+            tau_min=float(_arg(h, "scale_temper_tau_min", 0.5)),
+            lambda_=float(_arg(h, "scale_temper_lambda", 0.5)),
+            warmup_start=int(_arg(h, "scale_temper_warmup_start", 5)),
+            warmup_end=int(_arg(h, "scale_temper_warmup_end", 15)),
+            p2_only=bool(_arg(h, "scale_temper_p2_only", True)),
         )
-        self.positive_rescue_gain = float(getattr(h, "positive_confidence_rescue_gain", 0.0))
-        self.positive_rescue_gamma = float(getattr(h, "positive_confidence_rescue_gamma", 1.0))
+        self.positive_rescue_gain = float(_arg(h, "positive_confidence_rescue_gain", 0.0))
+        self.positive_rescue_gamma = float(_arg(h, "positive_confidence_rescue_gamma", 1.0))
         self.custom_detection_metrics: dict[str, float] = {}
 
     def get_assigned_targets_and_loss(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> tuple:
@@ -131,9 +137,9 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
             loss[1] += self.positive_rescue_gain * rescue
             self.custom_detection_metrics["positive_rescue_loss"] = float(rescue.detach())
 
-        loss[0] *= self.hyp.box
-        loss[1] *= self.hyp.cls
-        loss[2] *= self.hyp.dfl
+        loss[0] *= _arg(self.hyp, "box", 1.0)
+        loss[1] *= _arg(self.hyp, "cls", 1.0)
+        loss[2] *= _arg(self.hyp, "dfl", 1.0)
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,
