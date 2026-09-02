@@ -32,3 +32,12 @@ conda run -n ml2 python ...
 ```
 
 Do not assume the system Python has the project ML dependencies.
+
+## Repository topology and Ultralytics boundary
+
+- `vendor/ultralytics_upstream/` is a clean pinned upstream submodule. Never edit it directly.
+- `project_ultralytics/` is the destination for new custom modules, losses, registries, adapters, and training glue.
+- `models_related/ultralytics/` is the legacy compatibility fork for historical experiments. Do not modify it casually.
+- `models_related/models_config/` contains historical model and experiment YAMLs. A YAML load failure may be a legacy runtime or dependency issue, not a malformed YAML.
+- Use `PYTHONPATH=models_related/ultralytics` only for historical reproduction. Use `PYTHONPATH=.` for project-owned tests.
+- Keep unrelated dirty files and active training scripts untouched. Check Git status before staging or committing.
