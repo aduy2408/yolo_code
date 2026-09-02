@@ -10,8 +10,8 @@ from matplotlib.patches import ConnectionPatch
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_IMAGE = ROOT / "datasets/levir_ship_yolo_seed42/images/test/GF1_WFV3_E122.4_N37.3_20190805_L2A0004161911_9728_5120.png"
-DEFAULT_GT = (310.0, 42.0, 338.0, 67.0)
+DEFAULT_IMAGE = ROOT / "datasets/levir_ship_yolo_seed42/images/test/GF6_WFV_E132.4_N35.8_20200914_L1A1120035552-2_3072_11264.png"
+DEFAULT_GT = (244.0, 296.0, 291.0, 334.0)
 DISPLAY_LABEL = "ship 0.87"  # illustrative score for the GT-as-output mockup
 
 
