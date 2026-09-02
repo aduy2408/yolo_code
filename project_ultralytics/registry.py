@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 
+from .losses import BoundaryContrastiveLoss, LocalizationQualityLoss, WiseIouLoss
 from .modules import (
     AmplitudePerturbation,
     AugmentationAwareEvidence,
@@ -106,6 +107,10 @@ CUSTOM_MODULES = {
     )
 }
 
+CUSTOM_LOSSES = {
+    cls.__name__: cls for cls in (BoundaryContrastiveLoss, LocalizationQualityLoss, WiseIouLoss)
+}
+
 
 def get_custom_module(name: str):
     """Return a project module by YAML class name or raise a useful error."""
@@ -114,6 +119,15 @@ def get_custom_module(name: str):
     except KeyError as exc:
         known = ", ".join(sorted(CUSTOM_MODULES))
         raise KeyError(f"Unknown project module {name!r}. Known modules: {known}") from exc
+
+
+def get_custom_loss(name: str):
+    """Return a project loss by name for a future trainer/loss adapter."""
+    try:
+        return CUSTOM_LOSSES[name]
+    except KeyError as exc:
+        known = ", ".join(sorted(CUSTOM_LOSSES))
+        raise KeyError(f"Unknown project loss {name!r}. Known losses: {known}") from exc
 
 
 def install_custom_modules(namespace: MutableMapping[str, object]) -> None:
