@@ -1,4 +1,4 @@
-# Kiến trúc cụ thể YOLOv9, YOLOv10, YOLO11 và đối chiếu YOLOv8
+# Kiến trúc cụ thể YOLOv5, YOLOv8, YOLOv9, YOLOv10, YOLO11
 
 > Báo cáo được neo vào các YAML và implementation đã kiểm tra trong commit upstream
 > `vendor/ultralytics_upstream` (`e6754ce4c`). `project_ultralytics/architectures.py`
@@ -13,6 +13,31 @@ Các bản dưới đây đều nhận ảnh RGB, giảm mẫu qua các mức st
 và phát hiện trên ba feature map `P3/8`, `P4/16`, `P5/32`. Channel trong graph là
 channel trước compound scaling. Cấu hình `n`/`t` chỉ thay đổi depth, width và giới
 hạn channel, không đổi topology chính.
+
+### YOLOv5
+
+Nguồn: `vendor/ultralytics_upstream/ultralytics/cfg/models/v5/yolov5.yaml`.
+
+```text
+Backbone:
+Conv(64,6,2,2) -> Conv(128,3,2) -> C3(128)x3
+-> Conv(256,3,2) -> C3(256)x6
+-> Conv(512,3,2) -> C3(512)x9
+-> Conv(1024,3,2) -> C3(1024)x3 -> SPPF(1024,5)
+
+Neck/head:
+Conv1x1(512) -> upsample + concat(P4) + C3(512)x3
+-> Conv1x1(256) -> upsample + concat(P3) + C3(256)x3 = P3
+-> Conv(256,3,2) + concat(P4 head) + C3(512)x3 = P4
+-> Conv(512,3,2) + concat(P5 backbone) + C3(1024)x3 = P5
+-> Detect(P3,P4,P5, anchors)
+```
+
+YOLOv5 dùng `C3` kiểu CSP và detection head anchor-based với anchor groups được
+khai báo trực tiếp trong YAML. Đây là khác biệt lớn so với `Detect` anchor-free
+của YOLOv8, YOLOv9 và YOLO11, cũng như `v10Detect` của YOLOv10. Các YAML
+YOLOv5 lịch sử có thể dùng `Focus`, nhưng canonical YAML hiện tại trong repo dùng
+stem `Conv(6, stride=2)`.
 
 ### YOLOv8
 
@@ -167,6 +192,21 @@ nhánh bypass cuối. Vì thế feature ở nhiều độ sâu được đưa t�
 chỉ một phần channel đi qua chuỗi bottleneck. `shortcut` trong YAML quyết định
 bottleneck bên trong có residual hay không.
 
+#### `C3` (YOLOv5)
+
+`C3` là CSP block ba convolution:
+
+```text
+a = Sequential(Bottleneck_1,...,Bottleneck_n)(Conv1x1(x))
+b = Conv1x1(x)
+output = Conv1x1(concat(a,b))
+```
+
+Một nhánh đi qua chuỗi bottleneck, nhánh còn lại bypass trực tiếp. Khác `C2f`,
+`C3` chỉ concat hai nhánh cuối thay vì giữ output của từng bottleneck. Vì vậy
+YOLOv5 có graph đơn giản hơn nhưng ít multi-level feature reuse hơn C2f. Tham số
+`shortcut=False` ở neck tắt residual trong các bottleneck của nhánh xử lý.
+
 #### `SPPF`
 
 SPPF là Spatial Pyramid Pooling nhanh, giữ nguyên kích thước spatial:
@@ -189,7 +229,7 @@ neck trong YOLOv8, YOLOv10 và YOLO11.
 nối tensor theo chiều channel, nên hai tensor phải có cùng `B,H,W`. Nhánh
 top-down lấy feature P5 giàu ngữ nghĩa, upsample rồi concat với P4/P3 của
 backbone. Nhánh bottom-up sau đó downsample lại để trộn thông tin localization
-ở P3 với ngữ nghĩa sâu hơn ở P4/P5. Đây là lý do cả bốn graph đều tạo ba output
+ở P3 với ngữ nghĩa sâu hơn ở P4/P5. Đây là lý do cả năm graph đều tạo ba output
 P3/P4/P5.
 
 #### `Detect`
@@ -381,19 +421,21 @@ assignment không hiện thành layer riêng.
 
 ## 3. Bảng so sánh kiến trúc
 
-| Thành phần | YOLOv8 | YOLOv9 | YOLOv10 | YOLO11 |
-|---|---|---|---|---|
-| Backbone block chính | C2f | GELAN + RepNCSPELAN4 | C2f + C2fCIB | C3k2 |
-| Downsampling nổi bật | Conv stride 2 | AConv | SCDown ở P4/P5 và neck P5 | Conv stride 2 |
-| Context/attention sâu | SPPF | SPPELAN | SPPF + PSA | SPPF + C2PSA |
-| Neck fusion | PAN/FPN, C2f | PAN/FPN, RepNCSPELAN4 | PAN/FPN, C2f/C2fCIB | PAN/FPN, C3k2 |
-| Detection head | Detect | Detect | v10Detect, one-to-many + one-to-one | Detect |
-| NMS-free native inference | Không | Không | Có mục tiêu thiết kế | Không phải điểm thiết kế chính |
-| Gradient/training innovation | TAL/DFL pipeline | PGI | dual assignment + consistent dual predictions | training/inference Detect pipeline kế thừa |
-| Outputs chuẩn | P3/P4/P5 | P3/P4/P5 | P3/P4/P5 | P3/P4/P5 |
+| Thành phần | YOLOv5 | YOLOv8 | YOLOv9 | YOLOv10 | YOLO11 |
+|---|---|---|---|---|---|
+| Backbone block chính | C3 | C2f | GELAN + RepNCSPELAN4 | C2f + C2fCIB | C3k2 |
+| Downsampling nổi bật | Conv stride 2 | Conv stride 2 | AConv | SCDown ở P4/P5 và neck P5 | Conv stride 2 |
+| Context/attention sâu | SPPF | SPPF | SPPELAN | SPPF + PSA | SPPF + C2PSA |
+| Neck fusion | PAN/FPN, C3 | PAN/FPN, C2f | PAN/FPN, RepNCSPELAN4 | PAN/FPN, C2f/C2fCIB | PAN/FPN, C3k2 |
+| Detection head | Detect, anchor-based | Detect, anchor-free | Detect, anchor-free | v10Detect, one-to-many + one-to-one | Detect, anchor-free |
+| NMS-free native inference | Không | Không | Không | Có mục tiêu thiết kế | Không phải điểm thiết kế chính |
+| Gradient/training innovation | Anchor matching + loss pipeline | TAL/DFL pipeline | PGI | dual assignment + consistent dual predictions | training/inference Detect pipeline kế thừa |
+| Outputs chuẩn | P3/P4/P5 | P3/P4/P5 | P3/P4/P5 | P3/P4/P5 | P3/P4/P5 |
 
 ## 4. Kết luận thực dụng khi chọn model
 
+- **YOLOv5:** baseline lịch sử rõ ràng, C3/CSP đơn giản và anchor-based. Phù hợp
+  khi cần tái hiện pipeline cũ hoặc so sánh ảnh hưởng của anchor-free head.
 - **YOLOv8:** baseline dễ hiểu, parser/runtime ổn định, phù hợp làm control.
 - **YOLOv9:** thay đổi backbone mạnh nhất về kiểu graph. Chọn khi cần GELAN,
   re-parameterizable CSP-ELAN và lợi ích huấn luyện PGI; PGI cần được phân biệt
@@ -424,6 +466,7 @@ Không sửa trực tiếp vendor hoặc legacy fork.
 
 ## 6. Tài liệu tham khảo
 
+- [YOLOv5 Ultralytics model docs](https://docs.ultralytics.com/models/yolov5/)
 - [YOLOv9 paper](https://arxiv.org/abs/2402.13616)
 - [YOLOv10 paper](https://arxiv.org/abs/2405.14458)
 - [Ultralytics YOLO11 docs](https://docs.ultralytics.com/models/yolo11/)
