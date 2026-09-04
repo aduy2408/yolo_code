@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
-    "train_varroa_yolov8n_mmdet_default_aug",
-    ROOT / "train_varroa_yolov8n_mmdet_default_aug.py",
+    "train_levir_ship_yolov8n_mmdet_default_aug",
+    ROOT / "train_levir_yolov8n_mmdet_default_aug.py",
 )
 runner = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

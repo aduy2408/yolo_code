@@ -1,6 +1,6 @@
-# Varroa YOLOv8 baseline with MMDetection-style default augmentation
+# LevirShip YOLOv8 baseline with MMDetection-style default augmentation
 
-Runner: `train_varroa_yolov8n_mmdet_default_aug.py`
+Runner: `train_levir_yolov8n_mmdet_default_aug.py`
 
 This is a single-control baseline: pretrained `yolov8n.pt`, seed `42`, 640px,
 100 epochs, batch 8, patience 0, and NMS IoU `0.5`. The augmentation map is
@@ -22,8 +22,8 @@ difference visible.
 
 ```bash
 cd yolo_related
-conda run -n ml2 python -m py_compile train_varroa_yolov8n_mmdet_default_aug.py
-conda run -n ml2 pytest -q tests/test_train_varroa_yolov8n_mmdet_default_aug.py
+conda run -n ml2 python -m py_compile train_levir_yolov8n_mmdet_default_aug.py
+conda run -n ml2 pytest -q tests/test_train_levir_yolov8n_mmdet_default_aug.py
 ```
 
 A bounded local smoke train can be run with `--epochs 1 --device cpu
@@ -41,19 +41,19 @@ helper injects `MARIMO_TRAIN_WORKFLOW=1`; the runner refuses upload otherwise.
   --repo /marimo/yolo_code \
   --expected-sha "$EXPECTED_SHA" \
   --python /marimo/mmdet-venv/bin/python \
-  --required-path train_varroa_yolov8n_mmdet_default_aug.py \
-  --required-path datasets/varroa_yolo/varroa.yaml \
+  --required-path train_levir_yolov8n_mmdet_default_aug.py \
+  --required-path datasets/levir_ship_yolo/levir_ship.yaml \
   --epochs 100 --patience 0 --upload-required \
-  --hf-repo-id duyle2408/varroa-yolov8n-mmdet-default-aug
+  --hf-repo-id duyle2408/levir-ship-yolov8n-mmdet-default-aug
 
 /marimo/mmdet-venv/bin/python -m utils.marimo_ops launch \
   --cwd /marimo/yolo_code \
-  --run-dir /marimo/yolo_code/runs/varroa_yolov8n_mmdet_default_aug \
-  -- /marimo/mmdet-venv/bin/python train_varroa_yolov8n_mmdet_default_aug.py \
-  --data-yaml /marimo/yolo_code/datasets/varroa_yolo/varroa.yaml \
-  --project /marimo/yolo_code/runs/varroa_yolov8n_mmdet_default_aug \
+  --run-dir /marimo/yolo_code/runs/levir_yolov8n_mmdet_default_aug \
+  -- /marimo/mmdet-venv/bin/python train_levir_yolov8n_mmdet_default_aug.py \
+  --data-yaml /marimo/yolo_code/datasets/levir_ship_yolo/levir_ship.yaml \
+  --project /marimo/yolo_code/runs/levir_yolov8n_mmdet_default_aug \
   --epochs 100 --patience 0 --imgsz 640 --batch-size 8 --seed 42 \
-  --hf-repo-id duyle2408/varroa-yolov8n-mmdet-default-aug --upload
+  --hf-repo-id duyle2408/levir-ship-yolov8n-mmdet-default-aug --upload
 ```
 
 Required per-run artifacts are `best.pt`, `last.pt`, `results.csv`, `args.yaml`,

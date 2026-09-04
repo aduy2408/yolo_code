@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""YOLOv8n Varroa baseline with an explicit MMDetection RTMDet-style augmentation map.
+"""YOLOv8n LevirShip baseline with an explicit MMDetection RTMDet-style augmentation map.
 
 The mapping keeps Ultralytics' geometry compatible with the MMDetection default
 RTMDet tiny pipeline: CachedMosaic + RandomResize(0.5, 2.0) + RandomCrop,
@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-DATA_YAML = ROOT / "datasets/varroa_yolo/varroa.yaml"
+DATA_YAML = ROOT / "datasets/levir_ship_yolo/levir_ship.yaml"
 VARIANT = "yolov8n_mmdet_default_aug"
 REQUIRED = (
     "weights/best.pt",
@@ -173,7 +173,7 @@ def upload(args: argparse.Namespace, run_dir: Path) -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-yaml", type=Path, default=DATA_YAML)
-    parser.add_argument("--project", type=Path, default=ROOT / "runs/varroa_yolov8n_mmdet_default_aug")
+    parser.add_argument("--project", type=Path, default=ROOT / "runs/levir_yolov8n_mmdet_default_aug")
     parser.add_argument("--pretrained", default="yolov8n.pt")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--imgsz", type=int, default=640)
@@ -182,7 +182,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--hf-repo-id", default="duyle2408/varroa-yolov8n-mmdet-default-aug")
+    parser.add_argument("--hf-repo-id", default="duyle2408/levir-ship-yolov8n-mmdet-default-aug")
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--upload", action="store_true")
     return parser.parse_args(argv)
