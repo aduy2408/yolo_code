@@ -42,13 +42,13 @@ MMDET_DEFAULT_AUGMENTATION = {
     "hsv_s": 0.7,
     "hsv_v": 0.4,
     "degrees": 0.0,
-    "translate": 0.0,
+    "translate": 0.1,
     "scale": 0.5,  # RandomResize ratio_range=(0.5, 2.0), approximate
     "shear": 0.0,
     "perspective": 0.0,
     "flipud": 0.0,
     "fliplr": 0.5,
-    "close_mosaic": 0,
+    "close_mosaic": 10,
     "erasing": 0.0,
     "auto_augment": None,
 }
@@ -142,8 +142,8 @@ def write_metadata(args: argparse.Namespace, run_dir: Path) -> None:
         "epochs": args.epochs, "patience": args.patience, "imgsz": args.imgsz,
         "batch_size": args.batch_size, "nms_iou": 0.5,
         "augmentation": MMDET_DEFAULT_AUGMENTATION,
-        "mmdetection_reference": "rtmdet_tiny_8xb32-300e_coco.py",
-        "known_approximations": ["CachedMosaic is mapped to mosaic=1.0", "RandomCrop is approximated by YOLO resize/letterbox"],
+        "mmdetection_reference": "train_all_levir_baseline.py:yolo_pipeline",
+        "known_approximations": ["Ultralytics mosaic/mixup are not cached", "Ultralytics scale=0.5 is symmetric while MMDetection scaling_ratio_range=(0.5, 1.5)", "RandomAffine border/crop is represented by YOLO mosaic/letterbox"],
         "command": sys.argv,
     }
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

@@ -2,21 +2,22 @@
 
 Runner: `train_levir_yolov8n_mmdet_default_aug.py`
 
-This is a single-control baseline: pretrained `yolov8n.pt`, seed `42`, 640px,
-100 epochs, batch 8, patience 0, and NMS IoU `0.5`. The augmentation map is
-explicit in the runner and mirrors `rtmdet_tiny_8xb32-300e_coco.py`:
+This runner ports the actual `yolo_pipeline()` added by commit `067e4c7f` in
+`mmdetection/train_all_levir_baseline.py`, rather than claiming to reproduce a
+native MMDetection default.
 
 - CachedMosaic -> `mosaic=1.0`
-- RandomResize ratio range `(0.5, 2.0)` -> `scale=0.5` approximation
+- RandomAffine (`translate=.1`, scale range `.5..1.5`) -> `translate=0.1`, `scale=0.5`
+- Final 10-epoch no-Mosaic stage -> `close_mosaic=10`
 - YOLOX HSV -> `hsv_h=0.015`, `hsv_s=0.7`, `hsv_v=0.4`
 - RandomFlip -> `fliplr=0.5`
 - CachedMixUp -> `mixup=0.5`
 - rotation, translation, shear, perspective, vertical flip disabled
 
-Ultralytics has no exact cached-transform or RandomCrop equivalent. The
-approximations are recorded in `experiment_manifest.json` instead of being
-hidden. This keeps the baseline reproducible while making the cross-framework
-difference visible.
+The YOLOv8 model is initialized from `yolov8n.pt`, while the MMDetection runner
+initializes the selected detector from its config and backbone `init_cfg`.
+These are matched training-data augmentations, not a matched architecture or
+optimizer experiment.
 
 ## Local validation
 
