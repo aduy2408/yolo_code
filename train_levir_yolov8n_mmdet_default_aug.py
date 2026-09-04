@@ -193,7 +193,7 @@ def main() -> None:
     args.data_yaml = args.data_yaml.resolve()
     args.project = args.project.resolve()
     validate_dataset(args.data_yaml)
-    run_dir = args.project / VARIANT / f"seed_{args.seed}"
+    run_dir = args.project / VARIANT
     run_dir.mkdir(parents=True, exist_ok=True)
     train(args, run_dir)
     evaluate(args, run_dir)
