@@ -21,15 +21,20 @@ EXPERIMENTS = {
     "H2": CONFIG_ROOT / "yolov8n_p2_levir_h2_object_aware.yaml",
     "H3": CONFIG_ROOT / "yolov8n_p2_levir_h3_object_aware.yaml",
 }
-REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv", "evaluation_metrics.json")
+TRAIN_REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv")
+COMPLETE_REQUIRED = (*TRAIN_REQUIRED, "evaluation_metrics.json")
 
 
 def local_ultralytics() -> None:
     sys.path.insert(0, str(ULTRALYTICS))
 
 
+def trained(path: Path) -> bool:
+    return all((path / item).is_file() for item in TRAIN_REQUIRED)
+
+
 def complete(path: Path) -> bool:
-    return all((path / item).is_file() for item in REQUIRED)
+    return all((path / item).is_file() for item in COMPLETE_REQUIRED)
 
 
 def seed_everything(seed: int) -> None:
@@ -94,9 +99,11 @@ def run(args: argparse.Namespace) -> None:
             batch=args.batch_size, device=args.device, workers=args.workers, amp=args.amp,
             seed=args.seed, deterministic=True, project=str(args.project), name=name, exist_ok=True,
         )
-        if not complete(run_dir):
+        if not trained(run_dir):
             raise FileNotFoundError(f"Incomplete training artifacts: {run_dir}")
         evaluate(run_dir, data, args)
+        if not complete(run_dir):
+            raise FileNotFoundError(f"Incomplete evaluation artifacts: {run_dir}")
         upload_and_verify(run_dir, name, args.hf_repo_id)
         print(f"COMPLETE {name}", flush=True)
 

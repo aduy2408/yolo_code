@@ -403,6 +403,23 @@ def test_hit_transport_offset_targets_point_to_gt_and_are_clamped():
     assert torch.allclose(targets[0], torch.tensor([1.0, -0.5]))
 
 
+def test_hit_offset_targets_use_each_gt_support_independently():
+    module = DualIrreducibilityHIT(4, max_offset=20, offset_topk=1)
+    module.train()
+    module(torch.randn(1, 4, 16, 16))
+    module.last_aux["source_score"].zero_()
+    module.last_aux["source_score"][0, 0, 8, 4] = 1
+    module.last_aux["source_score"][0, 0, 8, 12] = 2
+    multi_gt = {
+        "batch_idx": torch.tensor([0.0, 0.0]),
+        "bboxes": torch.tensor([[0.28125, 0.53125, 0.1, 0.1], [0.78125, 0.53125, 0.1, 0.1]]),
+    }
+    _, targets = module._offset_targets(multi_gt)
+    assert targets.shape == (2, 2)
+    assert torch.allclose(targets[0], torch.tensor([0.0, 0.0]), atol=1e-5)
+    assert torch.allclose(targets[1], torch.tensor([0.0, 0.0]), atol=1e-5)
+
+
 def test_hit_gaussian_splat_conserves_mass_and_gradients():
     module = DualIrreducibilityHIT(1)
     source = torch.ones(1, 1, 3, 3)

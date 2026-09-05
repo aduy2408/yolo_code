@@ -592,27 +592,35 @@ class DualIrreducibilityHIT(nn.Module):
             out.scatter_add_(2, index[:, None].expand(-1, c, -1), flat * weight.to(source.dtype)[:, None])
         return out.reshape_as(source)
 
-    def _source_targets(self, batch: dict, feature: torch.Tensor) -> torch.Tensor:
-        batch_size, _, height, width = feature.shape
-        target = feature.new_zeros(batch_size, 1, height, width)
+    def _source_target_for_box(
+        self, cx: torch.Tensor, cy: torch.Tensor, bw: torch.Tensor, bh: torch.Tensor,
+        height: int, width: int, feature: torch.Tensor,
+    ) -> torch.Tensor:
         yy, xx = torch.meshgrid(
             torch.arange(height, device=feature.device, dtype=feature.dtype) + 0.5,
             torch.arange(width, device=feature.device, dtype=feature.dtype) + 0.5, indexing="ij"
         )
         flat_x, flat_y = xx.flatten(), yy.flatten()
+        cx, cy, bw, bh = cx * width, cy * height, bw * width, bh * height
+        x1, x2, y1, y2 = cx - bw / 2, cx + bw / 2, cy - bh / 2, cy + bh / 2
+        dx = torch.maximum(torch.maximum(x1 - flat_x, flat_x - x2), flat_x.new_zeros(()))
+        dy = torch.maximum(torch.maximum(y1 - flat_y, flat_y - y2), flat_y.new_zeros(()))
+        if self.source_target_mode == "box":
+            current = ((dx == 0) & (dy == 0)).to(feature.dtype)
+        else:
+            distance = torch.sqrt(dx.square() + dy.square())
+            current = (1.0 - distance / self.source_margin).clamp(0.0, 1.0)
+        return current.reshape(height, width)
+
+    def _source_targets(self, batch: dict, feature: torch.Tensor) -> torch.Tensor:
+        batch_size, _, height, width = feature.shape
+        target = feature.new_zeros(batch_size, 1, height, width)
         batch_indices = batch["batch_idx"].view(-1).long()
         for batch_index in range(batch_size):
-            for cx, cy, bw, bh in batch["bboxes"][batch_indices == batch_index]:
-                cx, cy, bw, bh = cx * width, cy * height, bw * width, bh * height
-                x1, x2, y1, y2 = cx - bw / 2, cx + bw / 2, cy - bh / 2, cy + bh / 2
-                dx = torch.maximum(torch.maximum(x1 - flat_x, flat_x - x2), flat_x.new_zeros(()))
-                dy = torch.maximum(torch.maximum(y1 - flat_y, flat_y - y2), flat_y.new_zeros(()))
-                if self.source_target_mode == "box":
-                    current = ((dx == 0) & (dy == 0)).to(feature.dtype)
-                else:
-                    distance = torch.sqrt(dx.square() + dy.square())
-                    current = (1.0 - distance / self.source_margin).clamp(0.0, 1.0)
-                target[batch_index, 0] = torch.maximum(target[batch_index, 0], current.reshape(height, width))
+            for box in batch["bboxes"][batch_indices == batch_index]:
+                target[batch_index, 0] = torch.maximum(
+                    target[batch_index, 0], self._source_target_for_box(*box, height, width, feature)
+                )
         return target
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -653,10 +661,11 @@ class DualIrreducibilityHIT(nn.Module):
         yy, xx = torch.meshgrid(torch.arange(height, device=feature.device, dtype=feature.dtype) + 0.5, torch.arange(width, device=feature.device, dtype=feature.dtype) + 0.5, indexing="ij")
         flat_x, flat_y = xx.flatten(), yy.flatten()
         batch_indices = batch["batch_idx"].view(-1).long()
-        predictions, targets = [], []
+        assignments: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
         for batch_index in range(feature.shape[0]):
             for cx, cy, bw, bh in batch["bboxes"][batch_indices == batch_index]:
-                support = target_map[batch_index, 0].flatten() > 0
+                gt_support = self._source_target_for_box(cx, cy, bw, bh, height, width, feature)
+                support = gt_support.flatten() > 0
                 candidates = support.nonzero(as_tuple=False).flatten()
                 if not candidates.numel():
                     continue
@@ -665,8 +674,17 @@ class DualIrreducibilityHIT(nn.Module):
                 center = torch.stack((cx * width, cy * height))
                 for index in selected:
                     point = torch.stack((flat_x[index], flat_y[index]))
-                    predictions.append(offsets[batch_index, :, index // width, index % width])
-                    targets.append((center - point).clamp(-self.max_offset, self.max_offset))
+                    target = (center - point).clamp(-self.max_offset, self.max_offset)
+                    distance = (center - point).square().sum()
+                    key = batch_index * height * width + int(index)
+                    if key not in assignments or distance < assignments[key][0]:
+                        assignments[key] = (distance, target)
+        predictions, targets = [], []
+        for key, (_, target) in assignments.items():
+            batch_index, index = divmod(key, height * width)
+            y, x_coord = divmod(index, width)
+            predictions.append(offsets[batch_index, :, y, x_coord])
+            targets.append(target)
         if not predictions:
             return offsets.new_empty((0, 2)), offsets.new_empty((0, 2))
         return torch.stack(predictions), torch.stack(targets)
