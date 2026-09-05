@@ -17,21 +17,12 @@ def test_factorized_tal_targets_sharpen_p2_small_gt_only():
     gt_bboxes = torch.tensor([[[0.0, 0.0, 16.0, 16.0], [0.0, 0.0, 40.0, 40.0]]])
     target_gt_idx = torch.tensor([[0, 0, 0, 0, 0, 1]])
     fg_mask = torch.tensor([[True, True, True, True, True, True]])
-    pred_bboxes = gt_bboxes[0, target_gt_idx[0]].unsqueeze(0).clone()
-    stride_tensor = torch.ones(6)
 
     loss.epoch = 0
-    torch.testing.assert_close(
-        loss.factorized_tal_cls_targets(
-            target_scores, gt_bboxes, target_gt_idx, fg_mask, 4, pred_bboxes, stride_tensor
-        ),
-        target_scores,
-    )
+    torch.testing.assert_close(loss.factorized_tal_cls_targets(target_scores, gt_bboxes, target_gt_idx, fg_mask, 4), target_scores)
 
     loss.epoch = 15
-    out = loss.factorized_tal_cls_targets(
-        target_scores, gt_bboxes, target_gt_idx, fg_mask, 4, pred_bboxes, stride_tensor
-    )
+    out = loss.factorized_tal_cls_targets(target_scores, gt_bboxes, target_gt_idx, fg_mask, 4)
     assert out[0, 0, 0] > target_scores[0, 0, 0]
     assert out[0, 1, 0] < target_scores[0, 1, 0]
     assert out[0, 2, 0] < target_scores[0, 2, 0]
