@@ -134,10 +134,10 @@ known partial checks
 Run the following **inside the live Marimo environment**, not local:
 
 ```bash
-/marimo/mmdet-venv/bin/python -m utils.marimo_ops preflight \
+"$MARIMO_PYTHON" -m utils.marimo_ops preflight \
   --repo /marimo/yolo_code \
   --expected-sha "$EXPECTED_SHA" \
-  --python /marimo/mmdet-venv/bin/python \
+  --python "$MARIMO_PYTHON" \
   --epochs 100 \
   --patience 0 \
   --upload-required \
@@ -157,8 +157,14 @@ upload required
 HF repository configured
 ```
 
-Also inspect CUDA, dataset, checkpoint, and dependencies. Do not silently fall
-back from the requested Marimo venv to system Python.
+The Python executable is workload-dependent. For MMDetection or models that
+depend on MMDetection, use the fixed `/marimo/mmdet-venv/bin/python` and fail if
+it is unavailable. For Ultralytics-only work, including this repository's
+forked `models_related/ultralytics`, use the already provisioned Marimo base
+environment instead. In that case, discover and record the base interpreter
+from the live kernel, pass it explicitly to preflight and launch, and do not
+silently substitute another interpreter after preflight. Also inspect CUDA,
+dataset, checkpoint, and dependencies.
 
 ## 5. Runner contract
 
@@ -206,11 +212,11 @@ runtime gate rather than an instruction the agent can accidentally skip.
 Never attach a long training job to the request stream. Use the shared helper:
 
 ```bash
-/marimo/mmdet-venv/bin/python -m utils.marimo_ops launch \
+"$MARIMO_PYTHON" -m utils.marimo_ops launch \
   --cwd /marimo/yolo_code \
   --run-dir /marimo/yolo_code/runs/<experiment> \
   -- \
-  /marimo/mmdet-venv/bin/python train_all_<experiment>.py \
+"$MARIMO_PYTHON" train_all_<experiment>.py \
   --epochs 100 --patience 0 --upload
 ```
 
