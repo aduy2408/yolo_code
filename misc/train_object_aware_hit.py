@@ -73,7 +73,11 @@ def upload_and_verify(run_dir: Path, name: str, repo_id: str) -> None:
     api.create_repo(repo_id=repo_id, repo_type="dataset", private=False, exist_ok=True)
     remote_prefix = f"runs/{name}"
     api.upload_folder(folder_path=str(run_dir), path_in_repo=remote_prefix, repo_id=repo_id, repo_type="dataset")
-    remote_files = {item.rfilename for item in api.list_repo_tree(repo_id=repo_id, repo_type="dataset", path_in_repo=remote_prefix, recursive=True)}
+    remote_files = {
+        item.rfilename for item in api.list_repo_tree(
+            repo_id=repo_id, repo_type="dataset", path_in_repo=remote_prefix, recursive=True
+        ) if hasattr(item, "rfilename")
+    }
     missing = {f"{remote_prefix}/{item}" for item in REQUIRED} - remote_files
     if missing:
         raise RuntimeError(f"Remote upload verification failed for {name}: {sorted(missing)}")
@@ -92,16 +96,18 @@ def run(args: argparse.Namespace) -> None:
             print(f"Reusing verified run {name}", flush=True)
             continue
         seed_everything(args.seed)
-        model = YOLO(str(config))
-        model.load("yolov8n.pt", smart_transfer=True)
-        model.train(
-            data=str(data), epochs=args.epochs, patience=args.patience, imgsz=args.imgsz,
-            batch=args.batch_size, device=args.device, workers=args.workers, amp=args.amp,
-            seed=args.seed, deterministic=True, project=str(args.project), name=name, exist_ok=True,
-        )
+        if not trained(run_dir):
+            model = YOLO(str(config))
+            model.load("yolov8n.pt", smart_transfer=True)
+            model.train(
+                data=str(data), epochs=args.epochs, patience=args.patience, imgsz=args.imgsz,
+                batch=args.batch_size, device=args.device, workers=args.workers, amp=args.amp,
+                seed=args.seed, deterministic=True, project=str(args.project), name=name, exist_ok=True,
+            )
         if not trained(run_dir):
             raise FileNotFoundError(f"Incomplete training artifacts: {run_dir}")
-        evaluate(run_dir, data, args)
+        if not (run_dir / "evaluation_metrics.json").is_file():
+            evaluate(run_dir, data, args)
         if not complete(run_dir):
             raise FileNotFoundError(f"Incomplete evaluation artifacts: {run_dir}")
         upload_and_verify(run_dir, name, args.hf_repo_id)
