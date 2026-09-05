@@ -14,24 +14,13 @@ class SurgicalPlacementConfigTests(unittest.TestCase):
             self.assertIn("ChannelAttention, []", text)
 
     def test_expected_probe_contract(self):
-        self.assertEqual(
-            probe.KVCA_LAYERS,
-            {"A": 16, "A-R": 16, "A-P": 16, "B": 18, "C": 19},
-        )
-        self.assertEqual(
-            probe.EXPECTED_KVCA,
-            {"A": (64, 4), "A-R": (64, 4), "A-P": (64, 4), "B": (96, 8), "C": (32, 8)},
-        )
+        self.assertEqual(probe.KVCA_LAYERS, {"A": 16, "B": 18, "C": 19})
+        self.assertEqual(probe.EXPECTED_KVCA, {"A": (64, 4), "B": (96, 8), "C": (32, 8)})
         for placement, path in probe.CONFIGS.items():
             text = path.read_text()
             channels, sr = probe.EXPECTED_KVCA[placement]
             nominal = channels * 4
-            if placement == "A-R":
-                self.assertIn(f"ReceptanceKVCompressedAttention, [{nominal}, 4, {sr}, group_weight, 0.0]", text)
-            elif placement == "A-P":
-                self.assertIn(f"SurgicalPartialKVCompressedAttention, [{nominal}, 4, {sr}, group_weight, 0.0]", text)
-            else:
-                self.assertIn(f"KVCompressedAttention, [{nominal}, 4, {sr}, group_weight, 0.0]", text)
+            self.assertIn(f"KVCompressedAttention, [{nominal}, 4, {sr}, group_weight, 0.0]", text)
 
     def test_runner_defaults_match_protocol(self):
         args = probe.parse_args(["--canonical-checkpoint", "checkpoint.pt"])
