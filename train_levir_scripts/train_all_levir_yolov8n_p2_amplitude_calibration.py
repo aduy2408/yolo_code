@@ -5,20 +5,14 @@ import os
 import sys
 import argparse
 import json
-import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 EXPERIMENT_SLUG = "levir_yolov8n_p2_amplitude_calibration"
 HF_REPO = "duyle2408/levir-yolov8n-p2-amplitude-calibration-seed42"
 
-# Load an isolated workflow copy so importing this runner cannot mutate sibling runners.
-_WORKFLOW_SPEC = importlib.util.spec_from_file_location(
-    "_amplitude_calibration_workflow", ROOT / "train_all_levir_yolov8n_p2_routing.py"
-)
-workflow = importlib.util.module_from_spec(_WORKFLOW_SPEC)
-sys.modules[_WORKFLOW_SPEC.name] = workflow
-_WORKFLOW_SPEC.loader.exec_module(workflow)
+# Import workflow and register local ultralytics
+import train_all_levir_yolov8n_p2_routing as workflow
 workflow.local_ultralytics()
 
 from ultralytics.nn.modules.conv import P2AmplitudeCalibrator, LearnableGlobalScalar, AmplitudePerturbation

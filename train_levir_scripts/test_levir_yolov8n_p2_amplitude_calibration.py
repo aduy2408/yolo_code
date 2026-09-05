@@ -17,7 +17,7 @@ def test_identity_initialization():
     calibrator = P2AmplitudeCalibrator(channels=32, hidden_dim=16)
     x = torch.randn(2, 32, 64, 64)
     out = calibrator(x)
-    assert torch.allclose(out, x, atol=1e-5), "Calibrator is not identity initialized"
+    assert torch.alưlclose(out, x, atol=1e-5), "Calibrator is not identity initialized"
     
     # Global scalar
     global_scalar = LearnableGlobalScalar(channels=32)

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import copy
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -15,12 +14,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-_WORKFLOW_SPEC = importlib.util.spec_from_file_location(
-    "_input_cues_workflow", ROOT / "train_all_levir_yolov8n_p2_routing.py"
-)
-workflow = importlib.util.module_from_spec(_WORKFLOW_SPEC)
-sys.modules[_WORKFLOW_SPEC.name] = workflow
-_WORKFLOW_SPEC.loader.exec_module(workflow)
+import train_all_levir_yolov8n_p2_routing as workflow
 
 CONFIG_ROOT = ROOT.parent / "models_related/models_config/yolov8/levir"
 BASELINE = CONFIG_ROOT / "yolov8n_p2_levir_baseline.yaml"
