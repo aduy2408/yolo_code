@@ -340,15 +340,67 @@ def test_dbss_mixed_precision_is_finite():
     assert torch.isfinite(module(x)).all()
 
 
-def test_hit_sparse_gate_and_full_auxiliary_loss():
-    module = DualIrreducibilityHIT(16, stride=4, source_topq=0.01, loss_recon_weight=0.1, loss_offset_weight=0.1)
+def test_hit_soft_source_targets_have_object_near_and_background_regions():
+    module = DualIrreducibilityHIT(8, source_target_mode="soft")
+    feature = torch.zeros(1, 8, 16, 16)
+    target = module._source_targets(batch(), feature)[0, 0]
+    assert target[8, 8] == 1
+    assert 0 < target[8, 4] < 1
+    assert target[0, 0] == 0
+
+
+def test_hit_box_source_targets_have_no_near_support():
+    module = DualIrreducibilityHIT(8, source_target_mode="box")
+    target = module._source_targets(batch(), torch.zeros(1, 8, 16, 16))[0, 0]
+    assert target[8, 8] == 1
+    assert target[8, 4] == 0
+    assert target[0, 0] == 0
+
+
+def test_hit_empty_gt_source_loss_is_finite():
+    module = DualIrreducibilityHIT(8)
     module.train()
-    output = module(torch.randn(1, 16, 16, 16, requires_grad=True))
-    assert module.last_aux["gate"].sum() == 3
-    loss, metrics = module.auxiliary_loss(batch())
+    output = module(torch.randn(1, 8, 16, 16, requires_grad=True))
+    loss, _ = module.auxiliary_loss(batch(False))
     assert torch.isfinite(loss)
-    assert {"loss_hit_recon_spatial", "loss_hit_recon_channel", "loss_hit_offset"} <= metrics.keys()
     (output.mean() + loss).backward()
+
+
+def test_hit_exact_identity_initialization_for_both_modes():
+    x = torch.randn(1, 8, 8, 8)
+    for mode in ("direct", "transport"):
+        module = DualIrreducibilityHIT(8, enhancement_mode=mode).eval()
+        assert torch.allclose(module(x), x)
+
+
+def test_hit_direct_path_is_not_a_noop_after_projection_is_enabled():
+    module = DualIrreducibilityHIT(8, enhancement_mode="direct").eval()
+    module.output_projection.weight.data.fill_(0.1)
+    output = module(torch.randn(1, 8, 8, 8))
+    assert not torch.allclose(output, torch.zeros_like(output))
+
+
+def test_hit_source_selector_receives_gradient():
+    module = DualIrreducibilityHIT(8, enhancement_mode="direct")
+    module.train()
+    x = torch.randn(1, 8, 16, 16, requires_grad=True)
+    output = module(x)
+    loss, _ = module.auxiliary_loss(batch())
+    (output.mean() + loss).backward()
+    assert module.source_selector[0].weight.grad is not None
+    assert torch.isfinite(module.source_selector[0].weight.grad).all()
+
+
+def test_hit_transport_offset_targets_point_to_gt_and_are_clamped():
+    module = DualIrreducibilityHIT(8, max_offset=1, offset_topk=1)
+    module.train()
+    module(torch.randn(1, 8, 16, 16))
+    module.last_aux["source_score"].zero_()
+    module.last_aux["source_score"][0, 0, 8, 6] = 1
+    predictions, targets = module._offset_targets(batch())
+    assert predictions.shape == targets.shape == (1, 2)
+    assert targets.abs().max() <= 1
+    assert torch.allclose(targets[0], torch.tensor([1.0, -0.5]))
 
 
 def test_hit_gaussian_splat_conserves_mass_and_gradients():
@@ -375,34 +427,17 @@ def test_hit_gaussian_splat_large_feature_indices_stay_in_bounds(dtype):
     module = DualIrreducibilityHIT(1)
     source = torch.ones(1, 1, 128, 128, dtype=dtype)
     offsets = torch.zeros(1, 2, 128, 128, dtype=dtype)
-
     output = module._gaussian_splat(source, offsets)
-
     assert output.shape == source.shape
     assert torch.isfinite(output).all()
     assert torch.allclose(output.float().sum(), source.float().sum(), rtol=1e-3)
 
 
-def test_hit_offset_targets_require_selected_support_and_clamp():
-    module = DualIrreducibilityHIT(4, topk=1, source_topq=0.1, max_offset=1, offset_target_margin=0)
-    module.train()
-    module(torch.randn(1, 4, 4, 4))
-    target_batch = {"batch_idx": torch.tensor([[0.0]]), "bboxes": torch.tensor([[0.5, 0.5, 1.0, 1.0]])}
-    module.last_aux["gate"].zero_()
-    prediction, target = module._offset_targets(target_batch)
-    assert prediction.numel() == target.numel() == 0
-    module.last_aux["gate"][0, 0, 0, 0] = 1
-    prediction, target = module._offset_targets(target_batch)
-    assert prediction.shape == target.shape == (1, 2)
-    assert target.abs().max() == 1
-    assert module.last_aux["offset_clamp_rate"] == 1
-
-
-def test_hit_no_transport_and_empty_gt():
-    module = DualIrreducibilityHIT(8, transport_enabled=False, loss_recon_weight=0.1)
+def test_hit_no_transport_is_explicit_direct_mode():
+    module = DualIrreducibilityHIT(8, enhancement_mode="direct")
     module.train()
     x = torch.randn(1, 8, 8, 8)
-    assert torch.equal(module(x), x)
+    assert module(x).shape == x.shape
     loss, _ = module.auxiliary_loss(batch(False))
     assert torch.isfinite(loss)
 

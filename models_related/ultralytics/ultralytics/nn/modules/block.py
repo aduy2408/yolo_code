@@ -521,51 +521,52 @@ class _MaskedCenterConv2d(nn.Conv2d):
 
 
 class DualIrreducibilityHIT(nn.Module):
-    """Locate jointly irreducible residuals and splat them toward objects."""
+    """Object-aware enhancement of P2 irreducible reconstruction residuals."""
 
     def __init__(
-        self, c1: int, stride: int = 4, reduction: int = 8, topk: int = 4, max_offset: float = 8.0,
-        source_topq: float = 0.01, fixed_sigma: float = 1.0, transport_enabled: bool = True,
-        loss_recon_weight: float = 0.0, loss_offset_weight: float = 0.0, detach_offset_input: bool = True,
-        offset_target_margin: int = 1, background_recon_only: bool = True, hard_clip: float = 5.0,
-        loss_recon_spatial_weight: float | None = None, loss_recon_channel_weight: float | None = None,
-        eps: float = 1e-6,
+        self, c1: int, stride: int = 4, reduction: int = 8, max_offset: float = 4.0,
+        fixed_sigma: float = 1.0, enhancement_mode: str = "transport",
+        source_target_mode: str = "soft", source_margin: float = 2.0,
+        loss_recon_weight: float = 0.1, loss_source_weight: float = 0.5,
+        loss_offset_weight: float = 0.1, background_recon_only: bool = True,
+        hard_clip: float = 5.0, offset_topk: int = 4, eps: float = 1e-6,
     ) -> None:
         super().__init__()
-        if stride < 1 or not 0 < source_topq <= 1 or fixed_sigma <= 0 or eps <= 0:
-            raise ValueError("invalid HIT stride, source_topq, or sigma")
+        if stride < 1 or fixed_sigma <= 0 or source_margin <= 0 or eps <= 0:
+            raise ValueError("invalid HIT stride, sigma, source margin, or eps")
+        if enhancement_mode not in {"direct", "transport"}:
+            raise ValueError("enhancement_mode must be 'direct' or 'transport'")
+        if source_target_mode not in {"soft", "box"}:
+            raise ValueError("source_target_mode must be 'soft' or 'box'")
         hidden = max(c1 // max(reduction, 1), 1)
-        self.stride, self.topk, self.max_offset = int(stride), max(int(topk), 1), float(max_offset)
-        self.source_topq, self.fixed_sigma = float(source_topq), float(fixed_sigma)
-        self.transport_enabled = bool(transport_enabled)
-        self.detach_offset_input = bool(detach_offset_input)
-        self.offset_target_margin = max(int(offset_target_margin), 0)
+        source_hidden = max(c1 // 4, 8)
+        self.stride, self.max_offset = int(stride), float(max_offset)
+        self.fixed_sigma = float(fixed_sigma)
+        self.enhancement_mode = enhancement_mode
+        self.source_target_mode, self.source_margin = source_target_mode, float(source_margin)
         self.background_recon_only, self.hard_clip, self.eps = bool(background_recon_only), float(hard_clip), float(eps)
-        self.loss_recon_spatial_weight = float(
-            loss_recon_weight if loss_recon_spatial_weight is None else loss_recon_spatial_weight
-        )
-        self.loss_recon_channel_weight = float(
-            loss_recon_weight if loss_recon_channel_weight is None else loss_recon_channel_weight
-        )
-        self.loss_offset_weight = float(loss_offset_weight)
+        self.offset_topk = max(int(offset_topk), 1)
+        self.loss_recon_weight = float(loss_recon_weight)
+        self.loss_source_weight, self.loss_offset_weight = float(loss_source_weight), float(loss_offset_weight)
         self.spatial_reconstruct = _MaskedCenterConv2d(c1)
         self.channel_reconstruct = nn.Sequential(nn.Conv2d(c1, hidden, 1), nn.SiLU(), nn.Conv2d(hidden, c1, 1))
+        self.source_selector = nn.Sequential(
+            nn.Conv2d(c1 + 1, source_hidden, 3, padding=1), nn.SiLU(), nn.Conv2d(source_hidden, 1, 1)
+        )
         self.residual_fuse = nn.Sequential(nn.Conv2d(2 * c1, c1, 1), nn.SiLU())
-        self.offset_head = nn.Conv2d(c1 + 1, 2, 3, padding=1)
-        self.transport_projection = nn.Conv2d(c1, c1, 1)
-        nn.init.zeros_(self.offset_head.weight); nn.init.zeros_(self.offset_head.bias)
-        nn.init.zeros_(self.transport_projection.weight); nn.init.zeros_(self.transport_projection.bias)
-        self.last_aux: dict[str, torch.Tensor] | None = None
+        self.offset_head = nn.Conv2d(c1 + 2, 2, 3, padding=1)
+        self.output_projection = nn.Conv2d(c1, c1, 1)
+        nn.init.zeros_(self.source_selector[-1].weight)
+        nn.init.constant_(self.source_selector[-1].bias, -4.0)
+        nn.init.zeros_(self.offset_head.weight)
+        nn.init.zeros_(self.offset_head.bias)
+        nn.init.zeros_(self.output_projection.weight)
+        nn.init.zeros_(self.output_projection.bias)
+        self.last_aux: dict[str, torch.Tensor | None] | None = None
 
     def hard_map(self, spatial: torch.Tensor, channel: torch.Tensor) -> torch.Tensor:
         a, b = spatial.abs().mean(1, keepdim=True), channel.abs().mean(1, keepdim=True)
         return 2 * a * b / (a + b + self.eps)
-
-    def sparse_gate(self, hard: torch.Tensor) -> torch.Tensor:
-        count = max(1, math.ceil(hard.shape[-2] * hard.shape[-1] * self.source_topq))
-        indices = hard.detach().flatten(2).topk(count, dim=2).indices
-        gate = torch.zeros_like(hard).flatten(2); gate.scatter_(2, indices, 1)
-        return gate.reshape_as(hard)
 
     def _gaussian_splat(
         self, source: torch.Tensor, offsets: torch.Tensor, sigma: torch.Tensor | None = None
@@ -575,11 +576,7 @@ class DualIrreducibilityHIT(nn.Module):
         dx = xx.reshape(1, -1) + offsets[:, 0].reshape(b, -1)
         dy = yy.reshape(1, -1) + offsets[:, 1].reshape(b, -1)
         base_x, base_y = dx.floor(), dy.floor()
-        sigma_flat = (
-            offsets.new_full((b, h * w), self.fixed_sigma)
-            if sigma is None
-            else sigma.reshape(b, -1).clamp_min(self.eps)
-        )
+        sigma_flat = offsets.new_full((b, h * w), self.fixed_sigma) if sigma is None else sigma.reshape(b, -1).clamp_min(self.eps)
         out = source.new_zeros(b, c, h * w)
         weights, indices = [], []
         for oy in (-1, 0, 1):
@@ -587,82 +584,89 @@ class DualIrreducibilityHIT(nn.Module):
                 tx, ty = base_x + ox, base_y + oy
                 valid = (tx >= 0) & (tx < w) & (ty >= 0) & (ty < h)
                 weights.append(torch.exp(-0.5 * ((tx - dx).square() + (ty - dy).square()) / sigma_flat.square()) * valid)
-                # Convert coordinates before linearizing: fp16 cannot represent every integer near h*w
-                # (e.g. 127 * 128 + 127 rounds to 16384), yielding an out-of-bounds scatter index.
-                iy = ty.clamp(0, h - 1).long()
-                ix = tx.clamp(0, w - 1).long()
+                iy, ix = ty.clamp(0, h - 1).long(), tx.clamp(0, w - 1).long()
                 indices.append((iy * w + ix).clamp_(0, h * w - 1))
         weights = torch.stack(weights, 1); weights /= weights.sum(1, keepdim=True).clamp_min(self.eps)
         flat = source.flatten(2)
         for index, weight in zip(indices, weights.unbind(1)):
-            weight = weight.to(source.dtype)
-            out.scatter_add_(2, index[:, None].expand(-1, c, -1), flat * weight[:, None])
+            out.scatter_add_(2, index[:, None].expand(-1, c, -1), flat * weight.to(source.dtype)[:, None])
         return out.reshape_as(source)
+
+    def _source_targets(self, batch: dict, feature: torch.Tensor) -> torch.Tensor:
+        batch_size, _, height, width = feature.shape
+        target = feature.new_zeros(batch_size, 1, height, width)
+        yy, xx = torch.meshgrid(
+            torch.arange(height, device=feature.device, dtype=feature.dtype) + 0.5,
+            torch.arange(width, device=feature.device, dtype=feature.dtype) + 0.5, indexing="ij"
+        )
+        flat_x, flat_y = xx.flatten(), yy.flatten()
+        batch_indices = batch["batch_idx"].view(-1).long()
+        for batch_index in range(batch_size):
+            for cx, cy, bw, bh in batch["bboxes"][batch_indices == batch_index]:
+                cx, cy, bw, bh = cx * width, cy * height, bw * width, bh * height
+                x1, x2, y1, y2 = cx - bw / 2, cx + bw / 2, cy - bh / 2, cy + bh / 2
+                dx = torch.maximum(torch.maximum(x1 - flat_x, flat_x - x2), flat_x.new_zeros(()))
+                dy = torch.maximum(torch.maximum(y1 - flat_y, flat_y - y2), flat_y.new_zeros(()))
+                if self.source_target_mode == "box":
+                    current = ((dx == 0) & (dy == 0)).to(feature.dtype)
+                else:
+                    distance = torch.sqrt(dx.square() + dy.square())
+                    current = (1.0 - distance / self.source_margin).clamp(0.0, 1.0)
+                target[batch_index, 0] = torch.maximum(target[batch_index, 0], current.reshape(height, width))
+        return target
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         spatial, channel = self.spatial_reconstruct(x), self.channel_reconstruct(x)
         sr, cr = x - spatial, x - channel
         hard_raw = self.hard_map(sr, cr)
         hard = (hard_raw / hard_raw.mean((2, 3), keepdim=True).detach().clamp_min(self.eps)).clamp(max=self.hard_clip)
-        gate = self.sparse_gate(hard_raw)
-        offset_x = x.detach() if self.detach_offset_input else x
-        offset_hard = hard.detach() if self.detach_offset_input else hard
-        offsets = torch.tanh(self.offset_head(torch.cat((offset_x, offset_hard), 1))) * self.max_offset
-        sigma = offsets.new_full((offsets.shape[0], 1, offsets.shape[2], offsets.shape[3]), self.fixed_sigma)
-        source = self.residual_fuse(torch.cat((sr, cr), 1)) * hard * gate
-        transported = self._gaussian_splat(source, offsets, sigma) if self.transport_enabled else torch.zeros_like(x)
-        out = x + self.transport_projection(transported) if self.transport_enabled else x
+        source_logits = self.source_selector(torch.cat((x, hard.detach()), 1))
+        source_prob = source_logits.sigmoid()
+        evidence = self.residual_fuse(torch.cat((sr, cr), 1))
+        source_score = hard * source_prob
+        source = evidence * source_score
+        if self.enhancement_mode == "transport":
+            offset_input = torch.cat((x.detach(), hard.detach(), source_prob.detach()), 1)
+            offsets = torch.tanh(self.offset_head(offset_input)) * self.max_offset
+            transported = self._gaussian_splat(source, offsets)
+            delta = self.output_projection(transported)
+        else:
+            offsets = transported = None
+            delta = self.output_projection(source)
+        out = x + delta
         self.last_aux = {
-            "feature": x,
-            "spatial_reconstruction": spatial,
-            "channel_reconstruction": channel,
-            "hard_raw": hard_raw,
-            "hard": hard,
-            "gate": gate,
-            "source": source,
-            "offsets": offsets,
-            "sigma": sigma,
-            "transported": transported,
+            "feature": x, "spatial_reconstruction": spatial, "channel_reconstruction": channel,
+            "spatial_residual": sr, "channel_residual": cr, "hard_raw": hard_raw, "hard": hard,
+            "source_logits": source_logits, "source_prob": source_prob, "source_score": source_score,
+            "source": source, "offsets": offsets, "transported": transported, "delta": delta,
         } if self.training else None
         return out
 
     def _offset_targets(self, batch: dict) -> tuple[torch.Tensor, torch.Tensor]:
         assert self.last_aux is not None
-        hard, offsets, gate = self.last_aux["hard_raw"].detach(), self.last_aux["offsets"], self.last_aux["gate"].bool()
-        _, _, height, width = hard.shape
-        yy, xx = torch.meshgrid(
-            torch.arange(height, device=hard.device, dtype=hard.dtype),
-            torch.arange(width, device=hard.device, dtype=hard.dtype), indexing="ij"
-        )
-        flat_x, flat_y = (xx + 0.5).flatten(), (yy + 0.5).flatten()
+        feature = self.last_aux["feature"]
+        offsets = self.last_aux["offsets"]
+        source_score = self.last_aux["source_score"].detach()
+        assert feature is not None and offsets is not None
+        target_map = self._source_targets(batch, feature)
+        _, _, height, width = target_map.shape
+        yy, xx = torch.meshgrid(torch.arange(height, device=feature.device, dtype=feature.dtype) + 0.5, torch.arange(width, device=feature.device, dtype=feature.dtype) + 0.5, indexing="ij")
+        flat_x, flat_y = xx.flatten(), yy.flatten()
         batch_indices = batch["batch_idx"].view(-1).long()
-        predictions, targets, target_count, clamped_count = [], [], 0, 0
-        for batch_index in range(hard.shape[0]):
-            assignments: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
+        predictions, targets = [], []
+        for batch_index in range(feature.shape[0]):
             for cx, cy, bw, bh in batch["bboxes"][batch_indices == batch_index]:
-                x1, x2 = (cx - bw / 2) * width, (cx + bw / 2) * width
-                y1, y2 = (cy - bh / 2) * height, (cy + bh / 2) * height
-                margin = self.offset_target_margin
-                inside = ((flat_x >= x1 - margin) & (flat_x <= x2 + margin) &
-                          (flat_y >= y1 - margin) & (flat_y <= y2 + margin))
-                inside &= gate[batch_index, 0].flatten()
-                candidates = inside.nonzero(as_tuple=False).flatten()
-                if candidates.numel() == 0:
+                support = target_map[batch_index, 0].flatten() > 0
+                candidates = support.nonzero(as_tuple=False).flatten()
+                if not candidates.numel():
                     continue
-                selected = candidates[hard[batch_index, 0].flatten()[candidates].topk(min(self.topk, candidates.numel())).indices]
-                center, area = torch.stack(((x1 + x2) / 2, (y1 + y2) / 2)), (x2 - x1).clamp_min(0) * (y2 - y1).clamp_min(0)
+                scores = source_score[batch_index, 0].flatten()[candidates]
+                selected = candidates[scores.topk(min(self.offset_topk, candidates.numel())).indices]
+                center = torch.stack((cx * width, cy * height))
                 for index in selected:
-                    raw_target = center - torch.stack((flat_x[index], flat_y[index]))
-                    target = raw_target.clamp(-self.max_offset, self.max_offset)
-                    target_count += 1
-                    clamped_count += int(not torch.equal(raw_target, target))
-                    key = int(index)
-                    if key not in assignments or area < assignments[key][0]:
-                        assignments[key] = (area, target)
-            for index, (_, target) in assignments.items():
-                y, x_coord = divmod(index, width)
-                predictions.append(offsets[batch_index, :, y, x_coord]); targets.append(target)
-        self.last_aux["offset_clamp_rate"] = offsets.new_tensor(clamped_count / max(target_count, 1))
+                    point = torch.stack((flat_x[index], flat_y[index]))
+                    predictions.append(offsets[batch_index, :, index // width, index % width])
+                    targets.append((center - point).clamp(-self.max_offset, self.max_offset))
         if not predictions:
             return offsets.new_empty((0, 2)), offsets.new_empty((0, 2))
         return torch.stack(predictions), torch.stack(targets)
@@ -671,13 +675,12 @@ class DualIrreducibilityHIT(nn.Module):
         batch_size, _, height, width = feature.shape
         mask = torch.ones(batch_size, 1, height, width, dtype=torch.bool, device=feature.device)
         batch_indices = batch["batch_idx"].view(-1).long()
-        margin = self.offset_target_margin
         for batch_index in range(batch_size):
             for cx, cy, bw, bh in batch["bboxes"][batch_indices == batch_index]:
-                left = max(math.floor(float((cx - bw / 2) * width)) - margin, 0)
-                top = max(math.floor(float((cy - bh / 2) * height)) - margin, 0)
-                right = min(math.ceil(float((cx + bw / 2) * width)) + margin + 1, width)
-                bottom = min(math.ceil(float((cy + bh / 2) * height)) + margin + 1, height)
+                left = max(math.floor(float((cx - bw / 2) * width)) - 2, 0)
+                top = max(math.floor(float((cy - bh / 2) * height)) - 2, 0)
+                right = min(math.ceil(float((cx + bw / 2) * width)) + 3, width)
+                bottom = min(math.ceil(float((cy + bh / 2) * height)) + 3, height)
                 mask[batch_index, :, top:bottom, left:right] = False
         return mask
 
@@ -693,23 +696,28 @@ class DualIrreducibilityHIT(nn.Module):
         background = self._background_mask(batch, feature)
         spatial = self._reconstruction_loss(self.last_aux["spatial_reconstruction"], feature, background)
         channel = self._reconstruction_loss(self.last_aux["channel_reconstruction"], feature, background)
-        if self.transport_enabled and self.loss_offset_weight:
+        source_target = self._source_targets(batch, feature)
+        source_logits, source_prob = self.last_aux["source_logits"], self.last_aux["source_prob"]
+        source_loss_map = F.binary_cross_entropy_with_logits(source_logits, source_target, reduction="none")
+        positive, negative = source_target > 0, source_target == 0
+        zero = source_loss_map.sum() * 0
+        source_loss = 0.5 * (source_loss_map[positive].mean() if positive.any() else zero) + 0.5 * (source_loss_map[negative].mean() if negative.any() else zero)
+        if self.enhancement_mode == "transport" and self.loss_offset_weight:
             predictions, targets = self._offset_targets(batch)
+            offset = F.smooth_l1_loss(predictions, targets, beta=1.0) if predictions.numel() else self.last_aux["offsets"].sum() * 0
         else:
-            predictions = targets = feature.new_empty((0, 2)); self.last_aux["offset_clamp_rate"] = feature.new_tensor(0.0)
-        offset = F.smooth_l1_loss(predictions, targets, beta=1.0) if predictions.numel() else self.last_aux["offsets"].sum() * 0
-        losses = (
-            spatial * self.loss_recon_spatial_weight,
-            channel * self.loss_recon_channel_weight,
-            offset * self.loss_offset_weight,
-        )
-        return sum(losses), {
-            "loss_hit_recon_spatial": losses[0].detach(),
-            "loss_hit_recon_channel": losses[1].detach(),
-            "loss_hit_offset": losses[2].detach(),
-            "hit_offset_clamp_rate": self.last_aux["offset_clamp_rate"].detach(),
-            "hit_source_ratio": self.last_aux["gate"].mean().detach(),
-            "hit_transport_rms": self.last_aux["transported"].square().mean().sqrt().detach(),
+            offset = source_loss_map.sum() * 0
+        total = self.loss_recon_weight * (spatial + channel) + self.loss_source_weight * source_loss + self.loss_offset_weight * offset
+        object_mask, background_mask = source_target >= 0.999, source_target == 0
+        p_object = source_prob[object_mask].mean() if object_mask.any() else source_prob.new_zeros(())
+        p_background = source_prob[background_mask].mean() if background_mask.any() else source_prob.new_zeros(())
+        transported = self.last_aux["transported"]
+        transport_rms = transported.square().mean().sqrt() if transported is not None else source_loss_map.new_zeros(())
+        return total, {
+            "hit_source_prob_object": p_object.detach(),
+            "hit_source_prob_background": p_background.detach(),
+            "hit_source_obj_bg_ratio": (p_object / (p_background + self.eps)).detach(),
+            "hit_transport_rms": transport_rms.detach(),
         }
 
 
