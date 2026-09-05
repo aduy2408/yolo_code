@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
 """Train and evaluate the seed-42 LEVIR P2-only asymmetric-head screen."""
 
-import importlib.util
-import sys
 from pathlib import Path
 
-
-_SPEC = importlib.util.spec_from_file_location(
-    "_asymmetric_screen_workflow", Path(__file__).with_name("train_all_levir_yolov8n_p2_routing.py")
-)
-workflow = importlib.util.module_from_spec(_SPEC)
-sys.modules[_SPEC.name] = workflow
-_SPEC.loader.exec_module(workflow)
+import train_all_levir_yolov8n_p2_routing as workflow
 
 
 ROOT = Path(__file__).resolve().parent
