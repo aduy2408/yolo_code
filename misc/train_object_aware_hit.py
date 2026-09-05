@@ -78,7 +78,7 @@ def upload_and_verify(run_dir: Path, name: str, repo_id: str) -> None:
             repo_id=repo_id, repo_type="dataset", path_in_repo=remote_prefix, recursive=True
         ) if hasattr(item, "rfilename")
     }
-    missing = {f"{remote_prefix}/{item}" for item in REQUIRED} - remote_files
+    missing = {f"{remote_prefix}/{item}" for item in COMPLETE_REQUIRED} - remote_files
     if missing:
         raise RuntimeError(f"Remote upload verification failed for {name}: {sorted(missing)}")
     (run_dir / "upload_complete.json").write_text(json.dumps({"repo_id": repo_id, "remote_prefix": remote_prefix}, indent=2) + "\n")
