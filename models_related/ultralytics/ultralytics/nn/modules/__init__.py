@@ -42,6 +42,8 @@ from .block import (
     ConflictFineReconstruction,
     DBSS,
     DualIrreducibilityHIT,
+    IndependentRawEvidence,
+    ObjectAwareIndependentFusion,
     Bottleneck,
     BottleneckCSP,
     C2f,

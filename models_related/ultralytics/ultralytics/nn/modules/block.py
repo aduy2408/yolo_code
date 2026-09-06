@@ -739,6 +739,81 @@ class DualIrreducibilityHIT(nn.Module):
         }
 
 
+class IndependentRawEvidence(nn.Module):
+    """Small stride-4 representation computed directly from the input RGB image."""
+
+    def __init__(self, out_channels: int = 16) -> None:
+        super().__init__()
+        self.out_channels = int(out_channels)
+        self.encoder = nn.Sequential(
+            Conv(3, 8, 3, 2),
+            Conv(8, self.out_channels, 3, 2),
+            DWConv(self.out_channels, self.out_channels, 3, 1),
+        )
+
+    def forward(self, _feature: torch.Tensor, image: torch.Tensor) -> torch.Tensor:
+        if image.ndim != 4 or image.shape[1] != 3:
+            raise ValueError(f"IndependentRawEvidence expects BCHW RGB input, got {tuple(image.shape)}")
+        return self.encoder(image)
+
+
+class ObjectAwareIndependentFusion(DualIrreducibilityHIT):
+    """H1 locator routing an independent stride-4 representation into unchanged P2."""
+
+    def __init__(self, c1: int, raw_channels: int = 16, use_router: bool = True, **kwargs) -> None:
+        kwargs = dict(kwargs)
+        kwargs.update(enhancement_mode="direct", loss_offset_weight=0.0)
+        super().__init__(c1, **kwargs)
+        self.raw_channels = int(raw_channels)
+        self.use_router = bool(use_router)
+        del self.residual_fuse, self.offset_head, self.output_projection
+        self.evidence_projection = nn.Sequential(
+            nn.Conv2d(self.raw_channels, c1, 3, padding=1, bias=False),
+            nn.BatchNorm2d(c1),
+            nn.SiLU(),
+            nn.Conv2d(c1, c1, 1),
+        )
+        nn.init.zeros_(self.evidence_projection[-1].weight)
+        nn.init.zeros_(self.evidence_projection[-1].bias)
+
+    def forward(self, inputs: list[torch.Tensor] | tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        x, raw = inputs
+        spatial, channel = self.spatial_reconstruct(x), self.channel_reconstruct(x)
+        sr, cr = x - spatial, x - channel
+        hard_raw = self.hard_map(sr, cr)
+        hard = (hard_raw / hard_raw.mean((2, 3), keepdim=True).detach().clamp_min(self.eps)).clamp(max=self.hard_clip)
+        source_logits = self.source_selector(torch.cat((x, hard.detach()), 1))
+        source_prob = source_logits.sigmoid()
+        raw_delta = self.evidence_projection(raw)
+        router = source_prob.detach() if self.use_router else torch.ones_like(source_prob)
+        routed_delta = router * raw_delta
+        out = x + routed_delta
+        self.last_aux = {
+            "feature": x, "spatial_reconstruction": spatial, "channel_reconstruction": channel,
+            "spatial_residual": sr, "channel_residual": cr, "hard_raw": hard_raw, "hard": hard,
+            "source_logits": source_logits, "source_prob": source_prob, "source_score": hard * source_prob,
+            "source": routed_delta, "offsets": None, "transported": None, "delta": routed_delta,
+            "raw_delta": raw_delta, "routed_delta": routed_delta,
+        } if self.training else None
+        return out
+
+    def auxiliary_loss(self, batch: dict) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        total, metrics = super().auxiliary_loss(batch)
+        if self.last_aux is not None:
+            raw_delta, routed_delta = self.last_aux["raw_delta"], self.last_aux["routed_delta"]
+            feature, target = self.last_aux["feature"], self._source_targets(batch, self.last_aux["feature"])
+            object_mask = target >= 0.999
+            background_mask = target == 0
+            metrics.update({
+                "oaief_raw_delta_rms": raw_delta.square().mean().sqrt().detach(),
+                "oaief_routed_delta_rms": routed_delta.square().mean().sqrt().detach(),
+                "oaief_raw_delta_object_rms": raw_delta[object_mask.expand_as(raw_delta)].square().mean().sqrt().detach() if object_mask.any() else raw_delta.new_zeros(()),
+                "oaief_raw_delta_background_rms": raw_delta[background_mask.expand_as(raw_delta)].square().mean().sqrt().detach() if background_mask.any() else raw_delta.new_zeros(()),
+                "oaief_cosine_object": F.cosine_similarity(feature[object_mask.expand_as(feature)].reshape(1, -1), raw_delta[object_mask.expand_as(raw_delta)].reshape(1, -1), dim=1).mean().detach() if object_mask.any() else raw_delta.new_zeros(()),
+            })
+        return total, metrics
+
+
 @dataclass
 class BoundaryContext:
     """Train-time labels used by BoundaryFeatureBlock."""

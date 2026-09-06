@@ -59,6 +59,8 @@ from ultralytics.nn.modules import (
     ConflictFineReconstruction,
     DBSS,
     DualIrreducibilityHIT,
+    IndependentRawEvidence,
+    ObjectAwareIndependentFusion,
     Bottleneck,
     BottleneckCSP,
     C2f,
@@ -316,6 +318,8 @@ class BaseModel(torch.nn.Module):
                 x = m(x, img0)
                 if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
+            elif isinstance(m, (IndependentRawEvidence,)):
+                x = m(x, img0)
             elif isinstance(m, (RawSidecarSupervised, GradientIsolatedEvidence, AugmentationAwareEvidence)):
                 x = m(x, img0)
                 if m.last_aux is not None:
@@ -380,6 +384,8 @@ class BaseModel(torch.nn.Module):
                 x = m(x, img0)
                 if getattr(m, "last_aux", None) is not None:
                     dgfe_aux.append(m.last_aux)
+            elif isinstance(m, (IndependentRawEvidence,)):
+                x = m(x, img0)
             elif isinstance(m, (RawSidecarSupervised, GradientIsolatedEvidence, AugmentationAwareEvidence)):
                 x = m(x, img0)
                 if m.last_aux is not None:
@@ -2516,6 +2522,13 @@ def parse_model(d, ch, verbose=True):
         elif m in frozenset({BackboneP2DeepSupervision, ObjectRelativeFeatureSupervisor, CanonicalRawCropTeacher, RawSidecarSupervised}):
             c2 = ch[f[0]] if isinstance(f, list) else ch[f]
             args = [c2]
+        elif m is IndependentRawEvidence:
+            c2 = int(args[0]) if args else 16
+            args = [c2]
+        elif m is ObjectAwareIndependentFusion:
+            c1, raw_channels = ch[f[0]], ch[f[1]]
+            c2 = c1
+            args = [c1, raw_channels, *args]
         elif m in frozenset({GradientIsolatedEvidence, AugmentationAwareEvidence}):
             c1 = ch[f[0]] if isinstance(f, list) else ch[f]
             evidence_ch = int(args[0]) if args else 8
