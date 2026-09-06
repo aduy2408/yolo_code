@@ -1,11 +1,12 @@
-"""Object/context augmentations for the LEVIR YOLO ablation matrix.
+"""Safe object/context augmentations for the LEVIR YOLO ablation matrix.
 
-The transforms operate on raw ``labels['img']`` before Mosaic and do not alter
-instances.  Selection is controlled by ``YOLO_CONTEXT_AUG`` so the canonical
-pipeline remains unchanged when the variable is unset or ``none``.
+These transforms run on a raw sample before Mosaic.  ``YOLO_CONTEXT_AUG``
+selects the method and ``LEA_STATS_PATH`` can point at dataset-specific JSON
+quantiles produced by an offline statistics pass.
 """
 from __future__ import annotations
 
+import json
 import os
 import random
 from typing import Any
@@ -13,14 +14,39 @@ from typing import Any
 import cv2
 import numpy as np
 
+AUG_CONFIG = {
+    "object_max_size": 32.0,
+    "protected_expand": 3.0,
+    "safety_expand": 1.2,
+    "transition_sigma_ratio": 0.06,
+    "oacp_strength": [0.20, 0.40],
+    "oacp_resolution_scale": [0.65, 0.85],
+    "cea_probability": 0.15,
+    "cea_min_exchange_ratio": 0.25,
+    "cea_donor_overlap_max": 0.05,
+    "lea_probability": 0.20,
+    "lea_ring_expand": 1.75,
+    "lea_min_ring_ratio": 0.40,
+    "lea_contrast_retention": [0.65, 0.85],
+    "lea_alpha_max": 0.35,
+    "lea_max_objects": 2,
+}
+
+
+def augmentation_config() -> dict[str, Any]:
+    """Return the complete immutable run configuration for manifests."""
+    cfg = dict(AUG_CONFIG)
+    cfg["mode"] = os.environ.get("YOLO_CONTEXT_AUG", "none").lower()
+    cfg["lea_stats_path"] = os.environ.get("LEA_STATS_PATH", "")
+    return cfg
+
 
 def _boxes(labels: dict[str, Any], h: int, w: int) -> np.ndarray:
     inst = labels.get("instances")
     if inst is None and labels.get("bboxes") is not None:
-        raw = np.asarray(labels["bboxes"], dtype=np.float32)
-        if raw.size == 0:
+        raw = np.asarray(labels["bboxes"], dtype=np.float32).reshape(-1, 4)
+        if not len(raw):
             return np.empty((0, 4), dtype=np.float32)
-        raw = raw.reshape(-1, 4)
         xc, yc, bw, bh = raw.T
         return np.stack(((xc - bw / 2) * w, (yc - bh / 2) * h,
                          (xc + bw / 2) * w, (yc + bh / 2) * h), axis=1)
@@ -47,10 +73,18 @@ def _mask_from_boxes(boxes: np.ndarray, h: int, w: int, expand: float) -> np.nda
     return mask
 
 
-def _soft_far_mask(boxes: np.ndarray, h: int, w: int, expand: float, sigma: float) -> np.ndarray:
-    protected = _mask_from_boxes(boxes, h, w, expand)
+def _protection(boxes: np.ndarray, h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+    sizes = np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1])) if len(boxes) else np.empty(0)
+    tiny = boxes[sizes < AUG_CONFIG["object_max_size"]]
+    protected = _mask_from_boxes(tiny, h, w, AUG_CONFIG["protected_expand"])
+    protected |= _mask_from_boxes(boxes, h, w, AUG_CONFIG["safety_expand"]).astype(bool)
+    return protected.astype(np.uint8), tiny
+
+
+def _far_mask(protected: np.ndarray, h: int, w: int) -> np.ndarray:
     if not protected.any():
-        return np.ones((h, w), np.float32)
+        return np.zeros((h, w), np.float32)
+    sigma = max(3.0, min(h, w) * AUG_CONFIG["transition_sigma_ratio"])
     dist = cv2.distanceTransform((1 - protected).astype(np.uint8), cv2.DIST_L2, 3)
     return (1.0 - np.exp(-(dist * dist) / (2.0 * sigma * sigma))).astype(np.float32)
 
@@ -62,10 +96,10 @@ def _resize_degrade(img: np.ndarray, scale: float) -> np.ndarray:
 
 
 class OACP:
-    """Object-Anchored Context Perturbation."""
+    """Degrade only far context around eligible tiny objects."""
 
-    def __init__(self, p: float = 0.2) -> None:
-        self.p = p
+    def __init__(self, p: float = 0.20) -> None:
+        self.p = float(p)
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         if random.random() >= self.p:
@@ -75,21 +109,22 @@ class OACP:
             return labels
         h, w = img.shape[:2]
         boxes = _boxes(labels, h, w)
-        mask = _soft_far_mask(boxes, h, w, 3.0, max(3.0, min(h, w) * 0.06))
-        if boxes.size:
-            mask *= 1.0 - _mask_from_boxes(boxes, h, w, 1.2)
-        strength = random.uniform(0.2, 0.4) * max(0.0, 1.0 - float(mask.mean() < 0.02) * 0.0)
-        degraded = _resize_degrade(img, random.uniform(0.65, 0.85)).astype(np.float32)
-        out = img.astype(np.float32) * (1.0 - strength * mask[..., None]) + degraded * (strength * mask[..., None])
+        protected, tiny = _protection(boxes, h, w)
+        if not len(tiny) or float(protected.mean()) > 0.55:
+            return labels
+        mask = _far_mask(protected, h, w)
+        strength = random.uniform(*AUG_CONFIG["oacp_strength"]) * (1.0 - float(protected.mean()))
+        degraded = _resize_degrade(img, random.uniform(*AUG_CONFIG["oacp_resolution_scale"]))
+        out = img.astype(np.float32) * (1 - strength * mask[..., None]) + degraded.astype(np.float32) * (strength * mask[..., None])
         labels["img"] = np.clip(out, 0, 255).astype(img.dtype)
         return labels
 
 
 class CEA:
-    """Context Exchange Augmentation with donor-GT exclusion."""
+    """Exchange far context with a donor while hard-excluding donor objects."""
 
     def __init__(self, dataset, p: float = 0.15) -> None:
-        self.dataset, self.p = dataset, p
+        self.dataset, self.p = dataset, float(p)
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         if random.random() >= self.p or len(self.dataset) < 2:
@@ -99,8 +134,11 @@ class CEA:
             return labels
         h, w = img.shape[:2]
         source_boxes = _boxes(labels, h, w)
-        exchange = _soft_far_mask(source_boxes, h, w, 3.0, max(3.0, min(h, w) * 0.06))
-        if exchange.mean() < 0.25:
+        protected, tiny = _protection(source_boxes, h, w)
+        if not len(tiny) or float(protected.mean()) > 0.50:
+            return labels
+        exchange = _far_mask(protected, h, w)
+        if float((exchange > 0.55).mean()) < AUG_CONFIG["cea_min_exchange_ratio"]:
             return labels
         for _ in range(10):
             idx = random.randrange(len(self.dataset))
@@ -108,28 +146,40 @@ class CEA:
             if donor.shape[:2] != (h, w):
                 donor = cv2.resize(donor, (w, h), interpolation=cv2.INTER_LINEAR)
             donor_boxes = _boxes({"bboxes": self.dataset.labels[idx].get("bboxes", [])}, h, w)
-            donor_exclusion = _mask_from_boxes(donor_boxes, h, w, 1.2)
-            use = (exchange > 0.55) & ~donor_exclusion.astype(bool)
-            if use.mean() >= 0.15:
-                src = img.astype(np.float32)
-                d = donor.astype(np.float32)
-                # Match luminance statistics only in exchanged pixels.
-                ys = cv2.cvtColor(src.astype(np.uint8), cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
-                yd = cv2.cvtColor(donor.astype(np.uint8), cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
-                mu_s, sd_s = ys[use].mean(), ys[use].std() + 1e-6
-                mu_d, sd_d = yd[use].mean(), yd[use].std() + 1e-6
-                d = np.clip((d - mu_d) * (sd_s / sd_d) + mu_s, 0, 255)
-                alpha = cv2.GaussianBlur(use.astype(np.float32), (0, 0), 3)[..., None]
-                labels["img"] = np.clip(src * (1 - alpha) + d * alpha, 0, 255).astype(img.dtype)
-                return labels
+            donor_exclusion = _mask_from_boxes(donor_boxes, h, w, AUG_CONFIG["safety_expand"]).astype(bool)
+            hard_use = (exchange > 0.55) & ~donor_exclusion
+            if float(hard_use.mean()) < AUG_CONFIG["cea_min_exchange_ratio"]:
+                continue
+            # Match LAB L only, preserving donor chroma channels exactly.
+            src_lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB).astype(np.float32)
+            donor_lab = cv2.cvtColor(donor, cv2.COLOR_BGR2LAB).astype(np.float32)
+            mu_s, sd_s = src_lab[..., 0][hard_use].mean(), src_lab[..., 0][hard_use].std() + 1e-6
+            mu_d, sd_d = donor_lab[..., 0][hard_use].mean(), donor_lab[..., 0][hard_use].std() + 1e-6
+            donor_lab[..., 0] = np.clip((donor_lab[..., 0] - mu_d) * (sd_s / sd_d) + mu_s, 0, 255)
+            matched = cv2.cvtColor(donor_lab.astype(np.uint8), cv2.COLOR_LAB2BGR).astype(np.float32)
+            alpha = cv2.GaussianBlur((exchange * (~donor_exclusion)).astype(np.float32), (0, 0), 3)
+            alpha[donor_exclusion] = 0.0  # hard zero after blur prevents donor leakage
+            src = img.astype(np.float32)
+            labels["img"] = np.clip(src * (1 - alpha[..., None]) + matched * alpha[..., None], 0, 255).astype(img.dtype)
+            return labels
         return labels
 
 
-class LEA:
-    """Local Evidence Attenuation preserving high-frequency object detail."""
+def _lea_stats() -> dict[str, float]:
+    path = os.environ.get("LEA_STATS_PATH", "")
+    if path and os.path.isfile(path):
+        try:
+            return {k: float(v) for k, v in json.loads(open(path, encoding="utf-8").read()).items()}
+        except (OSError, ValueError, TypeError):
+            pass
+    return {"contrast_q10": 0.50, "contrast_q20": 0.60, "contrast_q40": 0.80}
 
-    def __init__(self, p: float = 0.2) -> None:
-        self.p = p
+
+class LEA:
+    """Reduce foreground/background low-frequency contrast while preserving H."""
+
+    def __init__(self, p: float = 0.20) -> None:
+        self.p = float(p)
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         if random.random() >= self.p:
@@ -141,36 +191,49 @@ class LEA:
         boxes = _boxes(labels, h, w)
         if not len(boxes):
             return labels
+        stats = _lea_stats()
         out = img.astype(np.float32).copy()
-        for x1, y1, x2, y2 in boxes[:2]:
+        all_mask = _mask_from_boxes(boxes, h, w, 1.0).astype(bool)
+        candidates = list(range(len(boxes))); random.shuffle(candidates)
+        applied = 0
+        for i in candidates:
+            if applied >= int(AUG_CONFIG["lea_max_objects"]):
+                break
+            x1, y1, x2, y2 = boxes[i]
             bw, bh = x2 - x1, y2 - y1
-            if min(bw, bh) < 5 or max(bw, bh) > 64:
+            if not (5.0 <= np.sqrt(max(0.0, bw * bh)) < AUG_CONFIG["object_max_size"]):
                 continue
-            xa, ya, xb, yb = max(0, int(x1)), max(0, int(y1)), min(w, int(x2)), min(h, int(y2))
-            if xb - xa < 3 or yb - ya < 3:
+            ox1, oy1, ox2, oy2 = max(0, int((x1+x2)/2 - bw*AUG_CONFIG["lea_ring_expand"]/2)), max(0, int((y1+y2)/2 - bh*AUG_CONFIG["lea_ring_expand"]/2)), min(w, int((x1+x2)/2 + bw*AUG_CONFIG["lea_ring_expand"]/2)), min(h, int((y1+y2)/2 + bh*AUG_CONFIG["lea_ring_expand"]/2))
+            ring = np.zeros((h, w), bool); ring[oy1:oy2, ox1:ox2] = True; ring &= ~all_mask
+            obj = np.zeros((h, w), bool); obj[max(0,int(y1)):min(h,int(y2)), max(0,int(x1)):min(w,int(x2))] = True
+            if ring.sum() < AUG_CONFIG["lea_min_ring_ratio"] * max(1, (ox2-ox1)*(oy2-oy1)):
                 continue
+            lum = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
+            contrast = abs(float(lum[obj].mean() - lum[ring].mean())) / (float(lum[ring].std()) + 1e-6)
+            if contrast < stats["contrast_q40"]:
+                continue
+            xa, ya, xb, yb = max(0,int(x1)), max(0,int(y1)), min(w,int(x2)), min(h,int(y2))
             crop = out[ya:yb, xa:xb]
+            if min(crop.shape[:2]) < 3:
+                continue
             k = max(3, min(7, int(min(crop.shape[:2]) // 3) * 2 + 1))
             low = cv2.GaussianBlur(crop, (k, k), 0)
-            retention = random.uniform(0.65, 0.85)
-            softened = low + retention * (crop - low)
-            yy, xx = np.ogrid[: crop.shape[0], : crop.shape[1]]
-            cy, cx = (crop.shape[0] - 1) / 2, (crop.shape[1] - 1) / 2
-            radius = ((xx - cx) / max(cx, 1)) ** 2 + ((yy - cy) / max(cy, 1)) ** 2
-            mask = np.clip(1.0 - radius, 0, 1).astype(np.float32)[..., None]
-            out[ya:yb, xa:xb] = crop + mask * (softened - crop)
+            ring_l = float(lum[ring].mean()); crop_l = cv2.cvtColor(crop.astype(np.uint8), cv2.COLOR_BGR2LAB)[...,0].astype(np.float32)
+            alpha = min(AUG_CONFIG["lea_alpha_max"], max(0.0, 1.0 - random.uniform(*AUG_CONFIG["lea_contrast_retention"])))
+            low_lab = cv2.cvtColor(low.astype(np.uint8), cv2.COLOR_BGR2LAB).astype(np.float32)
+            low_lab[..., 0] += alpha * (ring_l - crop_l)
+            low_target = cv2.cvtColor(np.clip(low_lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR).astype(np.float32)
+            yy, xx = np.ogrid[:crop.shape[0], :crop.shape[1]]; cy, cx = (crop.shape[0]-1)/2, (crop.shape[1]-1)/2
+            mask = np.clip(1 - ((xx-cx)/max(cx,1))**2 - ((yy-cy)/max(cy,1))**2, 0, 1).astype(np.float32)[...,None]
+            out[ya:yb, xa:xb] = crop + mask * (low_target + (crop-low) - crop)
+            applied += 1
         labels["img"] = np.clip(out, 0, 255).astype(img.dtype)
         return labels
 
 
 def build_context_augment(dataset):
-    """Build configured transforms from ``YOLO_CONTEXT_AUG``."""
     mode = os.environ.get("YOLO_CONTEXT_AUG", "none").lower()
-    transforms = []
-    if mode in {"oacp", "all"}:
-        transforms.append(OACP())
-    if mode in {"cea", "all"}:
-        transforms.append(CEA(dataset))
-    if mode in {"lea", "all"}:
-        transforms.append(LEA())
-    return transforms
+    if mode == "oacp": return [OACP()]
+    if mode == "cea": return [CEA(dataset)]
+    if mode == "lea": return [LEA()]
+    return []

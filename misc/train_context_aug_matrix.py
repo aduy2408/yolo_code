@@ -55,8 +55,9 @@ def run(a):
     for name, (config, aug, extra) in selected.items():
         run = a.project / name; run.mkdir(parents=True, exist_ok=True)
         if _has(run, COMPLETE) and (run / "upload_complete.json").is_file(): continue
-        (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "api": extra.get("api", False), "commit_sha": sha, "seed": a.seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
         os.environ["YOLO_CONTEXT_AUG"] = aug; _seed(a.seed)
+        from project_ultralytics.context_augment import augmentation_config
+        (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "api": extra.get("api", False), "commit_sha": sha, "seed": a.seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
         if not _has(run, REQUIRED):
             model = YOLO(str(config)); model.load("yolov8n.pt", smart_transfer=True)
             kwargs = dict(data=str(data), epochs=a.epochs, patience=a.patience, imgsz=a.imgsz, batch=a.batch_size, device=a.device, workers=a.workers, amp=a.amp, seed=a.seed, deterministic=True, project=str(a.project), name=name, exist_ok=True)
