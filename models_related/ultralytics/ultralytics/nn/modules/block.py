@@ -769,8 +769,8 @@ class ObjectAwareIndependentFusion(DualIrreducibilityHIT):
         super().__init__(c1, **kwargs)
         self.raw_channels = int(raw_channels)
         self.use_router = bool(use_router)
-        if fusion_mode not in {"add", "elementwise", "spatial", "channel"}:
-            raise ValueError("fusion_mode must be add, elementwise, spatial, or channel")
+        if fusion_mode not in {"add", "elementwise", "spatial", "channel", "global_object"}:
+            raise ValueError("fusion_mode must be add, elementwise, spatial, channel, or global_object")
         self.fusion_mode = fusion_mode
         self.modulation_alpha = float(modulation_alpha)
         del self.residual_fuse, self.offset_head, self.output_projection
@@ -783,6 +783,18 @@ class ObjectAwareIndependentFusion(DualIrreducibilityHIT):
         )
         nn.init.zeros_(self.evidence_projection[-1].weight)
         nn.init.zeros_(self.evidence_projection[-1].bias)
+        if fusion_mode == "global_object":
+            self.object_projection = nn.Sequential(
+                nn.Conv2d(c1 + self.raw_channels, c1, 1, bias=False),
+                nn.BatchNorm2d(c1),
+                nn.SiLU(),
+                nn.Conv2d(c1, c1, 3, padding=1, groups=c1, bias=False),
+                nn.BatchNorm2d(c1),
+                nn.SiLU(),
+                nn.Conv2d(c1, c1, 1),
+            )
+            nn.init.zeros_(self.object_projection[-1].weight)
+            nn.init.zeros_(self.object_projection[-1].bias)
 
     def forward(self, inputs: list[torch.Tensor] | tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
         x, raw = inputs
@@ -797,6 +809,13 @@ class ObjectAwareIndependentFusion(DualIrreducibilityHIT):
             router = source_prob.detach() if self.use_router else torch.ones_like(source_prob)
             raw_delta, routed_delta = projected, router * projected
             out = x + routed_delta
+        elif self.fusion_mode == "global_object":
+            global_delta = projected
+            object_delta = self.object_projection(torch.cat((x, raw), 1))
+            routed_object_delta = source_prob.detach() * object_delta
+            raw_delta = global_delta + routed_object_delta
+            routed_delta = raw_delta
+            out = x + routed_delta
         else:
             modulation = self.modulation_alpha * projected.tanh()
             raw_delta = x * modulation
@@ -808,6 +827,9 @@ class ObjectAwareIndependentFusion(DualIrreducibilityHIT):
             "source_logits": source_logits, "source_prob": source_prob, "source_score": hard * source_prob,
             "source": routed_delta, "offsets": None, "transported": None, "delta": routed_delta,
             "raw_delta": raw_delta, "routed_delta": routed_delta, "modulation": projected.tanh(),
+            "global_delta": projected if self.fusion_mode == "global_object" else None,
+            "object_delta": object_delta if self.fusion_mode == "global_object" else None,
+            "routed_object_delta": routed_object_delta if self.fusion_mode == "global_object" else None,
         } if self.training else None
         return out
 
