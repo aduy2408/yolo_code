@@ -903,6 +903,80 @@ class ResidualSelectiveEvidenceFusion(DualIrreducibilityHIT):
         }
 
 
+class ComplementaryEvidenceFusion(DualIrreducibilityHIT):
+    """W1-style additive fusion with content-focused training alternatives."""
+
+    def __init__(self, c1: int, raw_channels: int = 16, mode: str = "predictable", **kwargs) -> None:
+        kwargs = dict(kwargs); kwargs.update(enhancement_mode="direct", loss_offset_weight=0.0)
+        super().__init__(c1, **kwargs)
+        if mode not in {"predictable", "hard_negative", "retrieval"}:
+            raise ValueError("mode must be predictable, hard_negative, or retrieval")
+        self.raw_channels, self.mode = int(raw_channels), mode
+        del self.residual_fuse, self.offset_head, self.output_projection, self.source_selector
+        self.evidence_projection = nn.Sequential(nn.Conv2d(self.raw_channels, c1, 3, padding=1, bias=False), nn.BatchNorm2d(c1), nn.SiLU(), nn.Conv2d(c1, c1, 1))
+        nn.init.zeros_(self.evidence_projection[-1].weight); nn.init.zeros_(self.evidence_projection[-1].bias)
+        if mode == "predictable":
+            self.predictor = nn.Sequential(nn.Conv2d(c1, c1, 1), nn.SiLU(), nn.Conv2d(c1, self.raw_channels, 1))
+        elif mode == "hard_negative":
+            self.hard_negative_head = nn.Conv2d(self.raw_channels, 1, 1)
+        else:
+            d = max(min(c1 // 4, 16), 4)
+            self.query = nn.Conv2d(c1, d, 1, bias=False)
+            self.key = nn.Conv2d(self.raw_channels, d, 1, bias=False)
+            self.value = nn.Conv2d(self.raw_channels, d, 1, bias=False)
+            self.retrieve_out = nn.Sequential(nn.Conv2d(d, c1, 1, bias=False), nn.BatchNorm2d(c1), nn.SiLU(), nn.Conv2d(c1, c1, 1))
+            nn.init.zeros_(self.retrieve_out[-1].weight); nn.init.zeros_(self.retrieve_out[-1].bias)
+
+    def forward(self, inputs: list[torch.Tensor] | tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        x, raw = inputs
+        spatial, channel = self.spatial_reconstruct(x), self.channel_reconstruct(x)
+        sr, cr = x - spatial, x - channel
+        if self.mode == "predictable":
+            predicted = self.predictor(x.detach())
+            content = raw - predicted.detach()
+            delta = self.evidence_projection(content)
+        elif self.mode == "hard_negative":
+            predicted, content = None, raw
+            delta = self.evidence_projection(raw)
+        else:
+            predicted, content = None, None
+            q = self.query(x).flatten(2).transpose(1, 2)
+            pooled = torch.nn.functional.avg_pool2d(raw, 8)
+            k, v = self.key(pooled).flatten(2), self.value(pooled).flatten(2).transpose(1, 2)
+            attention = (q @ k) * (q.shape[-1] ** -0.5)
+            retrieved = (attention.softmax(-1) @ v).transpose(1, 2).reshape(x.shape[0], -1, x.shape[2], x.shape[3])
+            delta = self.retrieve_out(retrieved)
+        out = x + delta
+        self.last_aux = {"feature": x, "spatial_reconstruction": spatial, "channel_reconstruction": channel,
+                         "raw": raw, "predicted": predicted, "content": content, "delta": delta,
+                         "hardness": self.hard_map(sr, cr)} if self.training else None
+        return out
+
+    def auxiliary_loss(self, batch: dict) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        if self.last_aux is None:
+            zero = next(self.parameters()).sum() * 0
+            return zero, {}
+        feature = self.last_aux["feature"].detach(); background = self._background_mask(batch, feature)
+        spatial = self._reconstruction_loss(self.last_aux["spatial_reconstruction"], feature, background)
+        channel = self._reconstruction_loss(self.last_aux["channel_reconstruction"], feature, background)
+        total = self.loss_recon_weight * (spatial + channel); metrics = {}
+        if self.mode == "predictable":
+            prediction = self.last_aux["predicted"]
+            total = total + 0.1 * (prediction - self.last_aux["raw"].detach()).abs().mean()
+            metrics["complement_prediction_rms"] = prediction.square().mean().sqrt().detach()
+        elif self.mode == "hard_negative":
+            target = self._source_targets(batch, feature); hardness = self.last_aux["hardness"].detach()
+            bg = target == 0; threshold = hardness[bg].quantile(0.9) if bg.any() else hardness.new_zeros(())
+            hard_bg = bg & (hardness >= threshold)
+            logits = self.hard_negative_head(self.last_aux["raw"])
+            loss_map = F.binary_cross_entropy_with_logits(logits, target, reduction="none")
+            pos = target > 0
+            total = total + 0.1 * (loss_map[pos].mean() if pos.any() else loss_map.sum() * 0) + 0.2 * (loss_map[hard_bg].mean() if hard_bg.any() else loss_map.sum() * 0)
+            metrics["hard_negative_count"] = hard_bg.sum().detach().to(dtype=logits.dtype)
+        metrics.update({"complement_delta_rms": self.last_aux["delta"].square().mean().sqrt().detach()})
+        return total, metrics
+
+
 @dataclass
 class BoundaryContext:
     """Train-time labels used by BoundaryFeatureBlock."""

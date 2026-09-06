@@ -45,6 +45,7 @@ from .block import (
     IndependentRawEvidence,
     ObjectAwareIndependentFusion,
     ResidualSelectiveEvidenceFusion,
+    ComplementaryEvidenceFusion,
     Bottleneck,
     BottleneckCSP,
     C2f,
