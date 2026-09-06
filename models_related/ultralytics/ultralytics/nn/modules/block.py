@@ -966,10 +966,11 @@ class ComplementaryEvidenceFusion(DualIrreducibilityHIT):
             metrics["complement_prediction_rms"] = prediction.square().mean().sqrt().detach()
         elif self.mode == "hard_negative":
             target = self._source_targets(batch, feature); hardness = self.last_aux["hardness"].detach()
-            bg = target == 0; threshold = hardness[bg].quantile(0.9) if bg.any() else hardness.new_zeros(())
+            bg = target == 0
+            threshold = hardness[bg].float().quantile(0.9).to(hardness.dtype) if bg.any() else hardness.new_zeros(())
             hard_bg = bg & (hardness >= threshold)
             logits = self.hard_negative_head(self.last_aux["raw"])
-            loss_map = F.binary_cross_entropy_with_logits(logits, target, reduction="none")
+            loss_map = F.binary_cross_entropy_with_logits(logits, target.to(dtype=logits.dtype), reduction="none")
             pos = target > 0
             total = total + 0.1 * (loss_map[pos].mean() if pos.any() else loss_map.sum() * 0) + 0.2 * (loss_map[hard_bg].mean() if hard_bg.any() else loss_map.sum() * 0)
             metrics["hard_negative_count"] = hard_bg.sum().detach().to(dtype=logits.dtype)
