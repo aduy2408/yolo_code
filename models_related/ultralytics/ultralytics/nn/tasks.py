@@ -819,6 +819,8 @@ class BaseModel(torch.nn.Module):
                     module.auxiliary_loss(batch, assignment_context) if isinstance(module, DBSS)
                     else module.auxiliary_loss(assignment_context, self.criterion.hyp)
                     if isinstance(module, ConflictFineReconstruction)
+                    else module.auxiliary_loss(batch, assignment_context)
+                    if isinstance(module, ComplementaryEvidenceFusion)
                     else module.auxiliary_loss(batch)
                 )
                 loss[0] = loss[0] + auxiliary * batch["img"].shape[0]

@@ -32,7 +32,7 @@ def run(a):
  require_training_context(hf_repo_id=a.hf_repo_id); data=prepare(a.data_root,a.dataset_root/f"levir_ship_yolo_seed{a.seed}",a.seed); local(); from ultralytics import YOLO
  sha=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
  for name,cfg in EXPERIMENTS.items():
-  p=a.project/name; p.mkdir(parents=True,exist_ok=True); (p/"manifest.json").write_text(json.dumps({"experiment":name,"config":str(cfg),"commit_sha":sha,"seed":a.seed,"split":["val","test"],"nms_iou":0.5,"epochs":a.epochs,"patience":a.patience,"modulation_alpha":0.5,"hf_repo_id":a.hf_repo_id},indent=2)+"\n")
+  p=a.project/name; p.mkdir(parents=True,exist_ok=True); (p/"manifest.json").write_text(json.dumps({"experiment":name,"hypothesis":"clean complementary evidence ablation matched to W1","config":str(cfg),"commit_sha":sha,"seed":a.seed,"split":["val","test"],"nms_iou":0.5,"epochs":a.epochs,"patience":a.patience,"hf_repo_id":a.hf_repo_id},indent=2)+"\n")
   if not has(p,TRAIN_REQUIRED):
    seed(a.seed); model=YOLO(str(cfg)); model.load("yolov8n.pt",smart_transfer=True); model.train(data=str(data),epochs=a.epochs,patience=a.patience,imgsz=a.imgsz,batch=a.batch_size,device=a.device,workers=a.workers,amp=a.amp,seed=a.seed,deterministic=True,project=str(a.project),name=name,exist_ok=True)
   if not has(p,TRAIN_REQUIRED): raise FileNotFoundError(p)

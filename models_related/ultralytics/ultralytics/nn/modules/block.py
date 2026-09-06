@@ -912,7 +912,7 @@ class ComplementaryEvidenceFusion(DualIrreducibilityHIT):
         if mode not in {"predictable", "hard_negative", "retrieval"}:
             raise ValueError("mode must be predictable, hard_negative, or retrieval")
         self.raw_channels, self.mode = int(raw_channels), mode
-        del self.residual_fuse, self.offset_head, self.output_projection, self.source_selector
+        del self.residual_fuse, self.offset_head, self.output_projection
         self.evidence_projection = nn.Sequential(nn.Conv2d(self.raw_channels, c1, 3, padding=1, bias=False), nn.BatchNorm2d(c1), nn.SiLU(), nn.Conv2d(c1, c1, 1))
         nn.init.zeros_(self.evidence_projection[-1].weight); nn.init.zeros_(self.evidence_projection[-1].bias)
         if mode == "predictable":
@@ -946,33 +946,56 @@ class ComplementaryEvidenceFusion(DualIrreducibilityHIT):
             attention = (q @ k) * (q.shape[-1] ** -0.5)
             retrieved = (attention.softmax(-1) @ v).transpose(1, 2).reshape(x.shape[0], -1, x.shape[2], x.shape[3])
             delta = self.retrieve_out(retrieved)
+        hard = (self.hard_map(sr, cr) / self.hard_map(sr, cr).mean((2, 3), keepdim=True).detach().clamp_min(self.eps)).clamp(max=self.hard_clip)
+        source_logits = self.source_selector(torch.cat((x, hard.detach()), 1))
+        source_prob = source_logits.sigmoid()
+        source_score = hard * source_prob
+        delta = delta * source_score
         out = x + delta
         self.last_aux = {"feature": x, "spatial_reconstruction": spatial, "channel_reconstruction": channel,
                          "raw": raw, "predicted": predicted, "content": content, "delta": delta,
-                         "hardness": self.hard_map(sr, cr)} if self.training else None
+                         "hardness": self.hard_map(sr, cr), "source_logits": source_logits,
+                         "source_prob": source_prob, "source_score": source_score} if self.training else None
         return out
 
-    def auxiliary_loss(self, batch: dict) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    def auxiliary_loss(self, batch: dict, assignment_context: dict | None = None) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         if self.last_aux is None:
             zero = next(self.parameters()).sum() * 0
             return zero, {}
         feature = self.last_aux["feature"].detach(); background = self._background_mask(batch, feature)
         spatial = self._reconstruction_loss(self.last_aux["spatial_reconstruction"], feature, background)
         channel = self._reconstruction_loss(self.last_aux["channel_reconstruction"], feature, background)
-        total = self.loss_recon_weight * (spatial + channel); metrics = {}
+        source_target = self._source_targets(batch, feature)
+        source_logits, source_prob = self.last_aux["source_logits"], self.last_aux["source_prob"]
+        source_loss_map = F.binary_cross_entropy_with_logits(source_logits, source_target.to(dtype=source_logits.dtype), reduction="none")
+        positive, negative = source_target > 0, source_target == 0
+        zero = source_loss_map.sum() * 0
+        source_loss = 0.5 * (source_loss_map[positive].mean() if positive.any() else zero) + 0.5 * (source_loss_map[negative].mean() if negative.any() else zero)
+        total = self.loss_recon_weight * (spatial + channel) + self.loss_source_weight * source_loss; metrics = {}
         if self.mode == "predictable":
             prediction = self.last_aux["predicted"]
             total = total + 0.1 * (prediction - self.last_aux["raw"].detach()).abs().mean()
             metrics["complement_prediction_rms"] = prediction.square().mean().sqrt().detach()
         elif self.mode == "hard_negative":
-            target = self._source_targets(batch, feature); hardness = self.last_aux["hardness"].detach()
-            bg = target == 0
-            threshold = hardness[bg].float().quantile(0.9).to(hardness.dtype) if bg.any() else hardness.new_zeros(())
-            hard_bg = bg & (hardness >= threshold)
+            target = source_target
+            p2_fg = (assignment_context or {}).get("p2_fg_mask")
+            p2_scores = (assignment_context or {}).get("p2_pred_conf")
+            if p2_fg is not None and p2_scores is not None and p2_fg.shape[-1] == feature.shape[-2] * feature.shape[-1]:
+                detector_conf = p2_scores.reshape_as(source_target)
+                assigned = p2_fg.reshape_as(source_target).bool()
+                bg = ~assigned
+                threshold = detector_conf[bg].float().quantile(0.9).to(detector_conf.dtype) if bg.any() else detector_conf.new_zeros(())
+                hard_bg = bg & (detector_conf >= threshold)
+            else:
+                hard_bg = torch.zeros_like(source_target, dtype=torch.bool)
             logits = self.hard_negative_head(self.last_aux["raw"])
             loss_map = F.binary_cross_entropy_with_logits(logits, target.to(dtype=logits.dtype), reduction="none")
             pos = target > 0
-            total = total + 0.1 * (loss_map[pos].mean() if pos.any() else loss_map.sum() * 0) + 0.2 * (loss_map[hard_bg].mean() if hard_bg.any() else loss_map.sum() * 0)
+            fp_target = torch.zeros_like(logits)
+            fp_target[pos] = 1.0
+            selected = pos | hard_bg
+            fp_loss = F.binary_cross_entropy_with_logits(logits, fp_target, reduction="none")
+            total = total + 0.2 * (fp_loss[selected].mean() if selected.any() else loss_map.sum() * 0)
             metrics["hard_negative_count"] = hard_bg.sum().detach().to(dtype=logits.dtype)
         metrics.update({"complement_delta_rms": self.last_aux["delta"].square().mean().sqrt().detach()})
         return total, metrics

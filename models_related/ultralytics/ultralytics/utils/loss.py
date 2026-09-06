@@ -2199,6 +2199,7 @@ class v8DetectionLoss:
         self.dbss_assignment_context = {
             "p2_fg_mask": fg_mask[:, :n_p2].detach(),
             "p2_target_scores": target_scores[:, :n_p2].detach(),
+            "p2_pred_conf": pred_scores[:, :n_p2].detach().sigmoid().max(-1).values,
             "p2_dfl_conflict": fg_mask[:, :n_p2].new_zeros(
                 (batch_size, *preds["feats"][0].shape[-2:]), dtype=pred_distri.dtype
             ),
