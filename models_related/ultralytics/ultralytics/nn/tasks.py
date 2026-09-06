@@ -61,6 +61,7 @@ from ultralytics.nn.modules import (
     DualIrreducibilityHIT,
     IndependentRawEvidence,
     ObjectAwareIndependentFusion,
+    ResidualSelectiveEvidenceFusion,
     Bottleneck,
     BottleneckCSP,
     C2f,
@@ -2526,6 +2527,10 @@ def parse_model(d, ch, verbose=True):
             c2 = int(args[0]) if args else 16
             args = [c2]
         elif m is ObjectAwareIndependentFusion:
+            c1, raw_channels = ch[f[0]], ch[f[1]]
+            c2 = c1
+            args = [c1, raw_channels, *args]
+        elif m is ResidualSelectiveEvidenceFusion:
             c1, raw_channels = ch[f[0]], ch[f[1]]
             c2 = c1
             args = [c1, raw_channels, *args]

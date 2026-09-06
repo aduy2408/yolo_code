@@ -44,6 +44,7 @@ from .block import (
     DualIrreducibilityHIT,
     IndependentRawEvidence,
     ObjectAwareIndependentFusion,
+    ResidualSelectiveEvidenceFusion,
     Bottleneck,
     BottleneckCSP,
     C2f,

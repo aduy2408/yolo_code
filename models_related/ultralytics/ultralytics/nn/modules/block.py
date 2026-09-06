@@ -850,6 +850,59 @@ class ObjectAwareIndependentFusion(DualIrreducibilityHIT):
         return total, metrics
 
 
+class ResidualSelectiveEvidenceFusion(DualIrreducibilityHIT):
+    """W1 additive evidence with a learned gate centered at one."""
+
+    def __init__(self, c1: int, raw_channels: int = 16, gate_mode: str = "spatial", alpha: float = 0.5, **kwargs) -> None:
+        kwargs = dict(kwargs)
+        kwargs.update(enhancement_mode="direct", loss_offset_weight=0.0)
+        super().__init__(c1, **kwargs)
+        if gate_mode not in {"spatial", "elementwise"}:
+            raise ValueError("gate_mode must be spatial or elementwise")
+        self.raw_channels, self.gate_mode, self.alpha = int(raw_channels), gate_mode, float(alpha)
+        del self.residual_fuse, self.offset_head, self.output_projection, self.source_selector
+        self.evidence_projection = nn.Sequential(
+            nn.Conv2d(self.raw_channels, c1, 3, padding=1, bias=False), nn.BatchNorm2d(c1), nn.SiLU(), nn.Conv2d(c1, c1, 1)
+        )
+        gate_channels = 1 if gate_mode == "spatial" else c1
+        self.residual_selector = nn.Sequential(
+            nn.Conv2d(c1 + self.raw_channels, c1, 1, bias=False), nn.BatchNorm2d(c1), nn.SiLU(), nn.Conv2d(c1, gate_channels, 1)
+        )
+        nn.init.zeros_(self.evidence_projection[-1].weight); nn.init.zeros_(self.evidence_projection[-1].bias)
+        nn.init.zeros_(self.residual_selector[-1].weight); nn.init.zeros_(self.residual_selector[-1].bias)
+
+    def forward(self, inputs: list[torch.Tensor] | tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        x, raw = inputs
+        spatial, channel = self.spatial_reconstruct(x), self.channel_reconstruct(x)
+        sr, cr = x - spatial, x - channel
+        delta = self.evidence_projection(raw)
+        gate_logits = self.residual_selector(torch.cat((x, raw), 1))
+        gate = 1.0 + self.alpha * gate_logits.tanh()
+        routed_delta = gate * delta
+        out = x + routed_delta
+        self.last_aux = {
+            "feature": x, "spatial_reconstruction": spatial, "channel_reconstruction": channel,
+            "spatial_residual": sr, "channel_residual": cr, "raw_delta": delta, "routed_delta": routed_delta,
+            "gate": gate, "delta": routed_delta,
+        } if self.training else None
+        return out
+
+    def auxiliary_loss(self, batch: dict) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        if self.last_aux is None:
+            zero = next(self.parameters()).sum() * 0
+            return zero, {}
+        feature = self.last_aux["feature"].detach()
+        background = self._background_mask(batch, feature)
+        spatial = self._reconstruction_loss(self.last_aux["spatial_reconstruction"], feature, background)
+        channel = self._reconstruction_loss(self.last_aux["channel_reconstruction"], feature, background)
+        gate, delta, routed = self.last_aux["gate"], self.last_aux["raw_delta"], self.last_aux["routed_delta"]
+        total = self.loss_recon_weight * (spatial + channel)
+        return total, {
+            "selective_gate_mean": gate.mean().detach(), "selective_delta_rms": delta.square().mean().sqrt().detach(),
+            "selective_routed_delta_rms": routed.square().mean().sqrt().detach(),
+        }
+
+
 @dataclass
 class BoundaryContext:
     """Train-time labels used by BoundaryFeatureBlock."""
