@@ -21,9 +21,9 @@ def evaluate(p,data,a):
   r=model.val(data=str(data),split=split,imgsz=a.imgsz,batch=a.batch_size,device=a.device,workers=a.workers,plots=False,iou=0.5,project=str(p/"evaluation"),name=split,exist_ok=True)
   out.update({f"{split}/{k}":float(v) for k,v in (r.results_dict or {}).items()}); out[f"{split}/AP75"]=float(r.box.map75)
  (p/"evaluation_metrics.json").write_text(json.dumps(out,indent=2,sort_keys=True)+"\n")
-def upload(p,name,repo):
+def upload(p,name,repo,remote_prefix):
  from huggingface_hub import HfApi
- api=HfApi(token=os.environ["HF_TOKEN"]); api.create_repo(repo_id=repo,repo_type="dataset",private=False,exist_ok=True); prefix=f"runs/{name}"
+ api=HfApi(token=os.environ["HF_TOKEN"]); api.create_repo(repo_id=repo,repo_type="dataset",private=False,exist_ok=True); prefix=f"{remote_prefix.rstrip('/')}/{name}"
  api.upload_folder(folder_path=str(p),path_in_repo=prefix,repo_id=repo,repo_type="dataset")
  remote={x.rfilename for x in api.list_repo_tree(repo_id=repo,repo_type="dataset",path_in_repo=prefix,recursive=True) if hasattr(x,"rfilename")}; missing={f"{prefix}/{x}" for x in COMPLETE_REQUIRED}-remote
  if missing: raise RuntimeError(f"Remote upload verification failed for {name}: {sorted(missing)}")
@@ -38,7 +38,7 @@ def run(a):
   if not has(p,TRAIN_REQUIRED): raise FileNotFoundError(p)
   if not (p/"evaluation_metrics.json").is_file(): evaluate(p,data,a)
   if not has(p,COMPLETE_REQUIRED): raise FileNotFoundError(p)
-  upload(p,name,a.hf_repo_id); print(f"COMPLETE {name}",flush=True)
+  upload(p,name,a.hf_repo_id,a.remote_prefix); print(f"COMPLETE {name}",flush=True)
 def args():
- p=argparse.ArgumentParser(); p.add_argument("--data-root",type=Path,required=True); p.add_argument("--dataset-root",type=Path,required=True); p.add_argument("--project",type=Path,required=True); p.add_argument("--hf-repo-id",required=True); p.add_argument("--seed",type=int,default=42); p.add_argument("--epochs",type=int,default=100); p.add_argument("--patience",type=int,default=0); p.add_argument("--imgsz",type=int,default=512); p.add_argument("--batch-size",type=int,default=8); p.add_argument("--device",default="0"); p.add_argument("--workers",type=int,default=4); p.add_argument("--amp",action=argparse.BooleanOptionalAction,default=True); return p.parse_args()
+ p=argparse.ArgumentParser(); p.add_argument("--data-root",type=Path,required=True); p.add_argument("--dataset-root",type=Path,required=True); p.add_argument("--project",type=Path,required=True); p.add_argument("--hf-repo-id",required=True); p.add_argument("--remote-prefix",default="runs"); p.add_argument("--seed",type=int,default=42); p.add_argument("--epochs",type=int,default=100); p.add_argument("--patience",type=int,default=0); p.add_argument("--imgsz",type=int,default=512); p.add_argument("--batch-size",type=int,default=8); p.add_argument("--device",default="0"); p.add_argument("--workers",type=int,default=4); p.add_argument("--amp",action=argparse.BooleanOptionalAction,default=True); return p.parse_args()
 if __name__=="__main__": run(args())
