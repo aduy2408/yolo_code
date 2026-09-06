@@ -760,18 +760,26 @@ class IndependentRawEvidence(nn.Module):
 class ObjectAwareIndependentFusion(DualIrreducibilityHIT):
     """H1 locator routing an independent stride-4 representation into unchanged P2."""
 
-    def __init__(self, c1: int, raw_channels: int = 16, use_router: bool = True, **kwargs) -> None:
+    def __init__(
+        self, c1: int, raw_channels: int = 16, use_router: bool = True,
+        fusion_mode: str = "add", modulation_alpha: float = 0.5, **kwargs
+    ) -> None:
         kwargs = dict(kwargs)
         kwargs.update(enhancement_mode="direct", loss_offset_weight=0.0)
         super().__init__(c1, **kwargs)
         self.raw_channels = int(raw_channels)
         self.use_router = bool(use_router)
+        if fusion_mode not in {"add", "elementwise", "spatial", "channel"}:
+            raise ValueError("fusion_mode must be add, elementwise, spatial, or channel")
+        self.fusion_mode = fusion_mode
+        self.modulation_alpha = float(modulation_alpha)
         del self.residual_fuse, self.offset_head, self.output_projection
+        projected_channels = 1 if fusion_mode == "spatial" else c1
         self.evidence_projection = nn.Sequential(
-            nn.Conv2d(self.raw_channels, c1, 3, padding=1, bias=False),
-            nn.BatchNorm2d(c1),
+            nn.Conv2d(self.raw_channels, projected_channels, 3, padding=1, bias=False),
+            nn.BatchNorm2d(projected_channels),
             nn.SiLU(),
-            nn.Conv2d(c1, c1, 1),
+            nn.Conv2d(projected_channels, projected_channels, 1),
         )
         nn.init.zeros_(self.evidence_projection[-1].weight)
         nn.init.zeros_(self.evidence_projection[-1].bias)
@@ -784,16 +792,22 @@ class ObjectAwareIndependentFusion(DualIrreducibilityHIT):
         hard = (hard_raw / hard_raw.mean((2, 3), keepdim=True).detach().clamp_min(self.eps)).clamp(max=self.hard_clip)
         source_logits = self.source_selector(torch.cat((x, hard.detach()), 1))
         source_prob = source_logits.sigmoid()
-        raw_delta = self.evidence_projection(raw)
-        router = source_prob.detach() if self.use_router else torch.ones_like(source_prob)
-        routed_delta = router * raw_delta
-        out = x + routed_delta
+        projected = self.evidence_projection(raw if self.fusion_mode != "channel" else raw.mean((2, 3), keepdim=True))
+        if self.fusion_mode == "add":
+            router = source_prob.detach() if self.use_router else torch.ones_like(source_prob)
+            raw_delta, routed_delta = projected, router * projected
+            out = x + routed_delta
+        else:
+            modulation = self.modulation_alpha * projected.tanh()
+            raw_delta = x * modulation
+            routed_delta = raw_delta
+            out = x + routed_delta
         self.last_aux = {
             "feature": x, "spatial_reconstruction": spatial, "channel_reconstruction": channel,
             "spatial_residual": sr, "channel_residual": cr, "hard_raw": hard_raw, "hard": hard,
             "source_logits": source_logits, "source_prob": source_prob, "source_score": hard * source_prob,
             "source": routed_delta, "offsets": None, "transported": None, "delta": routed_delta,
-            "raw_delta": raw_delta, "routed_delta": routed_delta,
+            "raw_delta": raw_delta, "routed_delta": routed_delta, "modulation": projected.tanh(),
         } if self.training else None
         return out
 
