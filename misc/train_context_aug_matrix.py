@@ -37,6 +37,7 @@ CORRECTED_FULL_RUNS = {
     "w1_cea": (CFG / "yolov8n_p2_levir_oaief_w1.yaml", "cea", {}),
     "w1_lea": (CFG / "yolov8n_p2_levir_oaief_w1.yaml", "lea", {}),
     "w1_api_oacp": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "oacp", {"api": True}),
+    "w1_api_oacp_ftal": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "oacp", {"api": True, "ftal": True}),
     "w1_api_cea": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "cea", {"api": True}),
     "w1_api_lea": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "lea", {"api": True}),
     "w1_api": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "none", {"api": True}),
