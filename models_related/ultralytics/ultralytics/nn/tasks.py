@@ -757,6 +757,7 @@ class BaseModel(torch.nn.Module):
                     clear_boundary_context()
 
                 perturbed_loss, perturbed_items = self.criterion(perturbed_preds, batch)
+                self._record_api_batch_metrics(api, clean_loss, perturbed_loss)
                 total_loss = clean_loss.clone()
                 total_items = clean_items.clone()
                 w = api.current_api_weight
@@ -767,6 +768,7 @@ class BaseModel(torch.nn.Module):
                 total_loss, total_items = self._apply_auxiliary_losses(
                     total_loss, total_items, batch, clean_assignment_context
                 )
+                self._record_api_diagnostics(api)
                 return total_loss, total_items.detach()
 
             target = self._api_target(batch, api)
@@ -789,6 +791,7 @@ class BaseModel(torch.nn.Module):
             total_loss, total_items = self._apply_auxiliary_losses(
                 total_loss, total_items, batch, clean_assignment_context
             )
+            self._record_api_diagnostics(api)
             return total_loss, total_items.detach()
         finally:
             self._clear_api_modules()
@@ -830,6 +833,49 @@ class BaseModel(torch.nn.Module):
             self._mechanism_epoch_sums = sums
         return loss, items
 
+    def _record_api_batch_metrics(self, api, clean_loss, perturbed_loss=None):
+        """Accumulate API diagnostics for the trainer's epoch-level logger."""
+
+        values = {
+            "api_clean_box_loss": clean_loss[0].detach(),
+            "api_clean_dfl_loss": clean_loss[2].detach() if clean_loss.numel() > 2 else None,
+            "api_perturb_norm": api.last_perturbation_norm,
+        }
+        if perturbed_loss is not None:
+            values.update({
+                "api_adv_box_loss": perturbed_loss[0].detach(),
+                "api_adv_dfl_loss": perturbed_loss[2].detach() if perturbed_loss.numel() > 2 else None,
+            })
+        if api.captured is not None and api.last_perturbation_norm is not None:
+            feature_norm = api.captured.detach().float().flatten(1).norm(p=2, dim=1).clamp_min(api.eps)
+            values["api_relative_perturb_norm"] = api.last_perturbation_norm / feature_norm
+        sums = getattr(self, "_api_epoch_sums", {})
+        for name, value in values.items():
+            if value is not None:
+                sums[name] = sums.get(name, 0.0) + float(value.float().mean())
+        sums["_api_batch_count"] = sums.get("_api_batch_count", 0.0) + 1.0
+        self._api_epoch_sums = sums
+
+    def _record_api_diagnostics(self, api):
+        """Record perturbation magnitude and feature-relative magnitude."""
+
+        perturb = getattr(api, "last_perturbation_norm", None)
+        feature = getattr(api, "captured", None)
+        if perturb is None or feature is None:
+            return
+        perturb_mean = float(perturb.detach().float().mean())
+        feature_mean = float(feature.detach().float().flatten(1).norm(p=2, dim=1).mean().clamp(min=api.eps))
+        values = {
+            "api_perturbation_norm": perturb_mean,
+            "api_feature_norm": feature_mean,
+            "api_relative_perturbation_norm": perturb_mean / feature_mean,
+        }
+        self.mechanism_metrics.update(values)
+        sums = getattr(self, "_mechanism_epoch_sums", {})
+        for name, value in values.items():
+            sums[name] = sums.get(name, 0.0) + value
+        self._mechanism_epoch_sums = sums
+
     def loss(self, batch, preds=None):
         """Compute loss.
 
@@ -858,6 +904,7 @@ class BaseModel(torch.nn.Module):
     def reset_mechanism_metrics(self) -> None:
         """Reset train-batch diagnostics at the start of an epoch."""
         self._mechanism_epoch_sums = {}
+        self._api_epoch_sums = {}
 
     def mechanism_epoch_metrics(self) -> dict[str, float]:
         """Return mean batch diagnostics plus epoch-level P2 assignment counts."""
@@ -873,6 +920,14 @@ class BaseModel(torch.nn.Module):
         p2_count = sums.get("_p2_positive_count", 0.0)
         metrics["p2_positive_count"] = p2_count
         metrics["p2_positive_fraction"] = p2_count / max(sums.get("_total_positive_count", 0.0), 1.0)
+        api_sums = getattr(self, "_api_epoch_sums", {})
+        api_batches = api_sums.get("_api_batch_count", 0.0)
+        if api_batches:
+            metrics.update({
+                name: value / api_batches
+                for name, value in api_sums.items()
+                if name != "_api_batch_count"
+            })
         return metrics
 
     def init_criterion(self):
