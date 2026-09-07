@@ -910,18 +910,20 @@ class BaseModel(torch.nn.Module):
         """Return mean batch diagnostics plus epoch-level P2 assignment counts."""
         sums = getattr(self, "_mechanism_epoch_sums", {})
         batches = sums.get("_batch_count", 0.0)
-        if not batches:
-            return {}
-        metrics = {
-            name: value / batches
-            for name, value in sums.items()
-            if not name.startswith("_") and name not in {"p2_positive_count", "p2_positive_fraction"}
-        }
-        p2_count = sums.get("_p2_positive_count", 0.0)
-        metrics["p2_positive_count"] = p2_count
-        metrics["p2_positive_fraction"] = p2_count / max(sums.get("_total_positive_count", 0.0), 1.0)
         api_sums = getattr(self, "_api_epoch_sums", {})
         api_batches = api_sums.get("_api_batch_count", 0.0)
+        if not batches and not api_batches:
+            return {}
+        metrics = {}
+        if batches:
+            metrics.update({
+                name: value / batches
+                for name, value in sums.items()
+                if not name.startswith("_") and name not in {"p2_positive_count", "p2_positive_fraction"}
+            })
+            p2_count = sums.get("_p2_positive_count", 0.0)
+            metrics["p2_positive_count"] = p2_count
+            metrics["p2_positive_fraction"] = p2_count / max(sums.get("_total_positive_count", 0.0), 1.0)
         if api_batches:
             metrics.update({
                 name: value / api_batches
