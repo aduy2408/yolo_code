@@ -45,6 +45,11 @@ FTAL = {"factorized_tal_target": True, "factorized_tal_mode": "legacy", "factori
 
 def _local(): sys.path.insert(0, str(ULTRA))
 def _has(p, names): return all((p / n).is_file() for n in names)
+def _upload_verified_for_repo(p, repo):
+    try:
+        return json.loads((p / "upload_complete.json").read_text()).get("repo_id") == repo
+    except (FileNotFoundError, json.JSONDecodeError):
+        return False
 def _seed(s):
     import numpy as np, torch
     random.seed(s); np.random.seed(s); torch.manual_seed(s)
@@ -73,10 +78,11 @@ def run(a):
     selected = catalog if not a.only else {k: catalog[k] for k in a.only}
     for name, (config, aug, extra) in selected.items():
         run = a.project / name; run.mkdir(parents=True, exist_ok=True)
-        if _has(run, COMPLETE) and (run / "upload_complete.json").is_file(): continue
+        if _has(run, COMPLETE) and _upload_verified_for_repo(run, a.hf_repo_id): continue
         os.environ["YOLO_CONTEXT_AUG"] = aug; _seed(a.seed)
         from project_ultralytics.context_augment import augmentation_config
-        (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "api": extra.get("api", False), "api_target_mode": "boxgrad" if "boxgrad" in str(config) else ("foreground" if extra.get("api") else None), "ftal": extra.get("ftal", False), "legacy_api": extra.get("legacy_api", False), "commit_sha": sha, "seed": a.seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
+        if not (run / "manifest.json").is_file():
+            (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "api": extra.get("api", False), "api_target_mode": "boxgrad" if "boxgrad" in str(config) else ("foreground" if extra.get("api") else None), "ftal": extra.get("ftal", False), "legacy_api": extra.get("legacy_api", False), "commit_sha": sha, "seed": a.seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
         if not _has(run, REQUIRED):
             model = YOLO(str(config)); model.load("yolov8n.pt", smart_transfer=True)
             kwargs = dict(data=str(data), epochs=a.epochs, patience=a.patience, imgsz=a.imgsz, batch=a.batch_size, device=a.device, workers=a.workers, amp=a.amp, seed=a.seed, deterministic=True, project=str(a.project), name=name, exist_ok=True)
