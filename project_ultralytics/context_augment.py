@@ -159,6 +159,7 @@ class CEA:
             matched = cv2.cvtColor(donor_lab.astype(np.uint8), cv2.COLOR_LAB2BGR).astype(np.float32)
             alpha = cv2.GaussianBlur((exchange * (~donor_exclusion)).astype(np.float32), (0, 0), 3)
             alpha[donor_exclusion] = 0.0  # hard zero after blur prevents donor leakage
+            alpha[protected.astype(bool)] = 0.0  # source object/local context is never replaced
             src = img.astype(np.float32)
             labels["img"] = np.clip(src * (1 - alpha[..., None]) + matched * alpha[..., None], 0, 255).astype(img.dtype)
             return labels
