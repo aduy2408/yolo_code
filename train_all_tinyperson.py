@@ -21,7 +21,7 @@ ULTRALYTICS = ROOT / "models_related/ultralytics"
 CONFIGS = {
     "yolov8n_base": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_base.yaml",
     "yolov8n_p2p3_plain_gap": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3_plain_gap.yaml",
-    "yolov8n_p2p3_plain_oacp": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3_plain.yaml",
+    "yolov8n_p2p3p4_plain_oacp": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3p4_plain.yaml",
 }
 
 VARIANTS = {
@@ -39,7 +39,7 @@ VARIANTS = {
         "factorized_tal_warmup_end": 15,
         "factorized_tal_p2_only": True,
     },
-    "yolov8n_p2p3_plain_oacp": {
+    "yolov8n_p2p3p4_plain_oacp": {
         "factorized_tal_target": False,
     },
 }
