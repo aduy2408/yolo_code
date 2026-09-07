@@ -27,6 +27,18 @@ CORRECTED_API_RUNS = {
     "w1_api_boxgrad": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "none", {"api": True}),
     "w1_api_boxgrad_ftal": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "none", {"api": True, "ftal": True}),
 }
+CORRECTED_FULL_RUNS = {
+    "baseline_oacp": (CFG / "yolov8n_p2_levir_baseline.yaml", "oacp", {}),
+    "baseline_cea": (CFG / "yolov8n_p2_levir_baseline.yaml", "cea", {}),
+    "baseline_lea": (CFG / "yolov8n_p2_levir_baseline.yaml", "lea", {}),
+    "w1_oacp": (CFG / "yolov8n_p2_levir_oaief_w1.yaml", "oacp", {}),
+    "w1_cea": (CFG / "yolov8n_p2_levir_oaief_w1.yaml", "cea", {}),
+    "w1_lea": (CFG / "yolov8n_p2_levir_oaief_w1.yaml", "lea", {}),
+    "w1_api_oacp": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "oacp", {"api": True}),
+    "w1_api_cea": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "cea", {"api": True}),
+    "w1_api_lea": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "lea", {"api": True}),
+    "w1_api": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "none", {"api": True}),
+}
 REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv")
 COMPLETE = (*REQUIRED, "evaluation_metrics.json", "manifest.json")
 FTAL = {"factorized_tal_target": True, "factorized_tal_mode": "legacy", "factorized_tal_tau": .75, "factorized_tal_kappa": 1.5, "factorized_tal_lambda": .5, "factorized_tal_s_max": 32., "factorized_tal_warmup_start": 5, "factorized_tal_warmup_end": 15, "factorized_tal_p2_only": True}
@@ -57,7 +69,7 @@ def run(a):
     data = prepare(a.data_root, a.dataset_root / f"levir_ship_yolo_seed{a.seed}", a.seed)
     _local(); from ultralytics import YOLO
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    catalog = CORRECTED_API_RUNS if a.corrected_api_ablation else RUNS
+    catalog = CORRECTED_FULL_RUNS if a.corrected_full_matrix else CORRECTED_API_RUNS if a.corrected_api_ablation else RUNS
     selected = catalog if not a.only else {k: catalog[k] for k in a.only}
     for name, (config, aug, extra) in selected.items():
         run = a.project / name; run.mkdir(parents=True, exist_ok=True)
@@ -75,5 +87,5 @@ def run(a):
         if not _has(run, COMPLETE): raise FileNotFoundError(run)
         _upload(run, name, a.hf_repo_id); print(f"COMPLETE {name}", flush=True)
 def args():
-    p = argparse.ArgumentParser(); p.add_argument("--data-root", type=Path, required=True); p.add_argument("--dataset-root", type=Path, required=True); p.add_argument("--project", type=Path, required=True); p.add_argument("--hf-repo-id", required=True); p.add_argument("--only", nargs="*"); p.add_argument("--corrected-api-ablation", action="store_true", help="Run W1, detector-level API(boxgrad), and API+FTAL controls."); p.add_argument("--seed", type=int, default=42); p.add_argument("--epochs", type=int, default=100); p.add_argument("--patience", type=int, default=0); p.add_argument("--imgsz", type=int, default=512); p.add_argument("--batch-size", type=int, default=8); p.add_argument("--device", default="0"); p.add_argument("--workers", type=int, default=4); p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True); return p.parse_args()
+    p = argparse.ArgumentParser(); p.add_argument("--data-root", type=Path, required=True); p.add_argument("--dataset-root", type=Path, required=True); p.add_argument("--project", type=Path, required=True); p.add_argument("--hf-repo-id", required=True); p.add_argument("--only", nargs="*"); p.add_argument("--corrected-api-ablation", action="store_true", help="Run W1, detector-level API(boxgrad), and API+FTAL controls."); p.add_argument("--corrected-full-matrix", action="store_true", help="Run the 10-variant matrix with corrected detector-level W1+API."); p.add_argument("--seed", type=int, default=42); p.add_argument("--epochs", type=int, default=100); p.add_argument("--patience", type=int, default=0); p.add_argument("--imgsz", type=int, default=512); p.add_argument("--batch-size", type=int, default=8); p.add_argument("--device", default="0"); p.add_argument("--workers", type=int, default=4); p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True); return p.parse_args()
 if __name__ == "__main__": run(args())
