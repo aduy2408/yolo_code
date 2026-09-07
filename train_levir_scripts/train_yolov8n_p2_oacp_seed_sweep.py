@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from misc import train_context_aug_matrix as matrix
@@ -33,6 +34,10 @@ def run(args: argparse.Namespace) -> None:
 
     for seed in args.seeds:
         hf_repo = f"{args.hf_repo_prefix}-seed{seed}"
+        # Each sequential seed has its own upload repository. The shared
+        # launcher can only infer a static repository from argv, so update the
+        # workflow expectation immediately before checking this seed.
+        os.environ["MARIMO_HF_REPO_ID"] = hf_repo
         require_training_context(hf_repo_id=hf_repo)
         run_args = argparse.Namespace(
             data_root=args.data_root,
