@@ -3,10 +3,12 @@
 from __future__ import annotations
 import argparse, json, os, random, shutil, subprocess, sys
 from pathlib import Path
-from misc.prepare_levir_ship import prepare
-from utils.marimo_ops import require_training_context
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from misc.prepare_levir_ship import prepare
+from utils.marimo_ops import require_training_context
 ULTRA = ROOT / "models_related/ultralytics"
 CFG = ROOT / "models_related/models_config/yolov8/levir"
 RUNS = {
