@@ -724,11 +724,11 @@ class BaseModel(torch.nn.Module):
             # The perturbed criterion call can overwrite this context.
             clean_assignment_context = getattr(self.criterion, "dbss_assignment_context", None)
             if api.captured is None or clean_loss.numel() < 2:
-                return clean_loss, clean_items
+                return self._apply_auxiliary_losses(clean_loss, clean_items, batch, clean_assignment_context)
 
             if self._api_is_boxgrad(api):
                 if clean_loss.numel() < 3:
-                    return clean_loss, clean_items
+                    return self._apply_auxiliary_losses(clean_loss, clean_items, batch, clean_assignment_context)
                 loc_loss = clean_loss[0] + clean_loss[2]
                 grad = torch.autograd.grad(
                     loc_loss,
@@ -742,7 +742,7 @@ class BaseModel(torch.nn.Module):
                     bboxes=batch.get("bboxes") if api.use_per_box_norm else None,
                     batch_idx=batch.get("batch_idx") if api.use_per_box_norm else None,
                 ):
-                    return clean_loss, clean_items
+                    return self._apply_auxiliary_losses(clean_loss, clean_items, batch, clean_assignment_context)
 
                 for module in api_modules:
                     module.perturb()
@@ -779,7 +779,7 @@ class BaseModel(torch.nn.Module):
                 allow_unused=True,
             )[0]
             if not api.set_perturbation_from_grad(grad):
-                return clean_loss, clean_items
+                return self._apply_auxiliary_losses(clean_loss, clean_items, batch, clean_assignment_context)
 
             aux_loss = api.adversarial_auxiliary_loss(target)
             total_loss = clean_loss.clone()
