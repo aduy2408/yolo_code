@@ -228,10 +228,16 @@ def launch_detached(
     state_path.parent.mkdir(parents=True, exist_ok=True)
     started_at = now_utc()
     log_file = open(log_path, "ab", buffering=0)
+    child_env = dict(os.environ)
+    if env is not None:
+        child_env.update(env)
+    # Upload-required runners reject direct invocation. The shared launcher is
+    # the sole trusted path that marks a child as an approved training job.
+    child_env["MARIMO_TRAIN_WORKFLOW"] = "1"
     proc = subprocess.Popen(
         list(command),
         cwd=cwd,
-        env=dict(env) if env is not None else None,
+        env=child_env,
         stdin=subprocess.DEVNULL,
         stdout=log_file,
         stderr=subprocess.STDOUT,
