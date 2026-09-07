@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Train the requested baseline/W1 x context-augmentation ablation matrix."""
 from __future__ import annotations
-import argparse, json, os, random, subprocess, sys
+import argparse, json, os, random, shutil, subprocess, sys
 from pathlib import Path
 from misc.prepare_levir_ship import prepare
 from utils.marimo_ops import require_training_context
@@ -79,6 +79,20 @@ def run(a):
     for name, (config, aug, extra) in selected.items():
         run = a.project / name; run.mkdir(parents=True, exist_ok=True)
         if _has(run, COMPLETE) and _upload_verified_for_repo(run, a.hf_repo_id): continue
+        if a.reuse_from and name in a.reuse_variants and not _has(run, COMPLETE):
+            source = a.reuse_from / name
+            if not (_has(source, COMPLETE) and (source / "upload_complete.json").is_file()):
+                raise RuntimeError(f"Cannot reuse incomplete or unverified source run: {source}")
+            shutil.copytree(source, run, dirs_exist_ok=True)
+            reused_manifest = json.loads((run / "manifest.json").read_text())
+            reused_manifest.update({
+                "reused_from": str(source),
+                "reused_source_commit_sha": reused_manifest.get("commit_sha"),
+                "consumer_commit_sha": sha,
+                "reused_reason": "Non-API baseline path is unchanged by the API loss-path fix.",
+                "consumer_hf_repo_id": a.hf_repo_id,
+            })
+            (run / "manifest.json").write_text(json.dumps(reused_manifest, indent=2) + "\n")
         os.environ["YOLO_CONTEXT_AUG"] = aug; _seed(a.seed)
         from project_ultralytics.context_augment import augmentation_config
         if not (run / "manifest.json").is_file():
@@ -93,5 +107,5 @@ def run(a):
         if not _has(run, COMPLETE): raise FileNotFoundError(run)
         _upload(run, name, a.hf_repo_id); print(f"COMPLETE {name}", flush=True)
 def args():
-    p = argparse.ArgumentParser(); p.add_argument("--data-root", type=Path, required=True); p.add_argument("--dataset-root", type=Path, required=True); p.add_argument("--project", type=Path, required=True); p.add_argument("--hf-repo-id", required=True); p.add_argument("--only", nargs="*"); p.add_argument("--corrected-api-ablation", action="store_true", help="Run W1, detector-level API(boxgrad), and API+FTAL controls."); p.add_argument("--corrected-full-matrix", action="store_true", help="Run the 10-variant matrix with corrected detector-level W1+API."); p.add_argument("--seed", type=int, default=42); p.add_argument("--epochs", type=int, default=100); p.add_argument("--patience", type=int, default=0); p.add_argument("--imgsz", type=int, default=512); p.add_argument("--batch-size", type=int, default=8); p.add_argument("--device", default="0"); p.add_argument("--workers", type=int, default=4); p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True); return p.parse_args()
+    p = argparse.ArgumentParser(); p.add_argument("--data-root", type=Path, required=True); p.add_argument("--dataset-root", type=Path, required=True); p.add_argument("--project", type=Path, required=True); p.add_argument("--hf-repo-id", required=True); p.add_argument("--only", nargs="*"); p.add_argument("--corrected-api-ablation", action="store_true", help="Run W1, detector-level API(boxgrad), and API+FTAL controls."); p.add_argument("--corrected-full-matrix", action="store_true", help="Run the 10-variant matrix with corrected detector-level W1+API."); p.add_argument("--reuse-from", type=Path, help="Reuse verified completed variants from an earlier matrix."); p.add_argument("--reuse-variants", nargs="*", default=[], help="Variant names eligible for --reuse-from."); p.add_argument("--seed", type=int, default=42); p.add_argument("--epochs", type=int, default=100); p.add_argument("--patience", type=int, default=0); p.add_argument("--imgsz", type=int, default=512); p.add_argument("--batch-size", type=int, default=8); p.add_argument("--device", default="0"); p.add_argument("--workers", type=int, default=4); p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True); return p.parse_args()
 if __name__ == "__main__": run(args())
