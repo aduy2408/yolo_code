@@ -21,6 +21,7 @@ ULTRALYTICS = ROOT / "models_related/ultralytics"
 CONFIGS = {
     "yolov8n_base": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_base.yaml",
     "yolov8n_p2p3_plain_gap": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3_plain_gap.yaml",
+    "yolov8n_p2p3_plain_oacp": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3_plain.yaml",
 }
 
 VARIANTS = {
@@ -37,6 +38,9 @@ VARIANTS = {
         "factorized_tal_warmup_start": 5,
         "factorized_tal_warmup_end": 15,
         "factorized_tal_p2_only": True,
+    },
+    "yolov8n_p2p3_plain_oacp": {
+        "factorized_tal_target": False,
     },
 }
 
@@ -226,14 +230,14 @@ def prepare_test_set(data_root: Path, output_dir: Path) -> Path:
     return test_out_dir
 
 
-def prepare_seed_dataset(data_root: Path, output_dir: Path, test_out_dir: Path, seed: int) -> Path:
-    """Prepare official corner crops, splitting by original image rather than crop."""
-    seed_dir = output_dir / f"tinyperson_seed_{seed}_corner_sw640_sh512"
+def prepare_seed_dataset(data_root: Path, output_dir: Path, test_out_dir: Path, split_seed: int) -> Path:
+    """Prepare one official split, independent from training seeds."""
+    seed_dir = output_dir / f"tinyperson_split_{split_seed}_corner_sw640_sh512"
     if (seed_dir / "images/train").exists() and (seed_dir / "labels/train").exists():
-        print(f"Dataset for seed {seed} already prepared.", flush=True)
+        print(f"Dataset for split seed {split_seed} already prepared.", flush=True)
         return seed_dir
 
-    print(f"Preparing dataset split for seed {seed}...", flush=True)
+    print(f"Preparing dataset split {split_seed}...", flush=True)
     for split in ("train", "val"):
         (seed_dir / "images" / split).mkdir(parents=True, exist_ok=True)
         (seed_dir / "labels" / split).mkdir(parents=True, exist_ok=True)
@@ -254,7 +258,7 @@ def prepare_seed_dataset(data_root: Path, output_dir: Path, test_out_dir: Path, 
     for img_info in data["images"]:
         by_file_name[img_info["file_name"]].append(img_info)
     source_names = sorted(by_file_name)
-    random.Random(seed).shuffle(source_names)
+    random.Random(split_seed).shuffle(source_names)
     val_count = max(1, int(len(source_names) * 0.1))
     splits = {"val": source_names[:val_count], "train": source_names[val_count:]}
 
@@ -275,6 +279,10 @@ def prepare_seed_dataset(data_root: Path, output_dir: Path, test_out_dir: Path, 
     (seed_dir / "corner_manifest.json").write_text(json.dumps(split_manifest, indent=2) + "\n", encoding="utf-8")
 
     # Create dataset yaml file
+    (seed_dir / "split_manifest.json").write_text(
+        json.dumps({"split_seed": split_seed, **split_manifest}, indent=2) + "\n",
+        encoding="utf-8",
+    )
     yaml_path = seed_dir / "tinyperson.yaml"
     yaml_content = f"""path: {seed_dir}
 train: images/train
@@ -285,7 +293,7 @@ names:
   0: person
 """
     yaml_path.write_text(yaml_content, encoding="utf-8")
-    print(f"Dataset YAML generated for seed {seed} at: {yaml_path}", flush=True)
+    print(f"Dataset YAML generated for split seed {split_seed} at: {yaml_path}", flush=True)
     return seed_dir
 
 
@@ -478,6 +486,7 @@ def evaluate_merged_test(run_dir: Path, test_out_dir: Path, data_root: Path, arg
 
 
 def train(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace) -> Path:
+    os.environ["YOLO_CONTEXT_AUG"] = "oacp" if variant.endswith("_oacp") else "none"
     run_dir = args.project / variant / f"seed_{seed}_corner_sw640_sh512"
     if training_complete(run_dir, args.epochs):
         print(f"Reusing completed training: {run_dir}", flush=True)
@@ -565,6 +574,7 @@ def write_metadata(variant: str, run_dir: Path, seed: int, data_yaml: Path, args
     manifest = {
         "variant": variant,
         "seed": seed,
+        "split_seed": args.split_seed,
         "config": CONFIGS[variant].name,
         "data_yaml": str(data_yaml),
         "topology": "P2/P3 plain RepC2f -> GAP ChannelAttention -> shared Detect" if "gap" in variant else "Standard YOLOv8n Head",
@@ -575,6 +585,7 @@ def write_metadata(variant: str, run_dir: Path, seed: int, data_yaml: Path, args
         "batch_size": args.batch_size,
         "nms_iou": 0.5,
         "factorized_tal": VARIANTS[variant],
+        "context_augmentation": os.environ.get("YOLO_CONTEXT_AUG", "none"),
         "params": sum(parameter.numel() for parameter in model.model.parameters()),
         "model_gflops_thop": get_flops(model.model, imgsz=args.imgsz),
     }
@@ -629,6 +640,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--skip-upload", action="store_true", help="Do not upload runs to Hugging Face")
     parser.add_argument("--prepare-only", action="store_true", help="Prepare and validate corner datasets, then exit")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
+    parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS))
     return parser.parse_args(argv)
 
@@ -646,17 +658,15 @@ def main() -> None:
     test_out_dir = prepare_test_set(args.data_root, args.dataset_root)
 
     if args.prepare_only:
-        for seed in args.seeds:
-            prepare_seed_dataset(args.data_root, args.dataset_root, test_out_dir, seed)
+        prepare_seed_dataset(args.data_root, args.dataset_root, test_out_dir, args.split_seed)
         print("TinyPerson dataset preparation complete!", flush=True)
         return
 
     # 2. Run sequential seed experiments
-    for seed in args.seeds:
-        # Prepare dataset split for this seed
-        seed_dir = prepare_seed_dataset(args.data_root, args.dataset_root, test_out_dir, seed)
-        data_yaml = seed_dir / "tinyperson.yaml"
+    seed_dir = prepare_seed_dataset(args.data_root, args.dataset_root, test_out_dir, args.split_seed)
+    data_yaml = seed_dir / "tinyperson.yaml"
 
+    for seed in args.seeds:
         for variant in args.variants:
             run_dir = train(variant, seed, data_yaml, args)
             evaluate(run_dir, data_yaml, test_out_dir, args.data_root, args)

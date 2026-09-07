@@ -3042,6 +3042,11 @@ class AlternatePartialClipPipeline:
         self.dataset = dataset
         self.imgsz = imgsz
         self.hyp = hyp
+        self.context_augment = None
+        if os.environ.get("YOLO_CONTEXT_AUG", "none").lower() == "oacp":
+            from project_ultralytics.context_augment import OACP
+
+            self.context_augment = OACP()
         
         # Standard YOLOv8 pipeline
         self.normal_pipeline = v8_transforms(dataset, imgsz, hyp)
@@ -3089,6 +3094,9 @@ class AlternatePartialClipPipeline:
     def __call__(self, labels: dict) -> dict:
         import os
         import random
+
+        if self.context_augment is not None:
+            labels = self.context_augment(labels)
 
         variant = os.environ.get("YOLO_VARIANT", "")
         custom = (
