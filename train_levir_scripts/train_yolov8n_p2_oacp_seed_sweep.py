@@ -16,6 +16,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--hf-repo-prefix", required=True)
     parser.add_argument("--seeds", nargs="+", type=int, default=[43, 44])
+    parser.add_argument("--split-seed", type=int, default=42,
+                        help="Fixed seed used to create the dataset split.")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--imgsz", type=int, default=512)
@@ -34,7 +36,7 @@ def run(args: argparse.Namespace) -> None:
         require_training_context(hf_repo_id=hf_repo)
         run_args = argparse.Namespace(
             data_root=args.data_root,
-            dataset_root=args.dataset_root / f"seed_{seed}",
+            dataset_root=args.dataset_root,
             project=args.project / f"seed_{seed}",
             hf_repo_id=hf_repo,
             only=["baseline_oacp"],
@@ -43,6 +45,7 @@ def run(args: argparse.Namespace) -> None:
             reuse_from=None,
             reuse_variants=[],
             seed=seed,
+            split_seed=args.split_seed,
             epochs=args.epochs,
             patience=args.patience,
             imgsz=args.imgsz,

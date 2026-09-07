@@ -74,7 +74,8 @@ def _upload(run, name, repo):
     (run / "upload_complete.json").write_text(json.dumps({"repo_id": repo, "remote_prefix": prefix}, indent=2) + "\n")
 def run(a):
     require_training_context(hf_repo_id=a.hf_repo_id)
-    data = prepare(a.data_root, a.dataset_root / f"levir_ship_yolo_seed{a.seed}", a.seed)
+    split_seed = getattr(a, "split_seed", a.seed)
+    data = prepare(a.data_root, a.dataset_root / "levir_ship_yolo", split_seed)
     _local(); from ultralytics import YOLO
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     catalog = CORRECTED_FULL_RUNS if a.corrected_full_matrix else CORRECTED_API_RUNS if a.corrected_api_ablation else RUNS
@@ -99,7 +100,7 @@ def run(a):
         os.environ["YOLO_CONTEXT_AUG"] = aug; _seed(a.seed)
         from project_ultralytics.context_augment import augmentation_config
         if not (run / "manifest.json").is_file():
-            (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "api": extra.get("api", False), "api_target_mode": "boxgrad" if "boxgrad" in str(config) else ("foreground" if extra.get("api") else None), "ftal": extra.get("ftal", False), "legacy_api": extra.get("legacy_api", False), "commit_sha": sha, "seed": a.seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
+            (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "api": extra.get("api", False), "api_target_mode": "boxgrad" if "boxgrad" in str(config) else ("foreground" if extra.get("api") else None), "ftal": extra.get("ftal", False), "legacy_api": extra.get("legacy_api", False), "commit_sha": sha, "seed": a.seed, "split_seed": split_seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
         if not _has(run, REQUIRED):
             model = YOLO(str(config)); model.load("yolov8n.pt", smart_transfer=True)
             kwargs = dict(data=str(data), epochs=a.epochs, patience=a.patience, imgsz=a.imgsz, batch=a.batch_size, device=a.device, workers=a.workers, amp=a.amp, seed=a.seed, deterministic=True, project=str(a.project), name=name, exist_ok=True)

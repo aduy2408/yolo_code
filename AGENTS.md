@@ -41,3 +41,10 @@ Do not assume the system Python has the project ML dependencies.
 - `models_related/models_config/` contains historical model and experiment YAMLs. A YAML load failure may be a legacy runtime or dependency issue, not a malformed YAML.
 - Use `PYTHONPATH=models_related/ultralytics` only for historical reproduction. Use `PYTHONPATH=.` for project-owned tests.
 - Keep unrelated dirty files and active training scripts untouched. Check Git status before staging or committing.
+
+## Seed-sweep provenance
+
+- Dataset split seeds and training seeds are separate experiment parameters.
+- For matched YOLOv8n P2 OACP seed comparisons, keep `--split-seed 42` fixed and vary only `--seeds` (for example `43 44`).
+- Never pass the training seed into `prepare_levir_ship.prepare` for this comparison. That changes the train/val/test assignment and confounds seed stability with data-split variance.
+- The sweep runner writes the fixed `split_seed` into each manifest and reuses one dataset output root for all training seeds.
