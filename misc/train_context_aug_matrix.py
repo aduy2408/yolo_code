@@ -100,11 +100,12 @@ def run(a):
         os.environ["YOLO_CONTEXT_AUG"] = aug; _seed(a.seed)
         from project_ultralytics.context_augment import augmentation_config
         if not (run / "manifest.json").is_file():
-            (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "api": extra.get("api", False), "api_target_mode": "boxgrad" if "boxgrad" in str(config) else ("foreground" if extra.get("api") else None), "ftal": extra.get("ftal", False), "legacy_api": extra.get("legacy_api", False), "commit_sha": sha, "seed": a.seed, "split_seed": split_seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
+            (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "api": extra.get("api", False), "api_target_mode": "boxgrad" if "boxgrad" in str(config) else ("foreground" if extra.get("api") else None), "ftal": extra.get("ftal", False), "deep_supervision": extra.get("deep_sup", False), "legacy_api": extra.get("legacy_api", False), "commit_sha": sha, "seed": a.seed, "split_seed": split_seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
         if not _has(run, REQUIRED):
             model = YOLO(str(config)); model.load("yolov8n.pt", smart_transfer=True)
             kwargs = dict(data=str(data), epochs=a.epochs, patience=a.patience, imgsz=a.imgsz, batch=a.batch_size, device=a.device, workers=a.workers, amp=a.amp, seed=a.seed, deterministic=True, project=str(a.project), name=name, exist_ok=True)
             if extra.get("ftal"): kwargs.update(FTAL)
+            if extra.get("deep_sup"): kwargs["p2_deep_sup_gain"] = 1.0
             model.train(**kwargs)
         if not _has(run, REQUIRED): raise FileNotFoundError(run)
         if not (run / "evaluation_metrics.json").is_file(): _eval(run, data, a)
