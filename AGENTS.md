@@ -45,6 +45,13 @@ Do not assume the system Python has the project ML dependencies.
 ## Seed-sweep provenance
 
 - Dataset split seeds and training seeds are separate experiment parameters.
+- Across all matched experiments, the split seed is a fixed data-provenance
+  parameter, normally `42`. Do not derive it from, reuse, or silently change it
+  with the model/training seed.
 - For matched YOLOv8n P2 OACP seed comparisons, keep `--split-seed 42` fixed and vary only `--seeds` (for example `43 44`).
 - Never pass the training seed into `prepare_levir_ship.prepare` for this comparison. That changes the train/val/test assignment and confounds seed stability with data-split variance.
 - The sweep runner writes the fixed `split_seed` into each manifest and reuses one dataset output root for all training seeds.
+- A different split seed is allowed only for an explicitly named split-sensitivity
+  experiment, and that experiment must record the split seed separately in its
+  manifest. Otherwise, a missing `split_seed` is a provenance failure, not an
+  invitation to use the training seed.
