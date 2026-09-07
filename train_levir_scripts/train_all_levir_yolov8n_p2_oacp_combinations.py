@@ -33,13 +33,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--only", nargs="*", choices=sorted(COMBINATIONS), default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     matrix.RUNS = COMBINATIONS
-    args.only = list(COMBINATIONS)
+    args.only = list(COMBINATIONS) if args.only is None else args.only
     args.corrected_full_matrix = False
     args.corrected_api_ablation = False
     args.reuse_from = None
