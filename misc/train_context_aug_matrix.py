@@ -16,10 +16,16 @@ RUNS = {
     "w1_oacp": (CFG / "yolov8n_p2_levir_oaief_w1.yaml", "oacp", {}),
     "w1_cea": (CFG / "yolov8n_p2_levir_oaief_w1.yaml", "cea", {}),
     "w1_lea": (CFG / "yolov8n_p2_levir_oaief_w1.yaml", "lea", {}),
-    "w1_api": (CFG / "yolov8n_p2_levir_oaief_w1_api.yaml", "none", {"api": True}),
-    "w1_api_oacp": (CFG / "yolov8n_p2_levir_oaief_w1_api.yaml", "oacp", {"api": True}),
-    "w1_api_cea": (CFG / "yolov8n_p2_levir_oaief_w1_api.yaml", "cea", {"api": True}),
-    "w1_api_lea": (CFG / "yolov8n_p2_levir_oaief_w1_api.yaml", "lea", {"api": True}),
+    # Legacy entries retain their original FTAL confound for provenance.
+    "w1_api": (CFG / "yolov8n_p2_levir_oaief_w1_api.yaml", "none", {"api": True, "ftal": True, "legacy_api": True}),
+    "w1_api_oacp": (CFG / "yolov8n_p2_levir_oaief_w1_api.yaml", "oacp", {"api": True, "ftal": True, "legacy_api": True}),
+    "w1_api_cea": (CFG / "yolov8n_p2_levir_oaief_w1_api.yaml", "cea", {"api": True, "ftal": True, "legacy_api": True}),
+    "w1_api_lea": (CFG / "yolov8n_p2_levir_oaief_w1_api.yaml", "lea", {"api": True, "ftal": True, "legacy_api": True}),
+}
+CORRECTED_API_RUNS = {
+    "w1_control": (CFG / "yolov8n_p2_levir_oaief_w1.yaml", "none", {}),
+    "w1_api_boxgrad": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "none", {"api": True}),
+    "w1_api_boxgrad_ftal": (CFG / "yolov8n_p2_levir_oaief_w1_api_boxgrad.yaml", "none", {"api": True, "ftal": True}),
 }
 REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv")
 COMPLETE = (*REQUIRED, "evaluation_metrics.json", "manifest.json")
@@ -51,22 +57,23 @@ def run(a):
     data = prepare(a.data_root, a.dataset_root / f"levir_ship_yolo_seed{a.seed}", a.seed)
     _local(); from ultralytics import YOLO
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    selected = RUNS if not a.only else {k: RUNS[k] for k in a.only}
+    catalog = CORRECTED_API_RUNS if a.corrected_api_ablation else RUNS
+    selected = catalog if not a.only else {k: catalog[k] for k in a.only}
     for name, (config, aug, extra) in selected.items():
         run = a.project / name; run.mkdir(parents=True, exist_ok=True)
         if _has(run, COMPLETE) and (run / "upload_complete.json").is_file(): continue
         os.environ["YOLO_CONTEXT_AUG"] = aug; _seed(a.seed)
         from project_ultralytics.context_augment import augmentation_config
-        (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "api": extra.get("api", False), "commit_sha": sha, "seed": a.seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
+        (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "api": extra.get("api", False), "api_target_mode": "boxgrad" if "boxgrad" in str(config) else ("foreground" if extra.get("api") else None), "ftal": extra.get("ftal", False), "legacy_api": extra.get("legacy_api", False), "commit_sha": sha, "seed": a.seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
         if not _has(run, REQUIRED):
             model = YOLO(str(config)); model.load("yolov8n.pt", smart_transfer=True)
             kwargs = dict(data=str(data), epochs=a.epochs, patience=a.patience, imgsz=a.imgsz, batch=a.batch_size, device=a.device, workers=a.workers, amp=a.amp, seed=a.seed, deterministic=True, project=str(a.project), name=name, exist_ok=True)
-            if extra.get("api"): kwargs.update(FTAL)
+            if extra.get("ftal"): kwargs.update(FTAL)
             model.train(**kwargs)
         if not _has(run, REQUIRED): raise FileNotFoundError(run)
         if not (run / "evaluation_metrics.json").is_file(): _eval(run, data, a)
         if not _has(run, COMPLETE): raise FileNotFoundError(run)
         _upload(run, name, a.hf_repo_id); print(f"COMPLETE {name}", flush=True)
 def args():
-    p = argparse.ArgumentParser(); p.add_argument("--data-root", type=Path, required=True); p.add_argument("--dataset-root", type=Path, required=True); p.add_argument("--project", type=Path, required=True); p.add_argument("--hf-repo-id", required=True); p.add_argument("--only", nargs="*"); p.add_argument("--seed", type=int, default=42); p.add_argument("--epochs", type=int, default=100); p.add_argument("--patience", type=int, default=0); p.add_argument("--imgsz", type=int, default=512); p.add_argument("--batch-size", type=int, default=8); p.add_argument("--device", default="0"); p.add_argument("--workers", type=int, default=4); p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True); return p.parse_args()
+    p = argparse.ArgumentParser(); p.add_argument("--data-root", type=Path, required=True); p.add_argument("--dataset-root", type=Path, required=True); p.add_argument("--project", type=Path, required=True); p.add_argument("--hf-repo-id", required=True); p.add_argument("--only", nargs="*"); p.add_argument("--corrected-api-ablation", action="store_true", help="Run W1, detector-level API(boxgrad), and API+FTAL controls."); p.add_argument("--seed", type=int, default=42); p.add_argument("--epochs", type=int, default=100); p.add_argument("--patience", type=int, default=0); p.add_argument("--imgsz", type=int, default=512); p.add_argument("--batch-size", type=int, default=8); p.add_argument("--device", default="0"); p.add_argument("--workers", type=int, default=4); p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True); return p.parse_args()
 if __name__ == "__main__": run(args())

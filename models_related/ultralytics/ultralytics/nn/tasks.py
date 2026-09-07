@@ -721,6 +721,8 @@ class BaseModel(torch.nn.Module):
                 clear_boundary_context()
 
             clean_loss, clean_items = self.criterion(clean_preds, batch)
+            # The perturbed criterion call can overwrite this context.
+            clean_assignment_context = getattr(self.criterion, "dbss_assignment_context", None)
             if api.captured is None or clean_loss.numel() < 2:
                 return clean_loss, clean_items
 
@@ -762,6 +764,9 @@ class BaseModel(torch.nn.Module):
                 total_loss[2] = total_loss[2] + w * perturbed_loss[2]
                 total_items[0] = total_items[0] + w * perturbed_items[0].detach()
                 total_items[2] = total_items[2] + w * perturbed_items[2].detach()
+                total_loss, total_items = self._apply_auxiliary_losses(
+                    total_loss, total_items, batch, clean_assignment_context
+                )
                 return total_loss, total_items.detach()
 
             target = self._api_target(batch, api)
@@ -781,38 +786,22 @@ class BaseModel(torch.nn.Module):
             total_loss[1] = total_loss[1] + api.current_api_weight * aux_loss
             total_items = clean_items.clone()
             total_items[1] = total_items[1] + api.current_api_weight * aux_loss.detach()
+            total_loss, total_items = self._apply_auxiliary_losses(
+                total_loss, total_items, batch, clean_assignment_context
+            )
             return total_loss, total_items.detach()
         finally:
             self._clear_api_modules()
 
-    def loss(self, batch, preds=None):
-        """Compute loss.
+    def _apply_auxiliary_losses(self, loss, items, batch, assignment_context=None):
+        """Apply model auxiliary losses to normal and API training paths."""
 
-        Args:
-            batch (dict): Batch to compute loss on.
-            preds (torch.Tensor | list[torch.Tensor], optional): Predictions.
-        """
-        if getattr(self, "criterion", None) is None:
-            self.criterion = self.init_criterion()
-
-        if preds is None:
-            api_loss = self._api_adversarial_loss(batch)
-            if api_loss is not None:
-                return api_loss
-            set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
-            try:
-                preds = self.forward(batch["img"])
-            finally:
-                clear_boundary_context()
-        loss, items = self.criterion(preds, batch)
         diagnostics = {}
         diagnostics.update(getattr(self.criterion, "positive_confidence_rescue_metrics", {}))
         diagnostics.update(getattr(self.criterion, "consensus_metrics", {}))
         diagnostics.update(getattr(self.criterion, "psd_metrics", {}))
         diagnostics.update(getattr(self.criterion, "support_metrics", {}))
         diagnostics.update(getattr(self.criterion, "ggcf_tal_metrics", {}))
-        assignment_context = getattr(self.criterion, "dbss_assignment_context", None)
-        self.criterion.dbss_assignment_context = None
         for module in self.modules():
             if isinstance(module, (ConflictFineReconstruction, DBSS, DualIrreducibilityHIT, GCTS, v10GCTSDetect, GTCuePreservationHead, DetachedResidualFusion, GTChannelSpecialization)):
                 auxiliary, values = (
@@ -839,6 +828,31 @@ class BaseModel(torch.nn.Module):
             sums["_p2_positive_count"] = sums.get("_p2_positive_count", 0.0) + p2_positive_count
             sums["_total_positive_count"] = sums.get("_total_positive_count", 0.0) + (total_positive_count or 0.0)
             self._mechanism_epoch_sums = sums
+        return loss, items
+
+    def loss(self, batch, preds=None):
+        """Compute loss.
+
+        Args:
+            batch (dict): Batch to compute loss on.
+            preds (torch.Tensor | list[torch.Tensor], optional): Predictions.
+        """
+        if getattr(self, "criterion", None) is None:
+            self.criterion = self.init_criterion()
+
+        if preds is None:
+            api_loss = self._api_adversarial_loss(batch)
+            if api_loss is not None:
+                return api_loss
+            set_boundary_context(batch.get("batch_idx"), batch.get("bboxes"), tuple(batch["img"].shape))
+            try:
+                preds = self.forward(batch["img"])
+            finally:
+                clear_boundary_context()
+        loss, items = self.criterion(preds, batch)
+        assignment_context = getattr(self.criterion, "dbss_assignment_context", None)
+        self.criterion.dbss_assignment_context = None
+        loss, items = self._apply_auxiliary_losses(loss, items, batch, assignment_context)
         return loss, items
 
     def reset_mechanism_metrics(self) -> None:
