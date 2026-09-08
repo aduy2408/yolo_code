@@ -166,7 +166,7 @@ def inspect_checkpoint(checkpoint: Path, images: list[Path], args: argparse.Name
                 "image": image_path.name, "gt_index": gt_idx, "class": int(gt_cls),
                 "area_px2": area, "sqrt_wh_px": math.sqrt(max(area, 0.0)), "size_group": size_group(area),
                 "support_count": int(len(q)), "target_mass": q_mass, "q_mean": q_mean, "q_max": qmax,
-                "qmax_normalized_mass": qmax_norm_mass, "n_eff": float(q.square().sum().reciprocal() * q_mass.square()) if len(q) else 0.0,
+                "qmax_normalized_mass": qmax_norm_mass, "n_eff": float(q.square().sum().reciprocal() * q_mass**2) if len(q) else 0.0,
                 "oracle_iou": oracle_iou, "topq_iou": topq_iou, "mean_support_iou": mean_iou,
                 "oracle_error": 1.0 - oracle_iou, "topq_regret": oracle_iou - topq_iou,
                 "raw_box_error_mean": raw_box_mean, "q_weighted_box_error": weighted_box,
