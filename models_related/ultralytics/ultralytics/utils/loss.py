@@ -1354,6 +1354,29 @@ class v8DetectionLoss:
                 )
         return loc_bboxes, loc_scores, loc_mask
 
+    def regression_target_scores(
+        self,
+        target_scores: torch.Tensor,
+        target_gt_idx: torch.Tensor,
+        fg_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Optionally remove each GT's absolute TAL ceiling from regression only."""
+        import os
+
+        if os.environ.get("REG_WEIGHT_MODE", "q") != "qmax_gt":
+            return target_scores
+        reg_scores = target_scores.clone()
+        for bi in range(target_scores.shape[0]):
+            positive = fg_mask[bi]
+            if not positive.any():
+                continue
+            for gi in target_gt_idx[bi, positive].unique().tolist():
+                gt_mask = positive & (target_gt_idx[bi] == gi)
+                q = target_scores[bi, gt_mask].sum(-1)
+                qmax = q.max().clamp_min(1e-12)
+                reg_scores[bi, gt_mask] = reg_scores[bi, gt_mask] / qmax
+        return reg_scores
+
     def _box_consensus_current_gain(self) -> float:
         """Linearly ramp consensus after an initial zero-gain warmup."""
         if self.epoch <= self.box_consensus_warmup_start:
@@ -2301,6 +2324,7 @@ class v8DetectionLoss:
         # Use the same coordinate scale as bbox loss. If target_bboxes has already been divided by stride_tensor,
         # do not divide again.
         target_bboxes_scaled = target_bboxes / stride_tensor
+        reg_target_scores = self.regression_target_scores(target_scores, target_gt_idx, fg_mask)
         loc_target_bboxes, loc_target_scores, loc_fg_mask = self.build_localization_targets(
             anchor_points,
             stride_tensor,
@@ -2308,7 +2332,7 @@ class v8DetectionLoss:
             gt_bboxes,
             mask_gt,
             target_bboxes,
-            target_scores,
+            reg_target_scores,
             fg_mask,
         )
         loc_target_bboxes_scaled = loc_target_bboxes / stride_tensor
