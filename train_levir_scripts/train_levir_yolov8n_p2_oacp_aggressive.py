@@ -52,7 +52,7 @@ def _run_args(a: argparse.Namespace, name: str) -> argparse.Namespace:
         seed=a.seed, split_seed=a.split_seed, epochs=a.epochs, patience=a.patience,
         imgsz=a.imgsz, batch_size=a.batch_size, device=a.device,
         workers=a.workers, amp=a.amp,
-        mosaic=0.0, close_mosaic=0,
+        mosaic=0.0, close_mosaic=0, deterministic=False,
     )
 
 
