@@ -36,9 +36,30 @@ AUG_CONFIG = {
 def augmentation_config() -> dict[str, Any]:
     """Return the complete immutable run configuration for manifests."""
     cfg = dict(AUG_CONFIG)
+    cfg["protected_expand"] = float(os.environ.get("OACP_PROTECTED_EXPAND", cfg["protected_expand"]))
+    cfg["oacp_probability"] = float(os.environ.get("OACP_P", "0.20"))
+    cfg["oacp_strength"] = [
+        float(os.environ.get("OACP_STRENGTH_MIN", cfg["oacp_strength"][0])),
+        float(os.environ.get("OACP_STRENGTH_MAX", cfg["oacp_strength"][1])),
+    ]
+    cfg["oacp_resolution_scale"] = [
+        float(os.environ.get("OACP_SCALE_MIN", cfg["oacp_resolution_scale"][0])),
+        float(os.environ.get("OACP_SCALE_MAX", cfg["oacp_resolution_scale"][1])),
+    ]
     cfg["mode"] = os.environ.get("YOLO_CONTEXT_AUG", "none").lower()
     cfg["lea_stats_path"] = os.environ.get("LEA_STATS_PATH", "")
+    cfg["sweep_label"] = os.environ.get("OACP_SWEEP_LABEL", "")
     return cfg
+
+
+def _oacp_config() -> dict[str, Any]:
+    cfg = augmentation_config()
+    return {
+        "p": cfg["oacp_probability"],
+        "protected_expand": cfg["protected_expand"],
+        "strength": cfg["oacp_strength"],
+        "resolution_scale": cfg["oacp_resolution_scale"],
+    }
 
 
 def _boxes(labels: dict[str, Any], h: int, w: int) -> np.ndarray:
@@ -76,7 +97,7 @@ def _mask_from_boxes(boxes: np.ndarray, h: int, w: int, expand: float) -> np.nda
 def _protection(boxes: np.ndarray, h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
     sizes = np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1])) if len(boxes) else np.empty(0)
     tiny = boxes[sizes < AUG_CONFIG["object_max_size"]]
-    protected = _mask_from_boxes(tiny, h, w, AUG_CONFIG["protected_expand"])
+    protected = _mask_from_boxes(tiny, h, w, _oacp_config()["protected_expand"])
     protected |= _mask_from_boxes(boxes, h, w, AUG_CONFIG["safety_expand"]).astype(bool)
     return protected.astype(np.uint8), tiny
 
@@ -102,7 +123,8 @@ class OACP:
         self.p = float(p)
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
-        if random.random() >= self.p:
+        cfg = _oacp_config()
+        if random.random() >= cfg["p"]:
             return labels
         img = labels.get("img")
         if img is None or img.ndim != 3:
@@ -113,8 +135,8 @@ class OACP:
         if not len(tiny) or float(protected.mean()) > 0.55:
             return labels
         mask = _far_mask(protected, h, w)
-        strength = random.uniform(*AUG_CONFIG["oacp_strength"]) * (1.0 - float(protected.mean()))
-        degraded = _resize_degrade(img, random.uniform(*AUG_CONFIG["oacp_resolution_scale"]))
+        strength = random.uniform(*cfg["strength"]) * (1.0 - float(protected.mean()))
+        degraded = _resize_degrade(img, random.uniform(*cfg["resolution_scale"]))
         out = img.astype(np.float32) * (1 - strength * mask[..., None]) + degraded.astype(np.float32) * (strength * mask[..., None])
         labels["img"] = np.clip(out, 0, 255).astype(img.dtype)
         return labels
