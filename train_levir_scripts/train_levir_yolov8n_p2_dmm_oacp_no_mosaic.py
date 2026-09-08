@@ -78,7 +78,11 @@ def run(args: argparse.Namespace) -> None:
     require_training_context(hf_repo_id=args.hf_repo_id)
     data = prepare(args.data_root, args.dataset_root / "levir_ship_yolo", args.split_seed)
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    for name, config in CONFIGS.items():
+    selected = {name: CONFIGS[name] for name in args.only} if args.only else CONFIGS
+    unknown = set(args.only or ()) - set(CONFIGS)
+    if unknown:
+        raise ValueError(f"Unknown variants: {sorted(unknown)}")
+    for name, config in selected.items():
         run_dir = args.project / name
         run_dir.mkdir(parents=True, exist_ok=True)
         if _has(run_dir, COMPLETE) and (run_dir / "upload_complete.json").is_file():
@@ -141,6 +145,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--only", nargs="+", choices=tuple(CONFIGS), default=None)
     return parser.parse_args()
 
 
