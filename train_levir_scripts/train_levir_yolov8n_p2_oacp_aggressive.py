@@ -41,6 +41,8 @@ def _args() -> argparse.Namespace:
     p.add_argument("--device", default="0")
     p.add_argument("--workers", type=int, default=0)
     p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--only", nargs="+", choices=[*SCREEN, "R6_narrow_protection", "R7_wide_protection"])
+    p.add_argument("--selected-from", choices=list(SCREEN), help="Severity source for standalone R6/R7 continuation runs.")
     return p.parse_args()
 
 
@@ -73,17 +75,28 @@ def main() -> None:
     matrix.RUNS = {name: (CONFIG, "oacp", {}) for name in (*SCREEN, "R6_narrow_protection", "R7_wide_protection")}
     matrix.require_training_context(hf_repo_id=a.hf_repo_id)
 
+    selected = set(a.only or (*SCREEN, "R6_narrow_protection", "R7_wide_protection"))
     for name, spec in SCREEN.items():
+        if name not in selected:
+            continue
         _configure(name, spec)
         matrix.run(_run_args(a, name))
 
+    final = {"R6_narrow_protection", "R7_wide_protection"} & selected
     scores = {}
-    for name in SCREEN:
-        metrics = json.loads((a.project / name / "evaluation_metrics.json").read_text())
-        scores[name] = metrics["val/metrics/mAP50(B)"]
-    best_name = max(scores, key=scores.get)
-    best = dict(SCREEN[best_name])
+    best_name = a.selected_from
+    if final and best_name is None:
+        for name in SCREEN:
+            metrics = json.loads((a.project / name / "evaluation_metrics.json").read_text())
+            scores[name] = metrics["val/metrics/mAP50(B)"]
+        best_name = max(scores, key=scores.get)
+    if final:
+        best = dict(SCREEN[best_name])
+    else:
+        best = None
     for name, expand in (("R6_narrow_protection", 1.5), ("R7_wide_protection", 5.0)):
+        if name not in selected:
+            continue
         spec = dict(best)
         spec["expand"] = expand
         _configure(name, spec, selected_from=best_name)
