@@ -19,7 +19,7 @@ if str(ULTRA) not in sys.path:
     sys.path.insert(0, str(ULTRA))
 
 from misc.prepare_levir_ship import prepare
-from project_ultralytics.parser import load_project_model
+from project_ultralytics.parser import load_project_model, project_parser
 from utils.marimo_ops import require_training_context
 
 CONFIGS = {
@@ -96,11 +96,13 @@ def run(args: argparse.Namespace) -> None:
         if not _has(run_dir, REQUIRED):
             model = load_project_model(config, verbose=False)
             model.load("yolov8n.pt", smart_transfer=True)
-            model.train(data=str(data), epochs=args.epochs, patience=args.patience,
-                        imgsz=args.imgsz, batch=args.batch_size, device=args.device,
-                        workers=args.workers, amp=args.amp, seed=args.seed,
-                        deterministic=args.deterministic, project=str(args.project),
-                        name=name, exist_ok=True, mosaic=0.0, close_mosaic=0)
+            from ultralytics.nn import tasks
+            with project_parser(tasks):
+                model.train(data=str(data), epochs=args.epochs, patience=args.patience,
+                            imgsz=args.imgsz, batch=args.batch_size, device=args.device,
+                            workers=args.workers, amp=args.amp, seed=args.seed,
+                            deterministic=args.deterministic, project=str(args.project),
+                            name=name, exist_ok=True, mosaic=0.0, close_mosaic=0)
         if not _has(run_dir, REQUIRED):
             raise FileNotFoundError(run_dir)
         if not (run_dir / "evaluation_metrics.json").is_file():
