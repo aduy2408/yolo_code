@@ -77,6 +77,12 @@ def upload(run: Path, repo_id: str) -> None:
     (run / "upload_complete.json").write_text(json.dumps({
         "repo_id": repo_id, "remote_prefix": prefix, "remote_verified": True,
     }, indent=2) + "\n")
+    api.upload_file(
+        path_or_fileobj=str(run / "upload_complete.json"),
+        path_in_repo=f"{prefix}/upload_complete.json",
+        repo_id=repo_id,
+        repo_type="dataset",
+    )
 
 
 def run(args: argparse.Namespace) -> None:
