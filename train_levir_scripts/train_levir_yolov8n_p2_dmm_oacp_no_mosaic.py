@@ -23,6 +23,7 @@ from project_ultralytics.parser import load_project_model, project_parser
 from utils.marimo_ops import require_training_context
 
 CONFIGS = {
+    "baseline_p2": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_levir_baseline.yaml",
     "r1_dmm_lite": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_dmm_lite.yaml",
     "r2_kvca_dmm_lite": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_kvca_dmm_lite.yaml",
     "r3_kvca_dmm_gated": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_kvca_dmm_gated.yaml",
