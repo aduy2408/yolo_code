@@ -88,9 +88,9 @@ def run(args: argparse.Namespace) -> None:
         if _has(run_dir, COMPLETE) and (run_dir / "upload_complete.json").is_file():
             continue
         _seed(args.seed)
-        os.environ["YOLO_CONTEXT_AUG"] = "oacp"
+        os.environ["YOLO_CONTEXT_AUG"] = args.augmentation
         manifest = {
-                "experiment": name, "config": str(config), "augmentation": "oacp",
+                "experiment": name, "config": str(config), "augmentation": args.augmentation,
                 "mosaic": 0.0, "close_mosaic": 0, "deterministic": args.deterministic,
                 "commit_sha": sha, "seed": args.seed, "split_seed": args.split_seed,
                 "split": ["val", "test"], "nms_iou": 0.5, "epochs": args.epochs,
@@ -145,6 +145,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--augmentation", choices=("oacp", "none"), default="oacp")
     parser.add_argument("--only", nargs="+", choices=tuple(CONFIGS), default=None)
     return parser.parse_args()
 
