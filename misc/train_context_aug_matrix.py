@@ -71,7 +71,9 @@ def _upload(run, name, repo):
     remote = {x.rfilename for x in api.list_repo_tree(repo_id=repo, repo_type="dataset", path_in_repo=prefix, recursive=True) if hasattr(x, "rfilename")}
     missing = {f"{prefix}/{x}" for x in COMPLETE} - remote
     if missing: raise RuntimeError(f"Upload verification failed for {name}: {sorted(missing)}")
-    (run / "upload_complete.json").write_text(json.dumps({"repo_id": repo, "remote_prefix": prefix}, indent=2) + "\n")
+    marker = run / "upload_complete.json"
+    marker.write_text(json.dumps({"repo_id": repo, "remote_prefix": prefix}, indent=2) + "\n")
+    api.upload_file(path_or_fileobj=str(marker), path_in_repo=f"{prefix}/upload_complete.json", repo_id=repo, repo_type="dataset")
 def run(a):
     require_training_context(hf_repo_id=a.hf_repo_id)
     split_seed = getattr(a, "split_seed", a.seed)
