@@ -85,14 +85,26 @@ def run(args: argparse.Namespace) -> None:
             continue
         _seed(args.seed)
         os.environ["YOLO_CONTEXT_AUG"] = "oacp"
-        if not (run_dir / "manifest.json").is_file():
-            (run_dir / "manifest.json").write_text(json.dumps({
+        manifest = {
                 "experiment": name, "config": str(config), "augmentation": "oacp",
                 "mosaic": 0.0, "close_mosaic": 0, "deterministic": args.deterministic,
                 "commit_sha": sha, "seed": args.seed, "split_seed": args.split_seed,
                 "split": ["val", "test"], "nms_iou": 0.5, "epochs": args.epochs,
                 "patience": args.patience, "hf_repo_id": args.hf_repo_id,
-            }, indent=2) + "\n")
+            }
+        manifest_path = run_dir / "manifest.json"
+        old_manifest = {}
+        if manifest_path.is_file():
+            try:
+                old_manifest = json.loads(manifest_path.read_text())
+            except json.JSONDecodeError:
+                old_manifest = {}
+        if old_manifest.get("commit_sha") != sha or old_manifest.get("mosaic") != 0.0:
+            manifest["resumed_from_manifest"] = old_manifest.get("commit_sha")
+            manifest["resumed_at_commit"] = sha
+            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+        elif not manifest_path.is_file():
+            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
         if not _has(run_dir, REQUIRED):
             model = load_project_model(config, verbose=False)
             model.load("yolov8n.pt", smart_transfer=True)
