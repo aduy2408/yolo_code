@@ -26,6 +26,7 @@ from .feature_calibration import (
     ResidualDWConv5,
 )
 from .dual_stream import DualChannelFormationBackbone, DualCollapse, DualDownsample
+from .dmm import DMMGatedRefine, DMMRefine
 from .detection_heads import DetectClsAttention, P2NUDFLDetect
 from .gt_cue_loss import (
     DedicatedCueSlots,
@@ -58,6 +59,8 @@ __all__ = (
     "DualChannelFormationBackbone",
     "DualCollapse",
     "DualDownsample",
+    "DMMGatedRefine",
+    "DMMRefine",
     "DetachedResidualFusion",
     "FasterNetBlock",
     "FullSelfAttention",
