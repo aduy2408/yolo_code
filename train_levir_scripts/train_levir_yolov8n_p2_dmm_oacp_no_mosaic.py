@@ -30,6 +30,13 @@ CONFIGS = {
 }
 REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv")
 COMPLETE = (*REQUIRED, "evaluation_metrics.json", "manifest.json")
+FTAL = {
+    "factorized_tal_target": True, "factorized_tal_mode": "legacy",
+    "factorized_tal_tau": 0.75, "factorized_tal_kappa": 1.5,
+    "factorized_tal_lambda": 0.5, "factorized_tal_s_max": 32.0,
+    "factorized_tal_warmup_start": 5, "factorized_tal_warmup_end": 15,
+    "factorized_tal_p2_only": True,
+}
 
 
 def _has(root: Path, names: tuple[str, ...]) -> bool:
@@ -93,6 +100,7 @@ def run(args: argparse.Namespace) -> None:
         manifest = {
                 "experiment": name, "config": str(config), "augmentation": args.augmentation,
                 "mosaic": 0.0, "close_mosaic": 0, "deterministic": args.deterministic,
+                "ftal": args.ftal,
                 "commit_sha": sha, "seed": args.seed, "split_seed": args.split_seed,
                 "split": ["val", "test"], "nms_iou": 0.5, "epochs": args.epochs,
                 "patience": args.patience, "hf_repo_id": args.hf_repo_id,
@@ -115,11 +123,14 @@ def run(args: argparse.Namespace) -> None:
             model.load("yolov8n.pt", smart_transfer=True)
             from ultralytics.nn import tasks
             with project_parser(tasks):
-                model.train(data=str(data), epochs=args.epochs, patience=args.patience,
-                            imgsz=args.imgsz, batch=args.batch_size, device=args.device,
-                            workers=args.workers, amp=args.amp, seed=args.seed,
-                            deterministic=args.deterministic, project=str(args.project),
-                            name=name, exist_ok=True, mosaic=0.0, close_mosaic=0)
+                train_kwargs = dict(data=str(data), epochs=args.epochs, patience=args.patience,
+                                    imgsz=args.imgsz, batch=args.batch_size, device=args.device,
+                                    workers=args.workers, amp=args.amp, seed=args.seed,
+                                    deterministic=args.deterministic, project=str(args.project),
+                                    name=name, exist_ok=True, mosaic=0.0, close_mosaic=0)
+                if args.ftal:
+                    train_kwargs.update(FTAL)
+                model.train(**train_kwargs)
         if not _has(run_dir, REQUIRED):
             raise FileNotFoundError(run_dir)
         if not (run_dir / "evaluation_metrics.json").is_file():
@@ -147,6 +158,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--augmentation", choices=("oacp", "none"), default="oacp")
+    parser.add_argument("--ftal", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--only", nargs="+", choices=tuple(CONFIGS), default=None)
     return parser.parse_args()
 
