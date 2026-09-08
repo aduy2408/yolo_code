@@ -28,6 +28,7 @@ def _args() -> argparse.Namespace:
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=False)
     return parser.parse_args()
 
 
@@ -54,6 +55,7 @@ def main() -> None:
         device=args.device,
         workers=args.workers,
         amp=args.amp,
+        deterministic=args.deterministic,
         mosaic=0.0,
         close_mosaic=0,
     ))
