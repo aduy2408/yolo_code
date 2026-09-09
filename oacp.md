@@ -163,7 +163,7 @@ NMS IoU: 0.5
 OACP: single-pass default
 ```
 
-Use one consistent worker count and deterministic mode for all seven runs. Record the exact parameter grid, commit SHA, split seed, training seed, and selected R1-R5 winner in the new manifests.
+Use one consistent worker count and deterministic mode for all seven runs. The runner was updated for this corrected sweep in commit `e5938dc` to default to `workers=4` and `deterministic=true`. Record the exact parameter grid, commit SHA, split seed, training seed, and selected R1-R5 winner in the new manifests.
 
 ## Final conclusion
 
