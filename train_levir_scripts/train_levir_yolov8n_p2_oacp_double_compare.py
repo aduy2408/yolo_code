@@ -23,10 +23,15 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_levir_baseline.yaml"
 
 VARIANTS = (
-    ("oacp_standard_mosaic", "0.20", 1.0, 10),
-    ("oacp_standard_no_mosaic", "0.20", 0.0, 0),
-    ("oacp_double_approx_mosaic", "0.36", 1.0, 10),
-    ("oacp_double_approx_no_mosaic", "0.36", 0.0, 0),
+    ("oacp_standard_mosaic", "0.20", "0.20", "0.40", 1.0, 10),
+    ("oacp_standard_no_mosaic", "0.20", "0.20", "0.40", 0.0, 0),
+    ("oacp_double_approx_mosaic", "0.36", "0.20", "0.40", 1.0, 10),
+    ("oacp_double_approx_no_mosaic", "0.36", "0.20", "0.40", 0.0, 0),
+    # One OACP call with a stronger blend, keeping p=.36. This matches the
+    # approximate affected-sample rate while targeting the effective strength
+    # of two sequential [0.20, 0.40] passes.
+    ("oacp_double_approx_strong_mosaic", "0.36", "0.40", "0.60", 1.0, 10),
+    ("oacp_double_approx_strong_no_mosaic", "0.36", "0.40", "0.60", 0.0, 0),
 )
 
 
@@ -47,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--checkpoint", type=Path, default=Path("yolov8n.pt"))
     parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--only", nargs="*", default=None, choices=[x[0] for x in VARIANTS])
     return parser.parse_args()
 
 
@@ -54,8 +60,11 @@ def main() -> None:
     args = parse_args()
     os.environ["YOLO_CHECKPOINT"] = str(args.checkpoint)
     matrix.require_training_context(hf_repo_id=args.hf_repo_id)
-    for name, probability, mosaic, close_mosaic in VARIANTS:
+    selected = VARIANTS if args.only is None else tuple(x for x in VARIANTS if x[0] in args.only)
+    for name, probability, strength_min, strength_max, mosaic, close_mosaic in selected:
         os.environ["OACP_P"] = probability
+        os.environ["OACP_STRENGTH_MIN"] = strength_min
+        os.environ["OACP_STRENGTH_MAX"] = strength_max
         matrix.RUNS = {name: (CONFIG, "oacp", {})}
         matrix.run(argparse.Namespace(
             data_root=args.data_root,
