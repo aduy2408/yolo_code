@@ -3096,6 +3096,14 @@ class AlternatePartialClipPipeline:
         import os
         import random
 
+        # LEGACY OACP FLOW: keep this first application for historical
+        # comparability. The regular branch below calls normal_pipeline(),
+        # whose v8_transforms() also contains context_augment, so OACP runs
+        # twice there. This is intentionally preserved for legacy runs whose
+        # unexpectedly strong result came from that double application.
+        if self.context_augment is not None:
+            labels = self.context_augment(labels)
+
         variant = os.environ.get("YOLO_VARIANT", "")
         custom = (
             self.clean_control_enabled
@@ -3106,8 +3114,9 @@ class AlternatePartialClipPipeline:
             or self.resolution_enabled
         )
         if custom:
-            # The regular pipeline already contains context augmentation via
-            # v8_transforms(). Only apply it explicitly for the custom branch.
+            # Keep the second explicit application in the legacy custom path.
+            # The corrected single-pass path is available in the dedicated
+            # comparison runner; do not silently change this historical flow.
             if self.context_augment is not None:
                 labels = self.context_augment(labels)
             # Late clean tail: use the canonical Mosaic -> RandomPerspective path
