@@ -3096,9 +3096,6 @@ class AlternatePartialClipPipeline:
         import os
         import random
 
-        if self.context_augment is not None:
-            labels = self.context_augment(labels)
-
         variant = os.environ.get("YOLO_VARIANT", "")
         custom = (
             self.clean_control_enabled
@@ -3109,6 +3106,10 @@ class AlternatePartialClipPipeline:
             or self.resolution_enabled
         )
         if custom:
+            # The regular pipeline already contains context augmentation via
+            # v8_transforms(). Only apply it explicitly for the custom branch.
+            if self.context_augment is not None:
+                labels = self.context_augment(labels)
             # Late clean tail: use the canonical Mosaic -> RandomPerspective path
             # after the scheduled regularization phase.
             epoch = getattr(self.dataset, "epoch", None)
