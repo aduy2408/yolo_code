@@ -69,6 +69,18 @@ TRAIN_AUGMENTATION = {
     "erasing": 0.4,
 }
 
+TRAIN_SCHEDULE = {
+    "optimizer": "auto",
+    "lr0": 0.01,
+    "lrf": 0.01,
+    "momentum": 0.937,
+    "weight_decay": 0.0005,
+    "warmup_epochs": 3.0,
+    "warmup_momentum": 0.8,
+    "warmup_bias_lr": 0.1,
+    "cos_lr": False,
+}
+
 STRICT_BASELINE_VARIANT = "yolov8n_p2p3p4_plain"
 
 REQUIRED = (
@@ -543,6 +555,7 @@ def train(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace) ->
         name=f"seed_{seed}_corner_sw640_sh512",
         exist_ok=True,
         **TRAIN_AUGMENTATION,
+        **TRAIN_SCHEDULE,
         **VARIANTS[variant],
     )
     if not training_complete(run_dir, args.epochs):
@@ -675,6 +688,7 @@ def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dic
         "context_augmentation": "oacp" if variant.endswith("_oacp") else "none",
         "factorized_tal": VARIANTS[variant],
         "augmentation": dict(TRAIN_AUGMENTATION),
+        "schedule": dict(TRAIN_SCHEDULE),
         "upload_required": not args.skip_upload,
         "hf_repo_id": args.hf_repo_id if not args.skip_upload else None,
     }
