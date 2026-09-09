@@ -76,6 +76,11 @@ def _upload(run, name, repo):
     api.upload_file(path_or_fileobj=str(marker), path_in_repo=f"{prefix}/upload_complete.json", repo_id=repo, repo_type="dataset")
 def run(a):
     require_training_context(hf_repo_id=a.hf_repo_id)
+    # Optional compatibility switch. Leave the environment untouched for
+    # programmatic callers that do not provide this argument.
+    legacy_double = getattr(a, "legacy_double_oacp", None)
+    if legacy_double is not None:
+        os.environ["YOLO_LEGACY_DOUBLE_OACP"] = "1" if legacy_double else "0"
     split_seed = getattr(a, "split_seed", a.seed)
     data = prepare(a.data_root, a.dataset_root / "levir_ship_yolo", split_seed)
     _local(); from ultralytics import YOLO
@@ -116,5 +121,5 @@ def run(a):
         if not _has(run, COMPLETE): raise FileNotFoundError(run)
         _upload(run, name, a.hf_repo_id); print(f"COMPLETE {name}", flush=True)
 def args():
-    p = argparse.ArgumentParser(); p.add_argument("--data-root", type=Path, required=True); p.add_argument("--dataset-root", type=Path, required=True); p.add_argument("--project", type=Path, required=True); p.add_argument("--hf-repo-id", required=True); p.add_argument("--only", nargs="*"); p.add_argument("--corrected-api-ablation", action="store_true", help="Run W1, detector-level API(boxgrad), and API+FTAL controls."); p.add_argument("--corrected-full-matrix", action="store_true", help="Run the 10-variant matrix with corrected detector-level W1+API."); p.add_argument("--reuse-from", type=Path, help="Reuse verified completed variants from an earlier matrix."); p.add_argument("--reuse-variants", nargs="*", default=[], help="Variant names eligible for --reuse-from."); p.add_argument("--seed", type=int, default=42); p.add_argument("--epochs", type=int, default=100); p.add_argument("--patience", type=int, default=0); p.add_argument("--imgsz", type=int, default=512); p.add_argument("--batch-size", type=int, default=8); p.add_argument("--device", default="0"); p.add_argument("--workers", type=int, default=4); p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True); p.add_argument("--mosaic", type=float, default=1.0); p.add_argument("--close-mosaic", type=int, default=10); return p.parse_args()
+    p = argparse.ArgumentParser(); p.add_argument("--data-root", type=Path, required=True); p.add_argument("--dataset-root", type=Path, required=True); p.add_argument("--project", type=Path, required=True); p.add_argument("--hf-repo-id", required=True); p.add_argument("--only", nargs="*"); p.add_argument("--corrected-api-ablation", action="store_true", help="Run W1, detector-level API(boxgrad), and API+FTAL controls."); p.add_argument("--corrected-full-matrix", action="store_true", help="Run the 10-variant matrix with corrected detector-level W1+API."); p.add_argument("--reuse-from", type=Path, help="Reuse verified completed variants from an earlier matrix."); p.add_argument("--reuse-variants", nargs="*", default=[], help="Variant names eligible for --reuse-from."); p.add_argument("--seed", type=int, default=42); p.add_argument("--epochs", type=int, default=100); p.add_argument("--patience", type=int, default=0); p.add_argument("--imgsz", type=int, default=512); p.add_argument("--batch-size", type=int, default=8); p.add_argument("--device", default="0"); p.add_argument("--workers", type=int, default=4); p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True); p.add_argument("--mosaic", type=float, default=1.0); p.add_argument("--close-mosaic", type=int, default=10); p.add_argument("--legacy-double-oacp", action=argparse.BooleanOptionalAction, default=None, help="Enable the historical two-call OACP flow; default is single-pass."); return p.parse_args()
 if __name__ == "__main__": run(args())

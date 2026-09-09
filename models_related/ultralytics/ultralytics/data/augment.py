@@ -3098,12 +3098,12 @@ class AlternatePartialClipPipeline:
         import os
         import random
 
-        # LEGACY DOUBLE-OACP FLOW (disabled, kept for provenance):
-        # Uncommenting this block would apply OACP once in the wrapper, then
-        # a second time when the regular route calls normal_pipeline() below:
-        #
-        # if self.context_augment is not None:
-        #     labels = self.context_augment(labels)
+        # Single-pass is the default. Set YOLO_LEGACY_DOUBLE_OACP=1 to enable
+        # the historical wrapper call below. The regular route then calls
+        # normal_pipeline(), whose v8_transforms() contains the second OACP.
+        if os.environ.get("YOLO_LEGACY_DOUBLE_OACP", "0").lower() in {"1", "true", "yes", "on"}:
+            if self.context_augment is not None:
+                labels = self.context_augment(labels)
 
         variant = os.environ.get("YOLO_VARIANT", "")
         custom = (

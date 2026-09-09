@@ -47,6 +47,9 @@ def augmentation_config() -> dict[str, Any]:
         float(os.environ.get("OACP_SCALE_MAX", cfg["oacp_resolution_scale"][1])),
     ]
     cfg["mode"] = os.environ.get("YOLO_CONTEXT_AUG", "none").lower()
+    cfg["legacy_double_oacp"] = os.environ.get("YOLO_LEGACY_DOUBLE_OACP", "0").lower() in {
+        "1", "true", "yes", "on"
+    }
     cfg["lea_stats_path"] = os.environ.get("LEA_STATS_PATH", "")
     cfg["sweep_label"] = os.environ.get("OACP_SWEEP_LABEL", "")
     return cfg
