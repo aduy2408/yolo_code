@@ -17,6 +17,9 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "models_related/ultralytics"))
 
+TOLERANT_DELTAS = (0.0, 1.0, 2.0)
+TAL_BETAS = (6.0, 4.0, 2.0)
+
 from ultralytics import YOLO  # noqa: E402
 from ultralytics.data.augment import LetterBox  # noqa: E402
 from ultralytics.utils.loss import bbox2dist, make_anchors, v8DetectionLoss  # noqa: E402
@@ -70,6 +73,15 @@ def nwd_similarity(boxes: torch.Tensor, gt: torch.Tensor, c: float) -> torch.Ten
     w2 = (pred_xywh[:, :2] - gt_xywh[:2]).square().sum(1)
     w2 = w2 + 0.25 * (pred_xywh[:, 2:] - gt_xywh[2:]).square().sum(1)
     return torch.exp(-torch.sqrt(w2.clamp_min(0)) / max(c, 1e-6))
+
+
+def dilated_iou(boxes: torch.Tensor, gt: torch.Tensor, delta: float) -> torch.Tensor:
+    """IoU after expanding both xyxy boxes by the same pixel tolerance."""
+    if not len(boxes):
+        return boxes.new_empty((0,))
+    pad = boxes.new_tensor(delta)
+    offset = torch.stack((-pad, -pad, pad, pad))
+    return box_iou(boxes + offset, gt.unsqueeze(0) + offset).view(-1)
 
 
 def actual_matches(wrapper: YOLO, image: Path, args: argparse.Namespace) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -145,6 +157,12 @@ def inspect_checkpoint(checkpoint: Path, images: list[Path], args: argparse.Name
                 cls_prob = pred_scores[0, :n_p2][group, int(gt_cls)].sigmoid()
                 current_alignment = cls_prob.pow(args.tal_alpha) * ious.clamp_min(0).pow(args.tal_beta)
                 nwd_alignment = cls_prob.pow(args.tal_alpha) * nwd.pow(args.tal_beta)
+                rank_only = {}
+                for delta in TOLERANT_DELTAS:
+                    tolerant = dilated_iou(candidate_boxes, gt, delta)
+                    for beta in TAL_BETAS:
+                        alignment = cls_prob.pow(args.tal_alpha) * tolerant.pow(beta)
+                        rank_only[f"d{delta:g}_b{beta:g}"] = float(ious[int(alignment.argmax())])
                 ciou = bbox_iou(candidate_boxes, gt.unsqueeze(0).expand_as(candidate_boxes), xywh=False, CIoU=True).view(-1).clamp(-1, 1)
                 raw_box = 1.0 - ciou
                 candidate_anchors = (anchor_points * stride_tensor)[:n_p2][group]
@@ -175,6 +193,7 @@ def inspect_checkpoint(checkpoint: Path, images: list[Path], args: argparse.Name
                 oracle_iou = topq_iou = mean_iou = qmax = q_mass = q_mean = qmax_norm_mass = 0.0
                 weighted_box = weighted_dfl = raw_box_mean = raw_dfl_mean = 0.0
                 top_nwd_iou = oracle_nwd = top_current_iou = mean_nwd = 0.0
+                rank_only = {f"d{delta:g}_b{beta:g}": 0.0 for delta in TOLERANT_DELTAS for beta in TAL_BETAS}
             keep = det_cls == int(gt_cls)
             if keep.any():
                 matched_ious = box_iou(det_boxes[keep], gt_bboxes[0, gt_idx].detach().float().cpu().view(1, 4)).view(-1)
@@ -192,6 +211,7 @@ def inspect_checkpoint(checkpoint: Path, images: list[Path], args: argparse.Name
                 "oracle_iou": oracle_iou, "topq_iou": topq_iou, "mean_support_iou": mean_iou,
                 "oracle_nwd": oracle_nwd, "top_nwd_iou": top_nwd_iou, "top_current_iou": top_current_iou,
                 "mean_support_nwd": mean_nwd, "nwd_iou_gap": mean_nwd - mean_iou,
+                **{f"rank_only_{key}_original_iou": value for key, value in rank_only.items()},
                 "oracle_error": 1.0 - oracle_iou, "topq_regret": oracle_iou - topq_iou,
                 "raw_box_error_mean": raw_box_mean, "q_weighted_box_error": weighted_box,
                 "raw_dfl_error_mean": raw_dfl_mean, "q_weighted_dfl_error": weighted_dfl,
@@ -257,6 +277,24 @@ def main() -> None:
             "target_mass_vs_raw_box_error": finite_corr([float(r["target_mass"]) for r in selected], [float(r["raw_box_error_mean"]) for r in selected]),
         }
     result = {"checkpoint": str(args.checkpoint), "images": len(images), "gt": len(rows), "summary": summary, "correlations": correlations}
+    counterfactual = {}
+    for delta in TOLERANT_DELTAS:
+        for beta in TAL_BETAS:
+            key = f"rank_only_d{delta:g}_b{beta:g}_original_iou"
+            result_key = f"delta_{delta:g}_beta_{beta:g}"
+            counterfactual[result_key] = {}
+            for group in ("tiny", "small", "medium", "large", "all"):
+                selected = [row for row in rows if group == "all" or row["size_group"] == group]
+                values = [float(row[key]) - float(row["top_current_iou"]) for row in selected]
+                counterfactual[result_key][group] = {
+                    "n": len(values),
+                    "better": sum(value > 1e-9 for value in values),
+                    "tie": sum(abs(value) <= 1e-9 for value in values),
+                    "worse": sum(value < -1e-9 for value in values),
+                    "mean_original_iou_delta": float(np.mean(values)) if values else None,
+                    "median_original_iou_delta": float(np.median(values)) if values else None,
+                }
+    result["counterfactual_rankings"] = counterfactual
     (args.output / "ftal_diagnostic_summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2, sort_keys=True))
 
