@@ -3098,13 +3098,12 @@ class AlternatePartialClipPipeline:
         import os
         import random
 
-        # OACP insertion point B: the wrapper applies OACP once before routing.
-        # The regular route then calls normal_pipeline(), which reaches
-        # insertion point A above. Therefore the original regular flow is:
-        #   wrapper OACP -> normal_pipeline -> v8_transforms OACP
-        # Keep this legacy double-OACP behavior for historical comparability.
-        if self.context_augment is not None:
-            labels = self.context_augment(labels)
+        # LEGACY DOUBLE-OACP FLOW (disabled, kept for provenance):
+        # Uncommenting this block would apply OACP once in the wrapper, then
+        # a second time when the regular route calls normal_pipeline() below:
+        #
+        # if self.context_augment is not None:
+        #     labels = self.context_augment(labels)
 
         variant = os.environ.get("YOLO_VARIANT", "")
         custom = (
@@ -3116,9 +3115,8 @@ class AlternatePartialClipPipeline:
             or self.resolution_enabled
         )
         if custom:
-            # Custom routes bypass normal_pipeline(), so the second OACP call
-            # is explicit here instead. This preserves the legacy two-call
-            # behavior for those routes as well.
+            # Active single-pass path for custom routes, which bypass
+            # normal_pipeline().
             if self.context_augment is not None:
                 labels = self.context_augment(labels)
             # Late clean tail: use the canonical Mosaic -> RandomPerspective path
