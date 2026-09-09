@@ -71,7 +71,16 @@ def apply_oacp(image: np.ndarray, boxes: np.ndarray, seed: int) -> np.ndarray:
 
     random.seed(seed)
     np.random.seed(seed)
-    labels = {"img": image.copy(), "bboxes": boxes.copy()}
+    h, w = image.shape[:2]
+    # OACP's fallback ``bboxes`` path expects normalized xywh, while this
+    # plotting script keeps boxes as pixel-space xyxy for drawing.
+    normalized = np.empty_like(boxes)
+    if len(boxes):
+        normalized[:, 0] = ((boxes[:, 0] + boxes[:, 2]) / 2) / w
+        normalized[:, 1] = ((boxes[:, 1] + boxes[:, 3]) / 2) / h
+        normalized[:, 2] = (boxes[:, 2] - boxes[:, 0]) / w
+        normalized[:, 3] = (boxes[:, 3] - boxes[:, 1]) / h
+    labels = {"img": image.copy(), "bboxes": normalized}
     return OACP(p=1.0)(labels)["img"]
 
 
