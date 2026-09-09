@@ -165,6 +165,30 @@ OACP: single-pass default
 
 Use one consistent worker count and deterministic mode for all seven runs. The runner was updated for this corrected sweep in commit `e5938dc` to default to `workers=4` and `deterministic=true`. Record the exact parameter grid, commit SHA, split seed, training seed, and selected R1-R5 winner in the new manifests.
 
+## Corrected seven-run sweep result
+
+The queued corrected sweep completed on Marimo and uploaded all seven variants to:
+
+```text
+duyle2408/levir-oacp-aggressive-singlepass-3fc7b92
+```
+
+All seven runs have `weights/best.pt`, `weights/last.pt`, `results.csv`, `evaluation_metrics.json`, `manifest.json`, and verified `upload_complete.json` markers.
+
+| Run | Validation mAP50 | Test mAP50 | Test mAP50-95 | Test AP75 |
+|---|---:|---:|---:|---:|
+| R1 sparse mild | 0.7969 | 0.7807 | 0.2954 | 0.1134 |
+| R2 frequent mild | 0.8299 | 0.8297 | 0.3164 | 0.1251 |
+| R3 frequent current | 0.8368 | 0.8013 | 0.3145 | 0.1449 |
+| R4 strong | **0.8457** | 0.7951 | 0.3145 | 0.1232 |
+| R5 very strong stress | 0.8273 | 0.8090 | 0.3007 | 0.1061 |
+| R6 narrow protection | 0.8248 | 0.8262 | 0.3152 | 0.1324 |
+| R7 wide protection | 0.8385 | 0.8141 | 0.3168 | **0.1472** |
+
+R4 was selected as the best R1-R5 validation configuration. R6 and R7 were then run from the R4 severity settings with protection expansion `1.5` and `5.0` respectively. The corrected sweep is therefore now a valid single-pass parameter screen, while the earlier HF sweep remains a historical legacy double-OACP screen.
+
 ## Final conclusion
 
-The unexpectedly strong historical OACP results were not caused only by the nominal parameter values. They were produced under an accidental double-OACP training distribution. The corrected pipeline changes the experiment definition. Therefore the old seven-run sweep must be rerun if its purpose is to identify the best parameters for corrected single-pass OACP.
+The unexpectedly strong historical OACP results were not caused only by the nominal parameter values. They were produced under an accidental double-OACP training distribution. The corrected pipeline changes the experiment definition.
+
+The seven-run corrected sweep is now complete. Based on validation mAP50, the current corrected single-pass candidate is **R4 strong**. Based on test mAP50, R2 is highest among R1-R5/R6-R7, while R7 gives the highest test AP75. These are single-seed screening results and should not be treated as a final multi-seed claim without follow-up confirmation.
