@@ -118,3 +118,23 @@ def test_prepare_seed_dataset_splits_by_original_file(tmp_path: Path) -> None:
     val_names = {item["file_name"] for item in manifest["val"]}
     assert train_names.isdisjoint(val_names)
     assert train_names | val_names == {"labeled_images/a.jpg", "labeled_images/b.jpg"}
+
+
+def test_default_training_settings_are_strict_no_oacp_no_mosaic() -> None:
+    args = tiny.parse_args([])
+    assert args.variants == [tiny.STRICT_BASELINE_VARIANT]
+    assert args.patience == 0
+    assert tiny.TRAIN_AUGMENTATION["mosaic"] == 0.0
+    assert tiny.TRAIN_AUGMENTATION["close_mosaic"] == 0
+    assert tiny.effective_settings(args, tiny.STRICT_BASELINE_VARIANT, 42)["context_augmentation"] == "none"
+
+
+def test_oacp_variant_is_rejected_by_strict_confirmation() -> None:
+    args = tiny.parse_args(["--variants", "yolov8n_p2p3p4_plain_oacp"])
+    settings = tiny.effective_settings(args, "yolov8n_p2p3p4_plain_oacp", 42)
+    try:
+        tiny.validate_confirmed_settings(settings)
+    except ValueError as exc:
+        assert "OACP" in str(exc)
+    else:
+        raise AssertionError("OACP variant must not pass strict baseline confirmation")

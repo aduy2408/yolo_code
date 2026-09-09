@@ -2,6 +2,31 @@
 
 Runner: `train_all_tinyperson_yolo_baselines.py`
 
+## Required settings review before training
+
+For the YOLOv8n TinyPerson P2/P3/P4 strict baseline, use
+`train_all_tinyperson.py`. It now fails closed until the complete effective
+configuration is printed and explicitly reviewed. The strict baseline has no
+OACP/context augmentation and no Mosaic:
+
+```bash
+/tmp/uv-venv/bin/python train_all_tinyperson.py \
+  --data-root /marimo/TinyPerson \
+  --dataset-root /marimo/yolo_code/datasets \
+  --project /marimo/yolo_code/runs/tinyperson_yolov8n_p2p4_nomosaic \
+  --epochs 100 --patience 0 --imgsz 640 --batch-size 8 --workers 4 \
+  --device cuda --seeds 42 --split-seed 42 \
+  --variants yolov8n_p2p3p4_plain \
+  --hf-repo-id duyle2408/tinyperson-yolov8n-baselines \
+  --print-effective-config
+```
+
+Review every printed field, especially `variant`, `context_augmentation`,
+`augmentation`, seeds, optimizer schedule, NMS IoU, dataset paths, upload
+repository, and resource settings. Only after confirmation should the same
+command be rerun with `--confirm-settings` instead of
+`--print-effective-config`. OACP variants are rejected by this strict gate.
+
 This matrix uses the existing TinyPerson preprocessing and evaluation code in
 `train_all_tinyperson.py`. Each run uses the official corner windows, a
 source-image-grouped 90/10 split, validation plus corner-window merged test,

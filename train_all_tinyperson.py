@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import random
@@ -21,6 +22,7 @@ ULTRALYTICS = ROOT / "models_related/ultralytics"
 CONFIGS = {
     "yolov8n_base": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_base.yaml",
     "yolov8n_p2p3_plain_gap": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3_plain_gap.yaml",
+    "yolov8n_p2p3p4_plain": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3p4_plain.yaml",
     "yolov8n_p2p3p4_plain_oacp": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3p4_plain.yaml",
 }
 
@@ -42,7 +44,32 @@ VARIANTS = {
     "yolov8n_p2p3p4_plain_oacp": {
         "factorized_tal_target": False,
     },
+    "yolov8n_p2p3p4_plain": {
+        "factorized_tal_target": False,
+    },
 }
+
+TRAIN_AUGMENTATION = {
+    "mosaic": 0.0,
+    "close_mosaic": 0,
+    "mixup": 0.0,
+    "copy_paste": 0.0,
+    "degrees": 0.0,
+    "translate": 0.1,
+    "scale": 0.5,
+    "shear": 0.0,
+    "perspective": 0.0,
+    "flipud": 0.0,
+    "fliplr": 0.5,
+    "bgr": 0.0,
+    "hsv_h": 0.015,
+    "hsv_s": 0.7,
+    "hsv_v": 0.4,
+    "auto_augment": "randaugment",
+    "erasing": 0.4,
+}
+
+STRICT_BASELINE_VARIANT = "yolov8n_p2p3p4_plain"
 
 REQUIRED = (
     "weights/best.pt",
@@ -511,12 +538,11 @@ def train(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace) ->
         seed=seed,
         deterministic=True,
         amp=True,
-        mosaic=0.0,
-        close_mosaic=0,
         plots=False,
         project=str(args.project / variant),
         name=f"seed_{seed}_corner_sw640_sh512",
         exist_ok=True,
+        **TRAIN_AUGMENTATION,
         **VARIANTS[variant],
     )
     if not training_complete(run_dir, args.epochs):
@@ -586,8 +612,7 @@ def write_metadata(variant: str, run_dir: Path, seed: int, data_yaml: Path, args
         "imgsz": args.imgsz,
         "batch_size": args.batch_size,
         "workers": args.workers,
-        "mosaic": 0.0,
-        "close_mosaic": 0,
+        "augmentation": TRAIN_AUGMENTATION,
         "deterministic": True,
         "nms_iou": 0.5,
         "factorized_tal": VARIANTS[variant],
@@ -626,6 +651,64 @@ def write_summaries(args: argparse.Namespace) -> None:
     (args.project / "summary_aggregate.json").write_text(json.dumps(aggregate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dict:
+    config_path = CONFIGS[variant]
+    config_text = config_path.read_text(encoding="utf-8")
+    return {
+        "variant": variant,
+        "seed": seed,
+        "split_seed": args.split_seed,
+        "model_config": str(config_path),
+        "model_config_sha256": hashlib.sha256(config_text.encode("utf-8")).hexdigest(),
+        "data_root": str(args.data_root),
+        "dataset_root": str(args.dataset_root),
+        "project": str(args.project),
+        "epochs": args.epochs,
+        "patience": args.patience,
+        "imgsz": args.imgsz,
+        "batch_size": args.batch_size,
+        "workers": args.workers,
+        "device": args.device,
+        "deterministic": True,
+        "amp": True,
+        "nms_iou": 0.5,
+        "context_augmentation": "oacp" if variant.endswith("_oacp") else "none",
+        "factorized_tal": VARIANTS[variant],
+        "augmentation": dict(TRAIN_AUGMENTATION),
+        "upload_required": not args.skip_upload,
+        "hf_repo_id": args.hf_repo_id if not args.skip_upload else None,
+    }
+
+
+def validate_confirmed_settings(settings: dict) -> None:
+    failures = []
+    if settings["variant"] != STRICT_BASELINE_VARIANT:
+        failures.append(f"variant must be {STRICT_BASELINE_VARIANT!r}")
+    if settings["context_augmentation"] != "none":
+        failures.append("context_augmentation must be 'none' (OACP disabled)")
+    if settings["augmentation"]["mosaic"] != 0.0:
+        failures.append("mosaic must be 0.0")
+    if settings["augmentation"]["close_mosaic"] != 0:
+        failures.append("close_mosaic must be 0")
+    if settings["nms_iou"] != 0.5:
+        failures.append("nms_iou must be 0.5")
+    if settings["split_seed"] != 42:
+        failures.append("split_seed must remain fixed at 42")
+    if settings["patience"] != 0:
+        failures.append("patience must be 0 for the full run")
+    if failures:
+        raise ValueError("Strict baseline settings rejected: " + "; ".join(failures))
+
+
+def print_effective_settings(args: argparse.Namespace) -> None:
+    settings = [
+        effective_settings(args, variant, seed)
+        for seed in args.seeds
+        for variant in args.variants
+    ]
+    print(json.dumps({"runs": settings, "confirmation_required": True}, indent=2, sort_keys=True))
+
+
 def complete(run_dir: Path) -> bool:
     return all((run_dir / path).is_file() for path in REQUIRED)
 
@@ -641,13 +724,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--patience", type=int, default=20)
+    parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--hf-repo-id", default="duyle2408/tinyperson-yolov8n-baselines")
     parser.add_argument("--skip-upload", action="store_true", help="Do not upload runs to Hugging Face")
     parser.add_argument("--prepare-only", action="store_true", help="Prepare and validate corner datasets, then exit")
+    parser.add_argument("--print-effective-config", action="store_true", help="Print every effective run setting and exit")
+    parser.add_argument("--confirm-settings", action="store_true", help="Confirm the printed settings and allow training")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
     parser.add_argument("--split-seed", type=int, default=42)
-    parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS))
+    parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=[STRICT_BASELINE_VARIANT])
     return parser.parse_args(argv)
 
 
@@ -658,6 +743,25 @@ def main() -> None:
         args.dataset_root.resolve(),
         args.project.resolve(),
     )
+
+    if args.print_effective_config:
+        print_effective_settings(args)
+        return
+    if args.prepare_only:
+        # Dataset preparation does not train and does not require settings
+        # confirmation.
+        pass
+    elif not args.confirm_settings:
+        raise RuntimeError(
+            "Refusing to train without settings confirmation. First run with "
+            "--print-effective-config, review every field, then add --confirm-settings."
+        )
+    else:
+        for seed in args.seeds:
+            validate_confirmed_settings(effective_settings(args, args.variants[0], seed))
+            for variant in args.variants[1:]:
+                validate_confirmed_settings(effective_settings(args, variant, seed))
+
     uploader = None if args.skip_upload or args.prepare_only else Uploader(args.hf_repo_id)
 
     # 1. Prepare test set (shared across seeds)
