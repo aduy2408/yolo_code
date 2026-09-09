@@ -106,7 +106,7 @@ def run(a):
         if not (run / "manifest.json").is_file():
             (run / "manifest.json").write_text(json.dumps({"experiment": name, "config": str(config), "augmentation": aug, "augmentation_config": augmentation_config(), "mosaic": getattr(a, "mosaic", 1.0), "close_mosaic": getattr(a, "close_mosaic", 10), "deterministic": getattr(a, "deterministic", True), "api": extra.get("api", False), "api_target_mode": "boxgrad" if "boxgrad" in str(config) else ("foreground" if extra.get("api") else None), "ftal": extra.get("ftal", False), "deep_supervision": extra.get("deep_sup", False), "legacy_api": extra.get("legacy_api", False), "reg_weight_mode": extra.get("reg_weight_mode", "q"), "commit_sha": sha, "seed": a.seed, "split_seed": split_seed, "split": ["val", "test"], "nms_iou": .5, "epochs": a.epochs, "patience": a.patience, "hf_repo_id": a.hf_repo_id}, indent=2) + "\n")
         if not _has(run, REQUIRED):
-            model = YOLO(str(config)); model.load("yolov8n.pt", smart_transfer=True)
+            model = YOLO(str(config)); model.load(os.environ.get("YOLO_CHECKPOINT", "yolov8n.pt"), smart_transfer=True)
             kwargs = dict(data=str(data), epochs=a.epochs, patience=a.patience, imgsz=a.imgsz, batch=a.batch_size, device=a.device, workers=a.workers, amp=a.amp, seed=a.seed, deterministic=getattr(a, "deterministic", True), project=str(a.project), name=name, exist_ok=True, mosaic=getattr(a, "mosaic", 1.0), close_mosaic=getattr(a, "close_mosaic", 10))
             if extra.get("ftal"): kwargs.update(FTAL)
             if extra.get("deep_sup"): kwargs["p2_deep_sup_gain"] = 1.0

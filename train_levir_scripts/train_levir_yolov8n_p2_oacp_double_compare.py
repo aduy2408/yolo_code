@@ -45,12 +45,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--checkpoint", type=Path, default=Path("yolov8n.pt"))
     parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=True)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    os.environ["YOLO_CHECKPOINT"] = str(args.checkpoint)
     matrix.require_training_context(hf_repo_id=args.hf_repo_id)
     for name, probability, mosaic, close_mosaic in VARIANTS:
         os.environ["OACP_P"] = probability
