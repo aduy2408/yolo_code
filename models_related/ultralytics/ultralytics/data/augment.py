@@ -3012,6 +3012,8 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
         elif flip_idx and (len(flip_idx) != kpt_shape[0]):
             raise ValueError(f"data.yaml flip_idx={flip_idx} length must be equal to kpt_shape[0]={kpt_shape[0]}")
 
+    # OACP insertion point A: this transform is part of normal_pipeline.
+    # Any caller that runs normal_pipeline() applies OACP here.
     context_aug = build_context_augment(dataset)
     return Compose(
         [
@@ -3096,11 +3098,11 @@ class AlternatePartialClipPipeline:
         import os
         import random
 
-        # LEGACY OACP FLOW: keep this first application for historical
-        # comparability. The regular branch below calls normal_pipeline(),
-        # whose v8_transforms() also contains context_augment, so OACP runs
-        # twice there. This is intentionally preserved for legacy runs whose
-        # unexpectedly strong result came from that double application.
+        # OACP insertion point B: the wrapper applies OACP once before routing.
+        # The regular route then calls normal_pipeline(), which reaches
+        # insertion point A above. Therefore the original regular flow is:
+        #   wrapper OACP -> normal_pipeline -> v8_transforms OACP
+        # Keep this legacy double-OACP behavior for historical comparability.
         if self.context_augment is not None:
             labels = self.context_augment(labels)
 
@@ -3114,9 +3116,9 @@ class AlternatePartialClipPipeline:
             or self.resolution_enabled
         )
         if custom:
-            # Keep the second explicit application in the legacy custom path.
-            # The corrected single-pass path is available in the dedicated
-            # comparison runner; do not silently change this historical flow.
+            # Custom routes bypass normal_pipeline(), so the second OACP call
+            # is explicit here instead. This preserves the legacy two-call
+            # behavior for those routes as well.
             if self.context_augment is not None:
                 labels = self.context_augment(labels)
             # Late clean tail: use the canonical Mosaic -> RandomPerspective path
