@@ -40,6 +40,14 @@ is not completion evidence by itself.
   probe the Marimo URL through a browser as a substitute for that connection.
   Browser interaction is out of scope unless the user explicitly requests it.
 - Prefer Git synchronization over direct file patching on `/marimo`.
+- If the expected checkout is absent on Marimo, clone the repository into the
+  expected path, fetch the requested commit, and check out that exact SHA before
+  declaring the runtime blocked. Do not assume `/marimo` is pre-populated.
+- Before declaring a dataset missing, search the normal mounted locations and
+  existing experiment workspaces on Marimo (including `/marimo`, `/data`, and
+  `/mnt/data`) and inspect the dataset manifest/config. Datasets are commonly
+  provisioned separately from the Git checkout and should be reused when they
+  match the requested split and provenance.
 - Never print, echo, commit, or store auth tokens in notebook cells, logs, or
   process arguments. Pass them through the live kernel environment to the
   detached child process.
