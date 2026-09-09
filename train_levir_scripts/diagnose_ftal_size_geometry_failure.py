@@ -60,6 +60,18 @@ def finite_corr(a: list[float], b: list[float]) -> float | None:
     return float(np.corrcoef(x[mask], y[mask])[0, 1])
 
 
+def nwd_similarity(boxes: torch.Tensor, gt: torch.Tensor, c: float) -> torch.Tensor:
+    """Normalized Gaussian Wasserstein similarity for xyxy boxes in pixels."""
+    pred_xywh = torch.stack(
+        ((boxes[:, 0] + boxes[:, 2]) / 2, (boxes[:, 1] + boxes[:, 3]) / 2,
+         boxes[:, 2] - boxes[:, 0], boxes[:, 3] - boxes[:, 1]), dim=1
+    )
+    gt_xywh = torch.stack(((gt[0] + gt[2]) / 2, (gt[1] + gt[3]) / 2, gt[2] - gt[0], gt[3] - gt[1]))
+    w2 = (pred_xywh[:, :2] - gt_xywh[:2]).square().sum(1)
+    w2 = w2 + 0.25 * (pred_xywh[:, 2:] - gt_xywh[2:]).square().sum(1)
+    return torch.exp(-torch.sqrt(w2.clamp_min(0)) / max(c, 1e-6))
+
+
 def actual_matches(wrapper: YOLO, image: Path, args: argparse.Namespace) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     result = wrapper.predict(
         source=str(image), imgsz=args.imgsz, device=args.device, conf=args.conf,
@@ -129,6 +141,10 @@ def inspect_checkpoint(checkpoint: Path, images: list[Path], args: argparse.Name
             candidate_boxes = pred_pixel[0, :n_p2][group]
             if len(q):
                 ious = box_iou(candidate_boxes, gt.unsqueeze(0)).view(-1)
+                nwd = nwd_similarity(candidate_boxes, gt, args.nwd_c)
+                cls_prob = pred_scores[0, :n_p2][group, int(gt_cls)].sigmoid()
+                current_alignment = cls_prob.pow(args.tal_alpha) * ious.clamp_min(0).pow(args.tal_beta)
+                nwd_alignment = cls_prob.pow(args.tal_alpha) * nwd.pow(args.tal_beta)
                 ciou = bbox_iou(candidate_boxes, gt.unsqueeze(0).expand_as(candidate_boxes), xywh=False, CIoU=True).view(-1).clamp(-1, 1)
                 raw_box = 1.0 - ciou
                 candidate_anchors = (anchor_points * stride_tensor)[:n_p2][group]
@@ -138,6 +154,7 @@ def inspect_checkpoint(checkpoint: Path, images: list[Path], args: argparse.Name
                 ).mean(-1)
                 topq = int(q.argmax())
                 oracle = int(ious.argmax())
+                top_nwd = int(nwd_alignment.argmax())
                 mass = q.sum().clamp_min(1e-12)
                 weighted_box = float((q * raw_box).sum() / mass)
                 weighted_dfl = float((q * raw_dfl).sum() / mass)
@@ -150,9 +167,14 @@ def inspect_checkpoint(checkpoint: Path, images: list[Path], args: argparse.Name
                 qmax_norm_mass = float((q / qmax).sum().item())
                 raw_box_mean = float(raw_box.mean())
                 raw_dfl_mean = float(raw_dfl.mean())
+                top_nwd_iou = float(ious[top_nwd])
+                oracle_nwd = float(nwd.max())
+                top_current_iou = float(ious[int(current_alignment.argmax())])
+                mean_nwd = float(nwd.mean())
             else:
                 oracle_iou = topq_iou = mean_iou = qmax = q_mass = q_mean = qmax_norm_mass = 0.0
                 weighted_box = weighted_dfl = raw_box_mean = raw_dfl_mean = 0.0
+                top_nwd_iou = oracle_nwd = top_current_iou = mean_nwd = 0.0
             keep = det_cls == int(gt_cls)
             if keep.any():
                 matched_ious = box_iou(det_boxes[keep], gt_bboxes[0, gt_idx].detach().float().cpu().view(1, 4)).view(-1)
@@ -168,6 +190,8 @@ def inspect_checkpoint(checkpoint: Path, images: list[Path], args: argparse.Name
                 "support_count": int(len(q)), "target_mass": q_mass, "q_mean": q_mean, "q_max": qmax,
                 "qmax_normalized_mass": qmax_norm_mass, "n_eff": float(q.square().sum().reciprocal() * q_mass**2) if len(q) else 0.0,
                 "oracle_iou": oracle_iou, "topq_iou": topq_iou, "mean_support_iou": mean_iou,
+                "oracle_nwd": oracle_nwd, "top_nwd_iou": top_nwd_iou, "top_current_iou": top_current_iou,
+                "mean_support_nwd": mean_nwd, "nwd_iou_gap": mean_nwd - mean_iou,
                 "oracle_error": 1.0 - oracle_iou, "topq_regret": oracle_iou - topq_iou,
                 "raw_box_error_mean": raw_box_mean, "q_weighted_box_error": weighted_box,
                 "raw_dfl_error_mean": raw_dfl_mean, "q_weighted_dfl_error": weighted_dfl,
@@ -184,7 +208,7 @@ def inspect_checkpoint(checkpoint: Path, images: list[Path], args: argparse.Name
 def aggregate(rows: list[dict[str, object]], key: str) -> dict[str, object]:
     selected = [row for row in rows if key == "all" or row["size_group"] == key]
     out: dict[str, object] = {"gt": len(selected)}
-    metrics = ["support_count", "target_mass", "q_mean", "q_max", "qmax_normalized_mass", "n_eff", "oracle_iou", "topq_iou", "mean_support_iou", "oracle_error", "topq_regret", "raw_box_error_mean", "q_weighted_box_error", "raw_dfl_error_mean", "q_weighted_dfl_error", "actual_best_iou", "actual_best_conf"]
+    metrics = ["support_count", "target_mass", "q_mean", "q_max", "qmax_normalized_mass", "n_eff", "oracle_iou", "topq_iou", "mean_support_iou", "oracle_nwd", "top_nwd_iou", "top_current_iou", "mean_support_nwd", "nwd_iou_gap", "oracle_error", "topq_regret", "raw_box_error_mean", "q_weighted_box_error", "raw_dfl_error_mean", "q_weighted_dfl_error", "actual_best_iou", "actual_best_conf"]
     for metric in metrics:
         values = np.asarray([float(row[metric]) for row in selected], dtype=np.float64)
         out[f"{metric}_mean"] = float(values.mean()) if len(values) else None
@@ -206,6 +230,9 @@ def main() -> None:
     parser.add_argument("--expected-seed", type=int, default=43)
     parser.add_argument("--conf", type=float, default=0.001)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--nwd-c", type=float, default=12.8)
+    parser.add_argument("--tal-alpha", type=float, default=0.5)
+    parser.add_argument("--tal-beta", type=float, default=6.0)
     args = parser.parse_args()
     args.torch_device = f"cuda:{args.device}" if str(args.device).isdigit() else args.device
     images_dir = args.dataset_root / "levir_ship_yolo_seed42/images/test"
