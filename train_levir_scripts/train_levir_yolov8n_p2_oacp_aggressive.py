@@ -39,8 +39,9 @@ def _args() -> argparse.Namespace:
     p.add_argument("--imgsz", type=int, default=512)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--device", default="0")
-    p.add_argument("--workers", type=int, default=0)
+    p.add_argument("--workers", type=int, default=4)
     p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--only", nargs="+", choices=[*SCREEN, "R6_narrow_protection", "R7_wide_protection"])
     p.add_argument("--selected-from", choices=list(SCREEN), help="Severity source for standalone R6/R7 continuation runs.")
     return p.parse_args()
@@ -54,7 +55,7 @@ def _run_args(a: argparse.Namespace, name: str) -> argparse.Namespace:
         seed=a.seed, split_seed=a.split_seed, epochs=a.epochs, patience=a.patience,
         imgsz=a.imgsz, batch_size=a.batch_size, device=a.device,
         workers=a.workers, amp=a.amp,
-        mosaic=0.0, close_mosaic=0, deterministic=False,
+        mosaic=0.0, close_mosaic=0, deterministic=a.deterministic,
     )
 
 
