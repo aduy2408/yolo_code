@@ -149,8 +149,42 @@ def test_spacing_adaptive_retains_context_for_close_objects():
     )
     assert close_records[0]["nearest_gap"] == 0.0
     assert close_expands[0] == pytest.approx(3.0)
-    assert isolated_records[0]["nearest_gap"] == float("inf")
+    assert isolated_records[0]["nearest_gap"] is None
+    assert isolated_records[0]["isolated"] is True
     assert isolated_expands[0] == pytest.approx(1.2)
+
+
+def test_spacing_diagnostics_use_strict_json_for_isolated_object():
+    stats = oacp_diagnostics(
+        (96, 96), np.asarray([[44, 44, 52, 52]], dtype=np.float32), "spacing_adaptive"
+    )
+    assert stats["mean_nearest_distance_norm"] is None
+    assert stats["spacing_objects"][0]["nearest_gap"] is None
+    assert stats["spacing_objects"][0]["normalized_spacing"] is None
+    assert stats["spacing_objects"][0]["isolated"] is True
+    encoded = __import__("json").dumps(stats, allow_nan=False)
+    assert __import__("json").loads(encoded)["spacing_objects"][0]["isolated"] is True
+
+
+def test_spacing_transform_honors_fixed_budget(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_VARIANT", "spacing_adaptive")
+    monkeypatch.setenv("OACP_P", "1.0")
+    monkeypatch.setenv("OACP_BUDGET_MIN", "0.4")
+    monkeypatch.setenv("OACP_BUDGET_MAX", "0.4")
+    log = tmp_path / "spacing.jsonl"
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    img = np.random.default_rng(31).integers(20, 100, (128, 128, 3), dtype=np.uint8)
+    out = OACP(p=1.0)({
+        "img": img,
+        "bboxes": np.asarray([[0.5, 0.5, 8 / 128, 8 / 128]], dtype=np.float32),
+    })
+    assert out["img"].shape == img.shape
+    record = __import__("json").loads(log.read_text().strip(), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+    assert record["budget_fraction_of_valid_bg"] == pytest.approx(0.4)
+    assert record["actual_perturbed_area_ratio_image"] == pytest.approx(
+        record["target_perturbed_area_ratio_image"], abs=1 / (128 * 128)
+    )
+    assert record["actual_perturbed_area_ratio_image"] < record["perturbable_area_ratio"]
 
 
 @pytest.mark.parametrize("variant", ["mass_adaptive", "load_adaptive", "spacing_adaptive"])

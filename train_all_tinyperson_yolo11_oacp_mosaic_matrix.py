@@ -60,6 +60,33 @@ GEOMETRY_VARIANTS = {
         "close_mosaic": 10, "oacp_variant": "density",
         "oacp": {"p": 0.20, "expand": 3.0, "strength": [0.20, 0.40], "scale": [0.65, 0.85]},
     },
+    "mass_adaptive_oacp_mosaic": {
+        "mode": "oacp", "legacy_double_oacp": False, "mosaic": 1.0,
+        "close_mosaic": 10, "oacp_variant": "mass_adaptive",
+        "oacp": {
+            "p": 0.20, "expand": 3.0, "strength": [0.20, 0.40], "scale": [0.65, 0.85],
+            "budget": [0.30, 0.60], "mass_target": [0.25, 0.40],
+            "adaptive_budget": [0.20, 0.70],
+        },
+    },
+    "load_adaptive_oacp_mosaic": {
+        "mode": "oacp", "legacy_double_oacp": False, "mosaic": 1.0,
+        "close_mosaic": 10, "oacp_variant": "load_adaptive",
+        "oacp": {
+            "p": 0.20, "expand": 3.0, "strength": [0.20, 0.40], "scale": [0.65, 0.85],
+            "budget": [0.30, 0.60], "mass_target": [0.25, 0.40],
+            "adaptive_budget": [0.20, 0.70], "load_saturation": 10,
+        },
+    },
+    "spacing_adaptive_oacp_mosaic": {
+        "mode": "oacp", "legacy_double_oacp": False, "mosaic": 1.0,
+        "close_mosaic": 10, "oacp_variant": "spacing_adaptive",
+        "oacp": {
+            "p": 0.20, "expand": 3.0, "strength": [0.20, 0.40], "scale": [0.65, 0.85],
+            "budget": [0.30, 0.60], "spacing_near": 1.0, "spacing_far": 6.0,
+            "spacing_expand": [1.2, 3.0],
+        },
+    },
 }
 ALL_VARIANTS = {**VARIANTS, **GEOMETRY_VARIANTS}
 TRAIN_AUGMENTATION = {
@@ -133,7 +160,15 @@ def complete(run_dir: Path) -> bool:
 def configure_environment(variant: str) -> None:
     spec = ALL_VARIANTS[variant]
     oacp = spec["oacp"]
-    os.environ.update({
+    for key in (
+        "OACP_BUDGET_MIN", "OACP_BUDGET_MAX", "OACP_MASS_TARGET_MIN",
+        "OACP_MASS_TARGET_MAX", "OACP_ADAPTIVE_BUDGET_MIN",
+        "OACP_ADAPTIVE_BUDGET_MAX", "OACP_LOAD_SATURATION_COUNT",
+        "OACP_SPACING_NEAR", "OACP_SPACING_FAR", "OACP_SPACING_EXPAND_MIN",
+        "OACP_SPACING_EXPAND_MAX",
+    ):
+        os.environ.pop(key, None)
+    env = {
         "YOLO_CONTEXT_AUG": "oacp",
         "YOLO_LEGACY_DOUBLE_OACP": "1" if spec["legacy_double_oacp"] else "0",
         "OACP_P": str(oacp["p"]), "OACP_PROTECTED_EXPAND": str(oacp["expand"]),
@@ -142,7 +177,23 @@ def configure_environment(variant: str) -> None:
         "OACP_VARIANT": spec.get("oacp_variant", "current"),
         "OACP_SWEEP_LABEL": variant,
         "YOLO_VARIANT": f"tinyperson_yolo11_{variant}",
-    })
+    }
+    if "budget" in oacp:
+        env.update({"OACP_BUDGET_MIN": str(oacp["budget"][0]), "OACP_BUDGET_MAX": str(oacp["budget"][1])})
+    if "mass_target" in oacp:
+        env.update({"OACP_MASS_TARGET_MIN": str(oacp["mass_target"][0]), "OACP_MASS_TARGET_MAX": str(oacp["mass_target"][1])})
+    if "adaptive_budget" in oacp:
+        env.update({"OACP_ADAPTIVE_BUDGET_MIN": str(oacp["adaptive_budget"][0]), "OACP_ADAPTIVE_BUDGET_MAX": str(oacp["adaptive_budget"][1])})
+    if "load_saturation" in oacp:
+        env["OACP_LOAD_SATURATION_COUNT"] = str(oacp["load_saturation"])
+    if "spacing_near" in oacp:
+        env.update({
+            "OACP_SPACING_NEAR": str(oacp["spacing_near"]),
+            "OACP_SPACING_FAR": str(oacp["spacing_far"]),
+            "OACP_SPACING_EXPAND_MIN": str(oacp["spacing_expand"][0]),
+            "OACP_SPACING_EXPAND_MAX": str(oacp["spacing_expand"][1]),
+        })
+    os.environ.update(env)
 
 
 def train_one(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace) -> Path:

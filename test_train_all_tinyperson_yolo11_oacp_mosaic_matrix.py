@@ -47,3 +47,22 @@ def test_geometry_variants_are_explicit_and_recorded():
         runner.validate_settings(settings)
         runner.configure_environment(name)
         assert __import__('os').environ['OACP_VARIANT'] == expected
+
+
+def test_adaptive_geometry_variants_record_parameters_and_environment():
+    args = _args()
+    expected = {
+        'mass_adaptive_oacp_mosaic': 'mass_adaptive',
+        'load_adaptive_oacp_mosaic': 'load_adaptive',
+        'spacing_adaptive_oacp_mosaic': 'spacing_adaptive',
+    }
+    for name, variant in expected.items():
+        settings = runner.effective_settings(args, name, 42)
+        assert settings['augmentation']['oacp_variant'] == variant
+        runner.validate_settings(settings)
+        runner.configure_environment(name)
+        assert __import__('os').environ['OACP_VARIANT'] == variant
+        assert settings['augmentation']['oacp']['p'] == 0.20
+    assert runner.GEOMETRY_VARIANTS['mass_adaptive_oacp_mosaic']['oacp']['mass_target'] == [0.25, 0.40]
+    assert runner.GEOMETRY_VARIANTS['load_adaptive_oacp_mosaic']['oacp']['load_saturation'] == 10
+    assert runner.GEOMETRY_VARIANTS['spacing_adaptive_oacp_mosaic']['oacp']['spacing_expand'] == [1.2, 3.0]

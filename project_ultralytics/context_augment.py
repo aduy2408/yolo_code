@@ -175,11 +175,11 @@ def _spacing_adaptive_expands(
     far_spacing: float,
     expand_min: float,
     expand_max: float,
-) -> tuple[np.ndarray, list[dict[str, float]]]:
+) -> tuple[np.ndarray, list[dict[str, Any]]]:
     """Choose per-object context retention from normalized nearest spacing."""
     boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
     eligible_indices = np.asarray(eligible_indices, dtype=np.int64).reshape(-1)
-    records: list[dict[str, float]] = []
+    records: list[dict[str, Any]] = []
     expands = np.empty(len(eligible_indices), dtype=np.float32)
     denominator = max(float(far_spacing - near_spacing), 1e-8)
 
@@ -193,10 +193,12 @@ def _spacing_adaptive_expands(
         if len(other_indices):
             nearest_gap = min(_bbox_edge_distance(box, boxes[j]) for j in other_indices)
             normalized_spacing = nearest_gap / (scale + 1e-8)
+            isolated = False
         else:
             # An isolated single object is explicitly treated as far away.
             nearest_gap = float("inf")
             normalized_spacing = float("inf")
+            isolated = True
         retention = 1.0 - float(np.clip(
             (normalized_spacing - near_spacing) / denominator, 0.0, 1.0
         ))
@@ -204,8 +206,9 @@ def _spacing_adaptive_expands(
         expands[out_index] = expand
         records.append({
             "object_size": scale,
-            "nearest_gap": nearest_gap,
-            "normalized_spacing": normalized_spacing,
+            "nearest_gap": None if isolated else nearest_gap,
+            "normalized_spacing": None if isolated else normalized_spacing,
+            "isolated": isolated,
             "retention": retention,
             "expand": expand,
         })
@@ -389,7 +392,7 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         np.maximum(0, boxes[:, 2] - boxes[:, 0])
         * np.maximum(0, boxes[:, 3] - boxes[:, 1])
     ) if len(boxes) else np.empty(0)
-    spacing_records: list[dict[str, float]] = []
+    spacing_records: list[dict[str, Any]] = []
     if variant == "spacing_adaptive" and len(tiny):
         spacing = cfg["oacp_spacing"]
         _, spacing_records = _spacing_adaptive_expands(
@@ -400,7 +403,10 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
             expand_min=spacing["expand_min"],
             expand_max=spacing["expand_max"],
         )
-    normalized_spacings = [r["normalized_spacing"] for r in spacing_records]
+    normalized_spacings = [
+        r["normalized_spacing"] for r in spacing_records
+        if r["normalized_spacing"] is not None
+    ]
     adaptive_expands = [r["expand"] for r in spacing_records]
     return {
         "variant": variant,
@@ -419,8 +425,8 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "budget_clipped": budget_clipped,
         "num_eligible": num_eligible,
         "object_load": object_load,
-        "mean_nearest_distance_norm": float(np.mean(normalized_spacings)) if normalized_spacings else 0.0,
-        "median_nearest_distance_norm": float(np.median(normalized_spacings)) if normalized_spacings else 0.0,
+        "mean_nearest_distance_norm": float(np.mean(normalized_spacings)) if normalized_spacings else None,
+        "median_nearest_distance_norm": float(np.median(normalized_spacings)) if normalized_spacings else None,
         "mean_adaptive_expand": float(np.mean(adaptive_expands)) if adaptive_expands else 0.0,
         "min_adaptive_expand": float(np.min(adaptive_expands)) if adaptive_expands else 0.0,
         "max_adaptive_expand": float(np.max(adaptive_expands)) if adaptive_expands else 0.0,
@@ -503,7 +509,9 @@ class OACP:
             _record_oacp_diagnostics(labels, diagnostics)
             return labels
         mask = _far_mask(protected, h, w)
-        if variant in {"budget", "density", "mass_adaptive", "load_adaptive"}:
+        if variant in {
+            "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"
+        }:
             selected = np.zeros((h, w), np.uint8)
             available = protected == 0
             count = int(round(float(budget) * float(available.sum())))
