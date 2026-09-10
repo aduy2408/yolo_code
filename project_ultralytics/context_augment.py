@@ -121,7 +121,10 @@ def _density_adaptive_expand(boxes: np.ndarray, h: int, w: int) -> tuple[float, 
     cfg = augmentation_config()
     if not len(boxes):
         return cfg["protected_expand"], 0.0, 0.0
+    sizes = np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1]))
+    tiny = boxes[sizes < AUG_CONFIG["object_max_size"]]
     gt_mask = _mask_from_boxes(boxes, h, w, 1.0)
+    safety = _mask_from_boxes(boxes, h, w, AUG_CONFIG["safety_expand"]).astype(bool)
     occupancy = float(gt_mask.mean())
     # Dense scenes receive a smaller context target. Search the actual union
     # mask rather than scaling each box independently, so overlapping GTs are
@@ -133,7 +136,10 @@ def _density_adaptive_expand(boxes: np.ndarray, h: int, w: int) -> tuple[float, 
     candidates = np.linspace(
         cfg["oacp_density_expand_min"], cfg["oacp_density_expand_max"], 25
     )
-    coverages = np.asarray([_mask_from_boxes(boxes, h, w, float(exp)).mean() for exp in candidates])
+    coverages = np.asarray([
+        (safety | _mask_from_boxes(tiny, h, w, float(exp)).astype(bool)).mean()
+        for exp in candidates
+    ])
     index = int(np.argmin(np.abs(coverages - target)))
     return float(candidates[index]), occupancy, target
 
@@ -146,9 +152,12 @@ def _protection_for_variant(boxes: np.ndarray, h: int, w: int, variant: str) -> 
     target = 0.0
     if variant == "density":
         expand, occupancy, target = _density_adaptive_expand(boxes, h, w)
-    # Protect the union around every GT. The exact GT mask is tracked
-    # separately and is always excluded from perturbation.
-    protected = _mask_from_boxes(boxes, h, w, expand)
+        protected = _mask_from_boxes(boxes, h, w, AUG_CONFIG["safety_expand"]).astype(bool)
+        protected |= _mask_from_boxes(tiny, h, w, expand).astype(bool)
+    else:
+        # Preserve the historical OACP control exactly: tiny objects get the
+        # configured context expansion, while every GT receives safety cover.
+        protected, tiny = _protection(boxes, h, w)
     return protected.astype(np.uint8), tiny, float(expand), occupancy, target
 
 
@@ -174,14 +183,26 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
     if budget is None:
         budget = float(sum(cfg["oacp_budget"]) / 2.0)
     budget = float(np.clip(budget, 0.0, 1.0))
-    if variant == "current":
+    eligible = bool(len(tiny))
+    would_apply = eligible and protected_ratio <= 0.55
+    if not eligible:
+        skip_reason = "no_eligible_tiny"
+    elif protected_ratio > 0.55:
+        skip_reason = "protected_coverage_gt_0.55"
+    else:
+        skip_reason = ""
+    if not would_apply:
+        target_perturb = 0.0
+        perturb = np.zeros((h, w), dtype=np.uint8)
+    elif variant == "current":
         target_perturb = float(available.mean())
         perturb = (far > 0).astype(np.uint8)
     else:
         # Select the farthest valid pixels first. This gives a stable mask for
         # diagnostics and reserves near-object context even in dense scenes.
-        target_perturb = float(np.clip(budget, 0.0, 1.0))
-        count = int(round(target_perturb * h * w))
+        budget = float(np.clip(budget, 0.0, 1.0))
+        target_perturb = float(budget * available.mean())
+        count = int(round(budget * float(available.sum())))
         flat = np.flatnonzero(available)
         if count >= len(flat):
             chosen = flat
@@ -200,9 +221,15 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "protected_area_ratio": protected_ratio,
         "perturbable_area_ratio": float(available.mean()),
         "actual_perturbed_area_ratio": float(perturb.mean()),
+        "actual_perturbed_area_ratio_image": float(perturb.mean()),
         "target_perturbed_area_ratio": target_perturb,
+        "target_perturbed_area_ratio_image": target_perturb,
+        "budget_fraction_of_valid_bg": budget if variant != "current" else 1.0,
         "gt_area_ratio": float(gt_mask.mean()),
         "perturb_gt_overlap_ratio": float((perturb.astype(bool) & gt_mask).mean()),
+        "eligible": eligible,
+        "would_apply": would_apply,
+        "skip_reason": skip_reason,
         "density_occupancy": occupancy,
         "density_target_protected_ratio": density_target,
         "mean_object_size": float(np.mean(np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1])))) if len(boxes) else 0.0,
@@ -255,15 +282,17 @@ class OACP:
         variant = augmentation_config()["oacp_variant"]
         if variant not in {"current", "budget", "density"}:
             raise ValueError(f"unknown OACP_VARIANT: {variant}")
+        budget = random.uniform(*cfg["budget"]) if variant != "current" else None
         protected, tiny, _, _, _ = _protection_for_variant(boxes, h, w, variant)
-        if not len(tiny) or float(protected.mean()) > 0.55:
+        diagnostics = oacp_diagnostics((h, w), boxes, variant=variant, budget=budget)
+        if not diagnostics["would_apply"]:
+            _record_oacp_diagnostics(labels, diagnostics)
             return labels
         mask = _far_mask(protected, h, w)
         if variant in {"budget", "density"}:
-            budget = random.uniform(*cfg["budget"])
             selected = np.zeros((h, w), np.uint8)
             available = protected == 0
-            count = int(round(float(budget) * h * w))
+            count = int(round(float(budget) * float(available.sum())))
             flat = np.flatnonzero(available)
             if count >= len(flat):
                 chosen = flat
@@ -271,14 +300,14 @@ class OACP:
                 chosen = flat[np.argsort(mask.flat[flat])[::-1][:count]] if count else np.empty(0, dtype=np.int64)
             selected.flat[chosen] = 1
             mask *= selected
-        diagnostics = oacp_diagnostics((h, w), boxes, variant=variant,
-                                       budget=budget if variant != "current" else None)
         diagnostics["actual_perturbed_area_ratio"] = float((mask > 0).mean())
-        diagnostics["target_perturbed_area_ratio"] = (
-            float(budget) if variant != "current" else diagnostics["target_perturbed_area_ratio"]
-        )
+        diagnostics["actual_perturbed_area_ratio_image"] = diagnostics["actual_perturbed_area_ratio"]
+        diagnostics["target_perturbed_area_ratio"] = diagnostics["target_perturbed_area_ratio_image"]
+        diagnostics["perturb_gt_overlap_ratio"] = 0.0
         _record_oacp_diagnostics(labels, diagnostics)
-        strength = random.uniform(*cfg["strength"]) * (1.0 - float(protected.mean()))
+        strength = random.uniform(*cfg["strength"])
+        if variant == "current":
+            strength *= 1.0 - float(protected.mean())
         degraded = _resize_degrade(img, random.uniform(*cfg["resolution_scale"]))
         out = img.astype(np.float32) * (1 - strength * mask[..., None]) + degraded.astype(np.float32) * (strength * mask[..., None])
         labels["img"] = np.clip(out, 0, 255).astype(img.dtype)

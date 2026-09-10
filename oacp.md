@@ -197,11 +197,11 @@ The seven-run corrected sweep is now complete. Based on validation mAP50, the cu
 
 The implementation now exposes three geometry policies through `OACP_VARIANT`:
 
-| Variant | Protected context | Perturbation support |
-|---|---|---|
-| `current` | fixed `OACP_PROTECTED_EXPAND` (default `3.0`) | all far background |
-| `budget` | fixed protection | a fixed fraction of valid background, default `0.30` to `0.60` |
-| `density` | expansion decreases with union GT occupancy | the same valid-background budget |
+| Variant | Protected context | Perturbation support | Pixel strength |
+|---|---|---|---|
+| `current` | historical tiny `3x` plus all-GT safety `1.2x` | all far background | historical protection-scaled strength |
+| `budget` | same historical protection | `U(0.30, 0.60)` of valid background | sampled independently of protection |
+| `density` | adaptive tiny expansion plus all-GT safety | `U(0.30, 0.60)` of valid background | sampled independently of protection |
 
 Run the pre-training diagnostic on each dataset before launching any Marimo job:
 
@@ -213,16 +213,20 @@ conda run -n ml2 python -m misc.oacp_geometry_diagnostics \
   --output <diagnostics-dir>/levir_ship.jsonl
 ```
 
-The JSONL contains `num_gt`, `protected_area_ratio`,
-`perturbable_area_ratio`, `target_perturbed_area_ratio`,
-`actual_perturbed_area_ratio`, `gt_area_ratio`,
-`perturb_gt_overlap_ratio`, and mean object size for all three variants.
-The perturbation mask is sampled from valid background only, so
-`perturb_gt_overlap_ratio` is expected to remain zero. The adjacent
-`_summary.json` is a compact gate for checking whether TinyPerson protection
-coverage is materially higher than LEVIR-Ship before training. Training remains
-upload-gated by the Marimo workflow and should not be launched until the remote
-checkout, HF repository, and token are available.
+The JSONL contains `num_gt`, `num_tiny`, `protected_area_ratio`,
+`perturbable_area_ratio`, `budget_fraction_of_valid_bg`,
+`target_perturbed_area_ratio_image`, `actual_perturbed_area_ratio_image`,
+`gt_area_ratio`, `perturb_gt_overlap_ratio`, `eligible`, `would_apply`,
+`skip_reason`, and mean object size for all three variants. The budget fraction
+is relative to valid background; the target/actual perturbation ratios are
+relative to the complete image. If the training guard skips a sample,
+`would_apply` is false and actual perturbation is zero. The perturbation mask is
+sampled from valid background only, so `perturb_gt_overlap_ratio` is expected
+to remain zero. The adjacent `_summary.json` is a compact gate for checking
+whether TinyPerson protection coverage is materially higher than LEVIR-Ship
+before training. Training remains upload-gated by the Marimo workflow and
+should not be launched until the remote checkout, HF repository, and token are
+available.
 
 The upload-gated TinyPerson runner accepts the three matched training variants
 without changing the historical default matrix:
