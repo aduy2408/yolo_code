@@ -38,7 +38,6 @@ def job_specs(root: Path, hf_lev: str, hf_tiny: str) -> list[dict[str, object]]:
     ]
     tiny_common = [
         "--data-root", tiny_data, "--dataset-root", str(tiny_dataset),
-        "--model", "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3p4_plain.yaml",
         "--seeds", "42", "--split-seed", "42", "--epochs", "100",
         "--patience", "0", "--imgsz", "640", "--batch-size", "8",
         "--workers", "8", "--device", "cuda", "--amp",
@@ -69,6 +68,37 @@ def job_specs(root: Path, hf_lev: str, hf_tiny: str) -> list[dict[str, object]]:
             "command": [
                 os.environ.get("MARIMO_PYTHON", "/tmp/uv-venv/bin/python"),
                 "train_all_tinyperson_yolo11_oacp_mosaic_matrix.py", *tiny_common,
+                "--model", "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3p4_plain.yaml",
+                "--project", str(project), "--hf-repo-id", hf_tiny,
+                "--variants", f"{variant}_oacp_mosaic",
+            ],
+        })
+    for dataset, variant, hf_repo, common, runner, project, model in [
+        ("levir", "budget", hf_lev, levir_common, "misc/train_context_aug_matrix.py", root / "runs/levir_yolov9t_p2p3p4_budget_mosaic_seed42", "yolov9t_p2p3p4_oacp"),
+        ("levir", "density", hf_lev, levir_common, "misc/train_context_aug_matrix.py", root / "runs/levir_yolov9t_p2p3p4_density_mosaic_seed42", "yolov9t_p2p3p4_oacp"),
+    ]:
+        jobs.append({
+            "name": f"{dataset}_yolov9t_{variant}", "variant": variant,
+            "job_dir": root / "jobs" / f"{dataset}_yolov9t_{variant}_seed42",
+            "project": project / model,
+            "env": {"OACP_VARIANT": variant, "YOLO_CONTEXT_AUG": "oacp"},
+            "command": [
+                os.environ.get("MARIMO_PYTHON", "/tmp/uv-venv/bin/python"), runner,
+                *common, "--project", str(project), "--hf-repo-id", hf_repo,
+                "--only", model,
+            ],
+        })
+    for variant in ("budget", "density"):
+        project = root / f"runs/tinyperson_yolov9t_p2p3p4_{variant}_mosaic_seed42"
+        jobs.append({
+            "name": f"tinyperson_yolov9t_{variant}", "variant": variant,
+            "job_dir": root / "jobs" / f"tinyperson_yolov9t_{variant}_seed42",
+            "project": project / f"{variant}_oacp_mosaic" / "seed_42_corner_sw640_sh512",
+            "env": {"OACP_VARIANT": variant, "YOLO_CONTEXT_AUG": "oacp"},
+            "command": [
+                os.environ.get("MARIMO_PYTHON", "/tmp/uv-venv/bin/python"),
+                "train_all_tinyperson_yolo11_oacp_mosaic_matrix.py", *tiny_common,
+                "--model", "models_related/models_config/yolov9/tinyperson/yolov9t_tinyperson_p2p3p4_plain.yaml",
                 "--project", str(project), "--hf-repo-id", hf_tiny,
                 "--variants", f"{variant}_oacp_mosaic",
             ],

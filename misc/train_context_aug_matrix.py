@@ -13,6 +13,7 @@ ULTRA = ROOT / "models_related/ultralytics"
 CFG = ROOT / "models_related/models_config/yolov8/levir"
 RUNS = {
     "p2p3p4_oacp": (CFG / "yolov8n_p2p3p4_levir_plain.yaml", "oacp", {}),
+    "yolov9t_p2p3p4_oacp": (ROOT / "models_related/models_config/yolov9/levir/yolov9t_p2p3p4_levir_plain.yaml", "oacp", {}),
     "baseline_oacp": (CFG / "yolov8n_p2_levir_baseline.yaml", "oacp", {}),
     "baseline_cea": (CFG / "yolov8n_p2_levir_baseline.yaml", "cea", {}),
     "baseline_lea": (CFG / "yolov8n_p2_levir_baseline.yaml", "lea", {}),
