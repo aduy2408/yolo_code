@@ -33,3 +33,17 @@ def test_effective_settings_encode_default_and_r2_parameters():
     assert r2['augmentation']['mosaic'] == 0.0
     runner.validate_settings(default)
     runner.validate_settings(r2)
+
+
+def test_geometry_variants_are_explicit_and_recorded():
+    args = _args()
+    for name, expected in {
+        'current_oacp_mosaic': 'current',
+        'budget_oacp_mosaic': 'budget',
+        'density_oacp_mosaic': 'density',
+    }.items():
+        settings = runner.effective_settings(args, name, 42)
+        assert settings['augmentation']['oacp_variant'] == expected
+        runner.validate_settings(settings)
+        runner.configure_environment(name)
+        assert __import__('os').environ['OACP_VARIANT'] == expected

@@ -44,6 +44,24 @@ VARIANTS = {
         "close_mosaic": 0, "oacp": {"p": 0.40, "expand": 3.0, "strength": [0.10, 0.25], "scale": [0.80, 0.95]},
     },
 }
+GEOMETRY_VARIANTS = {
+    "current_oacp_mosaic": {
+        "mode": "oacp", "legacy_double_oacp": False, "mosaic": 1.0,
+        "close_mosaic": 10, "oacp_variant": "current",
+        "oacp": {"p": 0.20, "expand": 3.0, "strength": [0.20, 0.40], "scale": [0.65, 0.85]},
+    },
+    "budget_oacp_mosaic": {
+        "mode": "oacp", "legacy_double_oacp": False, "mosaic": 1.0,
+        "close_mosaic": 10, "oacp_variant": "budget",
+        "oacp": {"p": 0.20, "expand": 3.0, "strength": [0.20, 0.40], "scale": [0.65, 0.85]},
+    },
+    "density_oacp_mosaic": {
+        "mode": "oacp", "legacy_double_oacp": False, "mosaic": 1.0,
+        "close_mosaic": 10, "oacp_variant": "density",
+        "oacp": {"p": 0.20, "expand": 3.0, "strength": [0.20, 0.40], "scale": [0.65, 0.85]},
+    },
+}
+ALL_VARIANTS = {**VARIANTS, **GEOMETRY_VARIANTS}
 TRAIN_AUGMENTATION = {
     "mixup": 0.0, "copy_paste": 0.0, "degrees": 0.0, "translate": 0.1,
     "scale": 0.5, "shear": 0.0, "perspective": 0.0, "flipud": 0.0,
@@ -76,7 +94,7 @@ def seed_everything(seed: int) -> None:
 
 
 def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dict:
-    spec = VARIANTS[variant]
+    spec = ALL_VARIANTS[variant]
     return {
         "variant": variant, "model": MODEL, "pretrained": MODEL, "seed": seed,
         "split_seed": args.split_seed, "data_root": str(args.data_root),
@@ -85,6 +103,7 @@ def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dic
         "batch_size": args.batch_size, "workers": args.workers, "device": args.device,
         "amp": args.amp, "deterministic": True, "nms_iou": 0.5,
         "augmentation": {**TRAIN_AUGMENTATION, **{k: spec[k] for k in ("mode", "legacy_double_oacp", "mosaic", "close_mosaic")},
+                          "oacp_variant": spec.get("oacp_variant", "current"),
                           "oacp": dict(spec["oacp"])},
         "schedule": dict(SCHEDULE), "upload_required": True, "hf_repo_id": args.hf_repo_id,
     }
@@ -111,7 +130,7 @@ def complete(run_dir: Path) -> bool:
 
 
 def configure_environment(variant: str) -> None:
-    spec = VARIANTS[variant]
+    spec = ALL_VARIANTS[variant]
     oacp = spec["oacp"]
     os.environ.update({
         "YOLO_CONTEXT_AUG": "oacp",
@@ -119,6 +138,7 @@ def configure_environment(variant: str) -> None:
         "OACP_P": str(oacp["p"]), "OACP_PROTECTED_EXPAND": str(oacp["expand"]),
         "OACP_STRENGTH_MIN": str(oacp["strength"][0]), "OACP_STRENGTH_MAX": str(oacp["strength"][1]),
         "OACP_SCALE_MIN": str(oacp["scale"][0]), "OACP_SCALE_MAX": str(oacp["scale"][1]),
+        "OACP_VARIANT": spec.get("oacp_variant", "current"),
         "OACP_SWEEP_LABEL": variant,
         "YOLO_VARIANT": f"tinyperson_yolo11_{variant}",
     })
@@ -135,7 +155,7 @@ def train_one(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace
         return run_dir
     run_dir.mkdir(parents=True, exist_ok=True)
     model = YOLO(MODEL)
-    spec = VARIANTS[variant]
+    spec = ALL_VARIANTS[variant]
     model.train(data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz,
                 batch=args.batch_size, device=args.device, workers=args.workers,
                 patience=args.patience, seed=seed, deterministic=True, amp=args.amp,
@@ -153,7 +173,7 @@ def write_metadata(variant: str, seed: int, run_dir: Path, data_yaml: Path, args
                      "runner_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                      "required_artifacts": list(REQUIRED), "command": sys.argv,
                      "git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()})
-    (run_dir / "config.yaml").write_text(json.dumps({"model": MODEL, "variant": variant, **VARIANTS[variant]}, indent=2) + "\n", encoding="utf-8")
+    (run_dir / "config.yaml").write_text(json.dumps({"model": MODEL, "variant": variant, **ALL_VARIANTS[variant]}, indent=2) + "\n", encoding="utf-8")
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -192,7 +212,7 @@ def parse_args(argv=None):
     p.add_argument("--dataset-root", type=Path, required=True)
     p.add_argument("--project", type=Path, required=True)
     p.add_argument("--hf-repo-id", required=True)
-    p.add_argument("--variants", nargs="+", choices=DEFAULT_VARIANTS, default=list(DEFAULT_VARIANTS))
+    p.add_argument("--variants", nargs="+", choices=tuple(ALL_VARIANTS), default=list(DEFAULT_VARIANTS))
     p.add_argument("--seeds", type=int, nargs="+", default=[42])
     p.add_argument("--split-seed", type=int, default=42)
     p.add_argument("--epochs", type=int, default=100)

@@ -192,3 +192,45 @@ R4 was selected as the best R1-R5 validation configuration. R6 and R7 were then 
 The unexpectedly strong historical OACP results were not caused only by the nominal parameter values. They were produced under an accidental double-OACP training distribution. The corrected pipeline changes the experiment definition.
 
 The seven-run corrected sweep is now complete. Based on validation mAP50, the current corrected single-pass candidate is **R4 strong**. Based on test mAP50, R2 is highest among R1-R5/R6-R7, while R7 gives the highest test AP75. These are single-seed screening results and should not be treated as a final multi-seed claim without follow-up confirmation.
+
+## Density and budget variants
+
+The implementation now exposes three geometry policies through `OACP_VARIANT`:
+
+| Variant | Protected context | Perturbation support |
+|---|---|---|
+| `current` | fixed `OACP_PROTECTED_EXPAND` (default `3.0`) | all far background |
+| `budget` | fixed protection | a fixed fraction of valid background, default `0.30` to `0.60` |
+| `density` | expansion decreases with union GT occupancy | the same valid-background budget |
+
+Run the pre-training diagnostic on each dataset before launching any Marimo job:
+
+```bash
+conda run -n ml2 python -m misc.oacp_geometry_diagnostics \
+  --dataset levir_ship \
+  --images <images-dir> \
+  --labels <labels-dir> \
+  --output <diagnostics-dir>/levir_ship.jsonl
+```
+
+The JSONL contains `num_gt`, `protected_area_ratio`,
+`perturbable_area_ratio`, `actual_perturbed_area_ratio`, and mean object size
+for all three variants. The adjacent `_summary.json` is a compact gate for
+checking whether TinyPerson protection coverage is materially higher than
+LEVIR-Ship before training. Training remains upload-gated by the Marimo
+workflow and should not be launched until the remote checkout, HF repository,
+and token are available.
+
+The upload-gated TinyPerson runner accepts the three matched training variants
+without changing the historical default matrix:
+
+```bash
+python train_all_tinyperson_yolo11_oacp_mosaic_matrix.py \
+  --variants current_oacp_mosaic budget_oacp_mosaic density_oacp_mosaic \
+  --print-effective-config
+```
+
+Each manifest records `augmentation.oacp_variant`; the runner sets
+`OACP_VARIANT` immediately before constructing the Ultralytics model. The
+runner still requires `--confirm-settings` and the shared Marimo launch
+context before any training or upload operation.

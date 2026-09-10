@@ -30,6 +30,9 @@ AUG_CONFIG = {
     "lea_contrast_retention": [0.65, 0.85],
     "lea_alpha_max": 0.35,
     "lea_max_objects": 2,
+    "oacp_budget": [0.30, 0.60],
+    "oacp_density_expand_min": 1.0,
+    "oacp_density_expand_max": 3.0,
 }
 
 
@@ -46,6 +49,11 @@ def augmentation_config() -> dict[str, Any]:
         float(os.environ.get("OACP_SCALE_MIN", cfg["oacp_resolution_scale"][0])),
         float(os.environ.get("OACP_SCALE_MAX", cfg["oacp_resolution_scale"][1])),
     ]
+    cfg["oacp_budget"] = [
+        float(os.environ.get("OACP_BUDGET_MIN", cfg["oacp_budget"][0])),
+        float(os.environ.get("OACP_BUDGET_MAX", cfg["oacp_budget"][1])),
+    ]
+    cfg["oacp_variant"] = os.environ.get("OACP_VARIANT", "current").lower()
     cfg["mode"] = os.environ.get("YOLO_CONTEXT_AUG", "none").lower()
     cfg["legacy_double_oacp"] = os.environ.get("YOLO_LEGACY_DOUBLE_OACP", "0").lower() in {
         "1", "true", "yes", "on"
@@ -105,6 +113,83 @@ def _protection(boxes: np.ndarray, h: int, w: int) -> tuple[np.ndarray, np.ndarr
     return protected.astype(np.uint8), tiny
 
 
+def _density_adaptive_expand(boxes: np.ndarray, h: int, w: int) -> float:
+    """Reduce context expansion as object-associated image occupancy increases."""
+    if not len(boxes):
+        return _oacp_config()["protected_expand"]
+    occupancy = float(_mask_from_boxes(boxes, h, w, 1.0).mean())
+    # 1% occupancy keeps the configured maximum; crowded scenes approach the
+    # minimum.  The square-root schedule avoids an abrupt density switch.
+    factor = np.clip(np.sqrt(0.08 / max(occupancy, 1e-6)), 0.0, 1.0)
+    cfg = augmentation_config()
+    return float(np.clip(
+        cfg["protected_expand"] * factor,
+        cfg["oacp_density_expand_min"],
+        cfg["oacp_density_expand_max"],
+    ))
+
+
+def _protection_for_variant(boxes: np.ndarray, h: int, w: int, variant: str) -> tuple[np.ndarray, np.ndarray, float]:
+    sizes = np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1])) if len(boxes) else np.empty(0)
+    tiny = boxes[sizes < AUG_CONFIG["object_max_size"]]
+    expand = _oacp_config()["protected_expand"]
+    if variant == "density":
+        expand = _density_adaptive_expand(boxes, h, w)
+    protected = _mask_from_boxes(tiny, h, w, expand)
+    protected |= _mask_from_boxes(boxes, h, w, AUG_CONFIG["safety_expand"]).astype(bool)
+    return protected.astype(np.uint8), tiny, float(expand)
+
+
+def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.ndarray,
+                     variant: str = "current", budget: float | None = None) -> dict[str, float | int | str]:
+    """Return geometry/severity diagnostics without modifying an image.
+
+    ``boxes`` are absolute ``xyxy`` coordinates.  The budget is a fraction of
+    valid background, not of the complete image, so the reported actual area
+    makes the effective severity comparable across sparse and crowded scenes.
+    """
+    h, w = shape[:2]
+    variant = variant.lower()
+    if variant not in {"current", "budget", "density"}:
+        raise ValueError(f"unknown OACP variant: {variant}")
+    protected, tiny, expand = _protection_for_variant(np.asarray(boxes, dtype=np.float32).reshape(-1, 4), h, w, variant)
+    protected_ratio = float(protected.mean())
+    available = protected == 0
+    far = _far_mask(protected, h, w)
+    cfg = augmentation_config()
+    if budget is None:
+        budget = float(sum(cfg["oacp_budget"]) / 2.0)
+    budget = float(np.clip(budget, 0.0, 1.0))
+    if variant == "current":
+        perturb = (far > 0).astype(np.uint8)
+    else:
+        # Select the farthest valid pixels first. This gives a stable mask for
+        # diagnostics and reserves near-object context even in dense scenes.
+        count = int(round(float(available.sum()) * budget))
+        flat = np.flatnonzero(available)
+        if count >= len(flat):
+            chosen = flat
+        elif count:
+            order = np.argsort(far.flat[flat])[::-1]
+            chosen = flat[order[:count]]
+        else:
+            chosen = np.empty(0, dtype=np.int64)
+        perturb = np.zeros(h * w, dtype=np.uint8)
+        perturb[chosen] = 1
+        perturb = perturb.reshape(h, w)
+    return {
+        "variant": variant,
+        "num_gt": int(len(boxes)),
+        "num_tiny": int(len(tiny)),
+        "protected_area_ratio": protected_ratio,
+        "perturbable_area_ratio": float(available.mean()),
+        "actual_perturbed_area_ratio": float(perturb.mean()),
+        "mean_object_size": float(np.mean(np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1])))) if len(boxes) else 0.0,
+        "protected_expand": expand,
+        "perturb_budget_valid_background": budget if variant != "current" else 1.0,
+    }
+
+
 def _far_mask(protected: np.ndarray, h: int, w: int) -> np.ndarray:
     if not protected.any():
         return np.zeros((h, w), np.float32)
@@ -127,17 +212,33 @@ class OACP:
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         cfg = _oacp_config()
-        if random.random() >= cfg["p"]:
+        probability = cfg["p"] if self.p == 0.20 else self.p
+        if random.random() >= probability:
             return labels
         img = labels.get("img")
         if img is None or img.ndim != 3:
             return labels
         h, w = img.shape[:2]
         boxes = _boxes(labels, h, w)
-        protected, tiny = _protection(boxes, h, w)
+        variant = augmentation_config()["oacp_variant"]
+        if variant not in {"current", "budget", "density"}:
+            raise ValueError(f"unknown OACP_VARIANT: {variant}")
+        protected, tiny, _ = _protection_for_variant(boxes, h, w, variant)
         if not len(tiny) or float(protected.mean()) > 0.55:
             return labels
         mask = _far_mask(protected, h, w)
+        if variant in {"budget", "density"}:
+            budget = random.uniform(*cfg["budget"])
+            selected = np.zeros((h, w), np.uint8)
+            available = protected == 0
+            count = int(round(float(available.sum()) * budget))
+            flat = np.flatnonzero(available)
+            if count >= len(flat):
+                chosen = flat
+            else:
+                chosen = flat[np.argsort(mask.flat[flat])[::-1][:count]] if count else np.empty(0, dtype=np.int64)
+            selected.flat[chosen] = 1
+            mask *= selected
         strength = random.uniform(*cfg["strength"]) * (1.0 - float(protected.mean()))
         degraded = _resize_degrade(img, random.uniform(*cfg["resolution_scale"]))
         out = img.astype(np.float32) * (1 - strength * mask[..., None]) + degraded.astype(np.float32) * (strength * mask[..., None])
