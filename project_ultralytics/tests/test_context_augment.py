@@ -30,6 +30,8 @@ def test_budget_limits_perturbation_to_valid_background():
     assert budget["actual_perturbed_area_ratio"] <= budget["perturbable_area_ratio"]
     assert budget["actual_perturbed_area_ratio"] < current["actual_perturbed_area_ratio"]
     assert budget["protected_area_ratio"] == current["protected_area_ratio"]
+    assert budget["target_perturbed_area_ratio"] == 0.4
+    assert budget["perturb_gt_overlap_ratio"] == 0.0
 
 
 def test_density_variant_reduces_expansion_for_crowded_scene():
@@ -43,6 +45,37 @@ def test_density_variant_reduces_expansion_for_crowded_scene():
     crowded_stats = oacp_diagnostics((128, 128), crowded, "density")
     assert crowded_stats["protected_expand"] < sparse_stats["protected_expand"]
     assert crowded_stats["perturbable_area_ratio"] >= 0.0
+
+
+def test_density_variant_controls_union_protection_and_logs_budget_fields():
+    boxes = np.asarray([
+        [x, y, x + 8, y + 8]
+        for y in range(8, 120, 12)
+        for x in range(8, 120, 12)
+    ], dtype=np.float32)
+    stats = oacp_diagnostics((128, 128), boxes, "density", budget=0.4)
+    assert stats["density_occupancy"] > 0.0
+    assert stats["density_target_protected_ratio"] > 0.0
+    assert stats["target_perturbed_area_ratio"] == 0.4
+    assert stats["perturb_gt_overlap_ratio"] == 0.0
+
+
+def test_budget_transform_runs_and_writes_sample_record(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_VARIANT", "budget")
+    monkeypatch.setenv("OACP_P", "1.0")
+    log = tmp_path / "oacp.jsonl"
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    img = np.random.default_rng(9).integers(20, 100, (64, 64, 3), dtype=np.uint8)
+    labels = {
+        "img": img,
+        "bboxes": np.asarray([[0.5, 0.5, 0.05, 0.05]], dtype=np.float32),
+        "im_file": "sample.jpg",
+    }
+    out = OACP(p=1.0)(labels)
+    assert out["img"].shape == img.shape
+    record = __import__("json").loads(log.read_text().strip())
+    assert record["target_perturbed_area_ratio"] > 0.0
+    assert record["perturb_gt_overlap_ratio"] == 0.0
 
 
 def test_lea_changes_low_frequency_but_keeps_shape():

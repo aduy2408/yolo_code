@@ -214,12 +214,15 @@ conda run -n ml2 python -m misc.oacp_geometry_diagnostics \
 ```
 
 The JSONL contains `num_gt`, `protected_area_ratio`,
-`perturbable_area_ratio`, `actual_perturbed_area_ratio`, and mean object size
-for all three variants. The adjacent `_summary.json` is a compact gate for
-checking whether TinyPerson protection coverage is materially higher than
-LEVIR-Ship before training. Training remains upload-gated by the Marimo
-workflow and should not be launched until the remote checkout, HF repository,
-and token are available.
+`perturbable_area_ratio`, `target_perturbed_area_ratio`,
+`actual_perturbed_area_ratio`, `gt_area_ratio`,
+`perturb_gt_overlap_ratio`, and mean object size for all three variants.
+The perturbation mask is sampled from valid background only, so
+`perturb_gt_overlap_ratio` is expected to remain zero. The adjacent
+`_summary.json` is a compact gate for checking whether TinyPerson protection
+coverage is materially higher than LEVIR-Ship before training. Training remains
+upload-gated by the Marimo workflow and should not be launched until the remote
+checkout, HF repository, and token are available.
 
 The upload-gated TinyPerson runner accepts the three matched training variants
 without changing the historical default matrix:

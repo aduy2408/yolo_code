@@ -55,7 +55,9 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     summary = {variant: {key: 0.0 for key in (
         "num_gt", "protected_area_ratio", "perturbable_area_ratio",
-        "actual_perturbed_area_ratio", "mean_object_size", "protected_expand")}
+        "actual_perturbed_area_ratio", "target_perturbed_area_ratio",
+        "gt_area_ratio", "perturb_gt_overlap_ratio", "mean_object_size",
+        "protected_expand")}
                for variant in VARIANTS}
     counts = {variant: 0 for variant in VARIANTS}
     with args.output.open("w", encoding="utf-8") as stream:
