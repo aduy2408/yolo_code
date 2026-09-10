@@ -10,7 +10,19 @@
 - Seed split và seed train được ghi theo tên repository/run khi có thể suy ra. Không tự suy diễn seed bị thiếu.
 - Link ở cột cuối trỏ thẳng tới artifact metric trên Hugging Face.
 
-## 1. LEVIR-Ship: các repository một run
+## 0. Kết quả gộp theo cùng cấu hình, khác seed
+
+> Các dòng dưới đây gộp các run có cùng tên/cấu hình và khác training seed. Báo cáo dùng **mean ± sample std (ddof=1)** trên các giá trị metric trong các bảng raw bên dưới. Với repository `...2d308a3` không có hậu tố seed, `args.yaml` ghi seed 42 nên được đưa vào nhóm seed 42.
+
+| Dataset / experiment | Seeds | N | Val mAP50 | Val mAP50-95 | Test mAP50 | Test mAP50-95 | Test AP75 | Test P | Test R | Source repos |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| LEVIR OACP b1c490b | 43, 44 | 2 | 0.7413 ± 0.0372 | 0.2760 ± 0.0191 | 0.7225 ± 0.1177 | 0.2576 ± 0.0404 | 0.0832 ± 0.0075 | 0.7684 ± 0.0985 | 0.7187 ± 0.0406 | [levir-yolov8n-p2-oacp-b1c490b-seed43](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-b1c490b-seed43), [levir-yolov8n-p2-oacp-b1c490b-seed44](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-b1c490b-seed44) |
+| LEVIR OACP fixedsplit42 a6af599 | 43, 44 | 2 | 0.8221 ± 0.0109 | 0.3176 ± 0.0020 | 0.7902 ± 0.0030 | 0.2938 ± 0.0009 | 0.1011 ± 0.0101 | 0.8034 ± 0.0088 | 0.7487 ± 0.0038 | [levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed43](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed43), [levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed44](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed44) |
+| LEVIR OACP no-mosaic 2d308a3 | 42, 43, 44 | 3 | 0.8291 ± 0.0182 | 0.3293 ± 0.0121 | 0.8137 ± 0.0197 | 0.3157 ± 0.0126 | 0.1368 ± 0.0193 | 0.8295 ± 0.0212 | 0.7755 ± 0.0127 | [levir-yolov8n-p2-oacp-no-mosaic-2d308a3](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-no-mosaic-2d308a3), [levir-yolov8n-p2-oacp-no-mosaic-2d308a3-seed43](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-no-mosaic-2d308a3-seed43), [levir-yolov8n-p2-oacp-no-mosaic-2d308a3-seed44](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-no-mosaic-2d308a3-seed44) |
+| TinyPerson OACP fixedsplit42 0a2ca54 | 42, 43, 44 | 3 | 0.5712 ± 0.0049 | 0.2089 ± 0.0038 | 0.5259 ± 0.0068 | 0.1929 ± 0.0031 | 0.0926 ± 0.0009 | 0.5925 ± 0.0066 | 0.5114 ± 0.0043 | [tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed42](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed42), [tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed43](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed43), [tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed44](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed44) |
+| TinyPerson OACP no-mosaic servernew 25dcadc | 42, 43, 44 | 3 | 0.5398 ± 0.0075 | 0.1901 ± 0.0018 | 0.4996 ± 0.0052 | 0.1794 ± 0.0026 | 0.0829 ± 0.0020 | 0.5803 ± 0.0084 | 0.4894 ± 0.0032 | [tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc) |
+
+## 1. LEVIR-Ship: các repository một run (raw theo seed/repository)
 
 | Repository | Run / variant | Seed | Val mAP50 | Val mAP50-95 | Test mAP50 | Test mAP50-95 | Test AP75 | Test P | Test R | Metrics source |
 |---|---|:---:|---:|---:|---:|---:|---:|---:|---:|---|
@@ -33,7 +45,7 @@
 | duyle2408/levir-yolov9t-oacp-official-e38ce07-retry1-seed42 | yolov9t_oacp_seed42 | 42 | 0.8287 | 0.3127 | 0.7556 | 0.2664 | 0.0891 | 0.7837 | 0.7572 | [runs/yolov9t_oacp_seed42/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/levir-yolov9t-oacp-official-e38ce07-retry1-seed42/blob/main/runs/yolov9t_oacp_seed42/evaluation_metrics.json) |
 | duyle2408/levir-yolov9t-p2-no-p5-oacp-seed42 | yolov9t_p2_no_p5_oacp/seed_42 | 42 | 0.7144 | 0.2843 | 0.6529 | 0.2487 | 0.0986 | 0.7231 | 0.6192 | [runs/yolov9t_p2_no_p5_oacp/seed_42/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/levir-yolov9t-p2-no-p5-oacp-seed42/blob/main/runs/yolov9t_p2_no_p5_oacp/seed_42/evaluation_metrics.json) |
 
-## 2. LEVIR-Ship: repository nhiều variant / ablation
+## 2. LEVIR-Ship: repository nhiều variant / ablation (raw)
 
 | Repository | Run / variant | Seed | Val mAP50 | Val mAP50-95 | Test mAP50 | Test mAP50-95 | Test AP75 | Test P | Test R | Metrics source |
 |---|---|:---:|---:|---:|---:|---:|---:|---:|---:|---|
@@ -78,7 +90,7 @@
 | duyle2408/levir-yolov8n-p2-oacp-aggressive-no-mosaic-nondeterministic-9fb0758 | R2_frequent_mild | 0.8242 | 0.3164 | [metrics](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-aggressive-no-mosaic-nondeterministic-9fb0758/blob/main/runs/R2_frequent_mild/evaluation_metrics.json) |
 | duyle2408/levir-yolov8n-p2-oacp-combinations-c70fd43 | gap_oacp | 0.8041 | 0.3005 | [metrics](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-combinations-c70fd43/blob/main/runs/gap_oacp/evaluation_metrics.json) |
 
-## 3. TinyPerson: fixed split 42, seed sweep
+## 3. TinyPerson: fixed split 42, seed sweep (raw)
 
 | Repository | Run / variant | Seed | Val mAP50 | Val mAP50-95 | Test mAP50 | Test mAP50-95 | Test AP75 | Test P | Test R | Metrics source |
 |---|---|:---:|---:|---:|---:|---:|---:|---:|---:|---|
