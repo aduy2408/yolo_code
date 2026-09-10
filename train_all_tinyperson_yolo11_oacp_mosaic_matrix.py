@@ -95,8 +95,9 @@ def seed_everything(seed: int) -> None:
 
 def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dict:
     spec = ALL_VARIANTS[variant]
+    model = getattr(args, "model", MODEL)
     return {
-        "variant": variant, "model": MODEL, "pretrained": MODEL, "seed": seed,
+        "variant": variant, "model": model, "pretrained": model, "seed": seed,
         "split_seed": args.split_seed, "data_root": str(args.data_root),
         "dataset_root": str(args.dataset_root), "project": str(args.project),
         "epochs": args.epochs, "patience": args.patience, "imgsz": args.imgsz,
@@ -154,7 +155,7 @@ def train_one(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace
     if complete(run_dir):
         return run_dir
     run_dir.mkdir(parents=True, exist_ok=True)
-    model = YOLO(MODEL)
+    model = YOLO(getattr(args, "model", MODEL))
     spec = ALL_VARIANTS[variant]
     model.train(data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz,
                 batch=args.batch_size, device=args.device, workers=args.workers,
@@ -173,7 +174,7 @@ def write_metadata(variant: str, seed: int, run_dir: Path, data_yaml: Path, args
                      "runner_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                      "required_artifacts": list(REQUIRED), "command": sys.argv,
                      "git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()})
-    (run_dir / "config.yaml").write_text(json.dumps({"model": MODEL, "variant": variant, **ALL_VARIANTS[variant]}, indent=2) + "\n", encoding="utf-8")
+    (run_dir / "config.yaml").write_text(json.dumps({"model": manifest["model"], "variant": variant, **ALL_VARIANTS[variant]}, indent=2) + "\n", encoding="utf-8")
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -212,6 +213,7 @@ def parse_args(argv=None):
     p.add_argument("--dataset-root", type=Path, required=True)
     p.add_argument("--project", type=Path, required=True)
     p.add_argument("--hf-repo-id", required=True)
+    p.add_argument("--model", default=MODEL)
     p.add_argument("--variants", nargs="+", choices=tuple(ALL_VARIANTS), default=list(DEFAULT_VARIANTS))
     p.add_argument("--seeds", type=int, nargs="+", default=[42])
     p.add_argument("--split-seed", type=int, default=42)
