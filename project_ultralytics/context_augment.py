@@ -35,6 +35,15 @@ AUG_CONFIG = {
     "oacp_density_expand_max": 3.0,
     "oacp_density_target_min": 0.08,
     "oacp_density_target_max": 0.22,
+    "oacp_mass_target_min": 0.25,
+    "oacp_mass_target_max": 0.40,
+    "oacp_adaptive_budget_min": 0.20,
+    "oacp_adaptive_budget_max": 0.70,
+    "oacp_load_saturation_count": 10,
+    "oacp_spacing_near": 1.0,
+    "oacp_spacing_far": 6.0,
+    "oacp_spacing_expand_min": 1.2,
+    "oacp_spacing_expand_max": 3.0,
 }
 
 
@@ -55,6 +64,27 @@ def augmentation_config() -> dict[str, Any]:
         float(os.environ.get("OACP_BUDGET_MIN", cfg["oacp_budget"][0])),
         float(os.environ.get("OACP_BUDGET_MAX", cfg["oacp_budget"][1])),
     ]
+    cfg["oacp_mass_target"] = [
+        float(os.environ.get("OACP_MASS_TARGET_MIN", cfg["oacp_mass_target_min"])),
+        float(os.environ.get("OACP_MASS_TARGET_MAX", cfg["oacp_mass_target_max"])),
+    ]
+    cfg["oacp_adaptive_budget"] = [
+        float(os.environ.get("OACP_ADAPTIVE_BUDGET_MIN", cfg["oacp_adaptive_budget_min"])),
+        float(os.environ.get("OACP_ADAPTIVE_BUDGET_MAX", cfg["oacp_adaptive_budget_max"])),
+    ]
+    cfg["oacp_load_saturation_count"] = int(os.environ.get(
+        "OACP_LOAD_SATURATION_COUNT", cfg["oacp_load_saturation_count"]
+    ))
+    cfg["oacp_spacing"] = {
+        "near": float(os.environ.get("OACP_SPACING_NEAR", cfg["oacp_spacing_near"])),
+        "far": float(os.environ.get("OACP_SPACING_FAR", cfg["oacp_spacing_far"])),
+        "expand_min": float(os.environ.get(
+            "OACP_SPACING_EXPAND_MIN", cfg["oacp_spacing_expand_min"]
+        )),
+        "expand_max": float(os.environ.get(
+            "OACP_SPACING_EXPAND_MAX", cfg["oacp_spacing_expand_max"]
+        )),
+    }
     cfg["oacp_variant"] = os.environ.get("OACP_VARIANT", "current").lower()
     cfg["mode"] = os.environ.get("YOLO_CONTEXT_AUG", "none").lower()
     cfg["legacy_double_oacp"] = os.environ.get("YOLO_LEGACY_DOUBLE_OACP", "0").lower() in {
@@ -108,6 +138,109 @@ def _mask_from_boxes(boxes: np.ndarray, h: int, w: int, expand: float) -> np.nda
     return mask
 
 
+def _mask_from_boxes_per_expand(
+    boxes: np.ndarray, expands: np.ndarray, h: int, w: int
+) -> np.ndarray:
+    """Build a union mask where each box has its own context expansion."""
+    boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+    expands = np.asarray(expands, dtype=np.float32).reshape(-1)
+    if len(boxes) != len(expands):
+        raise ValueError("boxes and expands must have the same length")
+    mask = np.zeros((h, w), np.uint8)
+    for box, expand in zip(boxes, expands):
+        x1, y1, x2, y2 = box
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        hw, hh = (x2 - x1) * float(expand) / 2, (y2 - y1) * float(expand) / 2
+        xa, xb = max(0, int(cx - hw)), min(w, int(cx + hw + 1))
+        ya, yb = max(0, int(cy - hh)), min(h, int(cy + hh + 1))
+        if xa < xb and ya < yb:
+            mask[ya:yb, xa:xb] = 1
+    return mask
+
+
+def _bbox_edge_distance(box_a: np.ndarray, box_b: np.ndarray) -> float:
+    """Return Euclidean edge-to-edge distance between two xyxy boxes."""
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    dx = max(float(ax1 - bx2), float(bx1 - ax2), 0.0)
+    dy = max(float(ay1 - by2), float(by1 - ay2), 0.0)
+    return float(np.hypot(dx, dy))
+
+
+def _spacing_adaptive_expands(
+    boxes: np.ndarray,
+    eligible_indices: np.ndarray,
+    *,
+    near_spacing: float,
+    far_spacing: float,
+    expand_min: float,
+    expand_max: float,
+) -> tuple[np.ndarray, list[dict[str, float]]]:
+    """Choose per-object context retention from normalized nearest spacing."""
+    boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+    eligible_indices = np.asarray(eligible_indices, dtype=np.int64).reshape(-1)
+    records: list[dict[str, float]] = []
+    expands = np.empty(len(eligible_indices), dtype=np.float32)
+    denominator = max(float(far_spacing - near_spacing), 1e-8)
+
+    for out_index, object_index in enumerate(eligible_indices):
+        box = boxes[object_index]
+        width = max(float(box[2] - box[0]), 0.0)
+        height = max(float(box[3] - box[1]), 0.0)
+        scale = float(np.sqrt(width * height))
+        other_indices = np.arange(len(boxes), dtype=np.int64)
+        other_indices = other_indices[other_indices != object_index]
+        if len(other_indices):
+            nearest_gap = min(_bbox_edge_distance(box, boxes[j]) for j in other_indices)
+            normalized_spacing = nearest_gap / (scale + 1e-8)
+        else:
+            # An isolated single object is explicitly treated as far away.
+            nearest_gap = float("inf")
+            normalized_spacing = float("inf")
+        retention = 1.0 - float(np.clip(
+            (normalized_spacing - near_spacing) / denominator, 0.0, 1.0
+        ))
+        expand = float(expand_min + retention * (expand_max - expand_min))
+        expands[out_index] = expand
+        records.append({
+            "object_size": scale,
+            "nearest_gap": nearest_gap,
+            "normalized_spacing": normalized_spacing,
+            "retention": retention,
+            "expand": expand,
+        })
+    return expands, records
+
+
+def _mass_adaptive_budget(
+    valid_bg_ratio: float,
+    target_mass: float,
+    budget_min: float,
+    budget_max: float,
+    eps: float = 1e-8,
+) -> tuple[float, bool]:
+    """Convert an image-area target into a valid-background budget."""
+    raw_budget = float(target_mass) / max(float(valid_bg_ratio), eps)
+    budget = float(np.clip(raw_budget, budget_min, budget_max))
+    return budget, bool(raw_budget < budget_min or raw_budget > budget_max)
+
+
+def _load_adaptive_target_mass(
+    num_eligible: int,
+    mass_min: float,
+    mass_max: float,
+    saturation_count: int,
+) -> tuple[float, float]:
+    """Return continuous object load and its monotonically decreasing mass target."""
+    if num_eligible <= 1:
+        load = 0.0
+    else:
+        load = (num_eligible - 1) / max(saturation_count - 1, 1)
+    load = float(np.clip(load, 0.0, 1.0))
+    target_mass = float(mass_max - load * (mass_max - mass_min))
+    return load, target_mass
+
+
 def _protection(boxes: np.ndarray, h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
     sizes = np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1])) if len(boxes) else np.empty(0)
     tiny = boxes[sizes < AUG_CONFIG["object_max_size"]]
@@ -146,7 +279,8 @@ def _density_adaptive_expand(boxes: np.ndarray, h: int, w: int) -> tuple[float, 
 
 def _protection_for_variant(boxes: np.ndarray, h: int, w: int, variant: str) -> tuple[np.ndarray, np.ndarray, float, float, float]:
     sizes = np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1])) if len(boxes) else np.empty(0)
-    tiny = boxes[sizes < AUG_CONFIG["object_max_size"]]
+    eligible_indices = np.flatnonzero(sizes < AUG_CONFIG["object_max_size"])
+    tiny = boxes[eligible_indices]
     expand = _oacp_config()["protected_expand"]
     occupancy = float(_mask_from_boxes(boxes, h, w, 1.0).mean()) if len(boxes) else 0.0
     target = 0.0
@@ -154,6 +288,22 @@ def _protection_for_variant(boxes: np.ndarray, h: int, w: int, variant: str) -> 
         expand, occupancy, target = _density_adaptive_expand(boxes, h, w)
         protected = _mask_from_boxes(boxes, h, w, AUG_CONFIG["safety_expand"]).astype(bool)
         protected |= _mask_from_boxes(tiny, h, w, expand).astype(bool)
+    elif variant == "spacing_adaptive":
+        spacing = augmentation_config()["oacp_spacing"]
+        expands, _ = _spacing_adaptive_expands(
+            boxes,
+            eligible_indices,
+            near_spacing=spacing["near"],
+            far_spacing=spacing["far"],
+            expand_min=spacing["expand_min"],
+            expand_max=spacing["expand_max"],
+        )
+        protected = _mask_from_boxes(
+            boxes, h, w, AUG_CONFIG["safety_expand"]
+        ).astype(bool)
+        protected |= _mask_from_boxes_per_expand(tiny, expands, h, w).astype(bool)
+        if len(expands):
+            expand = float(np.mean(expands))
     else:
         # Preserve the historical OACP control exactly: tiny objects get the
         # configured context expansion, while every GT receives safety cover.
@@ -162,7 +312,8 @@ def _protection_for_variant(boxes: np.ndarray, h: int, w: int, variant: str) -> 
 
 
 def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.ndarray,
-                     variant: str = "current", budget: float | None = None) -> dict[str, float | int | str]:
+                     variant: str = "current", budget: float | None = None,
+                     target_mass: float | None = None) -> dict[str, Any]:
     """Return geometry/severity diagnostics without modifying an image.
 
     ``boxes`` are absolute ``xyxy`` coordinates.  The budget is a fraction of
@@ -171,7 +322,7 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
     """
     h, w = shape[:2]
     variant = variant.lower()
-    if variant not in {"current", "budget", "density"}:
+    if variant not in {"current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"}:
         raise ValueError(f"unknown OACP variant: {variant}")
     boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
     protected, tiny, expand, occupancy, density_target = _protection_for_variant(boxes, h, w, variant)
@@ -180,7 +331,27 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
     available = (protected == 0) & ~gt_mask
     far = _far_mask(protected, h, w)
     cfg = augmentation_config()
-    if budget is None:
+    valid_bg_ratio = float(available.mean())
+    num_eligible = int(len(tiny))
+    object_load = 0.0
+    budget_clipped = False
+    if variant == "load_adaptive":
+        object_load, target_mass = _load_adaptive_target_mass(
+            num_eligible,
+            cfg["oacp_mass_target"][0],
+            cfg["oacp_mass_target"][1],
+            cfg["oacp_load_saturation_count"],
+        )
+    elif variant == "mass_adaptive" and target_mass is None:
+        target_mass = float(sum(cfg["oacp_mass_target"]) / 2.0)
+    if variant in {"mass_adaptive", "load_adaptive"}:
+        budget, budget_clipped = _mass_adaptive_budget(
+            valid_bg_ratio,
+            float(target_mass),
+            cfg["oacp_adaptive_budget"][0],
+            cfg["oacp_adaptive_budget"][1],
+        )
+    elif budget is None:
         budget = float(sum(cfg["oacp_budget"]) / 2.0)
     budget = float(np.clip(budget, 0.0, 1.0))
     eligible = bool(len(tiny))
@@ -214,6 +385,23 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         perturb = np.zeros(h * w, dtype=np.uint8)
         perturb[chosen] = 1
         perturb = perturb.reshape(h, w)
+    sizes = np.sqrt(
+        np.maximum(0, boxes[:, 2] - boxes[:, 0])
+        * np.maximum(0, boxes[:, 3] - boxes[:, 1])
+    ) if len(boxes) else np.empty(0)
+    spacing_records: list[dict[str, float]] = []
+    if variant == "spacing_adaptive" and len(tiny):
+        spacing = cfg["oacp_spacing"]
+        _, spacing_records = _spacing_adaptive_expands(
+            boxes,
+            np.flatnonzero(sizes < AUG_CONFIG["object_max_size"]),
+            near_spacing=spacing["near"],
+            far_spacing=spacing["far"],
+            expand_min=spacing["expand_min"],
+            expand_max=spacing["expand_max"],
+        )
+    normalized_spacings = [r["normalized_spacing"] for r in spacing_records]
+    adaptive_expands = [r["expand"] for r in spacing_records]
     return {
         "variant": variant,
         "num_gt": int(len(boxes)),
@@ -225,6 +413,18 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "target_perturbed_area_ratio": target_perturb,
         "target_perturbed_area_ratio_image": target_perturb,
         "budget_fraction_of_valid_bg": budget if variant != "current" else 1.0,
+        "valid_background_ratio": valid_bg_ratio,
+        "target_image_mass": float(target_mass) if target_mass is not None else 0.0,
+        "adaptive_budget": budget if variant in {"mass_adaptive", "load_adaptive"} else 0.0,
+        "budget_clipped": budget_clipped,
+        "num_eligible": num_eligible,
+        "object_load": object_load,
+        "mean_nearest_distance_norm": float(np.mean(normalized_spacings)) if normalized_spacings else 0.0,
+        "median_nearest_distance_norm": float(np.median(normalized_spacings)) if normalized_spacings else 0.0,
+        "mean_adaptive_expand": float(np.mean(adaptive_expands)) if adaptive_expands else 0.0,
+        "min_adaptive_expand": float(np.min(adaptive_expands)) if adaptive_expands else 0.0,
+        "max_adaptive_expand": float(np.max(adaptive_expands)) if adaptive_expands else 0.0,
+        "spacing_objects": spacing_records,
         "gt_area_ratio": float(gt_mask.mean()),
         "perturb_gt_overlap_ratio": float((perturb.astype(bool) & gt_mask).mean()),
         "eligible": eligible,
@@ -280,16 +480,30 @@ class OACP:
         h, w = img.shape[:2]
         boxes = _boxes(labels, h, w)
         variant = augmentation_config()["oacp_variant"]
-        if variant not in {"current", "budget", "density"}:
+        valid_variants = {
+            "current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"
+        }
+        if variant not in valid_variants:
             raise ValueError(f"unknown OACP_VARIANT: {variant}")
-        budget = random.uniform(*cfg["budget"]) if variant != "current" else None
+        target_mass = None
+        if variant == "mass_adaptive":
+            target_mass = random.uniform(*augmentation_config()["oacp_mass_target"])
+            budget = None
+        elif variant == "load_adaptive":
+            budget = None
+        else:
+            budget = random.uniform(*cfg["budget"]) if variant != "current" else None
         protected, tiny, _, _, _ = _protection_for_variant(boxes, h, w, variant)
-        diagnostics = oacp_diagnostics((h, w), boxes, variant=variant, budget=budget)
+        diagnostics = oacp_diagnostics(
+            (h, w), boxes, variant=variant, budget=budget, target_mass=target_mass
+        )
+        if variant in {"mass_adaptive", "load_adaptive"}:
+            budget = float(diagnostics["adaptive_budget"])
         if not diagnostics["would_apply"]:
             _record_oacp_diagnostics(labels, diagnostics)
             return labels
         mask = _far_mask(protected, h, w)
-        if variant in {"budget", "density"}:
+        if variant in {"budget", "density", "mass_adaptive", "load_adaptive"}:
             selected = np.zeros((h, w), np.uint8)
             available = protected == 0
             count = int(round(float(budget) * float(available.sum())))

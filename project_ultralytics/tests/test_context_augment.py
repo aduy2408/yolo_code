@@ -6,7 +6,9 @@ import pytest
 from ultralytics.utils.instance import Instances
 
 from project_ultralytics.context_augment import (
-    CEA, LEA, OACP, _protection, _protection_for_variant, oacp_diagnostics,
+    CEA, LEA, OACP, _load_adaptive_target_mass, _mass_adaptive_budget,
+    _protection, _protection_for_variant, _spacing_adaptive_expands,
+    oacp_diagnostics,
 )
 
 
@@ -105,6 +107,65 @@ def test_diagnostics_reports_training_skip_as_zero_perturbation():
     assert stats["would_apply"] is False
     assert stats["skip_reason"] == "protected_coverage_gt_0.55"
     assert stats["actual_perturbed_area_ratio_image"] == 0.0
+
+
+def test_mass_adaptive_budget_targets_image_mass_and_reports_clipping():
+    boxes = np.asarray([[60, 60, 68, 68]], dtype=np.float32)
+    stats = oacp_diagnostics((128, 128), boxes, "mass_adaptive", target_mass=0.35)
+    assert stats["target_image_mass"] == pytest.approx(0.35)
+    assert stats["valid_background_ratio"] > 0.0
+    assert stats["adaptive_budget"] == pytest.approx(
+        0.35 / stats["valid_background_ratio"]
+    )
+    assert stats["target_perturbed_area_ratio_image"] == pytest.approx(0.35)
+    assert stats["perturb_gt_overlap_ratio"] == 0.0
+
+    budget, clipped = _mass_adaptive_budget(0.95, 0.35, 0.20, 0.70)
+    assert budget == pytest.approx(0.35 / 0.95)
+    assert clipped is False
+    budget, clipped = _mass_adaptive_budget(0.10, 0.35, 0.20, 0.70)
+    assert budget == pytest.approx(0.70)
+    assert clipped is True
+
+
+def test_load_adaptive_target_mass_is_monotonic_and_saturates():
+    values = [_load_adaptive_target_mass(n, 0.25, 0.40, 10)[1] for n in range(1, 13)]
+    assert values[0] == pytest.approx(0.40)
+    assert values[2] == pytest.approx(0.40 - 2 * (0.15 / 9))
+    assert values[-1] == pytest.approx(0.25)
+    assert all(left >= right for left, right in zip(values, values[1:]))
+
+
+def test_spacing_adaptive_retains_context_for_close_objects():
+    close = np.asarray([[20, 20, 28, 28], [28, 20, 36, 28]], dtype=np.float32)
+    isolated = np.asarray([[20, 20, 28, 28]], dtype=np.float32)
+    close_expands, close_records = _spacing_adaptive_expands(
+        close, np.asarray([0]), near_spacing=1.0, far_spacing=6.0,
+        expand_min=1.2, expand_max=3.0,
+    )
+    isolated_expands, isolated_records = _spacing_adaptive_expands(
+        isolated, np.asarray([0]), near_spacing=1.0, far_spacing=6.0,
+        expand_min=1.2, expand_max=3.0,
+    )
+    assert close_records[0]["nearest_gap"] == 0.0
+    assert close_expands[0] == pytest.approx(3.0)
+    assert isolated_records[0]["nearest_gap"] == float("inf")
+    assert isolated_expands[0] == pytest.approx(1.2)
+
+
+@pytest.mark.parametrize("variant", ["mass_adaptive", "load_adaptive", "spacing_adaptive"])
+def test_adaptive_variants_run_and_keep_gt_protected(monkeypatch, variant):
+    monkeypatch.setenv("OACP_VARIANT", variant)
+    monkeypatch.setenv("OACP_P", "1.0")
+    img = np.random.default_rng(23).integers(20, 100, (96, 96, 3), dtype=np.uint8)
+    labels = _labels(img, [[48 / 96, 48 / 96, 8 / 96, 8 / 96]])
+    out = OACP(p=1.0)(labels)
+    assert out["img"].shape == img.shape
+    stats = oacp_diagnostics(
+        (96, 96), np.asarray([[44, 44, 52, 52]], dtype=np.float32), variant
+    )
+    assert stats["perturb_gt_overlap_ratio"] == 0.0
+    assert stats["num_eligible"] == 1
 
 
 def test_lea_changes_low_frequency_but_keeps_shape():
