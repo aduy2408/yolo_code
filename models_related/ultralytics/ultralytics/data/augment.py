@@ -22,6 +22,7 @@ from ultralytics.utils.metrics import bbox_ioa
 from ultralytics.utils.ops import segment2box, xywh2xyxy, xyxyxyxy2xywhr
 from ultralytics.utils.torch_utils import TORCHVISION_0_10, TORCHVISION_0_11, TORCHVISION_0_13
 from project_ultralytics.context_augment import build_context_augment
+from project_ultralytics.copy_paste import build_small_object_copy_paste
 
 DEFAULT_MEAN = (0.0, 0.0, 0.0)
 DEFAULT_STD = (1.0, 1.0, 1.0)
@@ -3015,10 +3016,16 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
     # OACP insertion point A: this transform is part of normal_pipeline.
     # Any caller that runs normal_pipeline() applies OACP here.
     context_aug = build_context_augment(dataset)
+    small_object_copy_paste = build_small_object_copy_paste(dataset, hyp)
+    final_canvas_aug = [pre_transform]
+    if small_object_copy_paste is not None:
+        # This is deliberately after Mosaic/RandomPerspective and before
+        # photometric transforms, so raw crops are pasted onto the final canvas.
+        final_canvas_aug.append(small_object_copy_paste)
     return Compose(
         [
             *context_aug,
-            pre_transform,
+            *final_canvas_aug,
             MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup),
             CutMix(dataset, pre_transform=pre_transform, p=hyp.cutmix),
             Albumentations(p=1.0, transforms=getattr(hyp, "augmentations", None)),
