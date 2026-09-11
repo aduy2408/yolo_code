@@ -140,7 +140,7 @@ def train(run_dir: Path, data_yaml: Path, config: Path, cache: Path, args: argpa
         deterministic=True,
         plots=False,
         project=str(args.project),
-        name=policy,
+        name=f"{policy}/seed_{args.seed}",
         exist_ok=True,
         mosaic=1.0,
         close_mosaic=args.close_mosaic,
