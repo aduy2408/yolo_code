@@ -291,8 +291,10 @@ mosaic_policy_candidates: 16 # (int) proposal count for policy Mosaic
 mosaic_policy_topk: 4 # (int) stochastic selection pool among top proposals
 mosaic_visibility_thresh: 0.70 # (float) partial-box threshold for visibility scoring
 mosaic_visibility_lambda: 1.0 # (float) penalty for partially visible boxes
+mosaic_occupancy_mode: dataset # (str) dataset or anchor occupancy target
 mosaic_occupancy_tolerance: 1.0 # (float) tolerated effective-count error
 mosaic_context_candidates: 32 # (int) donor candidate pool for context contrast
+mosaic_context_occupancy_tolerance: 1.0 # (float) log1p GT-count distance for context donors
 mosaic_context_cache: # (str, optional) .npz descriptor cache path
 mixup: 0.0 # (float) MixUp augmentation probability
 cutmix: 0.0 # (float) CutMix augmentation probability

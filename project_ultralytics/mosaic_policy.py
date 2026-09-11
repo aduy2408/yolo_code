@@ -72,8 +72,16 @@ def mosaic_crops(shapes: list[tuple[int, int]], imgsz: int, xc: int, yc: int) ->
             x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(imgsz * 2, yc + h)
         else:
             x1a, y1a, x2a, y2a = xc, yc, min(xc + w, imgsz * 2), min(imgsz * 2, yc + h)
-        x1b, y1b = w - (x2a - x1a), h - (y2a - y1a)
-        crops.append((int(x1b), int(y1b), int(x1b + max(x2a - x1a, 0)), int(y1b + max(y2a - y1a, 0))))
+        pasted_w, pasted_h = max(x2a - x1a, 0), max(y2a - y1a, 0)
+        if i == 0:
+            x1b, y1b = w - pasted_w, h - pasted_h
+        elif i == 1:
+            x1b, y1b = 0, h - pasted_h
+        elif i == 2:
+            x1b, y1b = w - pasted_w, 0
+        else:
+            x1b, y1b = 0, 0
+        crops.append((int(x1b), int(y1b), int(x1b + pasted_w), int(y1b + pasted_h)))
     return crops
 
 
@@ -109,6 +117,7 @@ def load_context_cache(path: str | Path | None) -> dict[str, np.ndarray] | None:
         return None
     path = Path(path)
     if not path.exists():
-        return None
+        raise FileNotFoundError(f"Mosaic context cache does not exist: {path}")
     data = np.load(path, allow_pickle=False)
-    return {"im_file": data["im_file"], "descriptor": data["descriptor"]}
+    files = np.asarray([str(Path(item).expanduser().resolve()) for item in data["im_file"]])
+    return {"im_file": files, "descriptor": data["descriptor"]}

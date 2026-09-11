@@ -821,26 +821,44 @@ class PolicyMosaic(Mosaic):
         self.topk = max(int(kwargs.get("topk", 4)), 1)
         self.visibility_thresh = float(kwargs.get("visibility_thresh", 0.70))
         self.visibility_lambda = float(kwargs.get("visibility_lambda", 1.0))
+        self.occupancy_mode = str(kwargs.get("occupancy_mode", "dataset")).lower()
         self.occupancy_tolerance = float(kwargs.get("occupancy_tolerance", 1.0))
         self.context_candidates = max(int(kwargs.get("context_candidates", 32)), 1)
+        self.context_occupancy_tolerance = float(kwargs.get("context_occupancy_tolerance", 1.0))
         self.context_cache = load_context_cache(kwargs.get("context_cache"))
+        if self.policy in {"context", "context_contrast", "contrast"} and self.context_cache is None:
+            raise ValueError("context_contrast Mosaic requires mosaic_context_cache with canonical image paths")
         self._metadata = getattr(dataset, "labels", [])
-        self._index_by_file = {str(path): i for i, path in enumerate(getattr(dataset, "im_files", []))}
+        self._index_by_file = {os.path.realpath(os.path.expanduser(str(path))): i for i, path in enumerate(getattr(dataset, "im_files", []))}
         self._diagnostics = getattr(dataset, "mosaic_policy_diagnostics", None)
         if self._diagnostics is None:
-            self._diagnostics = {"policy": self.policy, "selected": 0, "fallback": 0, "visibility": [], "effective_count": []}
+            self._diagnostics = {
+                "policy": self.policy,
+                "selected": 0,
+                "fallback": 0,
+                "visibility": [],
+                "partial_fraction": [],
+                "removed_fraction": [],
+                "visible_count": [],
+                "reference_visible_count": [],
+                "effective_count": [],
+                "occupancy_target": [],
+                "occupancy_error": [],
+            }
             dataset.mosaic_policy_diagnostics = self._diagnostics
 
     def _anchor_index(self, labels: dict[str, Any]) -> int:
-        return self._index_by_file.get(str(labels.get("im_file", "")), 0)
+        key = os.path.realpath(os.path.expanduser(str(labels.get("im_file", ""))))
+        return self._index_by_file.get(key, 0)
 
     def save_diagnostics(self, path: str | os.PathLike) -> None:
         """Write accumulated policy diagnostics as JSON for a training artifact."""
         import json
 
         summary = dict(self._diagnostics)
-        for key in ("visibility", "effective_count"):
-            values = summary.get(key, [])
+        for key, values in list(summary.items()):
+            if not isinstance(values, list):
+                continue
             summary[key] = {
                 "count": len(values),
                 "mean": float(np.mean(values)) if values else 0.0,
@@ -858,7 +876,7 @@ class PolicyMosaic(Mosaic):
 
     def _proposal_visibility(self, indices: list[int], xc: int, yc: int) -> tuple[np.ndarray, float]:
         visibility = simulate_visible_boxes(self._metadata, indices, self.imgsz, xc, yc)
-        partial = float(np.count_nonzero((visibility > 0) & (visibility < self.visibility_thresh)) )
+        partial = float(np.count_nonzero((visibility > 0) & (visibility < self.visibility_thresh)))
         score = float(visibility.sum() - self.visibility_lambda * partial)
         return visibility, score
 
@@ -867,11 +885,15 @@ class PolicyMosaic(Mosaic):
         reference = self._sample_center()
         ref_visibility, _ = self._proposal_visibility(indices, *reference[::-1])
         ref_count = int(np.count_nonzero(ref_visibility > 0))
+        self._last_reference_visible_count = ref_count
         proposals = []
         for xc, yc in candidate_centers(self.imgsz, self.border, self.candidates):
-            visibility, score = self._proposal_visibility(indices, xc, yc)
+            visibility, _ = self._proposal_visibility(indices, xc, yc)
             visible_count = int(np.count_nonzero(visibility > 0))
-            if abs(visible_count - ref_count) <= 1:
+            reference_boxes_kept = not np.any((ref_visibility > 0) & (visibility <= 0))
+            if visible_count == ref_count and reference_boxes_kept:
+                partial = float(np.count_nonzero((visibility > 0) & (visibility < self.visibility_thresh)))
+                score = float(visibility[ref_visibility > 0].sum() - 0.1 * self.visibility_lambda * partial)
                 proposals.append(MosaicProposal(donors, xc, yc, visibility, None, score))
         if not proposals:
             self._diagnostics["fallback"] += 1
@@ -881,7 +903,12 @@ class PolicyMosaic(Mosaic):
         return random.choice(proposals[: min(self.topk, len(proposals))])
 
     def _choose_occupancy(self, anchor: int) -> MosaicProposal:
-        target = float(len(self._metadata[anchor].get("bboxes", [])))
+        counts = [len(item.get("bboxes", [])) for item in self._metadata]
+        if self.occupancy_mode in {"anchor", "anchor_preserving", "anchor_occupancy"}:
+            target = float(counts[anchor])
+        else:
+            target = float(random.choice(counts))
+        self._last_occupancy_target = target
         proposals = []
         for _ in range(self.candidates):
             donors = tuple(self.get_indexes())
@@ -890,30 +917,37 @@ class PolicyMosaic(Mosaic):
             count = effective_count(visibility, self.visibility_thresh)
             score = -abs(count - target)
             proposals.append(MosaicProposal(donors, xc, yc, visibility, count, score))
-        proposals.sort(key=lambda item: float(item.score), reverse=True)
-        best = random.choice(proposals[: min(self.topk, len(proposals))])
-        if abs(float(best.effective_count) - target) > self.occupancy_tolerance:
+        valid = [item for item in proposals if abs(float(item.effective_count) - target) <= self.occupancy_tolerance]
+        if not valid:
             self._diagnostics["fallback"] += 1
-        return best
+            donors = tuple(self.get_indexes())
+            yc, xc = self._sample_center()
+            visibility = simulate_visible_boxes(self._metadata, [anchor, *donors], self.imgsz, xc, yc)
+            return MosaicProposal(donors, xc, yc, visibility, effective_count(visibility, self.visibility_thresh), None)
+        valid.sort(key=lambda item: float(item.score), reverse=True)
+        return random.choice(valid[: min(self.topk, len(valid))])
 
     def _choose_context(self, anchor: int) -> MosaicProposal:
-        random_pool = [random.randint(0, len(self.dataset) - 1) for _ in range(self.context_candidates)]
-        if self.context_cache is None:
-            self._diagnostics["fallback"] += 1
-            donors = tuple(random_pool[: self.n - 1])
-            yc, xc = self._sample_center()
-            return MosaicProposal(donors, xc, yc)
         files = [str(x) for x in self.context_cache["im_file"]]
         desc = np.asarray(self.context_cache["descriptor"], dtype=np.float32)
-        anchor_file = str(self.dataset.im_files[anchor])
-        if anchor_file not in files:
-            self._diagnostics["fallback"] += 1
-            donors = tuple(random_pool[: self.n - 1])
-            yc, xc = self._sample_center()
-            return MosaicProposal(donors, xc, yc)
-        anchor_desc = desc[files.index(anchor_file)]
-        ranked = sorted(random_pool, key=lambda i: float(np.linalg.norm(desc[files.index(str(self.dataset.im_files[i]))] - anchor_desc)) if str(self.dataset.im_files[i]) in files else -1.0, reverse=True)
-        donors = tuple(ranked[: self.n - 1])
+        file_to_cache = {path: i for i, path in enumerate(files)}
+        dataset_files = [os.path.realpath(os.path.expanduser(str(path))) for path in self.dataset.im_files]
+        anchor_file = dataset_files[anchor]
+        if anchor_file not in file_to_cache:
+            raise ValueError(f"Mosaic context cache has no descriptor for anchor image: {anchor_file}")
+        anchor_count = len(self._metadata[anchor].get("bboxes", []))
+        eligible = [
+            i for i, path in enumerate(dataset_files)
+            if i != anchor and path in file_to_cache
+            and abs(np.log1p(len(self._metadata[i].get("bboxes", []))) - np.log1p(anchor_count)) <= self.context_occupancy_tolerance
+        ]
+        if len(eligible) < self.n - 1:
+            raise ValueError("Mosaic context cache has too few density-matched donor images")
+        pool = random.sample(eligible, min(max(self.context_candidates, self.n - 1), len(eligible)))
+        anchor_desc = desc[file_to_cache[anchor_file]]
+        ranked = sorted(pool, key=lambda i: float(np.linalg.norm(desc[file_to_cache[dataset_files[i]]] - anchor_desc)), reverse=True)
+        top_pool = ranked[: max(self.n - 1, int(np.ceil(len(ranked) * 0.25)))]
+        donors = tuple(random.sample(top_pool, self.n - 1)) if len(top_pool) >= self.n - 1 else tuple(top_pool)
         yc, xc = self._sample_center()
         return MosaicProposal(donors, xc, yc)
 
@@ -933,9 +967,20 @@ class PolicyMosaic(Mosaic):
         params = {"mix_labels": mix_labels, "layout": self._build_layout(labels, proposal.xc, proposal.yc)}
         self._diagnostics["selected"] += 1
         if proposal.visibility is not None:
-            self._diagnostics["visibility"].append(float(np.mean(proposal.visibility)) if len(proposal.visibility) else 1.0)
+            values = proposal.visibility
+            self._diagnostics["visibility"].append(float(np.mean(values)) if len(values) else 1.0)
+            self._diagnostics["partial_fraction"].append(float(np.mean((values > 0) & (values < self.visibility_thresh))) if len(values) else 0.0)
+            self._diagnostics["removed_fraction"].append(float(np.mean(values <= 0)) if len(values) else 0.0)
+            self._diagnostics["visible_count"].append(int(np.count_nonzero(values > 0)))
+            reference_count = getattr(self, "_last_reference_visible_count", np.count_nonzero(values > 0))
+            if self.policy != "visibility":
+                reference_count = np.count_nonzero(values > 0)
+            self._diagnostics["reference_visible_count"].append(int(reference_count))
         if proposal.effective_count is not None:
             self._diagnostics["effective_count"].append(float(proposal.effective_count))
+            target = float(getattr(self, "_last_occupancy_target", proposal.effective_count))
+            self._diagnostics["occupancy_target"].append(target)
+            self._diagnostics["occupancy_error"].append(abs(float(proposal.effective_count) - target))
         return params
 
 
@@ -953,8 +998,10 @@ def build_mosaic(dataset, imgsz: int, hyp):
         topk=getattr(hyp, "mosaic_policy_topk", 4),
         visibility_thresh=getattr(hyp, "mosaic_visibility_thresh", 0.70),
         visibility_lambda=getattr(hyp, "mosaic_visibility_lambda", 1.0),
+        occupancy_mode=getattr(hyp, "mosaic_occupancy_mode", "dataset"),
         occupancy_tolerance=getattr(hyp, "mosaic_occupancy_tolerance", 1.0),
         context_candidates=getattr(hyp, "mosaic_context_candidates", 32),
+        context_occupancy_tolerance=getattr(hyp, "mosaic_context_occupancy_tolerance", 1.0),
         context_cache=getattr(hyp, "mosaic_context_cache", None),
     )
 

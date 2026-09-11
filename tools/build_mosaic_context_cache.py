@@ -43,7 +43,7 @@ def main() -> None:
     std = descriptors.std(axis=0)
     descriptors = (descriptors - mean) / np.maximum(std, 1e-6)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(args.output, im_file=np.asarray([str(p) for p in paths]), descriptor=descriptors)
+    np.savez_compressed(args.output, im_file=np.asarray([str(p.resolve()) for p in paths]), descriptor=descriptors)
     print(f"wrote {len(paths)} descriptors to {args.output}")
 
 
