@@ -23,6 +23,13 @@ from ultralytics.utils.ops import segment2box, xywh2xyxy, xyxyxyxy2xywhr
 from ultralytics.utils.torch_utils import TORCHVISION_0_10, TORCHVISION_0_11, TORCHVISION_0_13
 from project_ultralytics.context_augment import build_context_augment
 from project_ultralytics.copy_paste import build_small_object_copy_paste
+from project_ultralytics.mosaic_policy import (
+    MosaicProposal,
+    candidate_centers,
+    effective_count,
+    load_context_cache,
+    simulate_visible_boxes,
+)
 
 DEFAULT_MEAN = (0.0, 0.0, 0.0)
 DEFAULT_STD = (1.0, 1.0, 1.0)
@@ -529,9 +536,20 @@ class Mosaic(BaseMixTransform):
         assert len(labels.get("mix_labels", [])), "There are no other images for mosaic augment."
 
         s = self.imgsz
+        yc, xc = self._sample_center()
+        params["layout"] = self._build_layout(labels, xc, yc)
+        return params
+
+    def _sample_center(self) -> tuple[int, int]:
+        """Sample a standard Mosaic center, preserving the historical RNG path."""
+        s = self.imgsz
+        return (int(random.uniform(-self.border[0], 2 * s + self.border[0])), int(random.uniform(-self.border[1], 2 * s + self.border[1])))
+
+    def _build_layout(self, labels: dict[str, Any], xc: int, yc: int) -> list[dict[str, Any]]:
+        """Build the existing Mosaic layout for an explicitly selected center."""
+        s = self.imgsz
         layout = []
         if self.n == 4:
-            yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.border)
             for i in range(4):
                 labels_patch = labels if i == 0 else labels["mix_labels"][i - 1]
                 img = labels_patch["img"]
@@ -607,8 +625,7 @@ class Mosaic(BaseMixTransform):
                     }
                 )
                 hp, wp = h, w
-        params["layout"] = layout
-        return params
+        return layout
 
     def apply_image(self, labels: dict[str, Any], params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Apply mosaic augmentation to the image.
@@ -710,6 +727,7 @@ class Mosaic(BaseMixTransform):
             labels["semantic_mask"] = mask9[-self.border[0] : self.border[0], -self.border[1] : self.border[1]]
         return labels
 
+
     @staticmethod
     def _update_labels(labels, padw: int, padh: int, img_shape: tuple[int, int] | None = None) -> dict[str, Any]:
         """Update label coordinates with padding values.
@@ -785,6 +803,160 @@ class Mosaic(BaseMixTransform):
         if "texts" in mosaic_labels[0]:
             final_labels["texts"] = mosaic_labels[0]["texts"]
         return final_labels
+
+class PolicyMosaic(Mosaic):
+    """Mosaic with a policy for selecting donors and/or the stitching center.
+
+    ``standard`` is intentionally provided by :class:`Mosaic` itself. This
+    subclass only handles experimental policies and leaves image and instance
+    application unchanged.
+    """
+
+    def __init__(self, dataset, imgsz: int = 640, p: float = 1.0, n: int = 4, policy: str = "visibility", **kwargs):
+        if n != 4:
+            raise ValueError("Mosaic policies currently support only four-image Mosaic")
+        super().__init__(dataset, imgsz=imgsz, p=p, n=n)
+        self.policy = str(policy).lower()
+        self.candidates = max(int(kwargs.get("candidates", 16)), 1)
+        self.topk = max(int(kwargs.get("topk", 4)), 1)
+        self.visibility_thresh = float(kwargs.get("visibility_thresh", 0.70))
+        self.visibility_lambda = float(kwargs.get("visibility_lambda", 1.0))
+        self.occupancy_tolerance = float(kwargs.get("occupancy_tolerance", 1.0))
+        self.context_candidates = max(int(kwargs.get("context_candidates", 32)), 1)
+        self.context_cache = load_context_cache(kwargs.get("context_cache"))
+        self._metadata = getattr(dataset, "labels", [])
+        self._index_by_file = {str(path): i for i, path in enumerate(getattr(dataset, "im_files", []))}
+        self._diagnostics = getattr(dataset, "mosaic_policy_diagnostics", None)
+        if self._diagnostics is None:
+            self._diagnostics = {"policy": self.policy, "selected": 0, "fallback": 0, "visibility": [], "effective_count": []}
+            dataset.mosaic_policy_diagnostics = self._diagnostics
+
+    def _anchor_index(self, labels: dict[str, Any]) -> int:
+        return self._index_by_file.get(str(labels.get("im_file", "")), 0)
+
+    def save_diagnostics(self, path: str | os.PathLike) -> None:
+        """Write accumulated policy diagnostics as JSON for a training artifact."""
+        import json
+
+        summary = dict(self._diagnostics)
+        for key in ("visibility", "effective_count"):
+            values = summary.get(key, [])
+            summary[key] = {
+                "count": len(values),
+                "mean": float(np.mean(values)) if values else 0.0,
+                "min": float(np.min(values)) if values else 0.0,
+                "max": float(np.max(values)) if values else 0.0,
+            }
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(summary, file, indent=2)
+
+    def _load(self, indices: tuple[int, ...], labels: dict[str, Any]) -> list[dict[str, Any]]:
+        mix_labels = [self.dataset.get_image_and_label(i) for i in indices]
+        labels["mix_labels"] = mix_labels
+        self._update_label_text(labels)
+        return mix_labels
+
+    def _proposal_visibility(self, indices: list[int], xc: int, yc: int) -> tuple[np.ndarray, float]:
+        visibility = simulate_visible_boxes(self._metadata, indices, self.imgsz, xc, yc)
+        partial = float(np.count_nonzero((visibility > 0) & (visibility < self.visibility_thresh)) )
+        score = float(visibility.sum() - self.visibility_lambda * partial)
+        return visibility, score
+
+    def _choose_visibility(self, anchor: int, donors: tuple[int, ...]) -> MosaicProposal:
+        indices = [anchor, *donors]
+        reference = self._sample_center()
+        ref_visibility, _ = self._proposal_visibility(indices, *reference[::-1])
+        ref_count = int(np.count_nonzero(ref_visibility > 0))
+        proposals = []
+        for xc, yc in candidate_centers(self.imgsz, self.border, self.candidates):
+            visibility, score = self._proposal_visibility(indices, xc, yc)
+            visible_count = int(np.count_nonzero(visibility > 0))
+            if abs(visible_count - ref_count) <= 1:
+                proposals.append(MosaicProposal(donors, xc, yc, visibility, None, score))
+        if not proposals:
+            self._diagnostics["fallback"] += 1
+            visibility, score = ref_visibility, self._proposal_visibility(indices, *reference[::-1])[1]
+            return MosaicProposal(donors, reference[1], reference[0], visibility, None, score)
+        proposals.sort(key=lambda item: float(item.score), reverse=True)
+        return random.choice(proposals[: min(self.topk, len(proposals))])
+
+    def _choose_occupancy(self, anchor: int) -> MosaicProposal:
+        target = float(len(self._metadata[anchor].get("bboxes", [])))
+        proposals = []
+        for _ in range(self.candidates):
+            donors = tuple(self.get_indexes())
+            yc, xc = self._sample_center()
+            visibility = simulate_visible_boxes(self._metadata, [anchor, *donors], self.imgsz, xc, yc)
+            count = effective_count(visibility, self.visibility_thresh)
+            score = -abs(count - target)
+            proposals.append(MosaicProposal(donors, xc, yc, visibility, count, score))
+        proposals.sort(key=lambda item: float(item.score), reverse=True)
+        best = random.choice(proposals[: min(self.topk, len(proposals))])
+        if abs(float(best.effective_count) - target) > self.occupancy_tolerance:
+            self._diagnostics["fallback"] += 1
+        return best
+
+    def _choose_context(self, anchor: int) -> MosaicProposal:
+        random_pool = [random.randint(0, len(self.dataset) - 1) for _ in range(self.context_candidates)]
+        if self.context_cache is None:
+            self._diagnostics["fallback"] += 1
+            donors = tuple(random_pool[: self.n - 1])
+            yc, xc = self._sample_center()
+            return MosaicProposal(donors, xc, yc)
+        files = [str(x) for x in self.context_cache["im_file"]]
+        desc = np.asarray(self.context_cache["descriptor"], dtype=np.float32)
+        anchor_file = str(self.dataset.im_files[anchor])
+        if anchor_file not in files:
+            self._diagnostics["fallback"] += 1
+            donors = tuple(random_pool[: self.n - 1])
+            yc, xc = self._sample_center()
+            return MosaicProposal(donors, xc, yc)
+        anchor_desc = desc[files.index(anchor_file)]
+        ranked = sorted(random_pool, key=lambda i: float(np.linalg.norm(desc[files.index(str(self.dataset.im_files[i]))] - anchor_desc)) if str(self.dataset.im_files[i]) in files else -1.0, reverse=True)
+        donors = tuple(ranked[: self.n - 1])
+        yc, xc = self._sample_center()
+        return MosaicProposal(donors, xc, yc)
+
+    def get_params(self, labels: dict[str, Any]) -> dict[str, Any]:
+        assert labels.get("rect_shape") is None, "rect and mosaic are mutually exclusive."
+        anchor = self._anchor_index(labels)
+        if self.policy == "visibility":
+            donors = tuple(self.get_indexes())
+            proposal = self._choose_visibility(anchor, donors)
+        elif self.policy in {"occupancy", "occupancy_match", "distribution_matched"}:
+            proposal = self._choose_occupancy(anchor)
+        elif self.policy in {"context", "context_contrast", "contrast"}:
+            proposal = self._choose_context(anchor)
+        else:
+            raise ValueError(f"Unknown Mosaic policy: {self.policy}")
+        mix_labels = self._load(proposal.donor_indices, labels)
+        params = {"mix_labels": mix_labels, "layout": self._build_layout(labels, proposal.xc, proposal.yc)}
+        self._diagnostics["selected"] += 1
+        if proposal.visibility is not None:
+            self._diagnostics["visibility"].append(float(np.mean(proposal.visibility)) if len(proposal.visibility) else 1.0)
+        if proposal.effective_count is not None:
+            self._diagnostics["effective_count"].append(float(proposal.effective_count))
+        return params
+
+
+def build_mosaic(dataset, imgsz: int, hyp):
+    """Construct the configured Mosaic while keeping standard as a true control."""
+    policy = str(getattr(hyp, "mosaic_policy", "standard")).lower()
+    if policy in {"", "standard", "none"}:
+        return Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic)
+    return PolicyMosaic(
+        dataset,
+        imgsz=imgsz,
+        p=hyp.mosaic,
+        policy=policy,
+        candidates=getattr(hyp, "mosaic_policy_candidates", 16),
+        topk=getattr(hyp, "mosaic_policy_topk", 4),
+        visibility_thresh=getattr(hyp, "mosaic_visibility_thresh", 0.70),
+        visibility_lambda=getattr(hyp, "mosaic_visibility_lambda", 1.0),
+        occupancy_tolerance=getattr(hyp, "mosaic_occupancy_tolerance", 1.0),
+        context_candidates=getattr(hyp, "mosaic_context_candidates", 32),
+        context_cache=getattr(hyp, "mosaic_context_cache", None),
+    )
 
 
 class MixUp(BaseMixTransform):
@@ -2982,7 +3154,7 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
         >>> hyp.augmentations = augmentations
         >>> transforms = v8_transforms(dataset, imgsz=640, hyp=hyp)
     """
-    mosaic = Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic)
+    mosaic = build_mosaic(dataset, imgsz, hyp)
     affine = RandomPerspective(
         degrees=hyp.degrees,
         translate=hyp.translate,
@@ -2999,7 +3171,7 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
         pre_transform.append(
             CopyPaste(
                 dataset,
-                pre_transform=Compose([Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic), affine]),
+                pre_transform=Compose([build_mosaic(dataset, imgsz, hyp), affine]),
                 p=hyp.copy_paste,
                 mode=hyp.copy_paste_mode,
             )
@@ -3088,7 +3260,7 @@ class AlternatePartialClipPipeline:
         self.occlusion_enabled = bool(getattr(hyp, "occlusion_enabled", False))
         self.resolution_enabled = bool(getattr(hyp, "resolution_enabled", False))
         self.clean_tail_epoch = getattr(hyp, "clean_tail_epoch", None)
-        self.mosaic = Mosaic(dataset, imgsz=imgsz, p=getattr(hyp, "mosaic", 0.0))
+        self.mosaic = build_mosaic(dataset, imgsz, hyp)
         self.mosaic_random_perspective = RandomPerspective(
             degrees=hyp.degrees,
             translate=hyp.translate,

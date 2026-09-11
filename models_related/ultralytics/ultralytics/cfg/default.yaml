@@ -286,6 +286,14 @@ hf_atten_max_alpha: 1.0 # (float) EXPERIMENTAL maximum retained high-frequency r
 hf_atten_blur_kernel: 5 # (int) EXPERIMENTAL odd blur kernel for high-frequency residual
 hf_atten_mask_grid: 16 # (int) EXPERIMENTAL random alpha grid size before upsampling
 mosaic: 1.0 # (float) mosaic augmentation probability
+mosaic_policy: standard # (str) standard, visibility, occupancy_match, or context_contrast
+mosaic_policy_candidates: 16 # (int) proposal count for policy Mosaic
+mosaic_policy_topk: 4 # (int) stochastic selection pool among top proposals
+mosaic_visibility_thresh: 0.70 # (float) partial-box threshold for visibility scoring
+mosaic_visibility_lambda: 1.0 # (float) penalty for partially visible boxes
+mosaic_occupancy_tolerance: 1.0 # (float) tolerated effective-count error
+mosaic_context_candidates: 32 # (int) donor candidate pool for context contrast
+mosaic_context_cache: # (str, optional) .npz descriptor cache path
 mixup: 0.0 # (float) MixUp augmentation probability
 cutmix: 0.0 # (float) CutMix augmentation probability
 copy_paste: 0.0 # (float) segmentation copy-paste probability
