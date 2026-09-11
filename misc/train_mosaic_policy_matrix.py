@@ -19,6 +19,9 @@ from pathlib import Path
 from utils.marimo_ops import require_training_context
 
 ROOT = Path(__file__).resolve().parents[1]
+ULTRALYTICS = ROOT / "models_related/ultralytics"
+if str(ULTRALYTICS) not in sys.path:
+    sys.path.insert(0, str(ULTRALYTICS))
 POLICIES = {
     "M0_standard": "standard",
     "M1_visibility": "visibility",
