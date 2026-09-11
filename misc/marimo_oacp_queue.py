@@ -24,7 +24,7 @@ REQUIRED = (
 )
 
 
-def job_specs(root: Path, hf_lev: str, hf_tiny: str) -> list[dict[str, object]]:
+def job_specs(root: Path, hf_lev_budget: str, hf_lev_density: str, hf_tiny: str) -> list[dict[str, object]]:
     levir_data = "/marimo/LevirShip/LevirShipData"
     levir_dataset = root / "datasets/levir_ship_seed42"
     tiny_data = "/marimo/TinyPerson"
@@ -45,8 +45,8 @@ def job_specs(root: Path, hf_lev: str, hf_tiny: str) -> list[dict[str, object]]:
     ]
     jobs = []
     for dataset, variant, hf_repo, common, runner, project in [
-        ("levir", "budget", hf_lev, levir_common, "misc/train_context_aug_matrix.py", root / "runs/levir_yolov8n_p2p3p4_budget_mosaic_seed42"),
-        ("levir", "density", hf_lev, levir_common, "misc/train_context_aug_matrix.py", root / "runs/levir_yolov8n_p2p3p4_density_mosaic_seed42"),
+        ("levir", "budget", hf_lev_budget, levir_common, "misc/train_context_aug_matrix.py", root / "runs/levir_yolov8n_p2p3p4_budget_mosaic_seed42"),
+        ("levir", "density", hf_lev_density, levir_common, "misc/train_context_aug_matrix.py", root / "runs/levir_yolov8n_p2p3p4_density_mosaic_seed42"),
     ]:
         jobs.append({
             "name": f"{dataset}_{variant}", "variant": variant,
@@ -126,16 +126,18 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--watch-job", type=Path, required=True)
     parser.add_argument("--poll-seconds", type=int, default=60)
-    parser.add_argument("--hf-lev", required=True)
+    parser.add_argument("--hf-lev-budget", required=True)
+    parser.add_argument("--hf-lev-density", required=True)
     parser.add_argument("--hf-tiny", required=True)
     args = parser.parse_args()
-    jobs = job_specs(ROOT, args.hf_lev, args.hf_tiny)
+    jobs = job_specs(ROOT, args.hf_lev_budget, args.hf_lev_density, args.hf_tiny)
     start = next(i for i, job in enumerate(jobs) if Path(job["job_dir"]).resolve() == args.watch_job.resolve())
     watch_job = args.watch_job.resolve()
     for job in jobs[start:]:
         job_dir = Path(job["job_dir"]).resolve()
         if job_dir != watch_job and not complete(job):
-            env = {**job["env"], "HF_TOKEN": os.environ["HF_TOKEN"], "MARIMO_HF_REPO_ID": args.hf_lev if job["name"].startswith("levir") else args.hf_tiny}
+            repo_id = args.hf_lev_budget if job["name"] == "levir_budget" else args.hf_lev_density if job["name"] == "levir_density" else args.hf_tiny
+            env = {**job["env"], "HF_TOKEN": os.environ["HF_TOKEN"], "MARIMO_HF_REPO_ID": repo_id}
             job_dir = Path(job["job_dir"])
             launch_detached(job["command"], cwd=ROOT, log_path=job_dir / "train.log", pid_path=job_dir / "train.pid", state_path=job_dir / "state.json", env=env)
         wait_for(job, args.poll_seconds)
