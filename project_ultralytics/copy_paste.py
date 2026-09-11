@@ -60,8 +60,12 @@ class SmallObjectCopyPaste:
             raise ValueError("copies must be 1 or 2")
         if blend != "hard":
             raise ValueError("only hard blending is supported by the baseline")
-        if scale <= 0 or padding < 0 or max_trials < 1:
-            raise ValueError("scale, padding, and max_trials must be positive/valid")
+        if scale != 1.0:
+            raise ValueError("the baseline locks scale=1.0; use a separate scale ablation")
+        if padding != 0.0:
+            raise ValueError("the baseline locks padding=0.0; use a separate padding ablation")
+        if max_trials < 1:
+            raise ValueError("max_trials must be positive")
         self.dataset = dataset
         self.p = float(p)
         self.unit = unit
@@ -97,6 +101,8 @@ class SmallObjectCopyPaste:
             "rejected_collision": 0,
             "failed_trials": 0,
             "empty_target_count": 0,
+            "empty_target_seen": 0,
+            "empty_target_augmented": 0,
             "pasted_width_sum": 0,
             "pasted_height_sum": 0,
             "pasted_area_sum": 0,
@@ -113,7 +119,7 @@ class SmallObjectCopyPaste:
         out["source_cluster_size_mean"] = out["source_cluster_size_sum"] / n
         out["cluster_objects_mean"] = out["source_cluster_size_sum"] / n
         out["cluster_objects_max"] = out["source_cluster_size_max"]
-        out["empty_target_fraction"] = out["empty_target_count"] / max(out["applied_images"], 1)
+        out["empty_target_fraction"] = out["empty_target_augmented"] / max(out["applied_images"], 1)
         out["pasted_width_mean"] = out["pasted_width_sum"] / pasted
         out["pasted_height_mean"] = out["pasted_height_sum"] / pasted
         out["pasted_area_mean"] = out["pasted_area_sum"] / pasted
@@ -206,12 +212,13 @@ class SmallObjectCopyPaste:
             crop = cv2.resize(crop, None, fx=self.scale, fy=self.scale, interpolation=cv2.INTER_LINEAR)
         return crop, np.array([x1, y1, x2, y2], dtype=np.float32)
 
-    def _cluster(self, image_index: int, source_image: np.ndarray):
+    def _cluster(self, image_index: int, seed_box: tuple[float, float, float, float], source_image: np.ndarray):
         boxes = self._source_boxes.get(image_index, np.empty((0, 4), dtype=np.float32))
         classes = self._source_classes.get(image_index, np.empty((0,), dtype=np.int64))
         if len(boxes) < self.cluster_min_objects:
             return None
-        seed = self.rng.randrange(len(boxes))
+        seed_distances = np.max(np.abs(boxes - np.asarray(seed_box, dtype=np.float32)), axis=1)
+        seed = int(np.argmin(seed_distances))
         sx1, sy1, sx2, sy2 = boxes[seed]
         cx, cy = (sx1 + sx2) / 2, (sy1 + sy2) / 2
         rw, rh = (sx2 - sx1) * self.cluster_expand, (sy2 - sy1) * self.cluster_expand
@@ -273,6 +280,7 @@ class SmallObjectCopyPaste:
             )
         existing = self._target_boxes(labels)
         if len(existing) == 0:
+            self.stats["empty_target_seen"] += 1
             self.stats["empty_target_count"] += 1
             if not self.allow_empty_target:
                 return labels
@@ -288,7 +296,7 @@ class SmallObjectCopyPaste:
         if source_image is None:
             return labels
         if self.unit == "cluster":
-            cluster = self._cluster(source_record.image_index, source_image)
+            cluster = self._cluster(source_record.image_index, source_record.bbox_xyxy, source_image)
             if cluster is None:
                 self.stats["failed_trials"] += 1
                 return labels
@@ -334,6 +342,8 @@ class SmallObjectCopyPaste:
             self._append_instances(labels, pasted_boxes, pasted_classes)
             self.stats["applied_images"] += 1
             self.stats["pasted_instances"] += sum(len(b) for b in pasted_boxes)
+            if len(self._target_boxes(labels)) == sum(len(b) for b in pasted_boxes):
+                self.stats["empty_target_augmented"] += 1
         return labels
 
 
