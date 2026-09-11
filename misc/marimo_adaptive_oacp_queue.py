@@ -38,7 +38,7 @@ def _job(root: Path, dataset: str, variant: str, repo: str) -> dict[str, object]
             "--only", "p2p3p4_oacp", "--seed", "42",
             "--epochs", "100", "--patience", "0", "--imgsz", "512",
             "--batch-size", "8", "--workers", "4", "--device", "cuda",
-            "--mosaic", "1.0", "--close-mosaic", "10",
+            "--mosaic", "0.0", "--close-mosaic", "0",
         ]
     else:
         project = root / "runs" / f"tinyperson_adaptive_oacp_{variant}_seed42"
