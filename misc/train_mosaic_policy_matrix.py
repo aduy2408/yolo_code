@@ -36,6 +36,7 @@ REQUIRED = (
     "args.yaml",
     "experiment_manifest.json",
 )
+TRAIN_REQUIRED = tuple(path for path in REQUIRED if path != "evaluation_metrics.json")
 
 
 def seed_everything(seed: int) -> None:
@@ -121,7 +122,7 @@ def train(run_dir: Path, data_yaml: Path, config: Path, cache: Path, args: argpa
         "hf_repo_id": args.hf_repo_id,
     }
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    if all((run_dir / path).is_file() for path in REQUIRED):
+    if all((run_dir / path).is_file() for path in TRAIN_REQUIRED):
         return
 
     seed_everything(args.seed)
