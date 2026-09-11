@@ -55,6 +55,7 @@ def test_two_copies_append_exactly_two_instances(tmp_path):
     out = transform(labels)
     assert len(out["instances"]) == 2
     assert out["cls"].shape == (2, 1)
+    assert out["cls"].dtype == np.float32
 
 
 def test_empty_target_can_receive_copy(tmp_path):

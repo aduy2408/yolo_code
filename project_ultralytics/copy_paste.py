@@ -249,7 +249,13 @@ class SmallObjectCopyPaste:
             new_boxes, new_segments, new_keypoints, bbox_format="xyxy", normalized=False
         )
         labels["instances"] = Instances.concatenate([instances, new_instances], axis=0)
-        labels["cls"] = np.concatenate([np.asarray(labels.get("cls", []), dtype=np.float32).reshape(-1, 1), np.concatenate(classes).reshape(-1, 1)], axis=0)
+        labels["cls"] = np.concatenate(
+            [
+                np.asarray(labels.get("cls", []), dtype=np.float32).reshape(-1, 1),
+                np.concatenate(classes).astype(np.float32, copy=False).reshape(-1, 1),
+            ],
+            axis=0,
+        ).astype(np.float32, copy=False)
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         if self.p <= 0 or self.rng.random() >= self.p:
