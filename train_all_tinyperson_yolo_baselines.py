@@ -266,7 +266,7 @@ def main(argv: list[str] | None = None) -> None:
     require_training_context(hf_repo_id=args.hf_repo_id)
     uploader = Uploader(args.hf_repo_id)
     for model_name, seed in selected_jobs(args.models, args.seeds, args.machine_index, args.machine_count):
-        seed_dir = args.dataset_root / f"tinyperson_seed_{seed}_corner_sw640_sh512"
+        seed_dir = args.dataset_root / f"tinyperson_split_{seed}_corner_sw640_sh512"
         run_dir = train_one(model_name, seed, seed_dir / "tinyperson.yaml", args)
         standard_ultralytics()
         module.evaluate(run_dir, seed_dir / "tinyperson.yaml", test_out_dir, args.data_root, args)
