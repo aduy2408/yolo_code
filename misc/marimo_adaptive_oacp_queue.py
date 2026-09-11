@@ -36,7 +36,8 @@ def _job(
     levir_close_mosaic: int = 0,
 ) -> dict[str, object]:
     if dataset == "levir":
-        project = root / "runs" / f"levir_adaptive_oacp_{variant}_seed42"
+        suffix = "_mosaic" if levir_mosaic > 0 else ""
+        project = root / "runs" / f"levir_adaptive_oacp{suffix}_{variant}_seed42"
         run_dir = project / "p2p3p4_oacp"
         command = [
             PYTHON, "misc/train_context_aug_matrix.py",
