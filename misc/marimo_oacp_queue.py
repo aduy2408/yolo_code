@@ -139,7 +139,8 @@ def main() -> None:
     watch_job = args.watch_job.resolve()
     for job in jobs[start:]:
         job_dir = Path(job["job_dir"]).resolve()
-        if job_dir != watch_job and not complete(job):
+        info = status(job_dir)
+        if not complete(job) and not info["process_alive"]:
             repo_key = {
                 "levir_budget": "levir_v8_budget", "levir_density": "levir_v8_density",
                 "tinyperson_budget": "tinyperson_v8", "tinyperson_density": "tinyperson_v8",
