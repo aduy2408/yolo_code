@@ -31,4 +31,14 @@ def test_parse_defaults_are_three_seeds_and_upload_repo() -> None:
     assert args.models == list(runner.MODELS)
     assert args.machine_count == 1
     assert args.patience == 0
+    assert args.mosaic == 1.0
+    assert args.close_mosaic == 10
     assert args.hf_repo_id == "duyle2408/tinyperson-yolo-baselines"
+
+
+def test_no_mosaic_baseline_settings_are_explicit() -> None:
+    args = runner.parse_args(["--models", "yolov8", "yolov9", "--seeds", "42", "--mosaic", "0", "--close-mosaic", "0"])
+    assert args.models == ["yolov8", "yolov9"]
+    assert args.seeds == [42]
+    assert args.mosaic == 0.0
+    assert args.close_mosaic == 0

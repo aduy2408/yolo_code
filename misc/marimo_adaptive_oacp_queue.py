@@ -26,7 +26,15 @@ REQUIRED = (
 )
 
 
-def _job(root: Path, dataset: str, variant: str, repo: str) -> dict[str, object]:
+def _job(
+    root: Path,
+    dataset: str,
+    variant: str,
+    repo: str,
+    *,
+    levir_mosaic: float = 0.0,
+    levir_close_mosaic: int = 0,
+) -> dict[str, object]:
     if dataset == "levir":
         project = root / "runs" / f"levir_adaptive_oacp_{variant}_seed42"
         run_dir = project / "p2p3p4_oacp"
@@ -38,7 +46,7 @@ def _job(root: Path, dataset: str, variant: str, repo: str) -> dict[str, object]
             "--only", "p2p3p4_oacp", "--seed", "42",
             "--epochs", "100", "--patience", "0", "--imgsz", "512",
             "--batch-size", "8", "--workers", "4", "--device", "cuda",
-            "--mosaic", "0.0", "--close-mosaic", "0",
+            "--mosaic", str(levir_mosaic), "--close-mosaic", str(levir_close_mosaic),
         ]
     else:
         project = root / "runs" / f"tinyperson_adaptive_oacp_{variant}_seed42"
@@ -97,7 +105,14 @@ def run(args: argparse.Namespace) -> None:
     }
     jobs = []
     for variant in VARIANTS:
-        jobs.append(_job(args.root, "levir", variant, repos[f"levir_{variant}"]))
+        jobs.append(_job(
+            args.root,
+            "levir",
+            variant,
+            repos[f"levir_{variant}"],
+            levir_mosaic=args.levir_mosaic,
+            levir_close_mosaic=args.levir_close_mosaic,
+        ))
         jobs.append(_job(args.root, "tinyperson", variant, repos[f"tiny_{variant}"]))
     for job in jobs:
         job_dir = Path(job["job_dir"])
@@ -119,6 +134,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--poll-seconds", type=int, default=60)
+    parser.add_argument("--levir-mosaic", type=float, default=0.0)
+    parser.add_argument("--levir-close-mosaic", type=int, default=0)
     for dataset in ("levir", "tiny"):
         for variant in VARIANTS:
             parser.add_argument(f"--{dataset}-{variant.replace('_', '-')}", required=True)

@@ -149,6 +149,7 @@ def train_one(model_name: str, seed: int, data_yaml: Path, args: argparse.Namesp
         data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz,
         batch=args.batch_size, device=args.device, workers=args.workers,
         patience=args.patience, seed=seed, deterministic=True, amp=True,
+        mosaic=args.mosaic, close_mosaic=args.close_mosaic,
         plots=False, project=str(args.project / model_name),
         name=f"seed_{seed}_corner_sw640_sh512", exist_ok=True,
         **(BASELINE_OVERRIDES if USING_LOCAL_FORK else {}),
@@ -177,6 +178,8 @@ def write_metadata(model_name: str, seed: int, run_dir: Path, data_yaml: Path, a
         "imgsz": args.imgsz,
         "batch_size": args.batch_size,
         "nms_iou": 0.5,
+        "mosaic": args.mosaic,
+        "close_mosaic": args.close_mosaic,
         "machine_index": args.machine_index,
         "machine_count": args.machine_count,
     }
@@ -233,6 +236,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--patience", type=int, default=0)
+    parser.add_argument("--mosaic", type=float, default=1.0)
+    parser.add_argument("--close-mosaic", type=int, default=10)
     parser.add_argument("--hf-repo-id", default="duyle2408/tinyperson-yolo-baselines")
     parser.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS))
     parser.add_argument("--models", nargs="+", choices=list(MODELS), default=list(MODELS))
