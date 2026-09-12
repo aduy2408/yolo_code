@@ -30,6 +30,7 @@ FEATURES = (
     "mean_border_distance",
     "mean_bbox_width",
     "mean_bbox_height",
+    "max_cluster_size",
 )
 
 
@@ -105,7 +106,36 @@ def _overlap(boxes: np.ndarray) -> float:
     return float(np.mean(values)) if values else 0.0
 
 
-def _record(boxes: np.ndarray, width: int, height: int) -> dict[str, float]:
+def _max_cluster_size(boxes: np.ndarray, width: int, height: int, radius_fraction: float) -> float:
+    if len(boxes) < 2:
+        return float(len(boxes))
+    centers = (boxes[:, :2] + boxes[:, 2:]) / 2
+    radius = radius_fraction * max(width, height)
+    parent = list(range(len(boxes)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left, right = find(left), find(right)
+        if left != right:
+            parent[right] = left
+
+    for i in range(len(centers)):
+        for j in range(i + 1, len(centers)):
+            if np.linalg.norm(centers[i] - centers[j]) <= radius:
+                union(i, j)
+    sizes: dict[int, int] = {}
+    for index in range(len(boxes)):
+        root = find(index)
+        sizes[root] = sizes.get(root, 0) + 1
+    return float(max(sizes.values(), default=0))
+
+
+def _record(boxes: np.ndarray, width: int, height: int, cluster_radius_fraction: float) -> dict[str, float]:
     count = len(boxes)
     if count == 0:
         return {name: 0.0 for name in FEATURES} | {"empty_image": 1.0}
@@ -123,6 +153,7 @@ def _record(boxes: np.ndarray, width: int, height: int) -> dict[str, float]:
         "mean_border_distance": float(np.mean(border) / max(width, height)),
         "mean_bbox_width": float(np.mean(boxes[:, 2] - boxes[:, 0]) / width),
         "mean_bbox_height": float(np.mean(boxes[:, 3] - boxes[:, 1]) / height),
+        "max_cluster_size": _max_cluster_size(boxes, width, height, cluster_radius_fraction),
     }
 
 
@@ -159,18 +190,18 @@ def _js(values_a: Iterable[float], values_b: Iterable[float], bins: int = 32) ->
     return float((kl_a + kl_b) / 2)
 
 
-def _load_records(label_paths: list[Path]) -> list[dict[str, float]]:
+def _load_records(label_paths: list[Path], cluster_radius_fraction: float) -> list[dict[str, float]]:
     records = []
     for label_path in label_paths:
         image = cv2.imread(str(_image_path(label_path)), cv2.IMREAD_COLOR)
         if image is None:
             raise RuntimeError(f"failed to read {_image_path(label_path)}")
         h, w = image.shape[:2]
-        records.append(_record(_read_boxes(label_path, w, h), w, h))
+        records.append(_record(_read_boxes(label_path, w, h), w, h, cluster_radius_fraction))
     return records
 
 
-def _load_augmented_records(label_paths: list[Path], variant: str, seed: int) -> list[dict[str, float]]:
+def _load_augmented_records(label_paths: list[Path], variant: str, seed: int, cluster_radius_fraction: float) -> list[dict[str, float]]:
     # Import the project transform only when this mode is requested. This keeps
     # raw-statistics use independent of Ultralytics installation details.
     from project_ultralytics.copy_paste import SmallObjectCopyPaste
@@ -210,7 +241,7 @@ def _load_augmented_records(label_paths: list[Path], variant: str, seed: int) ->
         sample = {"img": image, "instances": instances, "cls": np.zeros((len(boxes), 1), dtype=np.float32), "image_index": index}
         if transform is not None:
             sample = transform(sample)
-        records.append(_record(np.asarray(sample["instances"].bboxes), w, h))
+        records.append(_record(np.asarray(sample["instances"].bboxes), w, h, cluster_radius_fraction))
     return records
 
 
@@ -232,8 +263,14 @@ def main() -> None:
     parser.add_argument("--eval-split", choices=("val", "test"), default="test")
     parser.add_argument("--samples", type=int, default=0, help="sample this many train images; 0 means all")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--cluster-radius-fraction", type=float, default=0.1,
+                        help="center-distance threshold as a fraction of max image dimension")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
+    if args.cluster_radius_fraction < 0:
+        parser.error("--cluster-radius-fraction must be non-negative")
+    if args.samples < 0:
+        parser.error("--samples must be non-negative")
     config = yaml.safe_load(args.data_yaml.read_text(encoding="utf-8"))
     root = Path(config.get("path", args.data_yaml.parent))
     if not root.is_absolute():
@@ -243,12 +280,13 @@ def main() -> None:
     if args.samples and args.samples < len(train_paths):
         train_paths = random.Random(args.seed).sample(train_paths, args.samples)
     groups = {
-        "train_raw": _load_records(train_paths),
-        "train_augmented": _load_augmented_records(train_paths, args.variant, args.seed),
-        args.eval_split: _load_records(split_paths[args.eval_split]),
+        "train_raw": _load_records(train_paths, args.cluster_radius_fraction),
+        "train_augmented": _load_augmented_records(train_paths, args.variant, args.seed, args.cluster_radius_fraction),
+        args.eval_split: _load_records(split_paths[args.eval_split], args.cluster_radius_fraction),
     }
     result = {
         "data_yaml": str(args.data_yaml.resolve()), "variant": args.variant, "seed": args.seed,
+        "cluster_radius_fraction": args.cluster_radius_fraction,
         "counts": {name: len(records) for name, records in groups.items()},
         "means": {name: _summarize(records) for name, records in groups.items()},
         "distance_to_eval": _distance_table(groups, args.eval_split),
