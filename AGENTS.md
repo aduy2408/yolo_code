@@ -42,6 +42,34 @@ Do not assume the system Python has the project ML dependencies.
 - Use `PYTHONPATH=models_related/ultralytics` only for historical reproduction. Use `PYTHONPATH=.` for project-owned tests.
 - Keep unrelated dirty files and active training scripts untouched. Check Git status before staging or committing.
 
+## Detector baseline and Mosaic protocol
+
+- Do not infer the detector architecture from the checkpoint name. A baseline
+  `yolov8n.pt` checkpoint does **not** make a custom YAML a baseline model.
+- The default detector for the Mosaic policy matrix is the upstream-style
+  YOLOv8 default YAML:
+  `models_related/ultralytics/ultralytics/cfg/models/v8/yolov8.yaml`.
+  It is the P3/P4/P5 model and must not be replaced with a P2, CBAM,
+  ChannelAttention, GAP, FPN-only, or other project YAML unless the experiment
+  explicitly names that architecture.
+- `models_related/models_config/` is a historical experiment corpus, not the
+  default detector registry. Do not select a file from that tree for a
+  baseline run based on a filename such as `plain`, `baseline`, or `yolov8n`.
+  Check the canonical config path and its contents first.
+- The custom Mosaic experiment changes augmentation policy, not detector
+  architecture. The runner must pass `mosaic_policy` as one of
+  `standard`, `visibility`, `occupancy_match`, or `context_contrast`, with
+  `mosaic=1.0` as the enable gate and `close_mosaic=10` as the final-epoch
+  shutdown. `mosaic=1.0` does not mean the default Ultralytics Mosaic
+  implementation is being used.
+- Before launching, verify the manifest records the exact YAML path, commit,
+  seed, split seed, worker count, and policy. For a baseline run, reject any
+  manifest or YAML containing P2, CBAM, ChannelAttention, GAP, or another
+  unrequested architecture change.
+- For this matrix, use `workers=8` unless the user explicitly requests a
+  different value. Keep the detector YAML, augmentation policy, and worker
+  count identical across matched runs.
+
 ## Seed-sweep provenance
 
 - Dataset split seeds and training seeds are separate experiment parameters.
