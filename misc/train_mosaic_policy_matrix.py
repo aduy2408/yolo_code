@@ -57,7 +57,7 @@ def prepare_dataset(args: argparse.Namespace) -> tuple[Path, Path, Path]:
         output = args.dataset_root / "levir_ship_yolo_seed42"
         data_yaml = prepare(args.data_root, output, args.split_seed)
         image_root = output / "images/train"
-        config = ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_plain.yaml"
+        config = ROOT / "vendor/ultralytics_upstream/ultralytics/cfg/models/v8/yolov8-p2.yaml"
         return data_yaml, image_root, config
 
     from train_all_tinyperson import prepare_seed_dataset, prepare_test_set
@@ -66,7 +66,7 @@ def prepare_dataset(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     split_root = prepare_seed_dataset(args.data_root, args.dataset_root, test_root, args.split_seed)
     data_yaml = split_root / "tinyperson.yaml"
     image_root = split_root / "images/train"
-    config = ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3_plain.yaml"
+    config = ROOT / "vendor/ultralytics_upstream/ultralytics/cfg/models/v8/yolov8-p2.yaml"
     return data_yaml, image_root, config
 
 
