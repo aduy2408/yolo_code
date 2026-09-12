@@ -80,7 +80,7 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
                         project=str(run_dir / "evaluation"), name="val", exist_ok=True)
     manifest = effective_settings(
         args.dataset, variant, seed, args.split_seed, commit_sha=_git_sha(),
-        data_yaml=str(data_yaml), epochs=args.epochs, patience=0, imgsz=args.imgsz,
+        model=args.model, data_yaml=str(data_yaml), epochs=args.epochs, patience=0, imgsz=args.imgsz,
         batch_size=args.batch_size, device=args.device, workers=args.workers,
         hf_repo_id=args.hf_repo_id, upload_required=True,
         augmentation=settings,
