@@ -45,6 +45,10 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
         folder_path=str(run_dir), repo_id=repo_id, repo_type="dataset",
         path_in_repo=f"copy_paste/{dataset}/{variant}/seed_{seed}",
     )
+    (run_dir / "upload_complete.json").write_text(
+        json.dumps({"repo_id": repo_id, "dataset": dataset, "variant": variant, "seed": seed}, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _find_copy_paste_diagnostics(obj):
@@ -59,10 +63,6 @@ def _find_copy_paste_diagnostics(obj):
         if found is not None:
             return found
     return None
-    (run_dir / "upload_complete.json").write_text(
-        json.dumps({"repo_id": repo_id, "dataset": dataset, "variant": variant, "seed": seed}, indent=2) + "\n",
-        encoding="utf-8",
-    )
 
 
 def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int) -> Path:
