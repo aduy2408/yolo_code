@@ -52,6 +52,10 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
 
 
 def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int) -> Path:
+    if args.oacp_variant != "none":
+        os.environ["YOLO_CONTEXT_AUG"] = "oacp"
+        os.environ["OACP_VARIANT"] = args.oacp_variant
+        os.environ["YOLO_LEGACY_DOUBLE_OACP"] = "0"
     from ultralytics import YOLO
 
     run_dir = args.project / args.dataset / variant / f"seed_{seed}"
@@ -81,6 +85,8 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         hf_repo_id=args.hf_repo_id, upload_required=True,
         augmentation=settings,
         mosaic_interaction=args.mosaic_interaction,
+        oacp_variant=args.oacp_variant,
+        oacp_legacy_double=False,
         metrics={key: float(value) for key, value in metrics.results_dict.items()},
     )
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -107,6 +113,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Enable Mosaic while retaining the matched Copy-Paste settings")
     parser.add_argument("--mosaic", type=float, default=1.0)
     parser.add_argument("--close-mosaic", type=int, default=10)
+    parser.add_argument("--oacp-variant", choices=("none", "current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"), default="none")
     parser.add_argument("--print-effective-config", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
     return parser.parse_args(argv)
@@ -121,7 +128,9 @@ def main(argv: list[str] | None = None) -> None:
                                   augmentation={**variant_overrides(variant),
                                                 **({"mosaic": args.mosaic, "close_mosaic": args.close_mosaic}
                                                    if args.mosaic_interaction else {})},
-                                  mosaic_interaction=args.mosaic_interaction)
+                                  mosaic_interaction=args.mosaic_interaction,
+                                  oacp_variant=args.oacp_variant,
+                                  oacp_legacy_double=False)
                for seed in args.seeds for variant in args.variants]
     if args.print_effective_config:
         print(json.dumps({"runs": configs}, indent=2, sort_keys=True))
