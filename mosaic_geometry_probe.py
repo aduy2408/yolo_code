@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Train-free probe for Mosaic-policy geometry survival through RandomPerspective.
+"""Train-free probe for Mosaic-policy geometry survival through post-Mosaic geometry.
 
 The probe samples four-image LEVIR Mosaics, records geometry immediately after
-Mosaic, then applies the project's canonical RandomPerspective implementation
-with current and milder settings. It never loads a model or starts training.
+Mosaic, then applies full-canvas resize, translation-only, or tiny affine
+geometry. It never loads a model or starts training.
 """
 from __future__ import annotations
 
@@ -29,13 +29,12 @@ from project_ultralytics.mosaic_policy import (  # noqa: E402
     resized_shape,
     simulate_visible_boxes,
 )
-from ultralytics.data.augment import RandomPerspective  # noqa: E402
-
 POLICIES = ("M0_standard", "M1_visibility", "M2_occupancy")
 POLICY_SEEDS = {"M0_standard": 11, "M1_visibility": 23, "M2_occupancy": 37}
 GEOMETRIES = {
-    "current": {"scale": 0.5, "translate": 0.10},
-    "mild": {"scale": 0.15, "translate": 0.05},
+    "no_rp": {"mode": "resize", "scale": 0.5, "translate": 0.0},
+    "translate_only": {"mode": "post_affine", "scale": (1.0, 1.0), "translate": 0.05},
+    "mild_affine": {"mode": "post_affine", "scale": (0.95, 1.05), "translate": 0.05},
 }
 THRESHOLD = 0.70
 SIZE_THRESHOLDS = (20.0, 12.0, 8.0)
@@ -191,6 +190,27 @@ def _clipped_area(polygon: np.ndarray, size: int) -> float:
         return 0.0
 
 
+def _post_geometry_matrix(config: dict[str, Any], imgsz: int) -> np.ndarray:
+    """Map the 2*imgsz Mosaic canvas onto the final imgsz canvas.
+
+    Unlike RandomPerspective, the no-RP path resizes the complete Mosaic canvas
+    instead of taking a centered crop. Optional affine perturbations are then
+    applied in final-canvas coordinates.
+    """
+    base = np.eye(3, dtype=np.float32)
+    base[0, 0] = base[1, 1] = float(config["scale"] if config["mode"] == "resize" else 0.5)
+    if config["mode"] == "resize":
+        return base
+    scale = config["scale"]
+    factor = random.uniform(scale[0], scale[1]) if isinstance(scale, (tuple, list)) else float(scale)
+    tx = random.uniform(-config["translate"], config["translate"]) * imgsz
+    ty = random.uniform(-config["translate"], config["translate"]) * imgsz
+    center = imgsz / 2.0
+    to_center = np.array([[1, 0, -center], [0, 1, -center], [0, 0, 1]], dtype=np.float32)
+    affine = np.array([[factor, 0, center + tx], [0, factor, center + ty], [0, 0, 1]], dtype=np.float32)
+    return affine @ to_center @ base
+
+
 def _metrics(records: list[dict[str, float]], matrix: np.ndarray | None, output_size: int, target: float | None) -> dict[str, Any]:
     original = np.asarray([item["original_area"] for item in records], dtype=np.float64)
     pre_area = np.asarray([item["pre_area"] for item in records], dtype=np.float64)
@@ -204,7 +224,10 @@ def _metrics(records: list[dict[str, float]], matrix: np.ndarray | None, output_
             final_area.append(_clipped_area(polygon, output_size))
         final_area = np.asarray(final_area, dtype=np.float64)
     pre_visibility = np.minimum(pre_area / np.maximum(original, 1e-12), 1.0)
-    post_visibility = np.minimum(final_area / np.maximum(original, 1e-12), 1.0)
+    area_scale = 1.0 if matrix is None else abs(float(np.linalg.det(matrix[:2, :2])))
+    # Visibility is retention after factoring out the intended global resize or
+    # affine scale. Actual pixel scale remains reported separately via sqrt area.
+    post_visibility = np.minimum(final_area / np.maximum(original * area_scale, 1e-12), 1.0)
     pre_sqrt = np.sqrt(pre_area)
     post_sqrt = np.sqrt(final_area)
     result: dict[str, Any] = {
@@ -261,25 +284,36 @@ def _decision_metrics(summaries: dict[str, dict[str, dict[str, Any]]]) -> dict[s
     for metric in ("mean_visibility", "partial_fraction", "removed_fraction", "fullish_fraction", "visible_gt_count", "effective_count", "mean_sqrt_area"):
         pre_delta = m1["pre"][metric] - m0["pre"][metric]
         retention[metric] = {}
-        for geometry in ("current", "mild"):
+        for geometry in summaries["M0_standard"]:
+            if geometry == "pre":
+                continue
             post_delta = m1[geometry][metric] - m0[geometry][metric]
             retention[metric][geometry] = None if abs(pre_delta) < 1e-12 else post_delta / pre_delta
     return {
         "m1_advantage_delta": {
             metric: {
                 "pre": m1["pre"][metric] - m0["pre"][metric],
-                "current": m1["current"][metric] - m0["current"][metric],
-                "mild": m1["mild"][metric] - m0["mild"][metric],
+                **{
+                    geometry: m1[geometry][metric] - m0[geometry][metric]
+                    for geometry in summaries["M0_standard"]
+                    if geometry != "pre"
+                },
             }
             for metric in retention
         },
         "m1_advantage_retention": retention,
         "m2_occupancy_error": {
             "pre": m2["pre"].get("occupancy_error", m2["pre"].get("pre_occupancy_error")),
-            "current": m2["current"]["occupancy_error"],
-            "mild": m2["mild"]["occupancy_error"],
-            "current_delta": m2["current"]["occupancy_error"] - m2["pre"].get("occupancy_error", m2["pre"].get("pre_occupancy_error")),
-            "mild_delta": m2["mild"]["occupancy_error"] - m2["pre"].get("occupancy_error", m2["pre"].get("pre_occupancy_error")),
+            **{
+                geometry: m2[geometry]["occupancy_error"]
+                for geometry in summaries["M0_standard"]
+                if geometry != "pre"
+            },
+            **{
+                f"{geometry}_delta": m2[geometry]["occupancy_error"] - m2["pre"].get("occupancy_error", m2["pre"].get("pre_occupancy_error"))
+                for geometry in summaries["M0_standard"]
+                if geometry != "pre"
+            },
         },
     }
 
@@ -299,7 +333,7 @@ def main() -> None:
     if len(metadata) < 1:
         raise RuntimeError("no training labels found")
     results: dict[str, dict[str, list[dict[str, Any]]]] = {
-        policy: {"pre": [], "current": [], "mild": []} for policy in POLICIES
+        policy: {"pre": [], **{geometry: [] for geometry in GEOMETRIES}} for policy in POLICIES
     }
     for sample_index in range(args.samples):
         for policy in POLICIES:
@@ -310,12 +344,9 @@ def main() -> None:
             results[policy]["pre"].append(pre)
             for geometry, config in GEOMETRIES.items():
                 random.seed(args.seed + sample_index * 1009 + POLICY_SEEDS[policy])
-                transform = RandomPerspective(
-                    degrees=0.0, translate=config["translate"], scale=config["scale"],
-                    shear=0.0, perspective=0.0, size=(args.imgsz, args.imgsz),
+                results[policy][geometry].append(
+                    _metrics(records, _post_geometry_matrix(config, args.imgsz), args.imgsz, target)
                 )
-                params = transform.get_params({"img": np.full((args.imgsz * 2, args.imgsz * 2, 3), 114, dtype=np.uint8)})
-                results[policy][geometry].append(_metrics(records, params["M"], args.imgsz, target))
         if (sample_index + 1) % 500 == 0:
             print(f"PROGRESS {sample_index + 1}/{args.samples}", flush=True)
     summaries = {policy: {stage: _summary(values) for stage, values in stages.items()} for policy, stages in results.items()}
