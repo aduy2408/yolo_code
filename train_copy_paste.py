@@ -67,6 +67,11 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
     if args.mosaic_interaction:
         settings["mosaic"] = args.mosaic
         settings["close_mosaic"] = args.close_mosaic
+        settings["mosaic_policy"] = args.mosaic_policy
+        settings["mosaic_policy_candidates"] = 16
+        settings["mosaic_policy_topk"] = 4
+        settings["mosaic_visibility_thresh"] = 0.7
+        settings["mosaic_visibility_lambda"] = 1.0
     model = YOLO(args.model)
     model.train(
         data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
@@ -113,6 +118,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Enable Mosaic while retaining the matched Copy-Paste settings")
     parser.add_argument("--mosaic", type=float, default=1.0)
     parser.add_argument("--close-mosaic", type=int, default=10)
+    parser.add_argument("--mosaic-policy", choices=("standard", "visibility", "occupancy_match", "context_contrast"), default="standard")
     parser.add_argument("--oacp-variant", choices=("none", "current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"), default="none")
     parser.add_argument("--print-effective-config", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
@@ -127,6 +133,12 @@ def main(argv: list[str] | None = None) -> None:
                                   workers=args.workers, hf_repo_id=args.hf_repo_id,
                                   augmentation={**variant_overrides(variant),
                                                 **({"mosaic": args.mosaic, "close_mosaic": args.close_mosaic}
+                                                   if args.mosaic_interaction else {}),
+                                                **({"mosaic_policy": args.mosaic_policy,
+                                                    "mosaic_policy_candidates": 16,
+                                                    "mosaic_policy_topk": 4,
+                                                    "mosaic_visibility_thresh": 0.7,
+                                                    "mosaic_visibility_lambda": 1.0}
                                                    if args.mosaic_interaction else {})},
                                   mosaic_interaction=args.mosaic_interaction,
                                   oacp_variant=args.oacp_variant,
