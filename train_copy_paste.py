@@ -60,6 +60,9 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
     if all(path.is_file() for path in required):
         return run_dir
     settings = variant_overrides(variant)
+    if args.mosaic_interaction:
+        settings["mosaic"] = args.mosaic
+        settings["close_mosaic"] = args.close_mosaic
     model = YOLO(args.model)
     model.train(
         data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
@@ -76,6 +79,8 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         data_yaml=str(data_yaml), epochs=args.epochs, patience=0, imgsz=args.imgsz,
         batch_size=args.batch_size, device=args.device, workers=args.workers,
         hf_repo_id=args.hf_repo_id, upload_required=True,
+        augmentation=settings,
+        mosaic_interaction=args.mosaic_interaction,
         metrics={key: float(value) for key, value in metrics.results_dict.items()},
     )
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -98,6 +103,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS))
     parser.add_argument("--hf-repo-id", required=True)
+    parser.add_argument("--mosaic-interaction", action="store_true",
+                        help="Enable Mosaic while retaining the matched Copy-Paste settings")
+    parser.add_argument("--mosaic", type=float, default=1.0)
+    parser.add_argument("--close-mosaic", type=int, default=10)
     parser.add_argument("--print-effective-config", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
     return parser.parse_args(argv)
@@ -108,7 +117,11 @@ def main(argv: list[str] | None = None) -> None:
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
     configs = [effective_settings(args.dataset, variant, seed, args.split_seed, epochs=args.epochs, patience=0,
                                   imgsz=args.imgsz, batch_size=args.batch_size, device=args.device,
-                                  workers=args.workers, hf_repo_id=args.hf_repo_id)
+                                  workers=args.workers, hf_repo_id=args.hf_repo_id,
+                                  augmentation={**variant_overrides(variant),
+                                                **({"mosaic": args.mosaic, "close_mosaic": args.close_mosaic}
+                                                   if args.mosaic_interaction else {})},
+                                  mosaic_interaction=args.mosaic_interaction)
                for seed in args.seeds for variant in args.variants]
     if args.print_effective_config:
         print(json.dumps({"runs": configs}, indent=2, sort_keys=True))
