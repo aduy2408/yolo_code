@@ -23,6 +23,7 @@ from ultralytics.utils.ops import segment2box, xywh2xyxy, xyxyxyxy2xywhr
 from ultralytics.utils.torch_utils import TORCHVISION_0_10, TORCHVISION_0_11, TORCHVISION_0_13
 from project_ultralytics.context_augment import build_context_augment
 from project_ultralytics.copy_paste import build_small_object_copy_paste
+from project_ultralytics.mosaic_resize import FullCanvasResize
 from project_ultralytics.mosaic_policy import (
     MosaicProposal,
     candidate_centers,
@@ -3303,6 +3304,7 @@ class AlternatePartialClipPipeline:
         self.clean_control_enabled = bool(getattr(hyp, "clean_control_enabled", False))
         self.viewport_mosaic_enabled = bool(getattr(hyp, "viewport_mosaic_enabled", False))
         self.mosaic_postprocess_enabled = bool(getattr(hyp, "mosaic_postprocess_enabled", False))
+        self.mosaic_postprocess_mode = str(getattr(hyp, "mosaic_postprocess_mode", "random_perspective")).lower()
         self.viewport_enabled = bool(getattr(hyp, "viewport_enabled", False))
         self.occlusion_enabled = bool(getattr(hyp, "occlusion_enabled", False))
         self.resolution_enabled = bool(getattr(hyp, "resolution_enabled", False))
@@ -3357,7 +3359,10 @@ class AlternatePartialClipPipeline:
                 return labels
             if self.mosaic_postprocess_enabled:
                 labels = self.mosaic(labels)
-                labels = self.mosaic_random_perspective(labels)
+                if self.mosaic_postprocess_mode == "resize":
+                    labels = FullCanvasResize(self.imgsz)(labels)
+                else:
+                    labels = self.mosaic_random_perspective(labels)
             else:
                 labels = self.mosaic(labels) if self.viewport_mosaic_enabled else self.letterbox(labels)
             if self.viewport_enabled:
