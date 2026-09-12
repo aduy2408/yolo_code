@@ -1,0 +1,31 @@
+# #3 Dedicated Cue Slots
+# F* = [PF(F)_24, PB(B)_4, Cb_1, Cr_1, E_1, H_1] = 32ch total
+# No learned mixing between modalities — only two 1×1 projections on F and B.
+# Raw cues are AvgPooled to stride-4 + per-channel affine (no cross-modal conv).
+# Input: list[F18=fused_p2, B2=backbone_p2] via [18, 2]
+nc: 1
+scale: n
+scales: {n: [0.33, 0.25, 1024]}
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]
+  - [-1, 1, Conv, [128, 3, 2]]
+  - [-1, 3, C2f, [128, true]]
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [-1, 6, C2f, [256, true]]
+  - [-1, 1, Conv, [512, 3, 2]]
+  - [-1, 6, C2f, [512, true]]
+  - [-1, 1, Conv, [1024, 3, 2]]
+  - [-1, 3, C2f, [1024, true]]
+  - [-1, 1, SPPF, [1024, 5]]
+head:
+  - [-1, 1, nn.Upsample, [null, 2, nearest]]
+  - [[-1, 6], 1, Concat, [1]]
+  - [-1, 3, C2f, [512]]
+  - [-1, 1, nn.Upsample, [null, 2, nearest]]
+  - [[-1, 4], 1, Concat, [1]]
+  - [-1, 3, C2f, [256]]
+  - [-1, 1, nn.Upsample, [null, 2, nearest]]
+  - [[-1, 2], 1, Concat, [1]]
+  - [-1, 3, C2f, [128]]
+  - [[18, 2], 1, DedicatedCueSlots, [24, 4]]
+  - [[19], 1, Detect, [nc]]

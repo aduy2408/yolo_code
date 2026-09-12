@@ -1,0 +1,31 @@
+# #4 Detached Residual Fusion
+# F* = [PF(F)_24, E8] where E8 = B8 + φ(B8, sg(C4 - D(F)))
+# D(F) predicts C4=[Cb,Cr,E,H] from F; residual is stop-graded.
+# D(F) supervised by separate L1 recon loss (recon_gain=0.5).
+# Inference representation is purely learned; raw cue only guides during training.
+nc: 1
+scale: n
+scales: {n: [0.33, 0.25, 1024]}
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]
+  - [-1, 1, Conv, [128, 3, 2]]
+  - [-1, 3, C2f, [128, true]]
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [-1, 6, C2f, [256, true]]
+  - [-1, 1, Conv, [512, 3, 2]]
+  - [-1, 6, C2f, [512, true]]
+  - [-1, 1, Conv, [1024, 3, 2]]
+  - [-1, 3, C2f, [1024, true]]
+  - [-1, 1, SPPF, [1024, 5]]
+head:
+  - [-1, 1, nn.Upsample, [null, 2, nearest]]
+  - [[-1, 6], 1, Concat, [1]]
+  - [-1, 3, C2f, [512]]
+  - [-1, 1, nn.Upsample, [null, 2, nearest]]
+  - [[-1, 4], 1, Concat, [1]]
+  - [-1, 3, C2f, [256]]
+  - [-1, 1, nn.Upsample, [null, 2, nearest]]
+  - [[-1, 2], 1, Concat, [1]]
+  - [-1, 3, C2f, [128]]
+  - [[18, 2], 1, DetachedResidualFusion, [0.5]]
+  - [[19], 1, Detect, [nc]]

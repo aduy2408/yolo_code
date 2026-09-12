@@ -17,12 +17,30 @@ explicitly requests a historical architecture.
 
 | Directory | Count | Scope |
 |---|---:|---|
-| `levir/` | 165 | LEVIR-Ship architecture and detector ablations |
+| `levir/` | 165 | LEVIR-Ship configs, organized into subcategories below |
 | `tinyperson/` | 4 | TinyPerson detector variants |
 | `varroa/` | 36 | Varroa detector experiments |
 | `visdrone/` | 3 | VisDrone detector experiments |
 | `kvca_sweep/` | 5 | KVCA architecture sweep |
 | `tried/` | 59 | Earlier exploratory configurations |
+
+### LEVIR subcategories
+
+The formerly flat LEVIR directory is now organized physically:
+
+| Directory | Count | Scope |
+|---|---:|---|
+| `levir/baseline_controls/` | 10 | Plain, baseline, and control variants |
+| `levir/attention/` | 34 | CBAM, KVCA, channel, and attention variants |
+| `levir/heads_losses/` | 25 | GAP, DFL/TAL, deep-supervision, and object-aware variants |
+| `levir/evidence_probes/` | 39 | Evidence, probe, cue, DBSS, surgical, and diagnostic variants |
+| `levir/fusion_context/` | 36 | Fusion, contrast, sidecar, FPN/PAN, and context variants |
+| `levir/interaction_ablation/` | 8 | C1-C4, extra8, and single17 interaction ablations |
+| `levir/other/` | 13 | Remaining historical LEVIR experiments |
+
+The old `levir/<name>.yaml` paths are compatibility symlinks to the categorized
+files. New code should use the categorized path directly. The symlinks remain
+because many historical scripts and manifests intentionally record the old path.
 
 ## Filename vocabulary
 
