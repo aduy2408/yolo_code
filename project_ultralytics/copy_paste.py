@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+import json
 import random
 
 import cv2
@@ -50,6 +51,8 @@ class SmallObjectCopyPaste:
         allow_same_source: bool = True,
         cluster_expand: float = 3.0,
         cluster_min_objects: int = 2,
+        policy: str = "fixed",
+        scene_stats: Mapping[str, float] | None = None,
         rng=None,
     ) -> None:
         if unit not in {"single", "cluster"}:
@@ -64,6 +67,8 @@ class SmallObjectCopyPaste:
             raise ValueError("the baseline locks scale=1.0; use a separate scale ablation")
         if padding != 0.0:
             raise ValueError("the baseline locks padding=0.0; use a separate padding ablation")
+        if policy not in {"fixed", "load_adaptive", "layout_adaptive"}:
+            raise ValueError("policy must be 'fixed', 'load_adaptive', or 'layout_adaptive'")
         if max_trials < 1:
             raise ValueError("max_trials must be positive")
         self.dataset = dataset
@@ -80,6 +85,15 @@ class SmallObjectCopyPaste:
         self.allow_same_source = bool(allow_same_source)
         self.cluster_expand = float(cluster_expand)
         self.cluster_min_objects = int(cluster_min_objects)
+        self.policy = policy
+        self.scene_stats = dict(scene_stats or {})
+        if self.policy != "fixed":
+            required = {"count_q33", "count_q67"}
+            missing = sorted(required - self.scene_stats.keys())
+            if missing:
+                raise ValueError(f"scene_stats missing required fields: {', '.join(missing)}")
+            if self.policy == "layout_adaptive" and "spacing_q50" not in self.scene_stats:
+                raise ValueError("scene_stats missing required field: spacing_q50")
         self.rng = rng or random
         self.object_pool: list[ObjectRecord] = []
         self._source_boxes: dict[int, np.ndarray] = {}
@@ -107,6 +121,18 @@ class SmallObjectCopyPaste:
             "pasted_height_sum": 0,
             "pasted_area_sum": 0,
             "cluster_crop_area_sum": 0,
+            "scene_count_sum": 0,
+            "scene_count_max": 0,
+            "effective_p_sum": 0.0,
+            "effective_p_count": 0,
+            "load_low_seen": 0,
+            "load_mid_seen": 0,
+            "load_high_seen": 0,
+            "policy_skipped_load": 0,
+            "policy_selected_single": 0,
+            "policy_selected_cluster": 0,
+            "spacing_sum": 0.0,
+            "spacing_count": 0,
         }
 
     def reset_stats(self) -> None:
@@ -124,6 +150,9 @@ class SmallObjectCopyPaste:
         out["pasted_height_mean"] = out["pasted_height_sum"] / pasted
         out["pasted_area_mean"] = out["pasted_area_sum"] / pasted
         out["cluster_crop_area_mean"] = out["cluster_crop_area_sum"] / n
+        out["effective_p_mean"] = out["effective_p_sum"] / max(out["effective_p_count"], 1)
+        out["scene_count_mean"] = out["scene_count_sum"] / max(out["effective_p_count"], 1)
+        out["spacing_mean"] = out["spacing_sum"] / max(out["spacing_count"], 1)
         # Also expose the manifest-friendly names used by experiment logs.
         out.update({f"cp/{key}": value for key, value in out.items() if not key.startswith("cp/")})
         return out
@@ -180,6 +209,59 @@ class SmallObjectCopyPaste:
             h, w = labels["img"].shape[:2]
             instances.denormalize(w, h)
         return np.asarray(instances.bboxes, dtype=np.float32).copy()
+
+    @staticmethod
+    def _normalized_nearest_spacing(boxes: np.ndarray) -> float | None:
+        """Return median nearest edge gap normalized by object area scale."""
+        if len(boxes) < 2:
+            return None
+        boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+        sizes = np.maximum(boxes[:, 2:] - boxes[:, :2], 1e-6)
+        gaps = []
+        for i, box in enumerate(boxes):
+            dx = np.maximum(np.maximum(box[0] - boxes[:, 2], boxes[:, 0] - box[2]), 0.0)
+            dy = np.maximum(np.maximum(box[1] - boxes[:, 3], boxes[:, 1] - box[3]), 0.0)
+            distance = np.sqrt(dx * dx + dy * dy)
+            distance[i] = np.inf
+            nearest = int(np.argmin(distance))
+            scale = float(np.sqrt(sizes[i, 0] * sizes[i, 1]))
+            gaps.append(float(distance[nearest]) / max(scale, 1e-6))
+        return float(np.median(gaps))
+
+    def _effective_probability(self, existing: np.ndarray) -> float:
+        """Calculate load-conditioned probability and record policy diagnostics."""
+        if self.policy == "fixed":
+            return self.p
+        count = len(existing)
+        low = float(self.scene_stats["count_q33"])
+        high = float(self.scene_stats["count_q67"])
+        load = float(np.clip((count - low) / max(high - low, 1.0), 0.0, 1.0))
+        self.stats["scene_count_sum"] += count
+        self.stats["scene_count_max"] = max(self.stats["scene_count_max"], count)
+        self.stats["effective_p_sum"] += self.p * (1.0 - load)
+        self.stats["effective_p_count"] += 1
+        if load <= 0.0:
+            self.stats["load_low_seen"] += 1
+        elif load >= 1.0:
+            self.stats["load_high_seen"] += 1
+        else:
+            self.stats["load_mid_seen"] += 1
+        return float(self.p * (1.0 - load))
+
+    def _choose_unit(self, existing: np.ndarray) -> str:
+        if self.policy != "layout_adaptive":
+            return self.unit
+        spacing = self._normalized_nearest_spacing(existing)
+        if spacing is None:
+            self.stats["policy_selected_single"] += 1
+            return "single"
+        self.stats["spacing_sum"] += spacing
+        self.stats["spacing_count"] += 1
+        if spacing <= float(self.scene_stats["spacing_q50"]):
+            self.stats["policy_selected_cluster"] += 1
+            return "cluster"
+        self.stats["policy_selected_single"] += 1
+        return "single"
 
     def _choose_destination(self, patch_shape: tuple[int, int], canvas_shape: tuple[int, int], existing: np.ndarray):
         ph, pw = patch_shape
@@ -265,7 +347,9 @@ class SmallObjectCopyPaste:
         ).astype(np.float32, copy=False)
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
-        if self.p <= 0 or self.rng.random() >= self.p:
+        # Preserve the fixed baseline's RNG and setup order exactly. Adaptive
+        # modes must inspect final-canvas boxes before drawing their decision.
+        if self.policy == "fixed" and (self.p <= 0 or self.rng.random() >= self.p):
             return labels
         self._build_pool()
         if not self.object_pool:
@@ -279,6 +363,10 @@ class SmallObjectCopyPaste:
                 None,
             )
         existing = self._target_boxes(labels)
+        p_eff = self.p if self.policy == "fixed" else self._effective_probability(existing)
+        if self.policy != "fixed" and (p_eff <= 0 or self.rng.random() >= p_eff):
+            self.stats["policy_skipped_load"] += 1
+            return labels
         if len(existing) == 0:
             self.stats["empty_target_seen"] += 1
             self.stats["empty_target_count"] += 1
@@ -295,7 +383,8 @@ class SmallObjectCopyPaste:
         source_image = self._load_raw(source_record.image_index)
         if source_image is None:
             return labels
-        if self.unit == "cluster":
+        unit = self._choose_unit(existing)
+        if unit == "cluster":
             cluster = self._cluster(source_record.image_index, source_record.bbox_xyxy, source_image)
             if cluster is None:
                 self.stats["failed_trials"] += 1
@@ -358,6 +447,10 @@ def build_small_object_copy_paste(dataset, hyp):
     """
     if not bool(getattr(hyp, "copy_paste_enabled", False)):
         return None
+    stats_path = str(getattr(hyp, "copy_paste_stats_path", "") or "")
+    scene_stats = getattr(hyp, "copy_paste_scene_stats", None)
+    if scene_stats is None and stats_path:
+        scene_stats = json.loads(Path(stats_path).read_text(encoding="utf-8"))
     return SmallObjectCopyPaste(
         dataset=dataset,
         p=float(getattr(hyp, "copy_paste_p", 0.5)),
@@ -373,6 +466,8 @@ def build_small_object_copy_paste(dataset, hyp):
         allow_same_source=bool(getattr(hyp, "copy_paste_allow_same_source", True)),
         cluster_expand=float(getattr(hyp, "copy_paste_cluster_expand", 3.0)),
         cluster_min_objects=int(getattr(hyp, "copy_paste_cluster_min_objects", 2)),
+        policy=str(getattr(hyp, "copy_paste_policy", "fixed")),
+        scene_stats=scene_stats,
     )
 
 
@@ -393,6 +488,8 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "max_trials": int(getattr(hyp, "copy_paste_max_trials", 30)),
         "cluster_expand": float(getattr(hyp, "copy_paste_cluster_expand", 3.0)),
         "cluster_min_objects": int(getattr(hyp, "copy_paste_cluster_min_objects", 2)),
+        "policy": str(getattr(hyp, "copy_paste_policy", "fixed")),
+        "stats_path": str(getattr(hyp, "copy_paste_stats_path", "") or ""),
     }
 
 

@@ -147,6 +147,42 @@ def test_failed_boundary_placement_leaves_labels_unchanged(tmp_path):
     assert transform.diagnostics()["rejected_boundary"] == 1
 
 
+def test_fixed_policy_keeps_baseline_probability_and_config(tmp_path):
+    dataset = _dataset(tmp_path, [[3, 2, 7, 6]])
+    transform = SmallObjectCopyPaste(dataset, p=0.25, policy="fixed", rng=__import__("random").Random(5))
+    assert transform._effective_probability(np.empty((4, 4), dtype=np.float32)) == 0.25
+    assert transform._choose_unit(np.empty((0, 4), dtype=np.float32)) == "single"
+
+
+def test_load_adaptive_probability_is_monotonic(tmp_path):
+    dataset = _dataset(tmp_path, [[3, 2, 7, 6]])
+    transform = SmallObjectCopyPaste(
+        dataset, p=0.5, policy="load_adaptive",
+        scene_stats={"count_q33": 2, "count_q67": 6},
+        rng=__import__("random").Random(5),
+    )
+    low = transform._effective_probability(np.zeros((2, 4), dtype=np.float32))
+    mid = transform._effective_probability(np.zeros((4, 4), dtype=np.float32))
+    high = transform._effective_probability(np.zeros((8, 4), dtype=np.float32))
+    assert low == pytest.approx(0.5)
+    assert mid == pytest.approx(0.25)
+    assert high == pytest.approx(0.0)
+    assert low >= mid >= high
+
+
+def test_layout_adaptive_selects_cluster_for_crowded_boxes(tmp_path):
+    dataset = _dataset(tmp_path, [[3, 2, 7, 6], [12, 10, 16, 14]])
+    transform = SmallObjectCopyPaste(
+        dataset, p=1.0, policy="layout_adaptive",
+        scene_stats={"count_q33": 0, "count_q67": 20, "spacing_q50": 2.0},
+        rng=__import__("random").Random(5),
+    )
+    crowded = np.array([[2, 2, 6, 6], [7, 2, 11, 6]], dtype=np.float32)
+    isolated = np.array([[2, 2, 6, 6], [16, 16, 20, 20]], dtype=np.float32)
+    assert transform._choose_unit(crowded) == "cluster"
+    assert transform._choose_unit(isolated) == "single"
+
+
 def test_real_yolo_dataset_pipeline_appends_after_spatial_transforms(tmp_path):
     image_dir = tmp_path / "images"
     label_dir = tmp_path / "labels"

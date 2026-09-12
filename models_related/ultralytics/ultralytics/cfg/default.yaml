@@ -316,6 +316,8 @@ copy_paste_allow_empty_target: true # (bool) allow augmentation of originally em
 copy_paste_allow_same_source: true # (bool) allow source and target image to match
 copy_paste_cluster_expand: 3.0 # (float) cluster center-region expansion factor
 copy_paste_cluster_min_objects: 2 # (int) minimum objects in a natural cluster
+copy_paste_policy: fixed # (str) fixed, load_adaptive, or layout_adaptive
+copy_paste_stats_path: "" # (str) JSON scene-stat thresholds for adaptive policies
 auto_augment: randaugment # (str) classification auto augmentation policy: randaugment, autoaugment, augmix
 erasing: 0.4 # (float) random erasing probability for classification (0.0–1.0)
 
