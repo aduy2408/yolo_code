@@ -45,6 +45,20 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
         folder_path=str(run_dir), repo_id=repo_id, repo_type="dataset",
         path_in_repo=f"copy_paste/{dataset}/{variant}/seed_{seed}",
     )
+
+
+def _find_copy_paste_diagnostics(obj):
+    """Find the configured small-object transform in a nested Compose tree."""
+    if obj is None:
+        return None
+    diagnostics = getattr(obj, "diagnostics", None)
+    if callable(diagnostics) and hasattr(obj, "policy"):
+        return diagnostics()
+    for child in getattr(obj, "transforms", []) or []:
+        found = _find_copy_paste_diagnostics(child)
+        if found is not None:
+            return found
+    return None
     (run_dir / "upload_complete.json").write_text(
         json.dumps({"repo_id": repo_id, "dataset": dataset, "variant": variant, "seed": seed}, indent=2) + "\n",
         encoding="utf-8",
@@ -64,6 +78,8 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
     if all(path.is_file() for path in required):
         return run_dir
     settings = variant_overrides(variant)
+    settings["copy_paste_policy"] = args.copy_paste_policy
+    settings["copy_paste_stats_path"] = str(args.copy_paste_stats_path or "")
     if args.mosaic_interaction:
         settings["mosaic"] = args.mosaic
         settings["close_mosaic"] = args.close_mosaic
@@ -79,6 +95,14 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         deterministic=True, amp=True, plots=False, project=str(run_dir.parent),
         name=run_dir.name, exist_ok=True, val=True, iou=0.5, **settings,
     )
+    cp_diagnostics = _find_copy_paste_diagnostics(
+        getattr(getattr(model, "trainer", None), "train_loader", None)
+        and model.trainer.train_loader.dataset.transforms
+    )
+    if cp_diagnostics is not None:
+        (run_dir / "copy_paste_diagnostics.json").write_text(
+            json.dumps(cp_diagnostics, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
     model = YOLO(run_dir / "weights/best.pt")
     metrics = model.val(data=str(data_yaml), split="val", imgsz=args.imgsz, batch=args.batch_size,
                         device=args.device, workers=args.workers, plots=False, iou=0.5,
@@ -120,6 +144,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--close-mosaic", type=int, default=10)
     parser.add_argument("--mosaic-policy", choices=("standard", "visibility", "occupancy_match", "context_contrast"), default="standard")
     parser.add_argument("--oacp-variant", choices=("none", "current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"), default="none")
+    parser.add_argument("--copy-paste-policy", choices=("fixed", "load_adaptive", "layout_adaptive"), default="fixed")
+    parser.add_argument("--copy-paste-stats-path", type=Path, default=None)
     parser.add_argument("--print-effective-config", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
     return parser.parse_args(argv)
@@ -139,7 +165,9 @@ def main(argv: list[str] | None = None) -> None:
                                                     "mosaic_policy_topk": 4,
                                                     "mosaic_visibility_thresh": 0.7,
                                                     "mosaic_visibility_lambda": 1.0}
-                                                   if args.mosaic_interaction else {})},
+                                                   if args.mosaic_interaction else {}),
+                                                "copy_paste_policy": args.copy_paste_policy,
+                                                "copy_paste_stats_path": str(args.copy_paste_stats_path or "")},
                                   mosaic_interaction=args.mosaic_interaction,
                                   oacp_variant=args.oacp_variant,
                                   oacp_legacy_double=False)
