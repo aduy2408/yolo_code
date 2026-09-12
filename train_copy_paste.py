@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from copy_paste_protocol import VARIANTS, effective_settings, variant_overrides
@@ -70,6 +71,9 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         os.environ["YOLO_CONTEXT_AUG"] = "oacp"
         os.environ["OACP_VARIANT"] = args.oacp_variant
         os.environ["YOLO_LEGACY_DOUBLE_OACP"] = "0"
+    ultralytics_path = ROOT / "models_related" / "ultralytics"
+    if str(ultralytics_path) not in sys.path:
+        sys.path.insert(0, str(ultralytics_path))
     from ultralytics import YOLO
 
     run_dir = args.project / args.dataset / variant / f"seed_{seed}"
