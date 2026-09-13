@@ -63,7 +63,7 @@ def configure_oacp(spec: dict) -> None:
 
 
 def evaluate(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> None:
-    from project_ultralytics.parser import load_project_model
+    from project_ultralytics.parser import load_project_model, project_parser, project_runtime
     model = load_project_model(run_dir / "weights/best.pt", verbose=False)
     metrics = {"checkpoint": "best.pt", "nms_iou": 0.5}
     for split in ("val", "test"):
@@ -140,7 +140,11 @@ def main() -> None:
                 kwargs.update(mosaic_policy="scale_adaptive", mosaic_scale_quantile=0.05, mosaic_scale_modes=[4, 2])
             if spec["ftal"]:
                 kwargs.update(FTAL)
-            model.train(**kwargs)
+            # Ultralytics rebuilds the trainer model from YAML inside train().
+            # Keep the project parser/runtime installed for custom DMM layers.
+            from ultralytics.nn import tasks
+            with project_parser(tasks), project_runtime():
+                model.train(**kwargs)
         evaluate(run_dir, data_yaml, args)
         upload_verify(run_dir, name, args)
         print(f"COMPLETE {name}", flush=True)
