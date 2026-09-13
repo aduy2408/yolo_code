@@ -1,5 +1,7 @@
 # Repository agent instructions
 
+**Scope:** When working from `/mnt/data/varroa/yolo_related`, read the parent project contract at `/mnt/data/varroa/AGENTS.md` first, then apply these YOLO-specific rules. The parent contract governs cross-project facts such as baseline provenance, Marimo auth, and mandatory Hugging Face uploads.
+
 ## Marimo training is workflow-gated
 
 When a user asks to train, evaluate, or upload through Marimo, the agent MUST:
