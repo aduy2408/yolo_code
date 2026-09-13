@@ -125,6 +125,38 @@ def build_reference_stats(dataset_labels: list[dict[str, Any]]) -> dict[str, Any
     return stats
 
 
+def build_scale_reference(dataset_labels: list[dict[str, Any]], quantile: float = 0.05) -> dict[str, Any]:
+    """Build the positive-scene relative-size floor used by Scale-Adaptive Mosaic."""
+    if not 0.0 <= quantile <= 1.0:
+        raise ValueError(f"quantile must be in [0, 1], got {quantile}")
+    scene_sizes = []
+    positive_images = 0
+    object_count = 0
+    empty_images = 0
+    for labels in dataset_labels:
+        descriptor = scene_descriptor(labels)
+        if not descriptor["count"]:
+            empty_images += 1
+            continue
+        positive_images += 1
+        object_count += int(descriptor["count"])
+        if descriptor["relative_size"] is not None:
+            scene_sizes.append(float(descriptor["relative_size"]))
+    size_array = np.asarray(scene_sizes, dtype=np.float64)
+    r_floor = float(np.quantile(size_array, quantile)) if len(size_array) else 0.0
+    r_q05 = float(np.quantile(size_array, 0.05)) if len(size_array) else 0.0
+    return {
+        "r_q05": r_q05,
+        "r_floor": r_floor,
+        "quantile": float(quantile),
+        "num_images": len(dataset_labels),
+        "num_positive_images": positive_images,
+        "num_empty_images": empty_images,
+        "num_objects": object_count,
+        "valid_scene_count": len(scene_sizes),
+    }
+
+
 def feature_drift(value: float | None, stats: dict[str, Any]) -> float | None:
     """Penalize only values outside the symmetric q05-q95 positive support."""
     if value is None or stats.get("q05") is None:
@@ -239,6 +271,7 @@ class SceneCompatibleMosaic:
 __all__ = [
     "SceneCompatibleMosaic",
     "build_reference_stats",
+    "build_scale_reference",
     "compatibility_drift",
     "feature_drift",
     "scene_descriptor",

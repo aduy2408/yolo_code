@@ -89,6 +89,8 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         settings["close_mosaic"] = args.close_mosaic
         settings["mosaic_policy"] = args.mosaic_policy
         settings["scene_compatible_mosaic"] = args.scene_compatible_mosaic
+        settings["mosaic_scale_quantile"] = args.mosaic_scale_quantile
+        settings["mosaic_scale_modes"] = [4, 2]
         settings["mosaic_policy_candidates"] = 16
         settings["mosaic_policy_topk"] = 4
         settings["mosaic_visibility_thresh"] = 0.7
@@ -147,7 +149,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Enable Mosaic while retaining the matched Copy-Paste settings")
     parser.add_argument("--mosaic", type=float, default=1.0)
     parser.add_argument("--close-mosaic", type=int, default=10)
-    parser.add_argument("--mosaic-policy", choices=("standard", "visibility", "occupancy_match", "context_contrast"), default="standard")
+    parser.add_argument("--mosaic-policy", choices=("standard", "visibility", "occupancy_match", "context_contrast", "scale_adaptive"), default="standard")
+    parser.add_argument("--mosaic-scale-quantile", type=float, default=0.05)
     parser.add_argument("--scene-compatible-mosaic", action="store_true",
                         help="Soft-gate existing Mosaic using dataset-derived scene statistics")
     parser.add_argument("--oacp-variant", choices=("none", "current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"), default="none")
@@ -171,6 +174,9 @@ def main(argv: list[str] | None = None) -> None:
                                                    if args.mosaic_interaction else {}),
                                                 **({"scene_compatible_mosaic": True}
                                                    if args.scene_compatible_mosaic else {}),
+                                                **({"mosaic_scale_quantile": args.mosaic_scale_quantile,
+                                                    "mosaic_scale_modes": [4, 2]}
+                                                   if args.mosaic_policy == "scale_adaptive" else {}),
                                                 **({"mosaic_policy": args.mosaic_policy,
                                                     "mosaic_policy_candidates": 16,
                                                     "mosaic_policy_topk": 4,

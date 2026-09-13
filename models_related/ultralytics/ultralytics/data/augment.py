@@ -31,7 +31,7 @@ from project_ultralytics.mosaic_policy import (
     load_context_cache,
     simulate_visible_boxes,
 )
-from project_ultralytics.scene_compatible_mosaic import SceneCompatibleMosaic
+from project_ultralytics.scene_compatible_mosaic import SceneCompatibleMosaic, build_scale_reference
 
 DEFAULT_MEAN = (0.0, 0.0, 0.0)
 DEFAULT_STD = (1.0, 1.0, 1.0)
@@ -806,6 +806,249 @@ class Mosaic(BaseMixTransform):
             final_labels["texts"] = mosaic_labels[0]["texts"]
         return final_labels
 
+
+class ScaleAdaptiveMosaic(Mosaic):
+    """Choose standard 4-way Mosaic or a 2-way fallback from actual box geometry."""
+
+    def __init__(self, dataset, imgsz: int = 640, p: float = 1.0, quantile: float = 0.05, modes=(4, 2)) -> None:
+        if tuple(modes) != (4, 2):
+            raise ValueError("ScaleAdaptiveMosaic currently supports modes=(4, 2) only")
+        super().__init__(dataset=dataset, imgsz=imgsz, p=p, n=4)
+        self.scale_reference = build_scale_reference(dataset.labels, quantile=quantile)
+        self.modes = tuple(modes)
+        self._diagnostics = {
+            "policy": "scale_adaptive",
+            "scale_reference": self.scale_reference,
+            "groups_seen": 0,
+            "k4_count": 0,
+            "k2_count": 0,
+            "r4": [],
+            "r4_below_floor_count": 0,
+            "post_r_k4": [],
+            "post_r_k2": [],
+            "source_gt": [],
+            "final_gt": [],
+            "empty_group_count": 0,
+            "k4_lost_all_gt_count": 0,
+        }
+
+    @staticmethod
+    def _boxes_after_layout(layout: list[dict[str, Any]], canvas_shape: tuple[int, int]) -> np.ndarray:
+        """Apply the same denormalize, padding, clipping, and zero-area logic as Mosaic."""
+        height, width = canvas_shape
+        transformed = []
+        for item in layout:
+            patch = item["labels_patch"]
+            instances = deepcopy(patch["instances"])
+            img_h, img_w = item["img_shape"]
+            instances.convert_bbox("xyxy")
+            instances.denormalize(img_w, img_h)
+            boxes = instances.bboxes.copy()
+            if not len(boxes):
+                continue
+            boxes[:, [0, 2]] += item["padw"]
+            boxes[:, [1, 3]] += item["padh"]
+            boxes[:, [0, 2]] = boxes[:, [0, 2]].clip(0, width)
+            boxes[:, [1, 3]] = boxes[:, [1, 3]].clip(0, height)
+            boxes = boxes[(boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])]
+            if len(boxes):
+                transformed.append(boxes)
+        return np.concatenate(transformed, axis=0) if transformed else np.empty((0, 4), dtype=np.float32)
+
+    @staticmethod
+    def _relative_scale(boxes: np.ndarray, canvas_shape: tuple[int, int]) -> float | None:
+        if boxes is None or not len(boxes):
+            return None
+        areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+        areas = areas[areas > 0]
+        return float(np.median(np.sqrt(areas) / np.sqrt(canvas_shape[0] * canvas_shape[1]))) if len(areas) else None
+
+    def _build_two_layout(self, labels: dict[str, Any], donor: dict[str, Any], horizontal: bool) -> list[dict[str, Any]]:
+        """Build a two-source plan on a 1x2 or 2x1 canvas before RandomPerspective."""
+        canvas = self.imgsz * 2
+        layout = []
+        patches = (labels, donor)
+        for index, patch in enumerate(patches):
+            img = patch["img"]
+            height, width = patch.get("resized_shape", img.shape[:2])
+            if horizontal:
+                region_x1, region_y1 = index * self.imgsz, 0
+                region_w, region_h = self.imgsz, self.imgsz
+            else:
+                region_x1, region_y1 = 0, index * self.imgsz
+                region_w, region_h = self.imgsz, self.imgsz
+            source_w = min(width, region_w)
+            source_h = min(height, region_h)
+            x1b = max((width - source_w) // 2, 0)
+            y1b = max((height - source_h) // 2, 0)
+            x1a = region_x1 + max((region_w - source_w) // 2, 0)
+            y1a = region_y1 + max((region_h - source_h) // 2, 0)
+            layout.append(
+                {
+                    "labels_patch": patch,
+                    "x1a": x1a,
+                    "y1a": y1a,
+                    "x2a": x1a + source_w,
+                    "y2a": y1a + source_h,
+                    "x1b": x1b,
+                    "y1b": y1b,
+                    "x2b": x1b + source_w,
+                    "y2b": y1b + source_h,
+                    "padw": x1a - x1b,
+                    "padh": y1a - y1b,
+                    "img_shape": (height, width),
+                }
+            )
+        return layout
+
+    def _source_gt_count(self, labels: dict[str, Any], mix_labels: list[dict[str, Any]]) -> int:
+        return sum(len(patch.get("instances", [])) for patch in [labels, *mix_labels])
+
+    def get_params(self, labels: dict[str, Any]) -> dict[str, Any]:
+        params = BaseMixTransform.get_params(self, labels)
+        assert labels.get("rect_shape") is None, "rect and mosaic are mutually exclusive."
+        yc, xc = self._sample_center()
+        layout4 = self._build_layout(labels, xc, yc)
+        canvas_shape = (self.imgsz * 2, self.imgsz * 2)
+        boxes4 = self._boxes_after_layout(layout4, canvas_shape)
+        r4 = self._relative_scale(boxes4, canvas_shape)
+        source_gt = self._source_gt_count(labels, labels["mix_labels"])
+        self._diagnostics["groups_seen"] += 1
+        self._diagnostics["source_gt"].append(source_gt)
+        self._diagnostics["r4"].append(r4 if r4 is not None else 0.0)
+
+        floor = float(self.scale_reference["r_floor"])
+        lost_all = source_gt > 0 and not len(boxes4)
+        below_floor = r4 is not None and r4 < floor
+        if source_gt == 0:
+            mode = 4
+            self._diagnostics["empty_group_count"] += 1
+        elif lost_all:
+            mode = 2
+            self._diagnostics["k4_lost_all_gt_count"] += 1
+        elif below_floor:
+            mode = 2
+            self._diagnostics["r4_below_floor_count"] += 1
+        else:
+            mode = 4
+
+        if mode == 4:
+            layout = layout4
+            self._diagnostics["k4_count"] += 1
+            if r4 is not None:
+                self._diagnostics["post_r_k4"].append(r4)
+        else:
+            donor = random.choice(labels["mix_labels"])
+            horizontal = random.random() < 0.5
+            layout = self._build_two_layout(labels, donor, horizontal=horizontal)
+            two_canvas_shape = (self.imgsz, self.imgsz * 2) if horizontal else (self.imgsz * 2, self.imgsz)
+            r2 = self._relative_scale(self._boxes_after_layout(layout, two_canvas_shape), two_canvas_shape)
+            self._diagnostics["k2_count"] += 1
+            if r2 is not None:
+                self._diagnostics["post_r_k2"].append(r2)
+
+        selected_canvas_shape = canvas_shape if mode == 4 else two_canvas_shape
+        final_boxes = self._boxes_after_layout(layout, selected_canvas_shape)
+        self._diagnostics["final_gt"].append(len(final_boxes))
+        params.update(
+            {
+                "layout": layout,
+                "samc_mode": mode,
+                "samc_horizontal": mode == 2 and layout[0]["y1a"] == layout[1]["y1a"],
+                "samc_canvas_shape": selected_canvas_shape,
+            }
+        )
+        return params
+
+    def apply_image(self, labels: dict[str, Any], params: dict[str, Any] | None = None) -> dict[str, Any]:
+        canvas_shape = params["samc_canvas_shape"]
+        canvas = np.full((*canvas_shape, labels["img"].shape[2]), 114, dtype=np.uint8)
+        for item in params["layout"]:
+            patch = item["labels_patch"]
+            canvas[item["y1a"] : item["y2a"], item["x1a"] : item["x2a"]] = patch["img"][
+                item["y1b"] : item["y2b"], item["x1b"] : item["x2b"]
+            ]
+        labels["img"] = canvas
+        return labels
+
+    def apply_instances(self, labels: dict[str, Any], params: dict[str, Any] | None = None) -> dict[str, Any]:
+        mosaic_labels = []
+        for item in params["layout"]:
+            patch = self._update_labels(item["labels_patch"], item["padw"], item["padh"], item["img_shape"])
+            mosaic_labels.append(patch)
+        cls = np.concatenate([patch["cls"] for patch in mosaic_labels], axis=0)
+        instances = Instances.concatenate([patch["instances"] for patch in mosaic_labels], axis=0)
+        canvas_height, canvas_width = params["samc_canvas_shape"]
+        instances.clip(canvas_width, canvas_height)
+        good = instances.remove_zero_area_boxes()
+        labels.update(
+            {
+                "im_file": mosaic_labels[0]["im_file"],
+                "ori_shape": mosaic_labels[0]["ori_shape"],
+                "resized_shape": params["samc_canvas_shape"],
+                "cls": cls[good],
+                "instances": instances,
+            }
+        )
+        if "texts" in mosaic_labels[0]:
+            labels["texts"] = mosaic_labels[0]["texts"]
+        return labels
+
+    def apply_semantic(self, labels: dict[str, Any], params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if labels.get("semantic_mask") is None and all(item.get("semantic_mask") is None for item in labels.get("mix_labels", [])):
+            return labels
+        mask = np.full(params["samc_canvas_shape"], 255, dtype=np.uint8)
+        for item in params["layout"]:
+            source = item["labels_patch"].get("semantic_mask")
+            if source is not None:
+                mask[item["y1a"] : item["y2a"], item["x1a"] : item["x2a"]] = source[
+                    item["y1b"] : item["y2b"], item["x1b"] : item["x2b"]
+                ]
+        labels["semantic_mask"] = mask
+        return labels
+
+    def save_diagnostics(self, path: str | os.PathLike) -> None:
+        import json
+
+        d = self._diagnostics
+        k4 = d["k4_count"]
+        k2 = d["k2_count"]
+
+        def summary(values):
+            return {
+                "count": len(values),
+                "mean": float(np.mean(values)) if values else 0.0,
+                "median": float(np.median(values)) if values else 0.0,
+            }
+
+        output = {
+            "policy": d["policy"],
+            "reference": self.scale_reference,
+            "samc/reference_r_q05": self.scale_reference["r_q05"],
+            "samc/groups_seen": d["groups_seen"],
+            "samc/k4_count": k4,
+            "samc/k2_count": k2,
+            "samc/k4_rate": k4 / d["groups_seen"] if d["groups_seen"] else 0.0,
+            "samc/k2_rate": k2 / d["groups_seen"] if d["groups_seen"] else 0.0,
+            "samc/r4": summary(d["r4"]),
+            "samc/r4_mean": float(np.mean(d["r4"])) if d["r4"] else 0.0,
+            "samc/r4_median": float(np.median(d["r4"])) if d["r4"] else 0.0,
+            "samc/r4_below_floor_count": d["r4_below_floor_count"],
+            "samc/post_r_k4": summary(d["post_r_k4"]),
+            "samc/post_r_k2": summary(d["post_r_k2"]),
+            "samc/post_r_k4_mean": float(np.mean(d["post_r_k4"])) if d["post_r_k4"] else 0.0,
+            "samc/post_r_k2_mean": float(np.mean(d["post_r_k2"])) if d["post_r_k2"] else 0.0,
+            "samc/source_gt": summary(d["source_gt"]),
+            "samc/final_gt": summary(d["final_gt"]),
+            "samc/source_gt_mean": float(np.mean(d["source_gt"])) if d["source_gt"] else 0.0,
+            "samc/final_gt_mean": float(np.mean(d["final_gt"])) if d["final_gt"] else 0.0,
+            "samc/empty_group_count": d["empty_group_count"],
+            "samc/k4_lost_all_gt_count": d["k4_lost_all_gt_count"],
+        }
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(output, file, indent=2)
+
+
 class PolicyMosaic(Mosaic):
     """Mosaic with a policy for selecting donors and/or the stitching center.
 
@@ -989,6 +1232,14 @@ class PolicyMosaic(Mosaic):
 def build_mosaic(dataset, imgsz: int, hyp):
     """Construct the configured Mosaic while keeping standard as a true control."""
     policy = str(getattr(hyp, "mosaic_policy", "standard")).lower()
+    if policy in {"scale_adaptive", "samc"}:
+        return ScaleAdaptiveMosaic(
+            dataset,
+            imgsz=imgsz,
+            p=hyp.mosaic,
+            quantile=getattr(hyp, "mosaic_scale_quantile", 0.05),
+            modes=getattr(hyp, "mosaic_scale_modes", (4, 2)),
+        )
     if policy in {"", "standard", "none"}:
         mosaic = Mosaic(dataset, imgsz=imgsz, p=1.0 if getattr(hyp, "scene_compatible_mosaic", False) else hyp.mosaic)
     else:
