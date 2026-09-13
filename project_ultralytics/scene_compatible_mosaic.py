@@ -16,7 +16,7 @@ from typing import Any, Callable
 import numpy as np
 
 
-FEATURES = ("count", "relative_size", "spacing", "occupancy")
+FEATURES = ("relative_size", "spacing", "occupancy")
 _EPS = 1e-9
 
 
@@ -91,16 +91,28 @@ def scene_descriptor(labels: dict[str, Any]) -> dict[str, float | None]:
 
 
 def build_reference_stats(dataset_labels: list[dict[str, Any]]) -> dict[str, Any]:
-    """Build q05/q50/q95 support statistics directly from real dataset labels."""
+    """Build positive-scene q05/q50/q95 support statistics from real labels."""
     values = {feature: [] for feature in FEATURES}
+    empty_count = 0
+    positive_count = 0
     for labels in dataset_labels:
         descriptor = scene_descriptor(labels)
+        if descriptor["count"] == 0:
+            empty_count += 1
+            continue
+        positive_count += 1
         for feature in FEATURES:
             value = descriptor[feature]
             if value is not None and np.isfinite(value):
                 values[feature].append(float(value))
 
-    stats: dict[str, Any] = {"count": len(dataset_labels), "features": {}}
+    stats: dict[str, Any] = {
+        "count": len(dataset_labels),
+        "empty_count": empty_count,
+        "positive_count": positive_count,
+        "p_empty": empty_count / len(dataset_labels) if dataset_labels else 0.0,
+        "features": {},
+    }
     for feature in FEATURES:
         array = np.asarray(values[feature], dtype=np.float64)
         if not len(array):
@@ -114,19 +126,22 @@ def build_reference_stats(dataset_labels: list[dict[str, Any]]) -> dict[str, Any
 
 
 def feature_drift(value: float | None, stats: dict[str, Any]) -> float | None:
-    """Penalize only values below q05 or above q95."""
+    """Penalize only values outside the symmetric q05-q95 positive support."""
     if value is None or stats.get("q05") is None:
         return None
-    q05, q50, q95 = (float(stats[key]) for key in ("q05", "q50", "q95"))
+    q05, q95 = (float(stats[key]) for key in ("q05", "q95"))
+    scale = max(q95 - q05, _EPS)
     if value < q05:
-        return max(0.0, (q05 - value) / (q50 - q05 + _EPS))
+        return max(0.0, (q05 - value) / scale)
     if value > q95:
-        return max(0.0, (value - q95) / (q95 - q50 + _EPS))
+        return max(0.0, (value - q95) / scale)
     return 0.0
 
 
 def compatibility_drift(descriptor: dict[str, float | None], reference: dict[str, Any]) -> tuple[float, dict[str, float | None]]:
-    """Return mean valid-feature drift and per-feature diagnostics."""
+    """Return mean valid positive-scene feature drift and per-feature diagnostics."""
+    if float(descriptor.get("count") or 0.0) == 0.0:
+        return 0.0, {feature: None for feature in FEATURES}
     drifts = {feature: feature_drift(descriptor.get(feature), reference["features"][feature]) for feature in FEATURES}
     valid = [value for value in drifts.values() if value is not None]
     return (float(np.mean(valid)) if valid else 0.0), drifts
@@ -202,7 +217,10 @@ class SceneCompatibleMosaic:
             "scm/drift_mean": stats["drift_sum"] / candidates if candidates else 0.0,
             "scm/accepted_gt_mean": stats["accepted_gt_sum"] / stats["accepted_gt_count"] if stats["accepted_gt_count"] else 0.0,
             "scm/rejected_gt_mean": stats["rejected_gt_sum"] / stats["rejected_gt_count"] if stats["rejected_gt_count"] else 0.0,
-            "scm/reference_count": self.reference["count"],
+            "scm/reference_images": self.reference["count"],
+            "scm/reference_positive_scenes": self.reference["positive_count"],
+            "scm/reference_empty_scenes": self.reference["empty_count"],
+            "scm/reference_p_empty": self.reference["p_empty"],
         }
         for feature in FEATURES:
             item = stats["drift_by_feature"][feature]

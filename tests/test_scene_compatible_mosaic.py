@@ -34,13 +34,17 @@ def test_scene_descriptor_computes_geometry_and_masks_single_box_spacing():
 def test_reference_stats_and_drift_use_only_outside_support():
     reference = build_reference_stats(
         [
+            raw_label([]),
             raw_label([[10, 10, 20, 20]]),
             raw_label([[10, 10, 20, 20], [40, 10, 50, 20]]),
             raw_label([[10, 10, 30, 30], [60, 10, 80, 30]]),
         ]
     )
+    assert reference["empty_count"] == 1
+    assert reference["positive_count"] == 3
+    assert np.isclose(reference["p_empty"], 0.25)
     assert reference["features"]["spacing"]["valid_count"] == 2
-    assert np.isclose(feature_drift(0.5, {"q05": 1.0, "q50": 2.0, "q95": 3.0}), 0.5)
+    assert np.isclose(feature_drift(0.5, {"q05": 1.0, "q50": 2.0, "q95": 3.0}), 0.25)
     assert np.isclose(feature_drift(2.0, {"q05": 1.0, "q50": 2.0, "q95": 3.0}), 0.0)
     drift, per_feature = compatibility_drift(
         {"count": 2.0, "relative_size": 0.1, "spacing": None, "occupancy": 0.02}, reference
@@ -72,5 +76,5 @@ def test_scene_compatible_mosaic_keeps_geometry_transform_and_records_diagnostic
     assert diagnostics["stats"]["scm/candidates"] == 1
     assert diagnostics["stats"]["scm/accepted"] == 1
     assert diagnostics["stats"]["scm/accept_rate"] == 1.0
-    assert "scm/reference_count_q05" in diagnostics["stats"]
+    assert "scm/reference_images" in diagnostics["stats"]
     assert "scm/reference_size_q50" in diagnostics["stats"]
