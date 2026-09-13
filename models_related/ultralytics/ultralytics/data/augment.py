@@ -31,6 +31,7 @@ from project_ultralytics.mosaic_policy import (
     load_context_cache,
     simulate_visible_boxes,
 )
+from project_ultralytics.scene_compatible_mosaic import SceneCompatibleMosaic
 
 DEFAULT_MEAN = (0.0, 0.0, 0.0)
 DEFAULT_STD = (1.0, 1.0, 1.0)
@@ -989,22 +990,26 @@ def build_mosaic(dataset, imgsz: int, hyp):
     """Construct the configured Mosaic while keeping standard as a true control."""
     policy = str(getattr(hyp, "mosaic_policy", "standard")).lower()
     if policy in {"", "standard", "none"}:
-        return Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic)
-    return PolicyMosaic(
-        dataset,
-        imgsz=imgsz,
-        p=hyp.mosaic,
-        policy=policy,
-        candidates=getattr(hyp, "mosaic_policy_candidates", 16),
-        topk=getattr(hyp, "mosaic_policy_topk", 4),
-        visibility_thresh=getattr(hyp, "mosaic_visibility_thresh", 0.70),
-        visibility_lambda=getattr(hyp, "mosaic_visibility_lambda", 1.0),
-        occupancy_mode=getattr(hyp, "mosaic_occupancy_mode", "dataset"),
-        occupancy_tolerance=getattr(hyp, "mosaic_occupancy_tolerance", 1.0),
-        context_candidates=getattr(hyp, "mosaic_context_candidates", 32),
-        context_occupancy_tolerance=getattr(hyp, "mosaic_context_occupancy_tolerance", 1.0),
-        context_cache=getattr(hyp, "mosaic_context_cache", None),
-    )
+        mosaic = Mosaic(dataset, imgsz=imgsz, p=1.0 if getattr(hyp, "scene_compatible_mosaic", False) else hyp.mosaic)
+    else:
+        mosaic = PolicyMosaic(
+            dataset,
+            imgsz=imgsz,
+            p=1.0 if getattr(hyp, "scene_compatible_mosaic", False) else hyp.mosaic,
+            policy=policy,
+            candidates=getattr(hyp, "mosaic_policy_candidates", 16),
+            topk=getattr(hyp, "mosaic_policy_topk", 4),
+            visibility_thresh=getattr(hyp, "mosaic_visibility_thresh", 0.70),
+            visibility_lambda=getattr(hyp, "mosaic_visibility_lambda", 1.0),
+            occupancy_mode=getattr(hyp, "mosaic_occupancy_mode", "dataset"),
+            occupancy_tolerance=getattr(hyp, "mosaic_occupancy_tolerance", 1.0),
+            context_candidates=getattr(hyp, "mosaic_context_candidates", 32),
+            context_occupancy_tolerance=getattr(hyp, "mosaic_context_occupancy_tolerance", 1.0),
+            context_cache=getattr(hyp, "mosaic_context_cache", None),
+        )
+    if getattr(hyp, "scene_compatible_mosaic", False):
+        return SceneCompatibleMosaic(dataset, mosaic=mosaic, p=hyp.mosaic)
+    return mosaic
 
 
 class MixUp(BaseMixTransform):

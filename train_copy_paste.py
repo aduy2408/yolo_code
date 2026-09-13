@@ -88,6 +88,7 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         settings["mosaic"] = args.mosaic
         settings["close_mosaic"] = args.close_mosaic
         settings["mosaic_policy"] = args.mosaic_policy
+        settings["scene_compatible_mosaic"] = args.scene_compatible_mosaic
         settings["mosaic_policy_candidates"] = 16
         settings["mosaic_policy_topk"] = 4
         settings["mosaic_visibility_thresh"] = 0.7
@@ -147,6 +148,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mosaic", type=float, default=1.0)
     parser.add_argument("--close-mosaic", type=int, default=10)
     parser.add_argument("--mosaic-policy", choices=("standard", "visibility", "occupancy_match", "context_contrast"), default="standard")
+    parser.add_argument("--scene-compatible-mosaic", action="store_true",
+                        help="Soft-gate existing Mosaic using dataset-derived scene statistics")
     parser.add_argument("--oacp-variant", choices=("none", "current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"), default="none")
     parser.add_argument("--copy-paste-policy", choices=("fixed", "load_adaptive", "layout_adaptive"), default="fixed")
     parser.add_argument("--copy-paste-stats-path", type=Path, default=None)
@@ -157,6 +160,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if args.scene_compatible_mosaic and not args.mosaic_interaction:
+        raise ValueError("--scene-compatible-mosaic requires --mosaic-interaction")
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
     configs = [effective_settings(args.dataset, variant, seed, args.split_seed, epochs=args.epochs, patience=0,
                                   imgsz=args.imgsz, batch_size=args.batch_size, device=args.device,
@@ -164,6 +169,8 @@ def main(argv: list[str] | None = None) -> None:
                                   augmentation={**variant_overrides(variant),
                                                 **({"mosaic": args.mosaic, "close_mosaic": args.close_mosaic}
                                                    if args.mosaic_interaction else {}),
+                                                **({"scene_compatible_mosaic": True}
+                                                   if args.scene_compatible_mosaic else {}),
                                                 **({"mosaic_policy": args.mosaic_policy,
                                                     "mosaic_policy_candidates": 16,
                                                     "mosaic_policy_topk": 4,
