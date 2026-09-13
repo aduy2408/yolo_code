@@ -143,6 +143,12 @@ def main() -> None:
             # Ultralytics rebuilds the trainer model from YAML inside train().
             # Keep the project parser/runtime installed for custom DMM layers.
             from ultralytics.nn import tasks
+            from project_ultralytics.registry import install_custom_modules
+            # DetectionModel.parse_model is resolved from the tasks module during
+            # trainer reconstruction.  The temporary parser bridge handles the
+            # project-specific layer rules, while this namespace installation
+            # makes custom YAML symbols available to any upstream parse path.
+            install_custom_modules(vars(tasks))
             with project_parser(tasks), project_runtime():
                 model.train(**kwargs)
         evaluate(run_dir, data_yaml, args)
