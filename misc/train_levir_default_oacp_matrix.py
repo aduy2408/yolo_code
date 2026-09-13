@@ -113,7 +113,7 @@ def main() -> None:
     from misc.prepare_levir_ship import prepare
     data_yaml = prepare(args.data_root, args.dataset_root / "levir_default_oacp_split_42", args.split_seed)
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    from project_ultralytics.parser import load_project_model
+    from project_ultralytics.parser import load_project_model, project_parser, project_runtime
     for name, spec in RUNS.items():
         run_dir = args.project / name / f"seed_{args.seed}"
         run_dir.mkdir(parents=True, exist_ok=True)
