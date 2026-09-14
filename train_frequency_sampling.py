@@ -118,7 +118,7 @@ def upload(args: argparse.Namespace, run_dir: Path) -> None:
 
     repo_id = ensure_hf_repo(args.hf_repo_id)
     api = HfApi(token=os.environ["HF_TOKEN"])
-    remote = f"{args.variant}/seed_{args.seed}"
+    remote = f"{run_dir.parent.name}/seed_{args.seed}"
     api.upload_folder(folder_path=str(run_dir), path_in_repo=remote, repo_id=repo_id, repo_type="dataset")
     expected = {f"{remote}/{path}" for path in REQUIRED}
     remote_files = set(api.list_repo_files(repo_id, repo_type="dataset"))
@@ -175,9 +175,11 @@ def main(argv: list[str] | None = None) -> None:
         os.environ.pop("OACP_VARIANT", None)
     require_training_context(hf_repo_id=args.hf_repo_id)
     data_yaml = prepare_data(args.dataset, args.data_root, args.dataset_root.resolve(), args.split_seed)
-    run_dir = args.project.resolve() / args.variant / f"seed_{args.seed}"
+    run_variant = args.variant if args.context_aug == "none" else f"{args.variant}_{args.context_aug}"
+    run_dir = args.project.resolve() / run_variant / f"seed_{args.seed}"
     manifest = {
-        "dataset": args.dataset, "variant": args.variant, "data_yaml": str(data_yaml), "model_yaml": str(CONFIGS[args.variant]),
+        "dataset": args.dataset, "variant": args.variant, "run_variant": run_variant,
+        "data_yaml": str(data_yaml), "model_yaml": str(CONFIGS[args.variant]),
         "seed": args.seed, "split_seed": args.split_seed, "epochs": args.epochs, "patience": args.patience,
         "workers": args.workers, "imgsz": args.imgsz, "batch": args.batch, "mosaic": args.mosaic,
         "close_mosaic": 10 if args.mosaic else 0, "nms_iou": 0.5, "upload_required": True,
