@@ -57,6 +57,11 @@ python train_ecf_yolo.py \
 non-default location. Do not change the split seed for matched runs unless the
 experiment is explicitly a split-sensitivity study.
 
+The runner is restart-safe. If all local artifacts and `upload_complete.json`
+exist, it verifies every declared remote path and skips retraining only when the
+remote contract is complete. A local completion marker with missing remote files
+fails closed instead of silently retraining.
+
 ## Marimo launch
 
 Read `.agents/workflows/marimo-train.md` before execution. Push the setup commit,

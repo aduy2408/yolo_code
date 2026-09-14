@@ -38,6 +38,7 @@ REQUIRED_ARTIFACTS = (
     "evaluation_metrics.json",
     "experiment_manifest.json",
 )
+UPLOAD_MARKER = "upload_complete.json"
 
 
 def git_sha(repo: Path) -> str:
@@ -127,6 +128,15 @@ def effective_config(args: argparse.Namespace, data_yaml: Path) -> dict[str, Any
     }
 
 
+def remote_paths_verified(run_dir: Path, args: argparse.Namespace, prefix: str) -> bool:
+    from huggingface_hub import HfApi
+
+    api = HfApi(token=os.environ["HF_TOKEN"])
+    remote_files = set(api.list_repo_files(repo_id=args.hf_repo_id, repo_type="dataset"))
+    expected = [*REQUIRED_ARTIFACTS, UPLOAD_MARKER]
+    return all(f"{prefix}/{name}" in remote_files for name in expected)
+
+
 def upload_and_verify(run_dir: Path, args: argparse.Namespace) -> None:
     from huggingface_hub import HfApi
 
@@ -172,10 +182,19 @@ def run(args: argparse.Namespace) -> Path:
         raise ValueError("--hf-repo-id is required for upload-required training")
     require_training_context(hf_repo_id=args.hf_repo_id)
     data_yaml = resolve_data_yaml(args)
+    run_dir = args.project.resolve() / args.dataset / f"seed_{args.seed}"
+    prefix = f"ecf_yolo/{args.dataset}/seed_{args.seed}"
+    if all((run_dir / name).is_file() for name in (*REQUIRED_ARTIFACTS, UPLOAD_MARKER)):
+        if remote_paths_verified(run_dir, args, prefix):
+            print(f"Verified completed run already exists: {run_dir}")
+            return run_dir
+        raise RuntimeError(
+            f"Local completion marker exists but remote artifacts are incomplete: {run_dir}. "
+            "Stop and inspect the Hugging Face repository before retraining."
+        )
     sys.path.insert(0, str(ECF_ROOT))
     from ultralytics import YOLO
 
-    run_dir = args.project.resolve() / args.dataset / f"seed_{args.seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
     model = YOLO(str(args.model))
     model.train(
