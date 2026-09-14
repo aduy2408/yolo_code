@@ -82,7 +82,7 @@ def prepare_tinyperson(source: Path, runtime: Path) -> Path:
 
     test_dir = tiny.prepare_test_set(source, runtime)
     del test_dir
-    seed_dir = tiny.prepare_seed_dataset(source, runtime, runtime / "test", SPLIT_SEED)
+    seed_dir = tiny.prepare_seed_dataset(source, runtime, test_dir, SPLIT_SEED)
     return seed_dir / "tinyperson.yaml"
 
 
@@ -149,27 +149,29 @@ def run_one(name: str, args: argparse.Namespace, data_yaml: Path, repo_id: str) 
         print(f"Skipping verified run: {run_dir}", flush=True)
         return
 
-    model_yaml = STW_ROOT / "Lib/p2_rp5_yolo12s.yaml"
-    model = YOLO("yolo12s.pt")
-    model.train(
-        data=str(data_yaml),
-        model=str(model_yaml),
-        epochs=EPOCHS,
-        imgsz=image_size,
-        batch=BATCH_SIZE,
-        device=args.device,
-        workers=WORKERS,
-        patience=0,
-        seed=SEED,
-        deterministic=True,
-        project=str(args.project / name),
-        name=f"seed_{SEED}",
-        exist_ok=True,
-    )
-
     best = run_dir / "weights/best.pt"
+    results = run_dir / "results.csv"
+    if not best.is_file() or not results.is_file():
+        model_yaml = STW_ROOT / "Lib/p2_rp5_yolo12s.yaml"
+        model = YOLO("yolo12s.pt")
+        model.train(
+            data=str(data_yaml),
+            model=str(model_yaml),
+            epochs=EPOCHS,
+            imgsz=image_size,
+            batch=BATCH_SIZE,
+            device=args.device,
+            workers=WORKERS,
+            patience=0,
+            seed=SEED,
+            deterministic=True,
+            project=str(args.project / name),
+            name=f"seed_{SEED}",
+            exist_ok=True,
+        )
     if not best.is_file():
         raise RuntimeError(f"Missing trained checkpoint: {best}")
+    model_yaml = STW_ROOT / "Lib/p2_rp5_yolo12s.yaml"
     validation = YOLO(str(best)).val(
         data=str(data_yaml),
         split="test",
