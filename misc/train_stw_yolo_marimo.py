@@ -59,16 +59,16 @@ def symlink_dataset(source: Path, destination: Path, split: str) -> None:
 
 
 def prepare_varroa(source: Path, runtime: Path) -> Path:
-    if runtime.exists():
-        shutil.rmtree(runtime)
-    for split in ("train", "val", "test"):
-        symlink_dataset(source, runtime, split)
-    config = runtime / "varroa.yaml"
-    config.write_text(
-        f"path: {runtime}\ntrain: images/train\nval: images/val\ntest: images/test\nnames:\n  0: varroa\n",
-        encoding="utf-8",
+    from misc.prepare_dataset import prepare_dataset
+
+    return prepare_dataset(
+        source,
+        runtime,
+        gt_source="gt_one",
+        only_positives=True,
+        class_policy="map-3-to-1",
+        seed=SPLIT_SEED,
     )
-    return config
 
 
 def prepare_levir(source: Path, runtime: Path) -> Path:
