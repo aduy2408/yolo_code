@@ -62,45 +62,51 @@ def complete(run_dir: Path) -> bool:
 
 def train(args: argparse.Namespace, data_yaml: Path, run_dir: Path) -> None:
     from project_ultralytics import load_project_model
+    from project_ultralytics.parser import project_parser, project_runtime
+    from ultralytics.nn import tasks
 
     run_dir.parent.mkdir(parents=True, exist_ok=True)
     model = load_project_model(str(CONFIGS[args.variant]), task="detect", verbose=False)
     if args.pretrained:
         model.load(args.pretrained)
-    model.train(
-        data=str(data_yaml),
-        epochs=args.epochs,
-        patience=args.patience,
-        imgsz=args.imgsz,
-        batch=args.batch,
-        workers=args.workers,
-        device=args.device,
-        seed=args.seed,
-        deterministic=True,
-        amp=True,
-        plots=False,
-        project=str(run_dir.parent),
-        name=run_dir.name,
-        exist_ok=True,
-        mosaic=args.mosaic,
-        close_mosaic=10 if args.mosaic else 0,
-        mixup=0.0,
-    )
+    with project_parser(tasks), project_runtime():
+        model.train(
+            data=str(data_yaml),
+            epochs=args.epochs,
+            patience=args.patience,
+            imgsz=args.imgsz,
+            batch=args.batch,
+            workers=args.workers,
+            device=args.device,
+            seed=args.seed,
+            deterministic=True,
+            amp=True,
+            plots=False,
+            project=str(run_dir.parent),
+            name=run_dir.name,
+            exist_ok=True,
+            mosaic=args.mosaic,
+            close_mosaic=10 if args.mosaic else 0,
+            mixup=0.0,
+        )
 
 
 def evaluate(args: argparse.Namespace, data_yaml: Path, run_dir: Path) -> dict[str, object]:
     from project_ultralytics import load_project_model
+    from project_ultralytics.parser import project_parser, project_runtime
+    from ultralytics.nn import tasks
 
     model = load_project_model(str(run_dir / "weights/best.pt"), task="detect", verbose=False)
     metrics: dict[str, object] = {"checkpoint": "weights/best.pt", "nms_iou": 0.5}
-    for split in ("val", "test"):
-        result = model.val(
-            data=str(data_yaml), split=split, imgsz=args.imgsz, batch=args.batch,
-            workers=args.workers, device=args.device, plots=False, iou=0.5,
-            project=str(run_dir / "evaluation"), name=split, exist_ok=True,
-        )
-        metrics.update({f"{split}/{key}": float(value) for key, value in result.results_dict.items()})
-        metrics[f"{split}/mAP50-75"] = float(result.box.map)
+    with project_parser(tasks), project_runtime():
+        for split in ("val", "test"):
+            result = model.val(
+                data=str(data_yaml), split=split, imgsz=args.imgsz, batch=args.batch,
+                workers=args.workers, device=args.device, plots=False, iou=0.5,
+                project=str(run_dir / "evaluation"), name=split, exist_ok=True,
+            )
+            metrics.update({f"{split}/{key}": float(value) for key, value in result.results_dict.items()})
+            metrics[f"{split}/mAP50-75"] = float(result.box.map)
     (run_dir / "evaluation_metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n")
     return metrics
 
