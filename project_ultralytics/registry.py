@@ -23,6 +23,7 @@ from .modules import (
     AmplitudePerturbation,
     AugmentationAwareEvidence,
     BiLevelRoutingAttention,
+    BandRefine,
     CBAM,
     C2fCBAM,
     C3CBAM,
@@ -60,6 +61,7 @@ from .modules import (
     PConv,
     RawColorSlotFusion,
     RawImageCueBank,
+    RepC2f,
     ReceptanceKVCompressedAttention,
     ResidualDWConv,
     ResidualDWConv5,
@@ -72,14 +74,19 @@ from .modules import (
     TopKAdaptiveGroupKVAttention,
     TopKGlobalGroupKVAttention,
     WeightedAdd,
+    FreqDown,
+    FreqUp,
 )
 
 CUSTOM_MODULES = {
     cls.__name__: cls
     for cls in (
         AugmentationAwareEvidence,
+        BandRefine,
         AmplitudePerturbation,
         BiLevelRoutingAttention,
+        FreqDown,
+        FreqUp,
         CBAM,
         C2fCBAM,
         C3CBAM,
@@ -117,6 +124,7 @@ CUSTOM_MODULES = {
         PConv,
         RawColorSlotFusion,
         RawImageCueBank,
+        RepC2f,
         ReceptanceKVCompressedAttention,
         ResidualDWConv,
         ResidualDWConv5,
