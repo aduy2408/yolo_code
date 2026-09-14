@@ -82,7 +82,8 @@ def prepare_tinyperson(source: Path, runtime: Path) -> Path:
 
     test_dir = tiny.prepare_test_set(source, runtime)
     del test_dir
-    return tiny.prepare_seed_dataset(source, runtime, runtime / "test", SPLIT_SEED)
+    seed_dir = tiny.prepare_seed_dataset(source, runtime, runtime / "test", SPLIT_SEED)
+    return seed_dir / "tinyperson.yaml"
 
 
 def prepare_dataset(name: str, runtime_root: Path) -> Path:
