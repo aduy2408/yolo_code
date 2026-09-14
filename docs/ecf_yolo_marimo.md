@@ -6,18 +6,21 @@ is not mixed with the project-owned runner.
 
 ## Effective model and defaults
 
-The upstream repository's `train.py` uses 640px images, batch 8, four workers,
-`close_mosaic=0`, SGD, `lr0=0.01`, and `momentum=0.949`. The project runner
-`train_ecf_yolo.py` resolves the actual ECF model to:
+The upstream repository's `train.py` uses its standard `yolov8.yaml` model with
+640px images, batch 8, four workers, `close_mosaic=0`, SGD, `lr0=0.01`, and
+`momentum=0.949`. The project runner keeps those training defaults but explicitly
+selects the repository's custom ECF architecture at:
 
 ```text
 ECF-YOLO/ultralytics/cfg/models/11/yolo11-EPAN.yaml
 ```
 
 That YAML uses the upstream custom `Fusion(fusion_mode=bifpn)` neck, a YOLO11
-C3k2/C2PSA backbone, and a three-scale Detect head. The only intentional schedule
-changes are `epochs=100` and `patience=0`, which prevents early stopping before
-all 100 epochs. Validation and test NMS IoU are explicitly `0.5`.
+C3k2/C2PSA backbone, and a three-scale Detect head. This model selection is an
+explicit ECF variant, not the model path in the upstream `train.py`. The only
+intentional schedule changes are `epochs=100` and `patience=0`, which prevents
+early stopping before all 100 epochs. Validation and test NMS IoU are explicitly
+`0.5`.
 
 The runner records both the parent checkout SHA and the ECF-YOLO submodule SHA in
 every `experiment_manifest.json`. Dataset split seed and training seed remain
