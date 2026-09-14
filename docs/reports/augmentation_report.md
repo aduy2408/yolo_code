@@ -1,12 +1,14 @@
 # Augmentation Report: OACP, Copy-Paste, and Mosaic Runs
 
-**Updated:** 2026-09-14  
-**Scope:** the Hugging Face repositories and run names supplied in the request, filtered to experiments involving **OACP**, **Copy-Paste**, **Mosaic**, or a direct no-augmentation/no-Mosaic control.  
+**Updated:** 2026-09-14
+**Scope:** the Hugging Face repositories and run names supplied in the request, filtered to experiments involving **OACP**, **Copy-Paste**, **Mosaic**, or a direct no-augmentation/no-Mosaic control.
 **Primary metric:** mAP50-95(B). Values are fractions, not percentages.
 
 ## 1. Executive summary
 
 The filtered results do not represent one clean ablation table. They contain several experiment families with different detectors, datasets, split/training seeds, schedules, and metric artifacts. The most reliable conclusions are therefore **within matched families**, not from a single global ranking.
+
+**Live-run status:** the currently running matched adaptive Mosaic + current-OACP experiment is not treated as completed evidence here. Its validation/test metrics and remote upload acceptance are not yet available. The numeric adaptive-OACP rows below come from previously uploaded artifacts identified in the compiled results reports; they are not a status claim about the still-running job.
 
 Main observations:
 
@@ -231,6 +233,7 @@ The fixed-split seed groups in the supplied list are useful for stability checks
 - No claim that Copy-Paste improves LEVIR from the current manifest-only CP ablation; CP3 is only marginally ahead of CP0 on mAP50-95.
 - No pooling of legacy double-OACP and corrected single-pass OACP results.
 - No uncertainty estimate from the single-seed Mosaic and Copy-Paste matrices.
+- No validation/test result or upload-acceptance claim for the currently running adaptive Mosaic + current-OACP job.
 
 ### Recommended publication-quality follow-up
 
