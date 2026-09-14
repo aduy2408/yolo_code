@@ -1,3 +1,7 @@
 [submodule "vendor/ultralytics_upstream"]
 	path = vendor/ultralytics_upstream
 	url = https://github.com/ultralytics/ultralytics.git
+
+[submodule "ECF-YOLO"]
+	path = ECF-YOLO
+	url = https://github.com/YuIO26/ECF-YOLO.git
