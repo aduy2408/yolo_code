@@ -64,8 +64,26 @@ def _make_divisible(value: int, divisor: int = 8) -> int:
     return max(divisor, int((value + divisor - 1) // divisor) * divisor)
 
 
+_BAND_NAMES = ("LL", "LH", "HL", "HH")
+
+
+def _band_stats(bands: torch.Tensor, prefix: str) -> Dict[str, float]:
+    rms = bands.float().square().mean(dim=(0, 1, 3, 4)).sqrt()
+    return {f"{prefix}_{name}": rms[i].item() for i, name in enumerate(_BAND_NAMES)}
+
+
+def _band_ratio_stats(bands: torch.Tensor, prefix: str) -> Dict[str, float]:
+    rms = bands.float().square().mean(dim=(0, 1, 3, 4)).sqrt()
+    ll = rms[0].clamp_min(torch.finfo(rms.dtype).eps)
+    return {f"{prefix}_{name}/LL": (rms[i] / ll).item() for i, name in enumerate(_BAND_NAMES[1:], 1)}
+
+
+def _beta_stats(refiners: nn.ModuleList) -> Dict[str, float]:
+    return {f"beta_{name}": refiners[i].beta.detach().item() for i, name in enumerate(_BAND_NAMES)}
+
+
 class _Formation(nn.Module):
-    def __init__(self, c1: int, c_mid: int, c2: int, k: int = 3) -> None:
+    def __init__(self, c1: int, c_mid: int, c2: int, k: int = 3, compress_bn: bool = True) -> None:
         super().__init__()
         self.pre = Conv(c1, c_mid, k, 1)
         self.dw = nn.Sequential(
@@ -73,7 +91,7 @@ class _Formation(nn.Module):
             nn.BatchNorm2d(c_mid),
             nn.SiLU(),
         )
-        self.compress = Conv(c_mid, c2, 1, 1, act=False)
+        self.compress = Conv(c_mid, c2, 1, 1, act=False) if compress_bn else nn.Conv2d(c_mid, c2, 1, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = self.pre(x)
@@ -94,9 +112,10 @@ class _CrossBandMix(nn.Module):
 
     def forward(self, bands: torch.Tensor) -> torch.Tensor:
         b, c, _, h, w = bands.shape
-        packed = bands.permute(0, 2, 1, 3, 4).reshape(b, 4 * c, h, w)
+        # Pack each latent channel as LL_i,LH_i,HL_i,HH_i for grouped 4x4 mixing.
+        packed = bands.reshape(b, 4 * c, h, w)
         mixed = self.mix(packed)
-        return mixed.reshape(b, 4, c, h, w).permute(0, 2, 1, 3, 4)
+        return mixed.reshape(b, c, 4, h, w)
 
     def stats(self) -> Dict[str, float]:
         weight = self.mix.weight.detach().reshape(self.channels, 4, 4)
@@ -140,14 +159,16 @@ class FreqDown(_FrequencyBase):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         bands = haar_analysis(self.formation(x))
-        raw = bands.detach()
+        pre = bands.detach()
         bands = self._process_bands(bands)
+        post = bands.detach()
         out = self.out(bands.flatten(1, 2))
         if self.record_stats:
-            rms = raw.float().square().mean(dim=(0, 1, 3, 4)).sqrt()
-            ll = rms[0].clamp_min(torch.finfo(rms.dtype).eps)
-            self.last_stats = {f"rms_{name}": rms[i].item() for i, name in enumerate(("LL", "LH", "HL", "HH"))}
-            self.last_stats.update({f"{name}/LL": (rms[i] / ll).item() for i, name in enumerate(("LL", "LH", "HL", "HH")) if i})
+            self.last_stats = _band_stats(pre, "pre")
+            self.last_stats.update(_band_stats(post, "post"))
+            self.last_stats.update(_band_ratio_stats(pre, "pre"))
+            self.last_stats.update(_band_ratio_stats(post, "post"))
+            self.last_stats.update(_beta_stats(self.band_refine))
             self.last_stats.update(self.cross_band.stats())
         return out
 
@@ -167,17 +188,21 @@ class FreqUp(_FrequencyBase):
         self.formation = _Formation(c1, self.c_mid, c2, 3)
         self.band_refine = nn.ModuleList(BandRefine(self.c_band) for _ in range(4))
         self.cross_band = _CrossBandMix(self.c_band)
-        self.reconstruct = _Formation(self.c_band, self.c_mid, c2, 3)
+        self.reconstruct = _Formation(self.c_band, self.c_mid, c2, 3, compress_bn=False)
         self.out = nn.Sequential(nn.BatchNorm2d(c2), nn.SiLU())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         bands = self.formation(x).reshape(x.shape[0], 4, self.c_band, x.shape[-2], x.shape[-1]).permute(0, 2, 1, 3, 4)
-        raw = bands.detach()
+        pre = bands.detach()
         bands = self._process_bands(bands)
+        post = bands.detach()
         out = self.out(self.reconstruct(haar_synthesis(bands)))
         if self.record_stats:
-            rms = raw.float().square().mean(dim=(0, 1, 3, 4)).sqrt()
-            self.last_stats = {f"pred_{name}": rms[i].item() for i, name in enumerate(("LL", "LH", "HL", "HH"))}
+            self.last_stats = _band_stats(pre, "pre")
+            self.last_stats.update(_band_stats(post, "post"))
+            self.last_stats.update(_band_ratio_stats(pre, "pre"))
+            self.last_stats.update(_band_ratio_stats(post, "post"))
+            self.last_stats.update(_beta_stats(self.band_refine))
             self.last_stats.update(self.cross_band.stats())
         return out
 

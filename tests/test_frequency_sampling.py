@@ -46,31 +46,57 @@ def test_cross_band_mixers_start_as_identity():
         assert torch.equal(weight, expected)
 
 
+def test_cross_band_mixer_keeps_latent_channels_isolated():
+    module = FreqDown(4, 4).eval()
+    with torch.no_grad():
+        module.cross_band.mix.weight.zero_()
+        module.cross_band.mix.weight[0, 1, 0, 0] = 1.0  # LH_0 -> LL_0
+        module.cross_band.mix.weight[1, 0, 0, 0] = 1.0  # LL_0 -> LH_0
+        module.cross_band.mix.weight[2, 2, 0, 0] = 1.0
+        module.cross_band.mix.weight[3, 3, 0, 0] = 1.0
+    bands = torch.tensor([[[[[1.0]], [[2.0]], [[3.0]], [[4.0]]]]])
+    mixed = module.cross_band(bands)
+    assert torch.equal(mixed, torch.tensor([[[[[2.0]], [[1.0]], [[3.0]], [[4.0]]]]]))
+
+
+def test_frequency_stats_include_pre_post_bands_and_betas():
+    down = FreqDown(4, 8, record_stats=True).eval()
+    up = FreqUp(8, record_stats=True).eval()
+    down(torch.randn(1, 4, 8, 8))
+    up(torch.randn(1, 8, 4, 4))
+    for stats in (down.last_stats, up.last_stats):
+        assert all(f"{prefix}_{band}" in stats for prefix in ("pre", "post") for band in ("LL", "LH", "HL", "HH"))
+        assert all(f"{prefix}_{band}/LL" in stats for prefix in ("pre", "post") for band in ("LH", "HL", "HH"))
+        assert all(f"beta_{band}" in stats for band in ("LL", "LH", "HL", "HH"))
+
+
 def test_down_and_up_do_not_share_parameters():
     down, up = FreqDown(8, 16), FreqUp(16)
     assert not set(map(id, down.parameters())).intersection(map(id, up.parameters()))
 
 
 def test_project_yaml_names_frequency_modules():
-    paths = (
-        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_p2_freq_pair_v1.yaml",
-        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p3_freq_pair_v1.yaml",
-    )
-    for path in paths:
+    paths = {
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_p2_freq_pair_v1.yaml": 6,
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p3_freq_pair_v1.yaml": 6,
+    }
+    for path, _ in paths.items():
         text = path.read_text()
-        assert text.count("FreqDown") == 3
+        assert text.count("FreqDown") == (6 if "p2_freq_pair" in path.name else 3)
         assert text.count("FreqUp") == 3
         assert "models_related" not in text
+    assert "RepC2f" not in (ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_p2_freq_pair_v1.yaml").read_text()
 
 
 def test_project_yaml_parser_builds_frequency_layers():
     from project_ultralytics import load_project_model
 
-    for path in (
-        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_p2_freq_pair_v1.yaml",
-        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p3_freq_pair_v1.yaml",
-    ):
+    expected = {
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_p2_freq_pair_v1.yaml": (9, [4.0, 8.0, 16.0, 32.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p3_freq_pair_v1.yaml": (6, [4.0, 8.0]),
+    }
+    for path, (layer_count, strides) in expected.items():
         model = load_project_model(str(path), task="detect", verbose=False)
         frequency_layers = [layer for layer in model.model.model if layer.__class__.__name__ in {"FreqDown", "FreqUp"}]
-        assert len(frequency_layers) == 6
-        assert model.model.stride.tolist() == [4.0, 8.0]
+        assert len(frequency_layers) == layer_count
+        assert model.model.stride.tolist() == strides
