@@ -23,6 +23,7 @@ CONFIGS = {
     "tinyperson_p3p5": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_freq_pair_v1.yaml",
     "tinyperson_p2p4": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_freq_pair_v1.yaml",
 }
+CONTEXT_AUGS = ("none", "oacp")
 VARIANT_DATASET = {
     "levir_p3p5": "levirship",
     "levir_p2_only": "levirship",
@@ -146,6 +147,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--device", default="0")
     parser.add_argument("--mosaic", type=float)
+    parser.add_argument("--context-aug", choices=CONTEXT_AUGS, default="none")
+    parser.add_argument("--oacp-variant", default="current")
     parser.add_argument("--hf-repo-id")
     parser.add_argument("--prepare-only", action="store_true")
     return parser.parse_args(argv)
@@ -164,6 +167,12 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError("LEVIR-Ship frequency V1 requires mosaic=0.0")
     if args.dataset == "tinyperson" and args.mosaic != 1.0:
         raise ValueError("TinyPerson frequency V1 requires mosaic=1.0")
+    if args.context_aug == "oacp":
+        os.environ["YOLO_CONTEXT_AUG"] = "oacp"
+        os.environ["OACP_VARIANT"] = args.oacp_variant
+    else:
+        os.environ.pop("YOLO_CONTEXT_AUG", None)
+        os.environ.pop("OACP_VARIANT", None)
     require_training_context(hf_repo_id=args.hf_repo_id)
     data_yaml = prepare_data(args.dataset, args.data_root, args.dataset_root.resolve(), args.split_seed)
     run_dir = args.project.resolve() / args.variant / f"seed_{args.seed}"
@@ -172,6 +181,7 @@ def main(argv: list[str] | None = None) -> None:
         "seed": args.seed, "split_seed": args.split_seed, "epochs": args.epochs, "patience": args.patience,
         "workers": args.workers, "imgsz": args.imgsz, "batch": args.batch, "mosaic": args.mosaic,
         "close_mosaic": 10 if args.mosaic else 0, "nms_iou": 0.5, "upload_required": True,
+        "context_aug": args.context_aug, "oacp_variant": args.oacp_variant if args.context_aug == "oacp" else None,
         "hf_repo_id": args.hf_repo_id,
     }
     run_dir.mkdir(parents=True, exist_ok=True)
