@@ -82,6 +82,14 @@ def prepare_tinyperson(source: Path, runtime: Path) -> Path:
 
     test_dir = tiny.prepare_test_set(source, runtime)
     seed_dir = tiny.prepare_seed_dataset(source, runtime, test_dir, SPLIT_SEED)
+    for source_dir, target in (
+        (test_dir / "images", seed_dir / "images/test"),
+        (test_dir / "labels", seed_dir / "labels/test"),
+    ):
+        if target.is_symlink() and target.resolve() != source_dir.resolve():
+            target.unlink()
+        if not target.exists():
+            target.symlink_to(source_dir)
     return seed_dir / "tinyperson.yaml"
 
 
