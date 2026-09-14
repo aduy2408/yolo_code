@@ -39,6 +39,13 @@ RUNS = {
         "config": DEFAULT_CFG, "mosaic": 1.0, "close_mosaic": 10,
         "ftal": False, "oacp": "current", "oacp_params": {},
     },
+    "dmm_lite_strong_oacp_samc_mosaic": {
+        "config": DMM_CFG, "mosaic": 1.0, "close_mosaic": 10,
+        "ftal": False, "oacp": "current",
+        "oacp_params": {"OACP_P": "0.20", "OACP_PROTECTED_EXPAND": "3.0",
+                        "OACP_STRENGTH_MIN": "0.40", "OACP_STRENGTH_MAX": "0.65",
+                        "OACP_SCALE_MIN": "0.45", "OACP_SCALE_MAX": "0.70"},
+    },
 }
 REQUIRED = ("weights/best.pt", "weights/last.pt", "results.csv", "evaluation_metrics.json", "experiment_manifest.json")
 
