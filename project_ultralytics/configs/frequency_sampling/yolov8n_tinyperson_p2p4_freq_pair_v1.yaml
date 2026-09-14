@@ -1,4 +1,5 @@
-# YOLOv8n TinyPerson paired fixed-Haar frequency sampling based on the project P2/P3 template.
+# YOLOv8n TinyPerson P2/P3/P4 fixed-Haar frequency-sampling run.
+# The existing TinyPerson RepC2f P2/P3/P4 topology is preserved; Mosaic is a runner setting.
 
 nc: 1
 scales:
@@ -26,4 +27,4 @@ head:
   - [-1, 1, FreqUp, []]
   - [[-1, 2], 1, Concat, [1]]
   - [-1, 3, RepC2f, [128]]
-  - [[18, 15], 1, Detect, [nc]]
+  - [[18, 15, 12], 1, Detect, [nc]]

@@ -18,8 +18,16 @@ from utils.marimo_ops import ensure_hf_repo, require_training_context
 
 ROOT = Path(__file__).resolve().parent
 CONFIGS = {
-    "levirship": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_p2_freq_pair_v1.yaml",
-    "tinyperson": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p3_freq_pair_v1.yaml",
+    "levir_p3p5": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_freq_pair_v1.yaml",
+    "levir_p2_only": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v1.yaml",
+    "tinyperson_p3p5": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_freq_pair_v1.yaml",
+    "tinyperson_p2p4": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_freq_pair_v1.yaml",
+}
+VARIANT_DATASET = {
+    "levir_p3p5": "levirship",
+    "levir_p2_only": "levirship",
+    "tinyperson_p3p5": "tinyperson",
+    "tinyperson_p2p4": "tinyperson",
 }
 DATASET_DEFAULTS = {
     "levirship": {"imgsz": 512, "batch": 8, "mosaic": 0.0, "data_root": ROOT / "LevirShipData"},
@@ -56,7 +64,7 @@ def train(args: argparse.Namespace, data_yaml: Path, run_dir: Path) -> None:
     from project_ultralytics import load_project_model
 
     run_dir.parent.mkdir(parents=True, exist_ok=True)
-    model = load_project_model(str(CONFIGS[args.dataset]), task="detect", verbose=False)
+    model = load_project_model(str(CONFIGS[args.variant]), task="detect", verbose=False)
     if args.pretrained:
         model.load(args.pretrained)
     model.train(
@@ -102,7 +110,7 @@ def upload(args: argparse.Namespace, run_dir: Path) -> None:
 
     repo_id = ensure_hf_repo(args.hf_repo_id)
     api = HfApi(token=os.environ["HF_TOKEN"])
-    remote = f"{args.dataset}/seed_{args.seed}"
+    remote = f"{args.variant}/seed_{args.seed}"
     api.upload_folder(folder_path=str(run_dir), path_in_repo=remote, repo_id=repo_id, repo_type="dataset")
     expected = {f"{remote}/{path}" for path in REQUIRED}
     remote_files = set(api.list_repo_files(repo_id, repo_type="dataset"))
@@ -116,7 +124,8 @@ def upload(args: argparse.Namespace, run_dir: Path) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", choices=sorted(CONFIGS), required=True)
+    parser.add_argument("--dataset", choices=("levirship", "tinyperson"), required=True)
+    parser.add_argument("--variant", choices=sorted(CONFIGS), required=True)
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--dataset-root", type=Path, default=ROOT / "datasets")
     parser.add_argument("--project", type=Path, default=ROOT / "runs/frequency_sampling_v1")
@@ -137,6 +146,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if VARIANT_DATASET[args.variant] != args.dataset:
+        raise ValueError(f"variant {args.variant!r} belongs to {VARIANT_DATASET[args.variant]!r}, not {args.dataset!r}")
     defaults = DATASET_DEFAULTS[args.dataset]
     args.data_root = (args.data_root or defaults["data_root"]).resolve()
     args.imgsz = args.imgsz or defaults["imgsz"]
@@ -148,9 +159,9 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError("TinyPerson frequency V1 requires mosaic=1.0")
     require_training_context(hf_repo_id=args.hf_repo_id)
     data_yaml = prepare_data(args.dataset, args.data_root, args.dataset_root.resolve(), args.split_seed)
-    run_dir = args.project.resolve() / args.dataset / f"seed_{args.seed}"
+    run_dir = args.project.resolve() / args.variant / f"seed_{args.seed}"
     manifest = {
-        "dataset": args.dataset, "data_yaml": str(data_yaml), "model_yaml": str(CONFIGS[args.dataset]),
+        "dataset": args.dataset, "variant": args.variant, "data_yaml": str(data_yaml), "model_yaml": str(CONFIGS[args.variant]),
         "seed": args.seed, "split_seed": args.split_seed, "epochs": args.epochs, "patience": args.patience,
         "workers": args.workers, "imgsz": args.imgsz, "batch": args.batch, "mosaic": args.mosaic,
         "close_mosaic": 10 if args.mosaic else 0, "nms_iou": 0.5, "upload_required": True,
@@ -158,7 +169,7 @@ def main(argv: list[str] | None = None) -> None:
     }
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    shutil.copy2(CONFIGS[args.dataset], run_dir / "config.yaml")
+    shutil.copy2(CONFIGS[args.variant], run_dir / "config.yaml")
     if args.prepare_only:
         print(data_yaml)
         return

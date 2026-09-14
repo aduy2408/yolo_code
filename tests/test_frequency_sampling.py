@@ -77,23 +77,28 @@ def test_down_and_up_do_not_share_parameters():
 
 def test_project_yaml_names_frequency_modules():
     paths = {
-        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_p2_freq_pair_v1.yaml": 6,
-        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p3_freq_pair_v1.yaml": 6,
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_freq_pair_v1.yaml": (5, 2),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v1.yaml": (3, 3),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_freq_pair_v1.yaml": (5, 2),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_freq_pair_v1.yaml": (3, 3),
     }
-    for path, _ in paths.items():
+    for path, (down_count, up_count) in paths.items():
         text = path.read_text()
-        assert text.count("FreqDown") == (6 if "p2_freq_pair" in path.name else 3)
-        assert text.count("FreqUp") == 3
+        assert text.count("FreqDown") == down_count
+        assert text.count("FreqUp") == up_count
         assert "models_related" not in text
-    assert "RepC2f" not in (ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_p2_freq_pair_v1.yaml").read_text()
+    assert "RepC2f" not in (ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_freq_pair_v1.yaml").read_text()
+    assert "RepC2f" not in (ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v1.yaml").read_text()
 
 
 def test_project_yaml_parser_builds_frequency_layers():
     from project_ultralytics import load_project_model
 
     expected = {
-        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_p2_freq_pair_v1.yaml": (9, [4.0, 8.0, 16.0, 32.0]),
-        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p3_freq_pair_v1.yaml": (6, [4.0, 8.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_freq_pair_v1.yaml": (7, [8.0, 16.0, 32.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v1.yaml": (6, [4.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_freq_pair_v1.yaml": (7, [8.0, 16.0, 32.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_freq_pair_v1.yaml": (6, [4.0, 8.0, 16.0]),
     }
     for path, (layer_count, strides) in expected.items():
         model = load_project_model(str(path), task="detect", verbose=False)
