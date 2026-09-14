@@ -40,7 +40,7 @@ The base configuration uses `p=0.20`, but the experiment families include freque
 | `budget` | budget-limited OACP | random perturbation budget over available background |
 | `density` | density-targeted OACP | target density/coverage of the perturbation |
 | `mass_adaptive` | mass-adaptive OACP | target perturbed image mass, default range about `0.25-0.40` |
-| `load_adaptive` | load-adaptive OACP | adapts budget to scene/object load, saturating at a configured object count |
+| `load_adaptive` | load-adaptive OACP | selects far-context perturbation area from scene/object load, saturating at a configured object count; preserves historical protection and does not change OACP strength, resolution scale, or application probability |
 | `spacing_adaptive` | spacing-adaptive OACP | expands protection/context according to nearest-object spacing |
 
 A critical implementation detail is the historical **double-OACP** path. The old pipeline applied OACP once in a wrapper and again in the normal transform pipeline. The corrected pipeline applies it once unless legacy mode is explicitly enabled. Results from the two paths must not be pooled as if they were the same method.
@@ -179,6 +179,8 @@ The combined OACP + Copy-Paste repositories should not be compared with the plai
 | `tinyperson-yolov8n-p2p3p4-oacp-current-seed42` | YOLOv8n P2/P3/P4, TinyPerson | current OACP | read from manifest | current run status/metric acceptance is separate from completed artifacts |
 
 `read from manifest` is deliberate. A repository name can identify an OACP variant but cannot prove `mosaic`, `close_mosaic`, workers, or exact OACP parameters. Those rows remain provenance-qualified until their manifest is available.
+
+The queued OACP workflow is sequential and uses a separate Hugging Face repository for each model/variant. Verified LEVIR density and TinyPerson budget artifacts are reused rather than retrained. Only missing or untrusted artifacts should enter the queue again.
 
 ### 4.3 Exact YOLO11 matrix variants
 
