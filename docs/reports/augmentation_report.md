@@ -118,9 +118,84 @@ The supplied list also contains the following OACP families and controls:
 
 The repository list also includes broader baseline/model runs such as `...samc...`, DETR, and MMDetection repositories. They are not augmentation results and are excluded from the tables below unless they serve as an explicitly named control.
 
-## 4. Results grouped by experiment family
+## 4. Per-run settings audit
 
-### 4.1 LEVIR-Ship: controlled Mosaic policy matrix
+This section records the augmentation switches explicitly, rather than inferring them from a checkpoint name. `On` means `mosaic=1.0`; `Off` means `mosaic=0.0`. Unless a row says otherwise, Mosaic-enabled runs use `close_mosaic=10`, while the matched Copy-Paste-only protocol uses `close_mosaic=0`.
+
+### 4.1 Copy-Paste settings shared by CP0-CP3 runs
+
+The LEVIR-Ship and TinyPerson CP0-CP3 repositories use the same controlled settings:
+
+| Setting | Value |
+|---|---|
+| Mosaic | `0.0` / disabled |
+| `close_mosaic` | `0` |
+| MixUp / CutMix | `0.0` / disabled |
+| Copy-Paste probability | `p=0.5` |
+| Scale / padding | `1.0` / `0.0` |
+| Blend | hard paste |
+| Placement | random |
+| Max overlap / trials | `0.0` / `30` |
+| Empty target / same source | allowed / allowed |
+
+| Repository | CP0 | CP1 | CP2 | CP3 |
+|---|---|---|---|---|
+| `tinyperson-copy-paste` | disabled | one single object | two single objects | one cluster, `expand=3.0`, minimum 2 objects |
+| `levir-ship-copy-paste` | disabled | one single object | two single objects | one cluster, `expand=3.0`, minimum 2 objects |
+
+For the CP3 + Mosaic repositories, the Copy-Paste method remains the same clustered method, but Mosaic is enabled separately:
+
+| Repository | Detector family | Copy-Paste | OACP | Mosaic |
+|---|---|---|---|---|
+| `tinyperson-yolov8n-p2p3p4-cp3-mosaic-no-oacp` | YOLOv8n P2/P3/P4 | CP3 cluster | none | On, `close_mosaic=10` |
+| `tinyperson-copy-paste-mosaic` | YOLOv8n | CP3 cluster | none | On, `close_mosaic=10` |
+| `levir-ship-copy-paste-mosaic` | YOLOv8n | CP3 cluster | none | On, `close_mosaic=10` |
+| `tinyperson-yolov8n-p2p3p4-oacp-mass-cp3-no-mosaic` | YOLOv8n P2/P3/P4 | CP3 cluster | mass-adaptive | Off, `mosaic=0.0` |
+| `tinyperson-yolov8n-p2p3p4-oacp-mass-cp3-mosaic` | YOLOv8n P2/P3/P4 | CP3 cluster | mass-adaptive | On, `close_mosaic=10` |
+| `tinyperson-copy-paste-oacp-mass-cp3-mosaic` | YOLOv8n | CP3 cluster | mass-adaptive | On, `close_mosaic=10` |
+
+The combined OACP + Copy-Paste repositories should not be compared with the plain CP3 repository as a Copy-Paste-only ablation. They change at least one additional factor.
+
+### 4.2 OACP and Mosaic settings by named run family
+
+| Run/repository family | Detector / dataset | OACP path and setting | Mosaic setting | Other important settings / status |
+|---|---|---|---|---|
+| `levir-ship-mosaic-policy-matrix` | canonical YOLOv8 P3/P4/P5, LEVIR-Ship | none | On, `close_mosaic=10`; standard, visibility, occupancy, or context policy | split seed 42, train seed 42, 100 epochs, workers 8; only Mosaic policy changes |
+| `yolov8n-mosaic-resize-policy-matrix-seed42` | YOLOv8n policy matrix, LEVIR + TinyPerson | none | On; standard/visibility/occupancy policies for LEVIR, standard control for TinyPerson | manifests record dataset and policy; do not merge datasets |
+| `levirship-yolov8n-oacp-spacing-adaptive-mosaic` | YOLOv8n P2/P3/P4, LEVIR-Ship | single-pass spacing-adaptive OACP | On, `close_mosaic=10` | adaptive context expansion based on object spacing |
+| `levirship-yolov8n-oacp-load-adaptive-mosaic` | YOLOv8n P2/P3/P4, LEVIR-Ship | single-pass load-adaptive OACP | On, `close_mosaic=10` | adaptive budget based on scene/object load |
+| `levirship-yolov8n-oacp-mass-adaptive-mosaic` | YOLOv8n P2/P3/P4, LEVIR-Ship | single-pass mass-adaptive OACP | On, `close_mosaic=10` | target perturbed image mass |
+| `tinyperson-yolov8n-oacp-spacing/load/mass-adaptive-022e5d9` | YOLOv8n, TinyPerson | corresponding single-pass adaptive variant | On, `close_mosaic=10` | variant is encoded in each repository name |
+| `levir-yolov8n-p2p3p4-oacp-spacing/load-adaptive-022e5d9` | YOLOv8n P2/P3/P4, LEVIR-Ship | corresponding single-pass adaptive variant | On, `close_mosaic=10` | variant is encoded in each repository name |
+| `levir-yolov8n-p2p3p4-oacp-density/budget-nomosaic-20260911` | YOLOv8n P2/P3/P4, LEVIR-Ship | density or budget OACP | Off, `mosaic=0.0` | no-Mosaic comparison family |
+| `levir-yolov9t-p2p3p4-oacp-density/budget-20260911` | YOLOv9t P2/P3/P4, LEVIR-Ship | density or budget OACP | On, `close_mosaic=10` | model-family change versus YOLOv8n |
+| `levir-yolov9t-p2p3p4-oacp-density/budget-nomosaic-20260911` | YOLOv9t P2/P3/P4, LEVIR-Ship | density or budget OACP | Off, `mosaic=0.0` | matched no-Mosaic counterpart |
+| `tinyperson-yolov9t-p2p3p4-oacp-budget-density-20260911` | YOLOv9t P2/P3/P4, TinyPerson | budget and density variants | On, `close_mosaic=10` | two variants in one repository |
+| `tinyperson-yolo11-oacp-mosaic-matrix` | YOLO11n, TinyPerson | legacy double OACP or new single-pass R2 | On or Off | split/train seed 42, 100 epochs, imgsz 640, batch 8, workers 8; exact variants below |
+| `tinyperson-yolov9-yolov10-legacy-oacp-mosaic` | YOLOv9t and YOLOv10n, TinyPerson | legacy double OACP | On, `close_mosaic=10` | split/train seed 42, 100 epochs, imgsz 640, batch 8, workers 8 |
+| `levir-oacp-aggressive-singlepass-3fc7b92` | YOLOv8n P2, LEVIR-Ship | corrected single-pass R1-R7 sweep | Off, matching the no-Mosaic sweep | split/train seed 42; R4 selected by validation mAP50 |
+| `levir-yolov8n-p2-oacp-aggressive-no-mosaic-nondeterministic-9fb0758` | YOLOv8n P2, LEVIR-Ship | historical legacy double OACP | Off | nondeterministic historical screen; not pooled with corrected single-pass runs |
+| `levir-yolov8n-p2p3p4-samc-oacp-current-seed42` | SAMC + YOLOv8n P2/P3/P4 | current OACP | read from manifest; not a clean OACP-only comparison | attention/module stack also changes |
+| `tinyperson-yolov8n-p2p3p4-oacp-current-seed42` | YOLOv8n P2/P3/P4, TinyPerson | current OACP | read from manifest | current run status/metric acceptance is separate from completed artifacts |
+
+`read from manifest` is deliberate. A repository name can identify an OACP variant but cannot prove `mosaic`, `close_mosaic`, workers, or exact OACP parameters. Those rows remain provenance-qualified until their manifest is available.
+
+### 4.3 Exact YOLO11 matrix variants
+
+The four YOLO11 variants are not interchangeable:
+
+| Variant | OACP path | OACP parameters | Mosaic |
+|---|---|---|---|
+| `legacy_default_oacp_mosaic` | legacy double-pass | `p=.20`, strength `.20-.40`, scale `.65-.85`, expand `3.0` | On, `close_mosaic=10` |
+| `legacy_default_oacp_no_mosaic` | legacy double-pass | same as above | Off, `mosaic=0.0` |
+| `r2_frequent_mild_oacp_mosaic` | corrected single-pass | `p=.40`, strength `.10-.25`, scale `.80-.95`, expand `3.0` | On, `close_mosaic=10` |
+| `r2_frequent_mild_oacp_no_mosaic` | corrected single-pass | same as above | Off, `mosaic=0.0` |
+
+All four use YOLO11n, TinyPerson, train seed 42, split seed 42, 100 epochs, patience 0, image size 640, batch size 8, workers 8, and NMS IoU 0.5.
+
+## 5. Results grouped by experiment family
+
+### 5.1 LEVIR-Ship: controlled Mosaic policy matrix
 
 All four rows use the canonical upstream-style YOLOv8 P3/P4/P5 YAML, fixed split seed 42, training seed 42, 100 epochs, and workers 8. Only the Mosaic policy changes.
 
@@ -133,7 +208,7 @@ All four rows use the canonical upstream-style YOLOv8 P3/P4/P5 YAML, fixed split
 
 **Interpretation:** visibility-aware selection is the only policy with a clear primary-metric improvement in this controlled matrix. Occupancy and context policies do not improve test mAP50-95 over standard Mosaic.
 
-### 4.2 LEVIR-Ship: adaptive OACP and detector-scale effects
+### 5.2 LEVIR-Ship: adaptive OACP and detector-scale effects
 
 | Configuration | Mosaic | Test mAP50 | Test mAP50-95 | Test AP75 |
 |---|---|---:|---:|---:|
@@ -146,7 +221,7 @@ All four rows use the canonical upstream-style YOLOv8 P3/P4/P5 YAML, fixed split
 
 **Interpretation:** load-adaptive OACP + Mosaic is the strongest reported LEVIR adaptive-OACP row. The YOLOv9t rows are lower, demonstrating that a newer/larger detector is not automatically better in this small-object setting. The P2/P3/P4 advantage is a detector effect plus augmentation, not an isolated OACP effect.
 
-### 4.3 TinyPerson: adaptive OACP
+### 5.3 TinyPerson: adaptive OACP
 
 | Configuration | Test mAP50 | Test mAP50-95 | Validation mAP50-95 |
 |---|---:|---:|---:|
@@ -159,7 +234,7 @@ All four rows use the canonical upstream-style YOLOv8 P3/P4/P5 YAML, fixed split
 
 **Interpretation:** adaptive OACP + Mosaic improves over the YOLOv8 no-Mosaic baseline by about **8.8% relative in test mAP50-95** for load-adaptive OACP. The YOLOv9t P2/P3/P4 rows are below the YOLOv8 baseline in this reported setup.
 
-### 4.4 Copy-Paste without Mosaic
+### 5.4 Copy-Paste without Mosaic
 
 Metrics below are manifest-reported because these Copy-Paste repositories do not expose the same explicit evaluation artifact as the Mosaic matrix.
 
@@ -185,7 +260,7 @@ CP3 has the best reported mAP50-95, but the margin over CP0 is small. CP1 is wor
 
 CP3 is more clearly favorable on TinyPerson, consistent with clustered object layouts being more representative than independent random copies.
 
-### 4.5 Copy-Paste + OACP + Mosaic combinations
+### 5.5 Copy-Paste + OACP + Mosaic combinations
 
 | Repository/run | Detector | Configuration | Reported mAP50 | Reported mAP50-95 |
 |---|---|---|---:|---:|
@@ -198,7 +273,7 @@ CP3 is more clearly favorable on TinyPerson, consistent with clustered object la
 
 **Interpretation:** in the matched P2/P3/P4 TinyPerson group, adding Mosaic to mass OACP + CP3 improves reported mAP50-95 from **0.1863** to **0.2061**. However, the comparison with the plain YOLOv8n combinations is confounded by detector architecture, so it should not be described as a pure augmentation gain.
 
-## 5. Seed and provenance notes
+## 6. Seed and provenance notes
 
 - Split seed and training seed are separate parameters. The main matched comparisons use fixed `split_seed=42`; seed sweeps vary training seed only.
 - The corrected OACP single-pass sweep `duyle2408/levir-oacp-aggressive-singlepass-3fc7b92` reports:
@@ -217,7 +292,7 @@ R4 was selected from R1-R5 by validation mAP50. The historical repository `levir
 
 The fixed-split seed groups in the supplied list are useful for stability checks, but they are not interchangeable with the single-seed policy matrices. In particular, nondeterministic runs and runs with different workers or detector YAMLs should remain separate groups.
 
-## 6. Conclusions and recommended next matrix
+## 7. Conclusions and recommended next matrix
 
 ### What the current evidence supports
 
@@ -248,7 +323,7 @@ Hold the following fixed: detector YAML, image size, epochs, workers, `split_see
 
 Run this matrix separately for the canonical P3/P4/P5 detector and the explicitly selected P2/P3/P4 detector. Report mean ± sample standard deviation and retain the exact manifest, commit, split seed, training seed, worker count, and augmentation policy for every run.
 
-## 7. Source artifacts
+## 8. Source artifacts
 
 - Existing compiled results: [`docs/reports/huggingface_results_20260912.md`](huggingface_results_20260912.md)
 - Earlier compiled results: [`docs/reports/huggingface_results_20260910.md`](huggingface_results_20260910.md)
