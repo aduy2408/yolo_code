@@ -18,6 +18,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STW_ROOT = Path(os.environ.get("STW_YOLO_ROOT", ROOT / "STW-YOLO")).resolve()
+if str(STW_ROOT) not in sys.path:
+    sys.path.insert(0, str(STW_ROOT))
 SEED = 42
 SPLIT_SEED = 42
 EPOCHS = 100
