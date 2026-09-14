@@ -81,6 +81,7 @@ def train(args: argparse.Namespace, data_yaml: Path, run_dir: Path) -> None:
             seed=args.seed,
             deterministic=True,
             amp=True,
+            optimizer="AdamW",
             plots=False,
             project=str(run_dir.parent),
             name=run_dir.name,
