@@ -41,12 +41,22 @@ from .nat import C2fNAT, NATBlock
 from .routing_attention import BiLevelRoutingAttention
 from .pconv import C2f_PConv, FasterNetBlock, PConv
 from .raw_cue_fusion import MultiCueEvidenceFusion, RawColorSlotFusion, RawImageCueBank
-from .frequency_sampling import BandRefine, FreqDown, FreqUp, haar_analysis, haar_synthesis
+from .frequency_sampling import (
+    BandRefine,
+    BandRefineV2,
+    FreqDown,
+    FreqDownV2,
+    FreqUp,
+    FreqUpV2,
+    haar_analysis,
+    haar_synthesis,
+)
 from .rep import RepC2f
 
 __all__ = (
     "AugmentationAwareEvidence",
     "BandRefine",
+    "BandRefineV2",
     "WeightedAdd",
     "AmplitudePerturbation",
     "BiLevelRoutingAttention",
@@ -67,7 +77,9 @@ __all__ = (
     "DetachedResidualFusion",
     "FasterNetBlock",
     "FreqDown",
+    "FreqDownV2",
     "FreqUp",
+    "FreqUpV2",
     "FullSelfAttention",
     "GlobalChannelContextCalibration",
     "GTChannelSpecialization",

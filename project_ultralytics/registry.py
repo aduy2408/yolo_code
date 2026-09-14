@@ -24,6 +24,7 @@ from .modules import (
     AugmentationAwareEvidence,
     BiLevelRoutingAttention,
     BandRefine,
+    BandRefineV2,
     CBAM,
     C2fCBAM,
     C3CBAM,
@@ -75,7 +76,9 @@ from .modules import (
     TopKGlobalGroupKVAttention,
     WeightedAdd,
     FreqDown,
+    FreqDownV2,
     FreqUp,
+    FreqUpV2,
 )
 
 CUSTOM_MODULES = {
@@ -83,10 +86,13 @@ CUSTOM_MODULES = {
     for cls in (
         AugmentationAwareEvidence,
         BandRefine,
+        BandRefineV2,
         AmplitudePerturbation,
         BiLevelRoutingAttention,
         FreqDown,
+        FreqDownV2,
         FreqUp,
+        FreqUpV2,
         CBAM,
         C2fCBAM,
         C3CBAM,

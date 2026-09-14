@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train and upload one fixed-Haar frequency-sampling V1 run.
+"""Train and upload one fixed-Haar frequency-sampling run.
 
 This runner is intentionally one dataset/seed at a time so every completed run
 is evaluated and uploaded before the next launch.  LEVIR-Ship uses no Mosaic;
@@ -22,6 +22,10 @@ CONFIGS = {
     "levir_p2_only": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v1.yaml",
     "tinyperson_p3p5": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_freq_pair_v1.yaml",
     "tinyperson_p2p4": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_freq_pair_v1.yaml",
+    "levir_p3p5_v2": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_freq_pair_v2.yaml",
+    "levir_p2_only_v2": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v2.yaml",
+    "tinyperson_p3p5_v2": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_freq_pair_v2.yaml",
+    "tinyperson_p2p4_v2": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_freq_pair_v2.yaml",
 }
 CONTEXT_AUGS = ("none", "oacp")
 VARIANT_DATASET = {
@@ -29,6 +33,10 @@ VARIANT_DATASET = {
     "levir_p2_only": "levirship",
     "tinyperson_p3p5": "tinyperson",
     "tinyperson_p2p4": "tinyperson",
+    "levir_p3p5_v2": "levirship",
+    "levir_p2_only_v2": "levirship",
+    "tinyperson_p3p5_v2": "tinyperson",
+    "tinyperson_p2p4_v2": "tinyperson",
 }
 DATASET_DEFAULTS = {
     "levirship": {"imgsz": 512, "batch": 8, "mosaic": 0.0, "data_root": ROOT / "LevirShipData"},

@@ -1,7 +1,11 @@
 """Paired fixed-Haar frequency-domain resampling modules.
 
 The Haar basis is deliberately fixed.  All learnable capacity lives in feature
-formation, per-band refinement, and within-channel cross-band mixing.
+formation, per-band refinement, and (for V1) within-channel cross-band mixing.
+
+V2 keeps the fixed Haar representation but removes the learned 4x4 band
+transform.  Its refinement blocks are zero-initialized residuals, so every
+subband starts as an identity path.
 """
 
 from __future__ import annotations
@@ -80,6 +84,12 @@ def _band_ratio_stats(bands: torch.Tensor, prefix: str) -> Dict[str, float]:
 
 def _beta_stats(refiners: nn.ModuleList) -> Dict[str, float]:
     return {f"beta_{name}": refiners[i].beta.detach().item() for i, name in enumerate(_BAND_NAMES)}
+
+
+def _refine_ratio_stats(pre: torch.Tensor, post: torch.Tensor) -> Dict[str, float]:
+    delta = (post.float() - pre.float()).square().mean(dim=(0, 1, 3, 4)).sqrt()
+    baseline = pre.float().square().mean(dim=(0, 1, 3, 4)).sqrt().clamp_min(torch.finfo(delta.dtype).eps)
+    return {f"refine_{name}_ratio": (delta[i] / baseline[i]).item() for i, name in enumerate(_BAND_NAMES)}
 
 
 class _Formation(nn.Module):
@@ -207,4 +217,93 @@ class FreqUp(_FrequencyBase):
         return out
 
 
-__all__ = ("haar_analysis", "haar_synthesis", "BandRefine", "FreqDown", "FreqUp")
+class BandRefineV2(nn.Module):
+    """Identity-initialized independent residual refinement for one band."""
+
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        self.dw = nn.Conv2d(channels, channels, 3, padding=1, groups=channels, bias=False)
+        self.bn = nn.BatchNorm2d(channels)
+        nn.init.zeros_(self.bn.weight)
+        nn.init.zeros_(self.bn.bias)
+
+    def forward(self, band: torch.Tensor) -> torch.Tensor:
+        return band + self.bn(self.dw(band))
+
+
+class _FrequencyBaseV2(nn.Module):
+    def __init__(self, band_refine: bool, record_stats: bool) -> None:
+        super().__init__()
+        self.record_stats = bool(record_stats)
+        self.last_stats: Dict[str, float] = {}
+        self.band_refine_enabled = bool(band_refine)
+
+    def _process_bands(self, bands: torch.Tensor) -> torch.Tensor:
+        if self.band_refine_enabled:
+            return torch.stack([refine(bands[:, :, i]) for i, refine in enumerate(self.band_refine)], dim=2)
+        return bands
+
+    def _record_stats(self, pre: torch.Tensor, post: torch.Tensor) -> None:
+        if not self.record_stats:
+            return
+        self.last_stats = _band_stats(pre, "pre")
+        self.last_stats.update(_band_stats(post, "post"))
+        self.last_stats.update(_band_ratio_stats(pre, "pre"))
+        self.last_stats.update(_band_ratio_stats(post, "post"))
+        self.last_stats.update(_refine_ratio_stats(pre, post))
+
+
+class FreqDownV2(_FrequencyBaseV2):
+    """V2 feature formation, fixed Haar analysis, and independent refinement."""
+
+    def __init__(self, c1: int, c2: int, k: int = 3, expansion: float = 2.0,
+                 band_refine: bool = True, record_stats: bool = False, basis: str = "haar") -> None:
+        super().__init__(band_refine, record_stats)
+        if c2 % 4 or basis != "haar":
+            raise ValueError(f"FreqDownV2 requires c2 divisible by 4 and basis='haar', got c2={c2}, basis={basis!r}")
+        self.c_band = c2 // 4
+        self.c_mid = _make_divisible(max(self.c_band, int(self.c_band * expansion)))
+        self.formation = _Formation(c1, self.c_mid, self.c_band, k)
+        self.band_refine = nn.ModuleList(BandRefineV2(self.c_band) for _ in range(4))
+        self.out = nn.Sequential(nn.BatchNorm2d(c2), nn.SiLU())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        bands = haar_analysis(self.formation(x))
+        pre = bands.detach()
+        bands = self._process_bands(bands)
+        post = bands.detach()
+        out = self.out(bands.flatten(1, 2))
+        self._record_stats(pre, post)
+        return out
+
+
+class FreqUpV2(_FrequencyBaseV2):
+    """V2 learned synthesis bands, independent refinement, and fixed inverse Haar."""
+
+    def __init__(self, c1: int, c2: int | None = None, expansion: float = 2.0,
+                 band_refine: bool = True, record_stats: bool = False, basis: str = "haar") -> None:
+        super().__init__(band_refine, record_stats)
+        c2 = c1 if c2 is None else c2
+        if c2 % 4 or basis != "haar":
+            raise ValueError(f"FreqUpV2 requires c2 divisible by 4 and basis='haar', got c2={c2}, basis={basis!r}")
+        self.c_band = c2 // 4
+        self.c_mid = _make_divisible(max(self.c_band, int(self.c_band * expansion)))
+        self.formation = _Formation(c1, self.c_mid, c2, 3)
+        self.band_refine = nn.ModuleList(BandRefineV2(self.c_band) for _ in range(4))
+        self.reconstruct = _Formation(self.c_band, self.c_mid, c2, 3, compress_bn=False)
+        self.out = nn.Sequential(nn.BatchNorm2d(c2), nn.SiLU())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        bands = self.formation(x).reshape(x.shape[0], 4, self.c_band, x.shape[-2], x.shape[-1]).permute(0, 2, 1, 3, 4)
+        pre = bands.detach()
+        bands = self._process_bands(bands)
+        post = bands.detach()
+        out = self.out(self.reconstruct(haar_synthesis(bands)))
+        self._record_stats(pre, post)
+        return out
+
+
+__all__ = (
+    "haar_analysis", "haar_synthesis", "BandRefine", "FreqDown", "FreqUp",
+    "BandRefineV2", "FreqDownV2", "FreqUpV2",
+)

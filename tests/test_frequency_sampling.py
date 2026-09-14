@@ -5,8 +5,11 @@ from pathlib import Path
 import torch
 
 from project_ultralytics.modules.frequency_sampling import (
+    BandRefineV2,
     FreqDown,
+    FreqDownV2,
     FreqUp,
+    FreqUpV2,
     haar_analysis,
     haar_synthesis,
 )
@@ -70,6 +73,24 @@ def test_frequency_stats_include_pre_post_bands_and_betas():
         assert all(f"beta_{band}" in stats for band in ("LL", "LH", "HL", "HH"))
 
 
+def test_v2_band_refinement_starts_as_identity():
+    refine = BandRefineV2(8).eval()
+    x = torch.randn(2, 8, 12, 14)
+    assert torch.equal(refine(x), x)
+
+
+def test_v2_has_no_cross_band_mixer_and_records_refinement_ratios():
+    down = FreqDownV2(4, 8, record_stats=True).eval()
+    up = FreqUpV2(8, record_stats=True).eval()
+    assert not hasattr(down, "cross_band")
+    assert not hasattr(up, "cross_band")
+    down(torch.randn(1, 4, 8, 8))
+    up(torch.randn(1, 8, 4, 4))
+    for stats in (down.last_stats, up.last_stats):
+        assert all(f"refine_{band}_ratio" in stats for band in ("LL", "LH", "HL", "HH"))
+        assert all(stats[f"refine_{band}_ratio"] == 0.0 for band in ("LL", "LH", "HL", "HH"))
+
+
 def test_down_and_up_do_not_share_parameters():
     down, up = FreqDown(8, 16), FreqUp(16)
     assert not set(map(id, down.parameters())).intersection(map(id, up.parameters()))
@@ -87,6 +108,12 @@ def test_project_yaml_names_frequency_modules():
         assert text.count("FreqDown") == down_count
         assert text.count("FreqUp") == up_count
         assert "models_related" not in text
+    v2_paths = list((ROOT / "project_ultralytics/configs/frequency_sampling").glob("*_v2.yaml"))
+    assert len(v2_paths) == 4
+    for path in v2_paths:
+        text = path.read_text()
+        assert "FreqDownV2" in text and "FreqUpV2" in text
+        assert "FreqDown," not in text and "FreqUp," not in text
     assert "RepC2f" not in (ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_freq_pair_v1.yaml").read_text()
     assert "RepC2f" not in (ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v1.yaml").read_text()
 
@@ -103,5 +130,21 @@ def test_project_yaml_parser_builds_frequency_layers():
     for path, (layer_count, strides) in expected.items():
         model = load_project_model(str(path), task="detect", verbose=False)
         frequency_layers = [layer for layer in model.model.model if layer.__class__.__name__ in {"FreqDown", "FreqUp"}]
+        assert len(frequency_layers) == layer_count
+        assert model.model.stride.tolist() == strides
+
+
+def test_project_yaml_parser_builds_v2_frequency_layers():
+    from project_ultralytics import load_project_model
+
+    expected = {
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_freq_pair_v2.yaml": (7, [8.0, 16.0, 32.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v2.yaml": (6, [4.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_freq_pair_v2.yaml": (7, [8.0, 16.0, 32.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_freq_pair_v2.yaml": (6, [4.0, 8.0, 16.0]),
+    }
+    for path, (layer_count, strides) in expected.items():
+        model = load_project_model(str(path), task="detect", verbose=False)
+        frequency_layers = [layer for layer in model.model.model if layer.__class__.__name__ in {"FreqDownV2", "FreqUpV2"}]
         assert len(frequency_layers) == layer_count
         assert model.model.stride.tolist() == strides

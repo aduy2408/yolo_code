@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Collect detached band diagnostics from a project frequency-sampling model.
+"""Collect per-transition band diagnostics from a project frequency model.
 
 Example:
     PYTHONPATH=vendor/ultralytics_upstream:. conda run -n ml2 python \
       diagnostics/analyze_frequency_sampling.py \
-      --checkpoint runs/freq/weights/best.pt --source datasets/levir_ship_yolo/images/val
+      --checkpoint runs/frequency_sampling_v1/levir_p3p5/seed_42/weights/best.pt \
+      --source datasets/levir_ship_frequency_split_42/images/val
 """
 
 from __future__ import annotations
@@ -17,9 +18,10 @@ from typing import Iterable
 
 
 def _frequency_modules(model) -> list[tuple[str, object]]:
-    from project_ultralytics.modules.frequency_sampling import FreqDown, FreqUp
+    from project_ultralytics.modules.frequency_sampling import FreqDown, FreqDownV2, FreqUp, FreqUpV2
 
-    return [(name, module) for name, module in model.named_modules() if isinstance(module, (FreqDown, FreqUp))]
+    kinds = (FreqDown, FreqDownV2, FreqUp, FreqUpV2)
+    return [(name, module) for name, module in model.named_modules() if isinstance(module, kinds)]
 
 
 def collect(model, predictions: Iterable[object], limit: int | None = None) -> dict[str, dict[str, float]]:
@@ -36,7 +38,11 @@ def collect(model, predictions: Iterable[object], limit: int | None = None) -> d
     result = {}
     for name, module in modules:
         prefix = f"{name}/"
-        stats = {key[len(prefix):]: sum(items) / len(items) for key, items in values.items() if key.startswith(prefix) and items}
+        stats = {
+            key[len(prefix):]: sum(items) / len(items)
+            for key, items in values.items()
+            if key.startswith(prefix) and items
+        }
         result[name] = {"type": module.__class__.__name__, **stats}
     return result
 

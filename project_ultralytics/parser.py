@@ -44,7 +44,15 @@ def _project_parse_model(upstream_tasks: ModuleType):
             c1, c2 = ch[f], args[0]
             c2 = make_divisible(min(c2, max_channels) * width, 8)
             args = [c1, c2, *args[1:]]
+        elif m is FreqDownV2:
+            c1, c2 = ch[f], args[0]
+            c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, *args[1:]]
         elif m is FreqUp:
+            c1 = ch[f]
+            c2 = c1
+            args = [c1, c2, *args]
+        elif m is FreqUpV2:
             c1 = ch[f]
             c2 = c1
             args = [c1, c2, *args]
