@@ -51,6 +51,11 @@ is not completion evidence by itself.
 - Never print, echo, commit, or store auth tokens in notebook cells, logs, or
   process arguments. Pass them through the live kernel environment to the
   detached child process.
+- Upload-required runs must not wait for the user to supply an artifact
+  repository ID. Resolve `MARIMO_HF_REPO_ID` or `HF_REPO_ID` when configured;
+  otherwise derive `<hf-username>/stw-yolo-runs` from the live `HF_TOKEN` and
+  create it with `HfApi.create_repo(..., exist_ok=True)` before preflight. Never
+  print or persist the token.
 - **HF_TOKEN is provided by the live Marimo global kernel namespace, not by
   `os.environ` in the notebook scratchpad.** Read it from the kernel's global
   state and pass it only through the detached child-process environment. Never

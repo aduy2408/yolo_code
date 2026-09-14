@@ -37,6 +37,45 @@ class MarimoOpsError(RuntimeError):
     """A preflight, launch, status, or artifact contract failure."""
 
 
+DEFAULT_HF_REPO_NAME = "stw-yolo-runs"
+
+
+def resolve_hf_repo_id(repo_id: str | None = None, *, token: str | None = None) -> str:
+    """Resolve an artifact repository without requiring notebook user input."""
+    configured = repo_id or os.environ.get("MARIMO_HF_REPO_ID") or os.environ.get("HF_REPO_ID")
+    if configured and configured.strip():
+        return configured.strip()
+    if not token:
+        raise MarimoOpsError(
+            "HF_TOKEN is required to derive the default artifact repository"
+        )
+    try:
+        from huggingface_hub import HfApi
+
+        identity = HfApi(token=token).whoami()
+        username = identity.get("name") or identity.get("user", {}).get("name")
+    except Exception as exc:  # pragma: no cover - depends on remote auth/service
+        raise MarimoOpsError(f"Unable to resolve the Hugging Face username: {exc}") from exc
+    if not username:
+        raise MarimoOpsError("Hugging Face identity did not include a username")
+    return f"{username}/{DEFAULT_HF_REPO_NAME}"
+
+
+def ensure_hf_repo(repo_id: str | None = None, *, repo_type: str = "dataset") -> str:
+    """Create the default artifact repository when it does not already exist."""
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        raise MarimoOpsError("HF_TOKEN is required when uploads are enabled")
+    resolved = resolve_hf_repo_id(repo_id, token=token)
+    try:
+        from huggingface_hub import HfApi
+
+        HfApi(token=token).create_repo(repo_id=resolved, repo_type=repo_type, exist_ok=True)
+    except Exception as exc:  # pragma: no cover - depends on remote auth/service
+        raise MarimoOpsError(f"Unable to create or access Hugging Face repo {resolved}: {exc}") from exc
+    return resolved
+
+
 def require_training_context(*, hf_repo_id: str | None = None) -> None:
     """Require the shared Marimo launch context for upload-required runners."""
     if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
@@ -45,7 +84,7 @@ def require_training_context(*, hf_repo_id: str | None = None) -> None:
         )
     if not os.environ.get("HF_TOKEN"):
         raise MarimoOpsError("HF_TOKEN is required for upload-required Marimo training")
-    expected_repo = os.environ.get("MARIMO_HF_REPO_ID")
+    expected_repo = resolve_hf_repo_id(hf_repo_id, token=os.environ.get("HF_TOKEN"))
     if expected_repo and hf_repo_id and expected_repo != hf_repo_id:
         raise MarimoOpsError(
             f"HF repository mismatch: expected {expected_repo}, got {hf_repo_id}"
@@ -169,8 +208,8 @@ def preflight(
         executable = run_checked([python, "-c", "import sys; print(sys.executable)"])
     else:
         executable = sys.executable
-    if upload_required and not hf_repo_id:
-        raise MarimoOpsError("HF repository is required when upload is required")
+    if upload_required:
+        hf_repo_id = ensure_hf_repo(hf_repo_id)
     if epochs is not None and epochs <= 0:
         raise MarimoOpsError(f"epochs must be positive, got {epochs}")
     if patience is not None and patience < 0:
