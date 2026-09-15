@@ -30,6 +30,9 @@ AUG_CONFIG = {
     "lea_contrast_retention": [0.65, 0.85],
     "lea_alpha_max": 0.35,
     "lea_max_objects": 2,
+    "oacp_probability_policy": "fixed",
+    "oacp_probability_min": 0.20,
+    "oacp_probability_max": 0.40,
     "oacp_budget": [0.30, 0.60],
     "oacp_density_expand_min": 1.0,
     "oacp_density_expand_max": 3.0,
@@ -54,6 +57,15 @@ def augmentation_config() -> dict[str, Any]:
     cfg = dict(AUG_CONFIG)
     cfg["protected_expand"] = float(os.environ.get("OACP_PROTECTED_EXPAND", cfg["protected_expand"]))
     cfg["oacp_probability"] = float(os.environ.get("OACP_P", "0.20"))
+    cfg["oacp_probability_policy"] = os.environ.get(
+        "OACP_PROB_POLICY", cfg["oacp_probability_policy"]
+    ).lower()
+    cfg["oacp_probability_min"] = float(os.environ.get(
+        "OACP_P_MIN", cfg["oacp_probability_min"]
+    ))
+    cfg["oacp_probability_max"] = float(os.environ.get(
+        "OACP_P_MAX", cfg["oacp_probability_max"]
+    ))
     cfg["oacp_strength"] = [
         float(os.environ.get("OACP_STRENGTH_MIN", cfg["oacp_strength"][0])),
         float(os.environ.get("OACP_STRENGTH_MAX", cfg["oacp_strength"][1])),
@@ -113,6 +125,21 @@ def _oacp_config() -> dict[str, Any]:
         "resolution_scale": cfg["oacp_resolution_scale"],
         "budget": cfg["oacp_budget"],
     }
+
+
+def _load_adaptive_probability(
+    num_eligible: int,
+    p_min: float,
+    p_max: float,
+    saturation_count: int,
+) -> tuple[float, float]:
+    """Map eligible-object load to application probability only."""
+    if num_eligible <= 0:
+        return 0.0, 0.0
+    load = (num_eligible - 1) / max(int(saturation_count) - 1, 1)
+    load = float(np.clip(load, 0.0, 1.0))
+    probability = float(p_max - load * (p_max - p_min))
+    return load, float(np.clip(probability, 0.0, 1.0))
 
 
 def _boxes(labels: dict[str, Any], h: int, w: int) -> np.ndarray:
@@ -359,6 +386,18 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
     cfg = augmentation_config()
     valid_bg_ratio = float(available.mean())
     num_eligible = int(len(tiny))
+    probability_policy = cfg["oacp_probability_policy"]
+    if probability_policy == "load_adaptive":
+        probability_load, probability_effective = _load_adaptive_probability(
+            num_eligible,
+            cfg["oacp_probability_min"],
+            cfg["oacp_probability_max"],
+            cfg["oacp_load_saturation_count"],
+        )
+    elif probability_policy == "fixed":
+        probability_load, probability_effective = 0.0, float(cfg["oacp_probability"])
+    else:
+        raise ValueError(f"unknown OACP_PROB_POLICY: {probability_policy}")
     object_load = 0.0
     spatial_load = 0.0
     budget_clipped = False
@@ -456,6 +495,13 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "adaptive_budget": budget if variant in {"mass_adaptive", "load_adaptive", "spatial_load_adaptive"} else 0.0,
         "budget_clipped": budget_clipped,
         "num_eligible": num_eligible,
+        "oacp_probability_policy": probability_policy,
+        "oacp_probability_effective": probability_effective,
+        "oacp_probability_min": float(cfg["oacp_probability_min"]),
+        "oacp_probability_max": float(cfg["oacp_probability_max"]),
+        "oacp_probability_load": probability_load,
+        "oacp_load_saturation_count": int(cfg["oacp_load_saturation_count"]),
+        "oacp_applied": False,
         "object_load": object_load,
         "spatial_load": spatial_load,
         "spatial_load_min": float(cfg["oacp_spatial_load_min"]),
@@ -512,15 +558,13 @@ class OACP:
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         cfg = _oacp_config()
-        probability = cfg["p"] if self.p == 0.20 else self.p
-        if random.random() >= probability:
-            return labels
         img = labels.get("img")
         if img is None or img.ndim != 3:
             return labels
         h, w = img.shape[:2]
         boxes = _boxes(labels, h, w)
-        variant = augmentation_config()["oacp_variant"]
+        full_cfg = augmentation_config()
+        variant = full_cfg["oacp_variant"]
         valid_variants = {
             "current", "budget", "density", "mass_adaptive", "load_adaptive", "spatial_load_adaptive", "spacing_adaptive"
         }
@@ -540,6 +584,23 @@ class OACP:
         diagnostics = oacp_diagnostics(
             (h, w), boxes, variant=variant, budget=budget, target_mass=target_mass
         )
+        # A non-default constructor probability is an explicit fixed override,
+        # retained for tests and programmatic callers. Training uses the
+        # independent policy configured through the environment.
+        probability = (
+            self.p
+            if self.p != 0.20
+            else diagnostics["oacp_probability_effective"]
+        )
+        diagnostics["oacp_probability_effective"] = float(probability)
+        if not diagnostics["num_eligible"]:
+            diagnostics["skip_reason"] = "no_eligible_tiny"
+            _record_oacp_diagnostics(labels, diagnostics)
+            return labels
+        if random.random() >= probability:
+            diagnostics["skip_reason"] = "probability_gate"
+            _record_oacp_diagnostics(labels, diagnostics)
+            return labels
         if variant in {"mass_adaptive", "load_adaptive", "spatial_load_adaptive"}:
             budget = float(diagnostics["adaptive_budget"])
         if not diagnostics["would_apply"]:
@@ -563,6 +624,7 @@ class OACP:
         diagnostics["actual_perturbed_area_ratio_image"] = diagnostics["actual_perturbed_area_ratio"]
         diagnostics["target_perturbed_area_ratio"] = diagnostics["target_perturbed_area_ratio_image"]
         diagnostics["perturb_gt_overlap_ratio"] = 0.0
+        diagnostics["oacp_applied"] = True
         _record_oacp_diagnostics(labels, diagnostics)
         strength = random.uniform(*cfg["strength"])
         if variant == "current":

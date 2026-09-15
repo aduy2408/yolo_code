@@ -3418,6 +3418,16 @@ class RandomLoadText(BaseTransform):
         return labels
 
 
+def _context_aug_sequence(pre_transform, context_aug, placement: str):
+    """Compose context augmentation at the requested pipeline boundary."""
+    placement = str(placement).lower()
+    if placement == "pre_transform":
+        return [*context_aug, pre_transform]
+    if placement == "post_mosaic":
+        return [pre_transform, *context_aug]
+    raise ValueError(f"unknown OACP_PLACEMENT: {placement}")
+
+
 def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bool = False):
     """Apply a series of image transformations for training.
 
@@ -3489,12 +3499,15 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
         elif flip_idx and (len(flip_idx) != kpt_shape[0]):
             raise ValueError(f"data.yaml flip_idx={flip_idx} length must be equal to kpt_shape[0]={kpt_shape[0]}")
 
-    # OACP is intentionally applied to the final Mosaic + RandomPerspective
-    # scene, not to any of the four raw source images.
+    # Placement is explicit so the historical no-Mosaic R2 semantics can be
+    # reproduced without changing the post-Mosaic default used by prior runs.
     context_aug = build_context_augment(dataset)
     small_object_copy_paste = build_small_object_copy_paste(dataset, hyp)
-    final_canvas_aug = [pre_transform]
-    final_canvas_aug.extend(context_aug)
+    final_canvas_aug = _context_aug_sequence(
+        pre_transform,
+        context_aug,
+        os.environ.get("OACP_PLACEMENT", "post_mosaic"),
+    )
     if small_object_copy_paste is not None:
         # This is deliberately after Mosaic/RandomPerspective and before
         # photometric transforms, so raw crops are pasted onto the final canvas.

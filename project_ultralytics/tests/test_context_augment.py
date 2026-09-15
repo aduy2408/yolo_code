@@ -7,7 +7,7 @@ from ultralytics.utils.instance import Instances
 
 from project_ultralytics.context_augment import (
     CEA, LEA, OACP, _load_adaptive_target_mass, _mass_adaptive_budget,
-    _spatial_load_target_mass,
+    _load_adaptive_probability, _spatial_load_target_mass,
     _protection, _protection_for_variant, _spacing_adaptive_expands,
     oacp_diagnostics,
 )
@@ -135,6 +135,72 @@ def test_load_adaptive_target_mass_is_monotonic_and_saturates():
     assert values[2] == pytest.approx(0.40 - 2 * (0.15 / 9))
     assert values[-1] == pytest.approx(0.25)
     assert all(left >= right for left, right in zip(values, values[1:]))
+
+
+def test_load_adaptive_probability_is_monotonic_and_saturates():
+    values = [_load_adaptive_probability(n, 0.20, 0.40, 10) for n in range(0, 13)]
+    assert values[0] == pytest.approx((0.0, 0.0))
+    assert values[1] == pytest.approx((0.0, 0.40))
+    assert values[5][1] == pytest.approx(0.40 - 4 * (0.20 / 9))
+    assert values[-1] == pytest.approx((1.0, 0.20))
+    assert all(left[1] >= right[1] for left, right in zip(values[1:], values[2:]))
+
+
+def test_fixed_probability_policy_preserves_configured_probability(monkeypatch):
+    monkeypatch.setenv("OACP_PROB_POLICY", "fixed")
+    monkeypatch.setenv("OACP_P", "0.40")
+    stats = oacp_diagnostics(
+        (96, 96), np.asarray([[44, 44, 52, 52]], dtype=np.float32), "current"
+    )
+    assert stats["oacp_probability_policy"] == "fixed"
+    assert stats["oacp_probability_effective"] == pytest.approx(0.40)
+
+
+def test_load_adaptive_probability_is_policy_only_and_keeps_current_geometry(monkeypatch):
+    boxes = np.asarray([[44, 44, 52, 52]], dtype=np.float32)
+    monkeypatch.setenv("OACP_PROB_POLICY", "fixed")
+    fixed = oacp_diagnostics((96, 96), boxes, "current")
+    monkeypatch.setenv("OACP_PROB_POLICY", "load_adaptive")
+    monkeypatch.setenv("OACP_P_MIN", "0.20")
+    monkeypatch.setenv("OACP_P_MAX", "0.40")
+    adaptive = oacp_diagnostics((96, 96), boxes, "current")
+    for key in ("protected_area_ratio", "perturbable_area_ratio", "protected_expand"):
+        assert adaptive[key] == pytest.approx(fixed[key])
+    assert adaptive["oacp_probability_effective"] == pytest.approx(0.40)
+
+
+def test_zero_eligible_probability_policy_skips_and_records_reason(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_PROB_POLICY", "load_adaptive")
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(tmp_path / "zero.jsonl"))
+    img = np.random.default_rng(41).integers(20, 100, (64, 64, 3), dtype=np.uint8)
+    out = OACP()({
+        "img": img.copy(),
+        "bboxes": np.asarray([[0.5, 0.5, 64 / 64, 64 / 64]], dtype=np.float32),
+    })
+    assert np.array_equal(out["img"], img)
+    record = __import__("json").loads((tmp_path / "zero.jsonl").read_text().strip())
+    assert record["num_eligible"] == 0
+    assert record["oacp_probability_effective"] == 0.0
+    assert record["skip_reason"] == "no_eligible_tiny"
+
+
+def test_context_augmentation_placement_switch_orders_transforms():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).parents[2] / "models_related/ultralytics/ultralytics/data/augment.py"
+    spec = importlib.util.spec_from_file_location("project_legacy_augment", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    _context_aug_sequence = module._context_aug_sequence
+
+    pre = object()
+    context = [object()]
+    assert _context_aug_sequence(pre, context, "pre_transform") == [context[0], pre]
+    assert _context_aug_sequence(pre, context, "post_mosaic") == [pre, context[0]]
+    with pytest.raises(ValueError, match="unknown OACP_PLACEMENT"):
+        _context_aug_sequence(pre, context, "invalid")
 
 
 def test_spatial_load_target_mass_is_normalized_and_monotonic():
