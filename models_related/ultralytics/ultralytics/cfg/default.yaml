@@ -339,6 +339,27 @@ copy_paste_cluster_expand: 3.0 # (float) cluster center-region expansion factor
 copy_paste_cluster_min_objects: 2 # (int) minimum objects in a natural cluster
 copy_paste_policy: fixed # (str) fixed, load_adaptive, or layout_adaptive
 copy_paste_stats_path: "" # (str) JSON scene-stat thresholds for adaptive policies
+copy_paste_debug_dir: "" # (str) optional bounded augmentation debug output directory
+negcp: 0.30 # (float) negative Copy-Paste image probability
+negcp_num: 1 # (int) negative patches per applied image
+negcp_scale: 1.0 # (float) V1 locks negative patch scale to native size
+negcp_max_gt_ioa: 0.05 # (float) maximum negative patch IoA with valid GT
+negcp_same_source: false # (bool) allow sampling a negative patch from the target image
+negcp_bank_path: "" # (str) offline hard-negative bank JSON
+crowd_num: 1 # (int) crowded patches per applied image
+crowd_overlap_min: 0.10 # (float) controlled overlap lower bound
+crowd_overlap_max: 0.30 # (float) controlled overlap upper bound
+crowd_min_visibility: 0.60 # (float) minimum anchor visibility
+crowd_size_ratio_min: 0.75 # (float) donor/anchor size ratio lower bound
+crowd_size_ratio_max: 1.33 # (float) donor/anchor size ratio upper bound
+crowd_trials: 30 # (int) controlled placement attempts
+scale_cp_num: 1 # (int) scale-matched patches per applied image
+scale_cp_target_max_size: 20.0 # (float) maximum sampled target sqrt-area
+scale_cp_source_min_ratio: 1.25 # (float) minimum source/target size ratio
+scale_cp_factor_min: 0.50 # (float) minimum downsample factor
+scale_cp_factor_max: 0.90 # (float) maximum downsample factor
+scale_cp_max_overlap: 0.0 # (float) collision-free placement threshold
+scale_cp_trials: 30 # (int) scale-matched placement attempts
 auto_augment: randaugment # (str) classification auto augmentation policy: randaugment, autoaugment, augmix
 erasing: 0.4 # (float) random erasing probability for classification (0.0–1.0)
 
