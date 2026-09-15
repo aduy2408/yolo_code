@@ -288,7 +288,7 @@ hf_atten_max_alpha: 1.0 # (float) EXPERIMENTAL maximum retained high-frequency r
 hf_atten_blur_kernel: 5 # (int) EXPERIMENTAL odd blur kernel for high-frequency residual
 hf_atten_mask_grid: 16 # (int) EXPERIMENTAL random alpha grid size before upsampling
 mosaic: 1.0 # (float) mosaic augmentation probability
-mosaic_policy: standard # (str) standard, visibility, occupancy_match, context_contrast, or scale_adaptive
+mosaic_policy: standard # (str) standard, visibility, cluster_preserve, post_scale, adaptive_geometry, hard_negative, occupancy_match, context_contrast, or scale_adaptive
 mosaic_scale_quantile: 0.05 # (float) positive-scene relative-size floor quantile for scale_adaptive
 mosaic_scale_modes: [4, 2] # (list[int]) allowed scale_adaptive Mosaic cardinalities
 mosaic_policy_candidates: 16 # (int) proposal count for policy Mosaic
@@ -300,6 +300,24 @@ mosaic_occupancy_tolerance: 1.0 # (float) tolerated effective-count error
 mosaic_context_candidates: 32 # (int) donor candidate pool for context contrast
 mosaic_context_occupancy_tolerance: 1.0 # (float) log1p GT-count distance for context donors
 mosaic_context_cache: # (str, optional) .npz descriptor cache path
+cluster_preserve: false # (bool) crop GT plus local context before composing tiles
+cluster_crop_min_fraction: 0.25 # (float) minimum source crop side / imgsz
+cluster_crop_max_fraction: 0.65 # (float) maximum source crop side / imgsz
+cluster_context_expand: 1.5 # (float) cluster neighborhood expansion
+post_scale_constraint: false # (bool) reject/retry candidates with excessive post-composition shrink
+mosaic_scale_statistics: # (str, optional) training-only scale statistics JSON
+scale_constraint_trials: 4 # (int) candidate attempts before returning the best effort
+scale_small_threshold: 0.0 # (float) source sqrt-area threshold, derived from statistics when zero
+scale_small_min_ratio: 0.70 # (float) minimum shrink ratio for small objects
+scale_min_ratio: 0.50 # (float) minimum shrink ratio for other objects
+scale_min_side: 4.0 # (float) hard post-Mosaic minimum side in pixels
+adaptive_geometry: false # (bool) assign larger quadrants to smaller-object sources
+geometry_candidates: 8 # (int) asymmetric center proposals
+geometry_center_min: 0.35 # (float) lower normalized center bound
+geometry_center_max: 0.65 # (float) upper normalized center bound
+hard_negative_tile: false # (bool) replace one donor tile from a mined hard-negative bank
+hardneg_mosaic_prob: 0.30 # (float) probability of using a hard-negative tile
+hard_negative_bank: # (str, optional) static JSON hard-negative crop bank
 mixup: 0.0 # (float) MixUp augmentation probability
 cutmix: 0.0 # (float) CutMix augmentation probability
 copy_paste: 0.0 # (float) segmentation copy-paste probability

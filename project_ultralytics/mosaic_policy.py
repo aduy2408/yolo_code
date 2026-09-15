@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import random
 from typing import Iterable
+import json
 
 import numpy as np
 
@@ -121,3 +122,51 @@ def load_context_cache(path: str | Path | None) -> dict[str, np.ndarray] | None:
     data = np.load(path, allow_pickle=False)
     files = np.asarray([str(Path(item).expanduser().resolve()) for item in data["im_file"]])
     return {"im_file": files, "descriptor": data["descriptor"]}
+
+
+def load_scale_statistics(path: str | Path | None) -> dict | None:
+    """Load training-only object scale statistics used by post-scale Mosaic."""
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Mosaic scale statistics do not exist: {path}")
+    with path.open(encoding="utf-8") as file:
+        value = json.load(file)
+    if not isinstance(value, dict) or "sqrt_area_quantiles" not in value:
+        raise ValueError(f"Invalid Mosaic scale statistics: {path}")
+    return value
+
+
+def source_priority(metadata: dict) -> float:
+    """Return inverse median object scale, with empty images assigned zero."""
+    boxes = np.asarray(metadata.get("bboxes", []), dtype=np.float32).reshape(-1, 4)
+    if not len(boxes):
+        return 0.0
+    scales = np.sqrt(np.maximum(boxes[:, 2] * boxes[:, 3], 1e-12))
+    return float(1.0 / max(float(np.median(scales)), 1e-6))
+
+
+def cluster_crop(boxes: np.ndarray, shape: tuple[int, int], anchor: int, imgsz: int,
+                 min_fraction: float = 0.25, max_fraction: float = 0.65,
+                 context_expand: float = 1.5) -> tuple[int, int, int, int] | None:
+    """Choose a square source crop around an object and its nearby cluster."""
+    boxes = _xywh_to_xyxy(np.asarray(boxes), shape)
+    if not len(boxes):
+        return None
+    anchor = int(np.clip(anchor, 0, len(boxes) - 1))
+    ax1, ay1, ax2, ay2 = boxes[anchor]
+    radius = max(float(ax2 - ax1), float(ay2 - ay1)) * max(context_expand, 0.1)
+    cx, cy = (ax1 + ax2) / 2, (ay1 + ay2) / 2
+    nearby = ((boxes[:, 0] + boxes[:, 2]) / 2 - cx) ** 2 + ((boxes[:, 1] + boxes[:, 3]) / 2 - cy) ** 2 <= radius**2
+    selected = boxes[nearby]
+    x1, y1 = selected[:, 0].min(), selected[:, 1].min()
+    x2, y2 = selected[:, 2].max(), selected[:, 3].max()
+    side = np.clip(max(x2 - x1, y2 - y1) * max(context_expand, 1.0), imgsz * min_fraction, imgsz * max_fraction)
+    h, w = shape
+    side = min(float(side), float(min(h, w)))
+    x1 = (cx + (x1 + x2) / 2) / 2 - side / 2
+    y1 = (cy + (y1 + y2) / 2) / 2 - side / 2
+    x1 = int(np.clip(x1, 0, max(w - side, 0)))
+    y1 = int(np.clip(y1, 0, max(h - side, 0)))
+    return x1, y1, int(min(w, x1 + side)), int(min(h, y1 + side))

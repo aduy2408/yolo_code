@@ -23,10 +23,10 @@ ULTRALYTICS = ROOT / "models_related/ultralytics"
 if str(ULTRALYTICS) not in sys.path:
     sys.path.insert(0, str(ULTRALYTICS))
 POLICIES = {
-    "M0_standard": "standard",
-    "M1_visibility": "visibility",
-    "M2_occupancy": "occupancy_match",
-    "M3_context": "context_contrast",
+    "M2_cluster_preserving": "cluster_preserve",
+    "M3_post_scale_constrained": "post_scale",
+    "M4_adaptive_geometry": "adaptive_geometry",
+    "M5_hard_negative": "hard_negative",
 }
 REQUIRED = (
     "weights/best.pt",
@@ -130,6 +130,13 @@ def train(run_dir: Path, data_yaml: Path, config: Path, cache: Path, args: argpa
         "context_cache": str(cache),
         "commit_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "hf_repo_id": args.hf_repo_id,
+        "mosaic_scale_statistics": str(args.scale_statistics) if args.scale_statistics else None,
+        "mosaic_variant_settings": {
+            "cluster_preserve": policy == "M2_cluster_preserving",
+            "post_scale_constraint": policy == "M3_post_scale_constrained",
+            "adaptive_geometry": policy == "M4_adaptive_geometry",
+            "hard_negative_tile": policy == "M5_hard_negative",
+        },
     }
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     if all((run_dir / path).is_file() for path in TRAIN_REQUIRED):
@@ -170,6 +177,23 @@ def train(run_dir: Path, data_yaml: Path, config: Path, cache: Path, args: argpa
         mosaic_context_candidates=32,
         mosaic_context_occupancy_tolerance=1.0,
         mosaic_context_cache=str(cache),
+        mosaic_scale_statistics=str(args.scale_statistics) if args.scale_statistics else None,
+        cluster_preserve=policy == "M2_cluster_preserving",
+        cluster_crop_min_fraction=0.25,
+        cluster_crop_max_fraction=0.65,
+        cluster_context_expand=1.5,
+        post_scale_constraint=policy == "M3_post_scale_constrained",
+        scale_constraint_trials=4,
+        scale_small_min_ratio=0.70,
+        scale_min_ratio=0.50,
+        scale_min_side=4.0,
+        adaptive_geometry=policy == "M4_adaptive_geometry",
+        geometry_candidates=8,
+        geometry_center_min=0.35,
+        geometry_center_max=0.65,
+        hard_negative_tile=policy == "M5_hard_negative",
+        hardneg_mosaic_prob=0.30,
+        hard_negative_bank=str(args.hard_negative_bank) if args.hard_negative_bank else None,
         mosaic_postprocess_enabled=True,
         mosaic_postprocess_mode="resize",
         mixup=0.0,
@@ -237,6 +261,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--close-mosaic", type=int, default=10)
+    parser.add_argument("--hard-negative-bank", type=Path, default=None)
+    parser.add_argument("--scale-statistics", type=Path, default=None)
     parser.add_argument("--confirm-settings", action="store_true")
     return parser.parse_args(argv)
 

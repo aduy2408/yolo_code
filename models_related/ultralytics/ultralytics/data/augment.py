@@ -27,8 +27,11 @@ from project_ultralytics.mosaic_resize import FullCanvasResize
 from project_ultralytics.mosaic_policy import (
     MosaicProposal,
     candidate_centers,
+    cluster_crop,
     effective_count,
     load_context_cache,
+    load_scale_statistics,
+    source_priority,
     simulate_visible_boxes,
 )
 from project_ultralytics.scene_compatible_mosaic import SceneCompatibleMosaic, build_scale_reference
@@ -1071,6 +1074,24 @@ class PolicyMosaic(Mosaic):
         self.context_candidates = max(int(kwargs.get("context_candidates", 32)), 1)
         self.context_occupancy_tolerance = float(kwargs.get("context_occupancy_tolerance", 1.0))
         self.context_cache = load_context_cache(kwargs.get("context_cache"))
+        self.cluster_preserve = bool(kwargs.get("cluster_preserve", False))
+        self.cluster_crop_min_fraction = float(kwargs.get("cluster_crop_min_fraction", 0.25))
+        self.cluster_crop_max_fraction = float(kwargs.get("cluster_crop_max_fraction", 0.65))
+        self.cluster_context_expand = float(kwargs.get("cluster_context_expand", 1.5))
+        self.post_scale_constraint = bool(kwargs.get("post_scale_constraint", False))
+        self.scale_constraint_trials = max(int(kwargs.get("scale_constraint_trials", 4)), 1)
+        self.scale_statistics = load_scale_statistics(kwargs.get("scale_statistics"))
+        self.scale_small_threshold = float(kwargs.get("scale_small_threshold", 0.0))
+        self.scale_small_min_ratio = float(kwargs.get("scale_small_min_ratio", 0.70))
+        self.scale_min_ratio = float(kwargs.get("scale_min_ratio", 0.50))
+        self.scale_min_side = float(kwargs.get("scale_min_side", 4.0))
+        self.adaptive_geometry = bool(kwargs.get("adaptive_geometry", False))
+        self.geometry_candidates = max(int(kwargs.get("geometry_candidates", 8)), 1)
+        self.geometry_center_min = float(kwargs.get("geometry_center_min", 0.35))
+        self.geometry_center_max = float(kwargs.get("geometry_center_max", 0.65))
+        self.hard_negative_tile = bool(kwargs.get("hard_negative_tile", False))
+        self.hardneg_mosaic_prob = float(kwargs.get("hardneg_mosaic_prob", 0.30))
+        self.hardneg_bank = self._load_hard_negative_bank(kwargs.get("hard_negative_bank"))
         if self.policy in {"context", "context_contrast", "contrast"} and self.context_cache is None:
             raise ValueError("context_contrast Mosaic requires mosaic_context_cache with canonical image paths")
         self._metadata = getattr(dataset, "labels", [])
@@ -1089,12 +1110,86 @@ class PolicyMosaic(Mosaic):
                 "effective_count": [],
                 "occupancy_target": [],
                 "occupancy_error": [],
+                "cluster_size": [],
+                "cluster_crop_fraction": [],
+                "scale_retry_count": [],
+                "scale_constraint_pass": 0,
+                "scale_objects": 0,
+                "scale_ratio": [],
+                "scale_ratio_below_50": 0,
+                "scale_ratio_below_70": 0,
+                "scale_min_side": [],
+                "tile_area_fraction": [],
+                "hardneg_count": 0,
+                "hardneg_confidence": [],
             }
             dataset.mosaic_policy_diagnostics = self._diagnostics
 
     def _anchor_index(self, labels: dict[str, Any]) -> int:
         key = os.path.realpath(os.path.expanduser(str(labels.get("im_file", ""))))
         return self._index_by_file.get(key, 0)
+
+    @staticmethod
+    def _load_hard_negative_bank(path: str | os.PathLike | None) -> list[dict[str, Any]]:
+        if not path:
+            return []
+        import json
+        with open(path, encoding="utf-8") as file:
+            bank = json.load(file)
+        if not isinstance(bank, list):
+            raise ValueError("hard_negative_bank must contain a JSON list")
+        return [item for item in bank if isinstance(item, dict) and "image" in item and "crop_xyxy" in item]
+
+    def _prepare_cluster(self, patch: dict[str, Any]) -> dict[str, Any]:
+        """Crop one loaded donor around a GT cluster while preserving normalized labels."""
+        boxes = patch["instances"].bboxes.copy()
+        if not len(boxes):
+            return patch
+        shape = patch.get("resized_shape", patch["img"].shape[:2])
+        h, w = int(shape[0]), int(shape[1])
+        crop = cluster_crop(boxes, (h, w), random.randrange(len(boxes)), self.imgsz,
+                            self.cluster_crop_min_fraction, self.cluster_crop_max_fraction,
+                            self.cluster_context_expand)
+        if crop is None:
+            return patch
+        x1, y1, x2, y2 = crop
+        patch["instances"].convert_bbox("xyxy")
+        patch["instances"].denormalize(w, h)
+        patch["instances"].bboxes[:, [0, 2]] -= x1
+        patch["instances"].bboxes[:, [1, 3]] -= y1
+        patch["instances"].clip(x2 - x1, y2 - y1)
+        patch["instances"].normalize(x2 - x1, y2 - y1)
+        patch["img"] = patch["img"][y1:y2, x1:x2].copy()
+        patch["resized_shape"] = patch["img"].shape[:2]
+        self._diagnostics["cluster_size"].append(int(len(patch["instances"])))
+        self._diagnostics["cluster_crop_fraction"].append(float((x2 - x1) / max(w, 1)))
+        return patch
+
+    def _prepare_hard_negative(self, template: dict[str, Any]) -> dict[str, Any] | None:
+        if not self.hard_negative_tile or not self.hardneg_bank or random.random() >= self.hardneg_mosaic_prob:
+            return None
+        import cv2
+        item = random.choices(self.hardneg_bank, weights=[0.5 + 0.5 * float(x.get("fp_conf", 0.0)) for x in self.hardneg_bank], k=1)[0]
+        image = cv2.imread(str(item["image"]))
+        if image is None:
+            return None
+        x1, y1, x2, y2 = [int(v) for v in item["crop_xyxy"]]
+        image = image[max(y1, 0):max(y2, 0), max(x1, 0):max(x2, 0)]
+        if image.size == 0:
+            return None
+        h, w = image.shape[:2]
+        if max(h, w) > self.imgsz:
+            scale = self.imgsz / max(h, w)
+            image = cv2.resize(image, (max(int(w * scale), 1), max(int(h * scale), 1)), interpolation=cv2.INTER_AREA)
+        empty = deepcopy(template)
+        empty["img"] = image
+        empty["resized_shape"] = image.shape[:2]
+        empty["instances"] = Instances(np.empty((0, 4), dtype=np.float32), bbox_format="xywh", normalized=True)
+        empty["cls"] = template["cls"][:0]
+        empty["im_file"] = str(item["image"])
+        self._diagnostics["hardneg_count"] += 1
+        self._diagnostics["hardneg_confidence"].append(float(item.get("fp_conf", 0.0)))
+        return empty
 
     def save_diagnostics(self, path: str | os.PathLike) -> None:
         """Write accumulated policy diagnostics as JSON for a training artifact."""
@@ -1196,20 +1291,110 @@ class PolicyMosaic(Mosaic):
         yc, xc = self._sample_center()
         return MosaicProposal(donors, xc, yc)
 
+    def _choose_adaptive(self, anchor: int) -> MosaicProposal:
+        """Give larger quadrants to sources with smaller median objects."""
+        donors = tuple(self.get_indexes())
+        indices = [anchor, *donors]
+        priorities = np.asarray([source_priority(self._metadata[i]) for i in indices], dtype=np.float64)
+        if np.any(priorities):
+            nonzero = priorities[priorities > 0]
+            priorities = np.clip(priorities, np.percentile(nonzero, 10), np.percentile(nonzero, 90)) if len(nonzero) > 1 else priorities
+        best = None
+        for _ in range(self.geometry_candidates):
+            xc = int(random.uniform(self.geometry_center_min, self.geometry_center_max) * self.imgsz * 2)
+            yc = int(random.uniform(self.geometry_center_min, self.geometry_center_max) * self.imgsz * 2)
+            areas = np.asarray([xc * yc, (2 * self.imgsz - xc) * yc, xc * (2 * self.imgsz - yc),
+                                (2 * self.imgsz - xc) * (2 * self.imgsz - yc)], dtype=np.float64)
+            order = np.argsort(-priorities[1:]) + 1
+            assignment = np.argsort(-areas[1:]) + 1
+            score = float(priorities[0] * areas[0] + np.sum(priorities[order] * areas[assignment]))
+            if best is None or score > best[0]:
+                chosen = [0, None, None, None]
+                for source, tile in zip(order, assignment):
+                    chosen[int(tile)] = int(source)
+                best = (score, xc, yc, tuple(indices[i] for i in chosen))
+        _, xc, yc, ordered = best
+        self._last_adaptive_priorities = priorities.tolist()
+        self._last_tile_areas = [xc * yc, (2 * self.imgsz - xc) * yc, xc * (2 * self.imgsz - yc),
+                                 (2 * self.imgsz - xc) * (2 * self.imgsz - yc)]
+        return MosaicProposal(tuple(ordered[1:]), xc, yc)
+
+    def _boxes_after_layout(self, layout: list[dict[str, Any]]) -> np.ndarray:
+        return ScaleAdaptiveMosaic._boxes_after_layout(layout, (self.imgsz * 2, self.imgsz * 2))
+
+    def _scale_valid(self, indices: list[int], layout: list[dict[str, Any]]) -> bool:
+        boxes = self._boxes_after_layout(layout)
+        if not len(boxes):
+            return False
+        post_scales = np.sqrt(np.maximum((boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]), 0.0))
+        min_side = np.minimum(boxes[:, 2] - boxes[:, 0], boxes[:, 3] - boxes[:, 1])
+        source_scales = []
+        for index in indices:
+            shape = resized_shape(self._metadata[index].get("shape", (self.imgsz, self.imgsz)), self.imgsz)
+            raw = np.asarray(self._metadata[index].get("bboxes", []), dtype=np.float32).reshape(-1, 4)
+            if len(raw):
+                source_scales.extend(np.sqrt(np.maximum(raw[:, 2] * shape[1] * raw[:, 3] * shape[0], 1e-9)))
+        source_median = float(np.median(source_scales)) if source_scales else 1.0
+        ratio = post_scales / max(source_median, 1e-6)
+        threshold = self.scale_small_threshold
+        if threshold <= 0 and self.scale_statistics:
+            threshold = float(self.scale_statistics.get("sqrt_area_quantiles", {}).get("0.25", 0.0))
+        threshold = threshold or float(np.median(source_scales)) if source_scales else 0.0
+        required = np.where(np.asarray(source_scales[:len(ratio)]) <= threshold, self.scale_small_min_ratio, self.scale_min_ratio)
+        required = np.resize(required, len(ratio)) if len(required) else np.full(len(ratio), self.scale_min_ratio)
+        valid = bool(np.all(ratio >= required) and np.all(min_side >= self.scale_min_side))
+        self._diagnostics["scale_objects"] += int(len(ratio))
+        self._diagnostics["scale_ratio"].extend(ratio.tolist())
+        self._diagnostics["scale_min_side"].extend(min_side.tolist())
+        self._diagnostics["scale_ratio_below_50"] += int(np.count_nonzero(ratio < 0.5))
+        self._diagnostics["scale_ratio_below_70"] += int(np.count_nonzero(ratio < 0.7))
+        return valid
+
     def get_params(self, labels: dict[str, Any]) -> dict[str, Any]:
         assert labels.get("rect_shape") is None, "rect and mosaic are mutually exclusive."
         anchor = self._anchor_index(labels)
-        if self.policy == "visibility":
+        if self.policy in {"visibility", "cluster_preserve", "cluster_preserving", "object_cluster",
+                           "post_scale", "scale_constrained", "post_scale_constrained",
+                           "hard_negative", "hardneg"}:
             donors = tuple(self.get_indexes())
             proposal = self._choose_visibility(anchor, donors)
         elif self.policy in {"occupancy", "occupancy_match", "distribution_matched"}:
             proposal = self._choose_occupancy(anchor)
         elif self.policy in {"context", "context_contrast", "contrast"}:
             proposal = self._choose_context(anchor)
+        elif self.adaptive_geometry or self.policy in {"adaptive_geometry", "object_adaptive"}:
+            proposal = self._choose_adaptive(anchor)
         else:
             raise ValueError(f"Unknown Mosaic policy: {self.policy}")
         mix_labels = self._load(proposal.donor_indices, labels)
+        if self.cluster_preserve or self.policy in {"cluster_preserve", "cluster_preserving", "object_cluster"}:
+            self._prepare_cluster(labels)
+            for patch in mix_labels:
+                self._prepare_cluster(patch)
+        if self.hard_negative_tile or self.policy in {"hard_negative", "hardneg"}:
+            negative = self._prepare_hard_negative(mix_labels[-1] if mix_labels else labels)
+            if negative is not None:
+                mix_labels[-1] = negative
         params = {"mix_labels": mix_labels, "layout": self._build_layout(labels, proposal.xc, proposal.yc)}
+        if self.adaptive_geometry or self.policy in {"adaptive_geometry", "object_adaptive"}:
+            self._diagnostics["tile_area_fraction"].extend((np.asarray(self._last_tile_areas) / (4 * self.imgsz * self.imgsz)).tolist())
+        if self.post_scale_constraint or self.policy in {"post_scale", "scale_constrained", "post_scale_constrained"}:
+            indices = [anchor, *proposal.donor_indices]
+            best = params
+            valid = False
+            for retry in range(self.scale_constraint_trials):
+                if retry:
+                    proposal = MosaicProposal(tuple(self.get_indexes()), *self._sample_center()[::-1])
+                    mix_labels = self._load(proposal.donor_indices, labels)
+                    indices = [anchor, *proposal.donor_indices]
+                    best = {"mix_labels": mix_labels, "layout": self._build_layout(labels, proposal.xc, proposal.yc)}
+                if self._scale_valid(indices, best["layout"]):
+                    params, valid = best, True
+                    self._diagnostics["scale_constraint_pass"] += 1
+                    break
+            self._diagnostics["scale_retry_count"].append(retry)
+            if not valid:
+                params = best
         self._diagnostics["selected"] += 1
         if proposal.visibility is not None:
             values = proposal.visibility
@@ -1257,6 +1442,24 @@ def build_mosaic(dataset, imgsz: int, hyp):
             context_candidates=getattr(hyp, "mosaic_context_candidates", 32),
             context_occupancy_tolerance=getattr(hyp, "mosaic_context_occupancy_tolerance", 1.0),
             context_cache=getattr(hyp, "mosaic_context_cache", None),
+            cluster_preserve=getattr(hyp, "cluster_preserve", False),
+            cluster_crop_min_fraction=getattr(hyp, "cluster_crop_min_fraction", 0.25),
+            cluster_crop_max_fraction=getattr(hyp, "cluster_crop_max_fraction", 0.65),
+            cluster_context_expand=getattr(hyp, "cluster_context_expand", 1.5),
+            post_scale_constraint=getattr(hyp, "post_scale_constraint", False),
+            scale_constraint_trials=getattr(hyp, "scale_constraint_trials", 4),
+            scale_statistics=getattr(hyp, "mosaic_scale_statistics", None),
+            scale_small_threshold=getattr(hyp, "scale_small_threshold", 0.0),
+            scale_small_min_ratio=getattr(hyp, "scale_small_min_ratio", 0.70),
+            scale_min_ratio=getattr(hyp, "scale_min_ratio", 0.50),
+            scale_min_side=getattr(hyp, "scale_min_side", 4.0),
+            adaptive_geometry=getattr(hyp, "adaptive_geometry", False),
+            geometry_candidates=getattr(hyp, "geometry_candidates", 8),
+            geometry_center_min=getattr(hyp, "geometry_center_min", 0.35),
+            geometry_center_max=getattr(hyp, "geometry_center_max", 0.65),
+            hard_negative_tile=getattr(hyp, "hard_negative_tile", False),
+            hardneg_mosaic_prob=getattr(hyp, "hardneg_mosaic_prob", 0.30),
+            hard_negative_bank=getattr(hyp, "hard_negative_bank", None),
         )
     if getattr(hyp, "scene_compatible_mosaic", False):
         return SceneCompatibleMosaic(dataset, mosaic=mosaic, p=hyp.mosaic)
