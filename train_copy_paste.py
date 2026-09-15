@@ -19,7 +19,6 @@ import numpy as np
 import yaml
 
 from copy_paste_protocol import VARIANTS, effective_settings, variant_overrides
-from project_ultralytics.negative_copy_paste import HardNegativeMiner
 
 ROOT = Path(__file__).resolve().parent
 
@@ -119,6 +118,7 @@ def _mine_negcp_bank(args: argparse.Namespace, data_yaml: Path, checkpoint: Path
     if str(ultralytics_path) not in sys.path:
         sys.path.insert(0, str(ultralytics_path))
     from ultralytics import YOLO
+    from project_ultralytics.negative_copy_paste import HardNegativeMiner
 
     image_paths, label_paths = _train_images_and_labels(data_yaml)
     if not image_paths:
