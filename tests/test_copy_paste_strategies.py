@@ -4,6 +4,9 @@ import random
 import cv2
 import numpy as np
 import pytest
+from ultralytics.cfg import get_cfg
+from ultralytics.data.augment import v8_transforms
+from ultralytics.data.dataset import YOLODataset
 
 from project_ultralytics.copy_paste import CrowdedCopyPaste, ScaleMatchedCopyPaste
 from project_ultralytics.negative_copy_paste import (
@@ -93,6 +96,29 @@ def test_negative_copy_paste_does_not_change_labels(tmp_path):
     assert np.any(out["img"] == (200, 10, 20))
 
 
+def test_negative_copy_paste_preserves_normalized_instance_representation(tmp_path):
+    image = np.zeros((32, 32, 3), dtype=np.uint8)
+    image[4:12, 4:12] = (200, 10, 20)
+    path = Path(tmp_path) / "negative_normalized.png"
+    assert cv2.imwrite(str(path), image)
+    bank = HardNegativeBank([HardNegativeRecord(
+        image_path=str(path), crop_xyxy=(4, 4, 12, 12), pred_xyxy=(5, 5, 11, 11),
+        conf=0.9, pred_size=6.0, source_image_id="other",
+    )])
+    instances = Instances(
+        np.array([[0.5, 0.5, 0.125, 0.125]], dtype=np.float32),
+        np.zeros((1, 0, 2), dtype=np.float32), bbox_format="xywh", normalized=True,
+    )
+    labels = {"img": np.zeros((32, 32, 3), dtype=np.uint8), "instances": instances, "cls": np.array([[0]], np.float32)}
+    before_boxes = instances.bboxes.copy()
+    before_format = instances._bboxes.format
+    before_normalized = instances.normalized
+    NegativeCopyPaste(bank, p=1.0, rng=random.Random(5))(labels)
+    assert np.array_equal(instances.bboxes, before_boxes)
+    assert instances._bboxes.format == before_format
+    assert instances.normalized == before_normalized
+
+
 def test_hard_negative_miner_filters_gt_and_ignore_and_keeps_top_k(tmp_path):
     image = np.zeros((40, 40, 3), dtype=np.uint8)
     path = Path(tmp_path) / "mine.png"
@@ -117,3 +143,41 @@ def test_hard_negative_bank_round_trip(tmp_path):
     bank.save(path)
     restored = HardNegativeBank.load(path)
     assert restored.records == bank.records
+
+
+def test_custom_mode_bypasses_upstream_copy_paste_assertion(tmp_path):
+    image_dir = tmp_path / "images"
+    label_dir = tmp_path / "labels"
+    image_dir.mkdir()
+    label_dir.mkdir()
+    image = np.zeros((32, 32, 3), dtype=np.uint8)
+    image[4:8, 5:9] = (10, 20, 30)
+    assert cv2.imwrite(str(image_dir / "sample.png"), image)
+    (label_dir / "sample.txt").write_text("0 0.21875 0.1875 0.125 0.125\n")
+    hyp = get_cfg(overrides={
+        "imgsz": 32, "mosaic": 0.0, "mixup": 0.0, "cutmix": 0.0,
+        "degrees": 0.0, "translate": 0.0, "scale": 0.0, "shear": 0.0,
+        "perspective": 0.0, "fliplr": 0.0, "flipud": 0.0,
+        "copy_paste": 0.0, "copy_paste_mode": "crowded",
+    })
+    hyp.copy_paste_enabled = True
+    hyp.copy_paste_p = 1.0
+    hyp.copy_paste_unit = "single"
+    hyp.copy_paste_copies = 1
+    hyp.copy_paste_max_trials = 30
+    hyp.copy_paste_allow_empty_target = True
+    hyp.copy_paste_allow_same_source = True
+    hyp.crowd_overlap_min = 0.10
+    hyp.crowd_overlap_max = 0.30
+    hyp.crowd_min_visibility = 0.60
+    hyp.crowd_size_ratio_min = 0.75
+    hyp.crowd_size_ratio_max = 1.33
+    hyp.crowd_trials = 30
+    dataset = YOLODataset(
+        img_path=str(image_dir), imgsz=32, data={"names": {0: "ship"}},
+        task="detect", augment=True, hyp=hyp, batch_size=1, rect=False, cache=False,
+    )
+    pipeline = v8_transforms(dataset, 32, hyp)
+    assert any(type(transform).__name__ == "CrowdedCopyPaste" for transform in pipeline.transforms)
+    sample = dataset[0]
+    assert sample["img"].shape == (3, 32, 32)

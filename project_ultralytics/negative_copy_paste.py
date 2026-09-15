@@ -119,8 +119,20 @@ class HardNegativeMiner:
             boxes = predictions.get("boxes", predictions.get("bboxes", []))
             conf = predictions.get("conf", predictions.get("confidence", []))
             return [(np.asarray(box, dtype=np.float32), float(score)) for box, score in zip(boxes, conf)]
-        rows = np.asarray(predictions, dtype=np.float32).reshape(-1, np.asarray(predictions).shape[-1] if np.asarray(predictions).ndim else 1)
+        array = np.asarray(predictions, dtype=np.float32)
+        if array.ndim == 1:
+            array = array[None, :]
+        rows = array.reshape(-1, array.shape[-1]) if array.ndim else np.empty((0, 0), dtype=np.float32)
         return [(row[:4], float(row[4])) for row in rows if len(row) >= 5]
+
+    @staticmethod
+    def _box_array(value: Any) -> np.ndarray:
+        if value is None:
+            return np.empty((0, 4), dtype=np.float32)
+        array = np.asarray(value, dtype=np.float32)
+        if array.size == 0:
+            return np.empty((0, 4), dtype=np.float32)
+        return array.reshape(-1, 4)
 
     def mine(
         self,
@@ -130,7 +142,8 @@ class HardNegativeMiner:
         ignore_regions: Sequence[Any] | None = None,
     ) -> HardNegativeBank:
         bank = HardNegativeBank(max_size=self.bank_max)
-        ignore_regions = ignore_regions or [[] for _ in image_paths]
+        if ignore_regions is None:
+            ignore_regions = [[] for _ in image_paths]
         for image_path, image_predictions, gts, ignores in zip(image_paths, predictions, valid_gts, ignore_regions):
             image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
             if image is None:
@@ -141,10 +154,10 @@ class HardNegativeMiner:
                 if conf < self.conf_threshold:
                     continue
                 self.stats["candidates"] += 1
-                if any(_iou(box, gt) >= self.max_iou_with_valid_gt for gt in np.asarray(gts, dtype=np.float32).reshape(-1, 4)):
+                if any(_iou(box, gt) >= self.max_iou_with_valid_gt for gt in self._box_array(gts)):
                     self.stats["rejected_gt"] += 1
                     continue
-                if any(_ioa(box, ignore) >= self.max_ioa_with_ignore for ignore in np.asarray(ignores, dtype=np.float32).reshape(-1, 4)):
+                if any(_ioa(box, ignore) >= self.max_ioa_with_ignore for ignore in self._box_array(ignores)):
                     self.stats["rejected_ignore"] += 1
                     continue
                 rows.append((conf, box))
@@ -201,11 +214,7 @@ class NegativeCopyPaste:
         canvas = labels["img"].copy()
         instances = labels.get("instances")
         if instances is not None and len(instances):
-            instances.convert_bbox("xyxy")
-            if instances.normalized:
-                h, w = canvas.shape[:2]
-                instances.denormalize(w, h)
-            for x1, y1, x2, y2 in np.asarray(instances.bboxes):
+            for x1, y1, x2, y2 in self._boxes(labels):
                 cv2.rectangle(canvas, (round(x1), round(y1)), (round(x2), round(y2)), (0, 255, 0), 1)
         out_dir = self.debug_dir / "negative"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -217,11 +226,16 @@ class NegativeCopyPaste:
         instances = labels.get("instances")
         if instances is None or len(instances) == 0:
             return np.empty((0, 4), dtype=np.float32)
-        instances.convert_bbox("xyxy")
-        if instances.normalized:
+        boxes = np.asarray(instances.bboxes, dtype=np.float32).copy()
+        bbox_format = getattr(getattr(instances, "_bboxes", None), "format", "xywh")
+        if bbox_format == "xywh":
+            xc, yc, width, height = boxes.T
+            boxes = np.stack((xc - width / 2, yc - height / 2, xc + width / 2, yc + height / 2), axis=1)
+        if getattr(instances, "normalized", False):
             h, w = labels["img"].shape[:2]
-            instances.denormalize(w, h)
-        return np.asarray(instances.bboxes, dtype=np.float32).copy()
+            boxes[:, [0, 2]] *= w
+            boxes[:, [1, 3]] *= h
+        return boxes
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         if not self.bank.records or self.p <= 0 or self.rng.random() >= self.p:
