@@ -26,6 +26,10 @@ CONFIGS = {
     "levir_p2_only_v2": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v2.yaml",
     "tinyperson_p3p5_v2": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_freq_pair_v2.yaml",
     "tinyperson_p2p4_v2": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_freq_pair_v2.yaml",
+    "levir_p3p5_ibs": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_ibs_v1.yaml",
+    "levir_p2_only_ibs": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_ibs_v1.yaml",
+    "tinyperson_p3p5_ibs": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_ibs_v1.yaml",
+    "tinyperson_p2p4_ibs": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_ibs_v1.yaml",
 }
 CONTEXT_AUGS = ("none", "oacp")
 VARIANT_DATASET = {
@@ -37,6 +41,10 @@ VARIANT_DATASET = {
     "levir_p2_only_v2": "levirship",
     "tinyperson_p3p5_v2": "tinyperson",
     "tinyperson_p2p4_v2": "tinyperson",
+    "levir_p3p5_ibs": "levirship",
+    "levir_p2_only_ibs": "levirship",
+    "tinyperson_p3p5_ibs": "tinyperson",
+    "tinyperson_p2p4_ibs": "tinyperson",
 }
 DATASET_DEFAULTS = {
     "levirship": {"imgsz": 512, "batch": 8, "mosaic": 0.0, "data_root": ROOT / "LevirShipData"},

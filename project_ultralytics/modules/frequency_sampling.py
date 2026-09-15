@@ -303,7 +303,69 @@ class FreqUpV2(_FrequencyBaseV2):
         return out
 
 
+class IBSDown(nn.Module):
+    """IBS-style learned formation followed by 2x2 pixel unshuffle.
+
+    Unlike the frequency samplers, this operator does not decompose or mix
+    bands.  The formation width is defined from the requested output width:
+    ``c_mid = expansion * c2`` with the default ``expansion=2``.
+    """
+
+    def __init__(self, c1: int, c2: int, k: int = 3, expansion: float = 2.0,
+                 record_stats: bool = False) -> None:
+        super().__init__()
+        if c2 % 4:
+            raise ValueError(f"IBSDown requires c2 divisible by 4, got c2={c2}")
+        self.c_mid = _make_divisible(int(c2 * expansion))
+        self.c_fold = c2 // 4
+        self.record_stats = bool(record_stats)
+        self.last_stats: Dict[str, float] = {}
+        self.formation = _Formation(c1, self.c_mid, self.c_fold, k)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        pad_h, pad_w = x.shape[-2] % 2, x.shape[-1] % 2
+        if pad_h or pad_w:
+            x = F.pad(x, (0, pad_w, 0, pad_h))
+        out = F.pixel_unshuffle(self.formation(x), 2)
+        if self.record_stats:
+            self.last_stats = {
+                "input_rms": x.detach().float().square().mean().sqrt().item(),
+                "output_rms": out.detach().float().square().mean().sqrt().item(),
+                "c_mid": float(self.c_mid),
+                "c_fold": float(self.c_fold),
+            }
+        return out
+
+
+class IBSUp(nn.Module):
+    """IBS-style 2x2 pixel shuffle followed by learned feature formation."""
+
+    def __init__(self, c1: int, c2: int | None = None, expansion: float = 2.0,
+                 record_stats: bool = False) -> None:
+        super().__init__()
+        c2 = c1 if c2 is None else c2
+        if c1 % 4:
+            raise ValueError(f"IBSUp requires c1 divisible by 4, got c1={c1}")
+        self.c_mid = _make_divisible(int(c2 * expansion))
+        self.c_fold = c1 // 4
+        self.record_stats = bool(record_stats)
+        self.last_stats: Dict[str, float] = {}
+        self.formation = _Formation(self.c_fold, self.c_mid, c2, 3)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        folded = F.pixel_shuffle(x, 2)
+        out = self.formation(folded)
+        if self.record_stats:
+            self.last_stats = {
+                "input_rms": x.detach().float().square().mean().sqrt().item(),
+                "output_rms": out.detach().float().square().mean().sqrt().item(),
+                "c_mid": float(self.c_mid),
+                "c_fold": float(self.c_fold),
+            }
+        return out
+
+
 __all__ = (
     "haar_analysis", "haar_synthesis", "BandRefine", "FreqDown", "FreqUp",
-    "BandRefineV2", "FreqDownV2", "FreqUpV2",
+    "BandRefineV2", "FreqDownV2", "FreqUpV2", "IBSDown", "IBSUp",
 )

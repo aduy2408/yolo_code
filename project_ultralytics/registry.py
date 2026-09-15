@@ -79,6 +79,8 @@ from .modules import (
     FreqDownV2,
     FreqUp,
     FreqUpV2,
+    IBSDown,
+    IBSUp,
 )
 
 CUSTOM_MODULES = {
@@ -93,6 +95,8 @@ CUSTOM_MODULES = {
         FreqDownV2,
         FreqUp,
         FreqUpV2,
+        IBSDown,
+        IBSUp,
         CBAM,
         C2fCBAM,
         C3CBAM,

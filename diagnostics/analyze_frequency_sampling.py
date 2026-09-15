@@ -18,9 +18,9 @@ from typing import Iterable
 
 
 def _frequency_modules(model) -> list[tuple[str, object]]:
-    from project_ultralytics.modules.frequency_sampling import FreqDown, FreqDownV2, FreqUp, FreqUpV2
+    from project_ultralytics.modules.frequency_sampling import IBSDown, IBSUp, FreqDown, FreqDownV2, FreqUp, FreqUpV2
 
-    kinds = (FreqDown, FreqDownV2, FreqUp, FreqUpV2)
+    kinds = (FreqDown, FreqDownV2, FreqUp, FreqUpV2, IBSDown, IBSUp)
     return [(name, module) for name, module in model.named_modules() if isinstance(module, kinds)]
 
 

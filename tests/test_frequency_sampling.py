@@ -10,6 +10,8 @@ from project_ultralytics.modules.frequency_sampling import (
     FreqDownV2,
     FreqUp,
     FreqUpV2,
+    IBSDown,
+    IBSUp,
     haar_analysis,
     haar_synthesis,
 )
@@ -91,6 +93,19 @@ def test_v2_has_no_cross_band_mixer_and_records_refinement_ratios():
         assert all(stats[f"refine_{band}_ratio"] == 0.0 for band in ("LL", "LH", "HL", "HH"))
 
 
+def test_ibs_resampling_uses_explicit_output_relative_expansion():
+    down = IBSDown(32, 64, record_stats=True)
+    up = IBSUp(64, record_stats=True)
+    assert down.c_mid == 128
+    assert down.c_fold == 16
+    assert up.c_mid == 128
+    assert up.c_fold == 16
+    assert down(torch.randn(1, 32, 127, 129)).shape == (1, 64, 64, 65)
+    assert up(torch.randn(1, 64, 64, 65)).shape == (1, 64, 128, 130)
+    assert down.last_stats["c_mid"] == 128.0
+    assert up.last_stats["c_mid"] == 128.0
+
+
 def test_down_and_up_do_not_share_parameters():
     down, up = FreqDown(8, 16), FreqUp(16)
     assert not set(map(id, down.parameters())).intersection(map(id, up.parameters()))
@@ -114,6 +129,12 @@ def test_project_yaml_names_frequency_modules():
         text = path.read_text()
         assert "FreqDownV2" in text and "FreqUpV2" in text
         assert "FreqDown," not in text and "FreqUp," not in text
+    ibs_paths = list((ROOT / "project_ultralytics/configs/frequency_sampling").glob("*_ibs_v1.yaml"))
+    assert len(ibs_paths) == 4
+    for path in ibs_paths:
+        text = path.read_text()
+        assert "IBSDown" in text and "IBSUp" in text
+        assert "FreqDown" not in text and "FreqUp" not in text
     assert "RepC2f" not in (ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_freq_pair_v1.yaml").read_text()
     assert "RepC2f" not in (ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_freq_pair_v1.yaml").read_text()
 
@@ -147,4 +168,20 @@ def test_project_yaml_parser_builds_v2_frequency_layers():
         model = load_project_model(str(path), task="detect", verbose=False)
         frequency_layers = [layer for layer in model.model.model if layer.__class__.__name__ in {"FreqDownV2", "FreqUpV2"}]
         assert len(frequency_layers) == layer_count
+        assert model.model.stride.tolist() == strides
+
+
+def test_project_yaml_parser_builds_ibs_frequency_layers():
+    from project_ultralytics import load_project_model
+
+    expected = {
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_ibs_v1.yaml": (7, [8.0, 16.0, 32.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_ibs_v1.yaml": (6, [4.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_ibs_v1.yaml": (7, [8.0, 16.0, 32.0]),
+        ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_ibs_v1.yaml": (6, [4.0, 8.0, 16.0]),
+    }
+    for path, (layer_count, strides) in expected.items():
+        model = load_project_model(str(path), task="detect", verbose=False)
+        layers = [layer for layer in model.model.model if layer.__class__.__name__ in {"IBSDown", "IBSUp"}]
+        assert len(layers) == layer_count
         assert model.model.stride.tolist() == strides

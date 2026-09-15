@@ -48,6 +48,8 @@ from .frequency_sampling import (
     FreqDownV2,
     FreqUp,
     FreqUpV2,
+    IBSDown,
+    IBSUp,
     haar_analysis,
     haar_synthesis,
 )
@@ -80,6 +82,8 @@ __all__ = (
     "FreqDownV2",
     "FreqUp",
     "FreqUpV2",
+    "IBSDown",
+    "IBSUp",
     "FullSelfAttention",
     "GlobalChannelContextCalibration",
     "GTChannelSpecialization",
