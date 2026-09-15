@@ -7,7 +7,7 @@ from ultralytics.utils.instance import Instances
 
 from project_ultralytics.context_augment import (
     CEA, LEA, OACP, _load_adaptive_target_mass, _mass_adaptive_budget,
-    _load_adaptive_probability, _spatial_load_target_mass,
+    _effect_adaptive_strength, _load_adaptive_probability, _spatial_load_target_mass,
     _protection, _protection_for_variant, _spacing_adaptive_expands,
     oacp_diagnostics,
 )
@@ -154,6 +154,29 @@ def test_fixed_probability_policy_preserves_configured_probability(monkeypatch):
     )
     assert stats["oacp_probability_policy"] == "fixed"
     assert stats["oacp_probability_effective"] == pytest.approx(0.40)
+
+
+def test_effect_adaptive_strength_targets_and_clips_raw_effect():
+    assert _effect_adaptive_strength(10.0, 2.0, 0.10, 0.25) == pytest.approx(0.20)
+    assert _effect_adaptive_strength(1.0, 2.0, 0.10, 0.25) == pytest.approx(0.25)
+    assert _effect_adaptive_strength(100.0, 2.0, 0.10, 0.25) == pytest.approx(0.10)
+
+
+def test_effect_adaptive_run_records_effect_fields(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_EFFECT_POLICY", "adaptive")
+    monkeypatch.setenv("OACP_TARGET_EFFECT", "2.0")
+    monkeypatch.setenv("OACP_P", "1.0")
+    log = tmp_path / "effect.jsonl"
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    img = np.random.default_rng(51).integers(20, 100, (96, 96, 3), dtype=np.uint8)
+    out = OACP(p=1.0)(_labels(img, [[48 / 96, 48 / 96, 8 / 96, 8 / 96]]))
+    assert out["img"].shape == img.shape
+    record = __import__("json").loads(log.read_text().strip())
+    assert record["oacp_effect_policy"] == "adaptive"
+    assert record["oacp_applied"] is True
+    assert record["raw_effect"] >= 0.0
+    assert 0.10 <= record["effective_strength"] <= 0.25
+    assert record["actual_effect"] >= 0.0
 
 
 def test_load_adaptive_probability_is_policy_only_and_keeps_current_geometry(monkeypatch):

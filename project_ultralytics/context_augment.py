@@ -33,6 +33,8 @@ AUG_CONFIG = {
     "oacp_probability_policy": "fixed",
     "oacp_probability_min": 0.20,
     "oacp_probability_max": 0.40,
+    "oacp_effect_policy": "fixed",
+    "oacp_target_effect": 0.0,
     "oacp_budget": [0.30, 0.60],
     "oacp_density_expand_min": 1.0,
     "oacp_density_expand_max": 3.0,
@@ -65,6 +67,12 @@ def augmentation_config() -> dict[str, Any]:
     ))
     cfg["oacp_probability_max"] = float(os.environ.get(
         "OACP_P_MAX", cfg["oacp_probability_max"]
+    ))
+    cfg["oacp_effect_policy"] = os.environ.get(
+        "OACP_EFFECT_POLICY", cfg["oacp_effect_policy"]
+    ).lower()
+    cfg["oacp_target_effect"] = float(os.environ.get(
+        "OACP_TARGET_EFFECT", cfg["oacp_target_effect"]
     ))
     cfg["oacp_strength"] = [
         float(os.environ.get("OACP_STRENGTH_MIN", cfg["oacp_strength"][0])),
@@ -140,6 +148,18 @@ def _load_adaptive_probability(
     load = float(np.clip(load, 0.0, 1.0))
     probability = float(p_max - load * (p_max - p_min))
     return load, float(np.clip(probability, 0.0, 1.0))
+
+
+def _effect_adaptive_strength(
+    raw_effect: float,
+    target_effect: float,
+    strength_min: float,
+    strength_max: float,
+    eps: float = 1e-8,
+) -> float:
+    """Choose blend strength to target a measured raw pixel effect."""
+    strength = float(target_effect) / max(float(raw_effect), eps)
+    return float(np.clip(strength, strength_min, strength_max))
 
 
 def _boxes(labels: dict[str, Any], h: int, w: int) -> np.ndarray:
@@ -502,6 +522,11 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "oacp_probability_load": probability_load,
         "oacp_load_saturation_count": int(cfg["oacp_load_saturation_count"]),
         "oacp_applied": False,
+        "oacp_effect_policy": cfg["oacp_effect_policy"],
+        "oacp_target_effect": float(cfg["oacp_target_effect"]),
+        "raw_effect": 0.0,
+        "effective_strength": 0.0,
+        "actual_effect": 0.0,
         "object_load": object_load,
         "spatial_load": spatial_load,
         "spatial_load_min": float(cfg["oacp_spatial_load_min"]),
@@ -625,13 +650,31 @@ class OACP:
         diagnostics["target_perturbed_area_ratio"] = diagnostics["target_perturbed_area_ratio_image"]
         diagnostics["perturb_gt_overlap_ratio"] = 0.0
         diagnostics["oacp_applied"] = True
-        _record_oacp_diagnostics(labels, diagnostics)
-        strength = random.uniform(*cfg["strength"])
+        degraded = _resize_degrade(img, random.uniform(*cfg["resolution_scale"]))
+        mask_pixels = mask > 0
+        raw_effect = float(np.mean(np.abs(
+            img[mask_pixels].astype(np.float32)
+            - degraded[mask_pixels].astype(np.float32)
+        ))) if mask_pixels.any() else 0.0
+        if full_cfg["oacp_effect_policy"] == "fixed":
+            strength = random.uniform(*cfg["strength"])
+        elif full_cfg["oacp_effect_policy"] == "adaptive":
+            strength = _effect_adaptive_strength(
+                raw_effect,
+                full_cfg["oacp_target_effect"],
+                cfg["strength"][0],
+                cfg["strength"][1],
+            )
+        else:
+            raise ValueError(f"unknown OACP_EFFECT_POLICY: {full_cfg['oacp_effect_policy']}")
         if variant == "current":
             strength *= 1.0 - float(protected.mean())
-        degraded = _resize_degrade(img, random.uniform(*cfg["resolution_scale"]))
         out = img.astype(np.float32) * (1 - strength * mask[..., None]) + degraded.astype(np.float32) * (strength * mask[..., None])
         labels["img"] = np.clip(out, 0, 255).astype(img.dtype)
+        diagnostics["raw_effect"] = raw_effect
+        diagnostics["effective_strength"] = float(strength)
+        diagnostics["actual_effect"] = float(raw_effect * strength)
+        _record_oacp_diagnostics(labels, diagnostics)
         return labels
 
 
