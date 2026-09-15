@@ -3489,18 +3489,18 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
         elif flip_idx and (len(flip_idx) != kpt_shape[0]):
             raise ValueError(f"data.yaml flip_idx={flip_idx} length must be equal to kpt_shape[0]={kpt_shape[0]}")
 
-    # OACP insertion point A: this transform is part of normal_pipeline.
-    # Any caller that runs normal_pipeline() applies OACP here.
+    # OACP is intentionally applied to the final Mosaic + RandomPerspective
+    # scene, not to any of the four raw source images.
     context_aug = build_context_augment(dataset)
     small_object_copy_paste = build_small_object_copy_paste(dataset, hyp)
     final_canvas_aug = [pre_transform]
+    final_canvas_aug.extend(context_aug)
     if small_object_copy_paste is not None:
         # This is deliberately after Mosaic/RandomPerspective and before
         # photometric transforms, so raw crops are pasted onto the final canvas.
         final_canvas_aug.append(small_object_copy_paste)
     return Compose(
         [
-            *context_aug,
             *final_canvas_aug,
             MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup),
             CutMix(dataset, pre_transform=pre_transform, p=hyp.cutmix),

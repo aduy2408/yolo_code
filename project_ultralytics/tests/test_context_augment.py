@@ -7,6 +7,7 @@ from ultralytics.utils.instance import Instances
 
 from project_ultralytics.context_augment import (
     CEA, LEA, OACP, _load_adaptive_target_mass, _mass_adaptive_budget,
+    _spatial_load_target_mass,
     _protection, _protection_for_variant, _spacing_adaptive_expands,
     oacp_diagnostics,
 )
@@ -136,6 +137,31 @@ def test_load_adaptive_target_mass_is_monotonic_and_saturates():
     assert all(left >= right for left, right in zip(values, values[1:]))
 
 
+def test_spatial_load_target_mass_is_normalized_and_monotonic():
+    values = [_spatial_load_target_mass(r, 0.03, 0.25, 0.25, 0.40) for r in (0.0, 0.03, 0.14, 0.25, 0.40)]
+    assert values[0] == pytest.approx((0.0, 0.40))
+    assert values[2][0] == pytest.approx(0.5)
+    assert values[2][1] == pytest.approx(0.325)
+    assert values[-1] == pytest.approx((1.0, 0.25))
+    assert all(left[0] <= right[0] for left, right in zip(values, values[1:]))
+    assert all(left[1] >= right[1] for left, right in zip(values, values[1:]))
+
+
+def test_spatial_load_keeps_fixed_protection_and_reports_adaptive_fields(monkeypatch):
+    monkeypatch.setenv("OACP_SPATIAL_LOAD_MIN", "0.03")
+    monkeypatch.setenv("OACP_SPATIAL_LOAD_MAX", "0.25")
+    boxes = np.asarray([[60, 60, 68, 68]], dtype=np.float32)
+    count = oacp_diagnostics((128, 128), boxes, "load_adaptive")
+    spatial = oacp_diagnostics((128, 128), boxes, "spatial_load_adaptive")
+    assert spatial["protected_area_ratio"] == pytest.approx(count["protected_area_ratio"])
+    assert spatial["spatial_load"] >= 0.0
+    assert spatial["spatial_load"] <= 1.0
+    assert spatial["target_image_mass"] <= 0.40
+    assert spatial["adaptive_budget"] >= 0.20
+    assert spatial["adaptive_budget"] <= 0.70
+    assert spatial["actual_perturbed_area_ratio"] <= spatial["valid_background_ratio"]
+
+
 def test_spacing_adaptive_retains_context_for_close_objects():
     close = np.asarray([[20, 20, 28, 28], [28, 20, 36, 28]], dtype=np.float32)
     isolated = np.asarray([[20, 20, 28, 28]], dtype=np.float32)
@@ -187,7 +213,7 @@ def test_spacing_transform_honors_fixed_budget(monkeypatch, tmp_path):
     assert record["actual_perturbed_area_ratio_image"] < record["perturbable_area_ratio"]
 
 
-@pytest.mark.parametrize("variant", ["mass_adaptive", "load_adaptive", "spacing_adaptive"])
+@pytest.mark.parametrize("variant", ["mass_adaptive", "load_adaptive", "spatial_load_adaptive", "spacing_adaptive"])
 def test_adaptive_variants_run_and_keep_gt_protected(monkeypatch, variant):
     monkeypatch.setenv("OACP_VARIANT", variant)
     monkeypatch.setenv("OACP_P", "1.0")

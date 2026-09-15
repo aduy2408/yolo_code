@@ -16,7 +16,7 @@ import numpy as np
 
 from project_ultralytics.context_augment import oacp_diagnostics
 
-VARIANTS = ("current", "budget", "density")
+VARIANTS = ("current", "budget", "density", "load_adaptive", "spatial_load_adaptive")
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
 
@@ -43,7 +43,14 @@ def main() -> None:
                         help="Process only the first N images (0 means all)")
     parser.add_argument("--budget", type=float, default=0.45,
                         help="Budget fraction of valid background for budget/density")
+    parser.add_argument("--spatial-load-min", type=float, default=0.0)
+    parser.add_argument("--spatial-load-max", type=float, default=0.04)
     args = parser.parse_args()
+    if args.spatial_load_min >= args.spatial_load_max:
+        raise SystemExit("--spatial-load-min must be smaller than --spatial-load-max")
+    import os
+    os.environ["OACP_SPATIAL_LOAD_MIN"] = str(args.spatial_load_min)
+    os.environ["OACP_SPATIAL_LOAD_MAX"] = str(args.spatial_load_max)
 
     images = sorted(path for path in args.images.rglob("*") if path.suffix.lower() in IMAGE_SUFFIXES)
     if args.limit:
@@ -81,7 +88,16 @@ def main() -> None:
                 summary[variant][key] /= counts[variant]
         summary[variant]["images"] = counts[variant]
     summary_path = args.output.with_name(args.output.stem + "_summary.json")
-    summary_path.write_text(json.dumps({"dataset": args.dataset, "variants": summary}, indent=2) + "\n", encoding="utf-8")
+    all_rows = []
+    with args.output.open("r", encoding="utf-8") as stream:
+        all_rows = [json.loads(line) for line in stream if line.strip()]
+    observed = [row["protected_area_ratio"] for row in all_rows if row["variant"] == "spatial_load_adaptive"]
+    stats = {
+        "protected_area_ratio_q10": float(np.quantile(observed, 0.10)) if observed else args.spatial_load_min,
+        "protected_area_ratio_q90": float(np.quantile(observed, 0.90)) if observed else args.spatial_load_max,
+        "source": "raw-dataset-box-scan",
+    }
+    summary_path.write_text(json.dumps({"dataset": args.dataset, "variants": summary, "spatial_load_stats": stats}, indent=2) + "\n", encoding="utf-8")
     print(summary_path)
 
 

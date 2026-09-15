@@ -69,7 +69,9 @@ def _eval(run, data, a):
 def _upload(run, name, repo):
     from huggingface_hub import HfApi
     api = HfApi(token=os.environ["HF_TOKEN"]); api.create_repo(repo_id=repo, repo_type="dataset", private=False, exist_ok=True)
-    prefix = f"runs/{name}"; api.upload_folder(folder_path=str(run), path_in_repo=prefix, repo_id=repo, repo_type="dataset")
+    suffix = os.environ.get("OACP_REMOTE_SUFFIX", "").strip()
+    prefix = f"runs/{name}_{suffix}" if suffix else f"runs/{name}"
+    api.upload_folder(folder_path=str(run), path_in_repo=prefix, repo_id=repo, repo_type="dataset")
     remote = {x.rfilename for x in api.list_repo_tree(repo_id=repo, repo_type="dataset", path_in_repo=prefix, recursive=True) if hasattr(x, "rfilename")}
     missing = {f"{prefix}/{x}" for x in COMPLETE} - remote
     if missing: raise RuntimeError(f"Upload verification failed for {name}: {sorted(missing)}")
