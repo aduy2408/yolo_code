@@ -10,6 +10,7 @@ from project_ultralytics.modules.frequency_sampling import (
     FreqDownV2,
     FreqUp,
     FreqUpV2,
+    FRFDetIBSDown,
     IBSDown,
     IBSUp,
     haar_analysis,
@@ -104,6 +105,24 @@ def test_ibs_resampling_uses_explicit_output_relative_expansion():
     assert up(torch.randn(1, 64, 64, 65)).shape == (1, 64, 128, 130)
     assert down.last_stats["c_mid"] == 128.0
     assert up.last_stats["c_mid"] == 128.0
+
+
+def test_frfdet_ibs_down_preserves_released_shape_and_parameters():
+    down = FRFDetIBSDown(8, 16)
+    assert down.hidden_chans == 32
+    assert sum(parameter.numel() for parameter in down.parameters()) == 808
+    assert down(torch.randn(1, 8, 31, 33)).shape == (1, 16, 15, 16)
+
+
+def test_project_yaml_parser_builds_frfdet_down_variant():
+    from project_ultralytics import load_project_model
+
+    path = ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_frfdet_down.yaml"
+    model = load_project_model(str(path), task="detect", verbose=False)
+    layers = [layer for layer in model.model.model if layer.__class__.__name__ == "FRFDetIBSDown"]
+    assert len(layers) == 3
+    assert sum(layer.__class__.__name__ == "IBSUp" for layer in model.model.model) == 0
+    assert model.model.stride.tolist() == [4.0]
 
 
 def test_down_and_up_do_not_share_parameters():

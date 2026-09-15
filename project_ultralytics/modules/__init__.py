@@ -44,6 +44,7 @@ from .raw_cue_fusion import MultiCueEvidenceFusion, RawColorSlotFusion, RawImage
 from .frequency_sampling import (
     BandRefine,
     BandRefineV2,
+    FRFDetIBSDown,
     FreqDown,
     FreqDownV2,
     FreqUp,
@@ -80,6 +81,7 @@ __all__ = (
     "FasterNetBlock",
     "FreqDown",
     "FreqDownV2",
+    "FRFDetIBSDown",
     "FreqUp",
     "FreqUpV2",
     "IBSDown",

@@ -12,11 +12,66 @@ from __future__ import annotations
 
 from typing import Dict
 
+from einops import rearrange
 import torch
 import torch.nn.functional as F
 from torch import nn
 
 from ultralytics.nn.modules import Conv
+
+
+class FRFDetIBSDown(nn.Module):
+    """Faithful public FRFDet ``IBS_D`` port for matched ablations.
+
+    This intentionally preserves the released operator semantics: pointwise
+    expansion, residual depthwise formation, pointwise compression to
+    ``C_out / stride²``, then ``unfold``-based spatial rearrangement.  It is
+    separate from the project's learned and fixed-Haar samplers so an ablation
+    cannot silently change either implementation.
+    """
+
+    def __init__(
+        self,
+        in_chans: int,
+        out_chans: int,
+        kernel_size: int = 3,
+        stride: int = 2,
+        padding: int = 0,
+        hidden_ratio: int = 2,
+        need_shuffle: bool = False,
+    ) -> None:
+        super().__init__()
+        if stride < 1 or out_chans % (stride ** 2):
+            raise ValueError("FRFDetIBSDown requires out_chans divisible by stride²")
+        self.in_chans = in_chans
+        self.out_chans = out_chans
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.need_shuffle = need_shuffle
+        self.hidden_chans = out_chans * hidden_ratio
+        activation = nn.SiLU()
+        self.conv = nn.Sequential(
+            Conv(in_chans, self.hidden_chans, 1, 1, g=1, act=activation),
+            Conv(self.hidden_chans, self.hidden_chans, kernel_size, 1,
+                 g=self.hidden_chans, act=activation),
+            Conv(self.hidden_chans, out_chans // (stride ** 2), 1, 1, act=activation),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.padding > 0:
+            x = F.pad(x, (self.padding, self.padding, self.padding, self.padding))
+        x1 = self.conv[0](x)
+        x2 = x1 + self.conv[1](x1)
+        out = self.conv[2](x2)
+        out = out.unfold(2, self.stride, self.stride).unfold(3, self.stride, self.stride)
+        out = rearrange(out, "b c new_h new_w k_h k_w -> b (k_h k_w c) new_h new_w")
+        if self.need_shuffle:
+            batch, channels, height, width = out.shape
+            groups = self.stride ** 2
+            out = out.view(batch, groups, channels // groups, height, width)
+            out = out.transpose(1, 2).contiguous().view(batch, channels, height, width)
+        return out
 
 
 def haar_analysis(x: torch.Tensor) -> torch.Tensor:

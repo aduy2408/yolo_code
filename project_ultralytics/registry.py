@@ -79,6 +79,7 @@ from .modules import (
     FreqDownV2,
     FreqUp,
     FreqUpV2,
+    FRFDetIBSDown,
     IBSDown,
     IBSUp,
 )
@@ -95,6 +96,7 @@ CUSTOM_MODULES = {
         FreqDownV2,
         FreqUp,
         FreqUpV2,
+        FRFDetIBSDown,
         IBSDown,
         IBSUp,
         CBAM,

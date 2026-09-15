@@ -28,6 +28,7 @@ CONFIGS = {
     "tinyperson_p2p4_v2": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_freq_pair_v2.yaml",
     "levir_p3p5_ibs": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p3p5_ibs_v1.yaml",
     "levir_p2_only_ibs": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_ibs_v1.yaml",
+    "levir_p2_only_frfdet_down": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_levir_p2_only_frfdet_down.yaml",
     "tinyperson_p3p5_ibs": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p3p5_ibs_v1.yaml",
     "tinyperson_p2p4_ibs": ROOT / "project_ultralytics/configs/frequency_sampling/yolov8n_tinyperson_p2p4_ibs_v1.yaml",
 }
@@ -43,6 +44,7 @@ VARIANT_DATASET = {
     "tinyperson_p2p4_v2": "tinyperson",
     "levir_p3p5_ibs": "levirship",
     "levir_p2_only_ibs": "levirship",
+    "levir_p2_only_frfdet_down": "levirship",
     "tinyperson_p3p5_ibs": "tinyperson",
     "tinyperson_p2p4_ibs": "tinyperson",
 }
