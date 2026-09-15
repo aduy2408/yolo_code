@@ -14,7 +14,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import cv2
+import numpy as np
+import yaml
+
 from copy_paste_protocol import VARIANTS, effective_settings, variant_overrides
+from project_ultralytics.negative_copy_paste import HardNegativeMiner
 
 ROOT = Path(__file__).resolve().parent
 
@@ -42,14 +47,108 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
 
     api = HfApi(token=os.environ["HF_TOKEN"])
     api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True)
+    required = [
+        "weights/best.pt", "weights/last.pt", "results.csv",
+        "evaluation_metrics.json", "experiment_manifest.json",
+    ]
+    missing = [path for path in required if not (run_dir / path).is_file()]
+    if missing:
+        raise RuntimeError(f"Refusing incomplete upload for {run_dir}: {missing}")
     api.upload_folder(
         folder_path=str(run_dir), repo_id=repo_id, repo_type="dataset",
         path_in_repo=f"copy_paste/{dataset}/{variant}/seed_{seed}",
     )
+    remote_prefix = f"copy_paste/{dataset}/{variant}/seed_{seed}"
+    remote_files = set(api.list_repo_files(repo_id=repo_id, repo_type="dataset"))
+    missing_remote = [f"{remote_prefix}/{path}" for path in required if f"{remote_prefix}/{path}" not in remote_files]
+    if missing_remote:
+        raise RuntimeError(f"Hugging Face upload verification failed: {missing_remote}")
     (run_dir / "upload_complete.json").write_text(
         json.dumps({"repo_id": repo_id, "dataset": dataset, "variant": variant, "seed": seed}, indent=2) + "\n",
         encoding="utf-8",
     )
+    api.upload_file(
+        path_or_fileobj=str(run_dir / "upload_complete.json"),
+        path_in_repo=f"{remote_prefix}/upload_complete.json",
+        repo_id=repo_id,
+        repo_type="dataset",
+    )
+
+
+def _train_images_and_labels(data_yaml: Path) -> tuple[list[Path], list[Path]]:
+    config = yaml.safe_load(data_yaml.read_text(encoding="utf-8"))
+    root = Path(config.get("path", data_yaml.parent))
+    if not root.is_absolute():
+        root = (data_yaml.parent / root).resolve()
+    train = Path(config["train"])
+    train = train if train.is_absolute() else root / train
+    if train.is_file():
+        image_paths = [Path(line.strip()) for line in train.read_text().splitlines() if line.strip()]
+    else:
+        image_paths = sorted(path for path in train.rglob("*") if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"})
+    label_paths = []
+    for image_path in image_paths:
+        parts = list(image_path.parts)
+        if "images" in parts:
+            parts[parts.index("images")] = "labels"
+            label_path = Path(*parts).with_suffix(".txt")
+        else:
+            label_path = image_path.with_suffix(".txt")
+        label_paths.append(label_path)
+    return image_paths, label_paths
+
+
+def _read_yolo_boxes(label_path: Path, image_shape: tuple[int, int]) -> np.ndarray:
+    h, w = image_shape
+    boxes = []
+    if label_path.is_file():
+        for line in label_path.read_text(encoding="utf-8").splitlines():
+            values = line.split()
+            if len(values) < 5:
+                continue
+            _, xc, yc, bw, bh = map(float, values[:5])
+            boxes.append([(xc - bw / 2) * w, (yc - bh / 2) * h, (xc + bw / 2) * w, (yc + bh / 2) * h])
+    return np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+
+
+def _mine_negcp_bank(args: argparse.Namespace, data_yaml: Path, checkpoint: Path, output: Path) -> Path:
+    """Mine one offline bank from the completed CP0 checkpoint."""
+    if output.is_file():
+        return output
+    ultralytics_path = ROOT / "models_related" / "ultralytics"
+    if str(ultralytics_path) not in sys.path:
+        sys.path.insert(0, str(ultralytics_path))
+    from ultralytics import YOLO
+
+    image_paths, label_paths = _train_images_and_labels(data_yaml)
+    if not image_paths:
+        raise RuntimeError(f"No training images found for NegCP bank: {data_yaml}")
+    model = YOLO(str(checkpoint))
+    predictions = []
+    valid_gts = []
+    for image_path, label_path, result in zip(
+        image_paths,
+        label_paths,
+        model.predict(source=[str(path) for path in image_paths], conf=0.25, iou=0.5,
+                      device=args.device, stream=True, verbose=False),
+    ):
+        image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise RuntimeError(f"Failed to read training image while mining NegCP: {image_path}")
+        boxes = result.boxes
+        if boxes is None or len(boxes) == 0:
+            predictions.append(np.empty((0, 5), dtype=np.float32))
+        else:
+            xyxy = boxes.xyxy.detach().cpu().numpy()
+            conf = boxes.conf.detach().cpu().numpy().reshape(-1, 1)
+            predictions.append(np.concatenate((xyxy, conf), axis=1))
+        valid_gts.append(_read_yolo_boxes(label_path, image.shape[:2]))
+    miner = HardNegativeMiner()
+    bank = miner.mine(image_paths, predictions, valid_gts)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    bank.save(output)
+    (output.with_suffix(".stats.json")).write_text(json.dumps(miner.stats, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return output
 
 
 def _find_copy_paste_diagnostics(obj):
@@ -57,7 +156,7 @@ def _find_copy_paste_diagnostics(obj):
     if obj is None:
         return None
     diagnostics = getattr(obj, "diagnostics", None)
-    if callable(diagnostics) and hasattr(obj, "policy"):
+    if callable(diagnostics):
         return diagnostics()
     for child in getattr(obj, "transforms", []) or []:
         found = _find_copy_paste_diagnostics(child)
@@ -78,12 +177,19 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
 
     run_dir = args.project / args.dataset / variant / f"seed_{seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    required = [run_dir / "weights/best.pt", run_dir / "weights/last.pt", run_dir / "results.csv"]
+    required = [
+        run_dir / "weights/best.pt", run_dir / "weights/last.pt", run_dir / "results.csv",
+        run_dir / "evaluation_metrics.json", run_dir / "experiment_manifest.json",
+    ]
     if all(path.is_file() for path in required):
         return run_dir
     settings = variant_overrides(variant)
     settings["copy_paste_policy"] = args.copy_paste_policy
     settings["copy_paste_stats_path"] = str(args.copy_paste_stats_path or "")
+    if variant == "negcp_offline":
+        if not args.negcp_bank_path:
+            raise RuntimeError("negcp_offline requires --negcp-bank-path or an auto-mined CP0 bank")
+        settings["negcp_bank_path"] = str(args.negcp_bank_path)
     if args.mosaic_interaction:
         settings["mosaic"] = args.mosaic
         settings["close_mosaic"] = args.close_mosaic
@@ -114,6 +220,10 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
     metrics = model.val(data=str(data_yaml), split="val", imgsz=args.imgsz, batch=args.batch_size,
                         device=args.device, workers=args.workers, plots=False, iou=0.5,
                         project=str(run_dir / "evaluation"), name="val", exist_ok=True)
+    (run_dir / "evaluation_metrics.json").write_text(
+        json.dumps({key: float(value) for key, value in metrics.results_dict.items()}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     manifest = effective_settings(
         args.dataset, variant, seed, args.split_seed, commit_sha=_git_sha(),
         model=args.model, data_yaml=str(data_yaml), epochs=args.epochs, patience=0, imgsz=args.imgsz,
@@ -156,8 +266,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--oacp-variant", choices=("none", "current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"), default="none")
     parser.add_argument("--copy-paste-policy", choices=("fixed", "load_adaptive", "layout_adaptive"), default="fixed")
     parser.add_argument("--copy-paste-stats-path", type=Path, default=None)
+    parser.add_argument("--negcp-bank-path", type=Path, default=None)
     parser.add_argument("--print-effective-config", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--smoke", action="store_true", help="Run one bounded smoke variant and upload its artifacts")
     return parser.parse_args(argv)
 
 
@@ -196,14 +308,28 @@ def main(argv: list[str] | None = None) -> None:
     if args.prepare_only:
         print(data_yaml)
         return
-    if args.epochs != 100:
+    if args.epochs != 100 and not args.smoke:
         raise ValueError("full Copy-Paste screening requires epochs=100")
+    if args.smoke and (len(args.seeds) != 1 or len(args.variants) != 1):
+        raise ValueError("--smoke requires exactly one seed and one variant")
     if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
         raise RuntimeError("refusing to train outside the Marimo training workflow")
     if not os.environ.get("HF_TOKEN"):
         raise RuntimeError("HF_TOKEN is required for upload-required Copy-Paste screening")
+    if "negcp_offline" in args.variants and not args.negcp_bank_path and "cp0" not in args.variants:
+        raise ValueError("negcp_offline without --negcp-bank-path requires cp0 in --variants for bank mining")
+    ordered_variants = ["cp0"] + [variant for variant in args.variants if variant != "cp0"] if "cp0" in args.variants else list(args.variants)
+    configured_bank_path = args.negcp_bank_path
     for seed in args.seeds:
-        for variant in args.variants:
+        args.negcp_bank_path = configured_bank_path
+        for variant in ordered_variants:
+            if variant == "negcp_offline" and not configured_bank_path:
+                args.negcp_bank_path = _mine_negcp_bank(
+                    args,
+                    data_yaml,
+                    args.project / args.dataset / "cp0" / f"seed_{seed}" / "weights" / "best.pt",
+                    args.project / args.dataset / "negcp_banks" / f"split_{args.split_seed}_seed_{seed}.json",
+                )
             run_dir = _run_one(args, data_yaml, variant, seed)
             _upload(run_dir, args.hf_repo_id, args.dataset, variant, seed)
 
