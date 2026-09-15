@@ -16,9 +16,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 from utils.marimo_ops import require_training_context
 
-ROOT = Path(__file__).resolve().parents[1]
 ULTRALYTICS = ROOT / "models_related/ultralytics"
 if str(ULTRALYTICS) not in sys.path:
     sys.path.insert(0, str(ULTRALYTICS))

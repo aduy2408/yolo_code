@@ -31,6 +31,7 @@ from project_ultralytics.mosaic_policy import (
     effective_count,
     load_context_cache,
     load_scale_statistics,
+    resized_shape,
     source_priority,
     simulate_visible_boxes,
 )
@@ -522,7 +523,7 @@ class Mosaic(BaseMixTransform):
             >>> indexes = mosaic.get_indexes()
             >>> print(len(indexes))  # Output: 3
         """
-        if self.buffer_enabled:  # select images from buffer
+        if self.buffer_enabled and self.dataset.buffer:  # select images from buffer
             return random.choices(list(self.dataset.buffer), k=self.n - 1)
         else:  # select any images
             return [random.randint(0, len(self.dataset) - 1) for _ in range(self.n - 1)]
@@ -756,6 +757,8 @@ class Mosaic(BaseMixTransform):
             >>> updated_labels = Mosaic._update_labels(labels, padw, padh)
         """
         nh, nw = img_shape if img_shape is not None else labels["img"].shape[:2]
+        if labels["instances"].segments is None:
+            labels["instances"].segments = np.empty((len(labels["instances"]), 0, 2), dtype=np.float32)
         labels["instances"].convert_bbox(format="xyxy")
         labels["instances"].denormalize(nw, nh)
         labels["instances"].add_padding(padw, padh)
@@ -843,6 +846,8 @@ class ScaleAdaptiveMosaic(Mosaic):
         for item in layout:
             patch = item["labels_patch"]
             instances = deepcopy(patch["instances"])
+            if instances.segments is None:
+                instances.segments = np.empty((len(instances), 0, 2), dtype=np.float32)
             img_h, img_w = item["img_shape"]
             instances.convert_bbox("xyxy")
             instances.denormalize(img_w, img_h)
@@ -1142,6 +1147,8 @@ class PolicyMosaic(Mosaic):
 
     def _prepare_cluster(self, patch: dict[str, Any]) -> dict[str, Any]:
         """Crop one loaded donor around a GT cluster while preserving normalized labels."""
+        if patch["instances"].segments is None:
+            patch["instances"].segments = np.empty((len(patch["instances"]), 0, 2), dtype=np.float32)
         boxes = patch["instances"].bboxes.copy()
         if not len(boxes):
             return patch
@@ -1184,7 +1191,12 @@ class PolicyMosaic(Mosaic):
         empty = deepcopy(template)
         empty["img"] = image
         empty["resized_shape"] = image.shape[:2]
-        empty["instances"] = Instances(np.empty((0, 4), dtype=np.float32), bbox_format="xywh", normalized=True)
+        empty["instances"] = Instances(
+            np.empty((0, 4), dtype=np.float32),
+            segments=np.empty((0, 0, 2), dtype=np.float32),
+            bbox_format="xywh",
+            normalized=True,
+        )
         empty["cls"] = template["cls"][:0]
         empty["im_file"] = str(item["image"])
         self._diagnostics["hardneg_count"] += 1
