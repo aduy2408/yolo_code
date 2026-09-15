@@ -1102,7 +1102,7 @@ class PolicyMosaic(Mosaic):
         self._metadata = getattr(dataset, "labels", [])
         self._index_by_file = {os.path.realpath(os.path.expanduser(str(path))): i for i, path in enumerate(getattr(dataset, "im_files", []))}
         self._diagnostics = getattr(dataset, "mosaic_policy_diagnostics", None)
-        if self._diagnostics is None:
+        if self._diagnostics is None or self._diagnostics.get("policy") != self.policy:
             self._diagnostics = {
                 "policy": self.policy,
                 "selected": 0,
@@ -3694,15 +3694,18 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
     )
 
     pre_transform = Compose([mosaic, affine])
+    # The project-owned Copy-Paste strategies are applied below on the final
+    # canvas.  Do not pass their mode names to Ultralytics' built-in transform:
+    # upstream accepts only ``flip`` and ``mixup`` and asserts otherwise.
     if hyp.copy_paste_mode == "flip":
-        pre_transform.insert(1, CopyPaste(dataset, p=hyp.copy_paste, mode=hyp.copy_paste_mode))
-    else:
+        pre_transform.insert(1, CopyPaste(dataset, p=hyp.copy_paste, mode="flip"))
+    elif hyp.copy_paste_mode == "mixup":
         pre_transform.append(
             CopyPaste(
                 dataset,
                 pre_transform=Compose([build_mosaic(dataset, imgsz, hyp), affine]),
                 p=hyp.copy_paste,
-                mode=hyp.copy_paste_mode,
+                mode="mixup",
             )
         )
     flip_idx = dataset.data.get("flip_idx", [])  # for keypoints augmentation

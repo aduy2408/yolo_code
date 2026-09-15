@@ -276,8 +276,18 @@ def main(argv: list[str] | None = None) -> None:
         raise RuntimeError("Refusing to train without --confirm-settings")
     if args.seed != 42 or args.split_seed != 42 or args.epochs != 100 or args.patience != 0:
         raise ValueError("This matrix requires seed=42, split-seed=42, epochs=100, patience=0")
+    if "M3_post_scale_constrained" in args.policies:
+        if args.scale_statistics is None or not args.scale_statistics.is_file():
+            raise ValueError("M3_post_scale_constrained requires --scale-statistics from training labels")
+    if "M5_hard_negative" in args.policies:
+        if args.hard_negative_bank is None or not args.hard_negative_bank.is_file():
+            raise ValueError("M5_hard_negative requires --hard-negative-bank")
     args.imgsz = args.imgsz or (512 if args.dataset == "levir" else 640)
     args.data_root, args.dataset_root, args.project = args.data_root.resolve(), args.dataset_root.resolve(), args.project.resolve()
+    if args.scale_statistics:
+        args.scale_statistics = args.scale_statistics.resolve()
+    if args.hard_negative_bank:
+        args.hard_negative_bank = args.hard_negative_bank.resolve()
     data_yaml, image_root, config = prepare_dataset(args)
     cache = build_context_cache(image_root, args.dataset_root / f"{args.dataset}_mosaic_context_seed{args.split_seed}.npz")
     for policy in args.policies:
