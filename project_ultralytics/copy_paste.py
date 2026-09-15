@@ -54,6 +54,8 @@ class SmallObjectCopyPaste:
         policy: str = "fixed",
         scene_stats: Mapping[str, float] | None = None,
         rng=None,
+        debug_dir: str | Path | None = None,
+        debug_limit: int = 32,
     ) -> None:
         if unit not in {"single", "cluster"}:
             raise ValueError("unit must be 'single' or 'cluster'")
@@ -95,11 +97,14 @@ class SmallObjectCopyPaste:
             if self.policy == "layout_adaptive" and "spacing_q50" not in self.scene_stats:
                 raise ValueError("scene_stats missing required field: spacing_q50")
         self.rng = rng or random
+        self.debug_dir = Path(debug_dir) if debug_dir else None
+        self.debug_limit = int(debug_limit)
         self.object_pool: list[ObjectRecord] = []
         self._source_boxes: dict[int, np.ndarray] = {}
         self._source_classes: dict[int, np.ndarray] = {}
         self._pool_built = False
         self.stats = self._new_stats()
+        self.stats["debug_dump_count"] = 0
 
     @staticmethod
     def _new_stats() -> dict[str, float]:
@@ -137,6 +142,22 @@ class SmallObjectCopyPaste:
 
     def reset_stats(self) -> None:
         self.stats = self._new_stats()
+        self.stats["debug_dump_count"] = 0
+
+    def _dump_debug(self, labels: dict[str, Any], mode: str = "copy_paste") -> None:
+        if self.debug_dir is None or self.stats.get("debug_dump_count", 0) >= self.debug_limit:
+            return
+        canvas = labels["img"].copy()
+        instances = labels.get("instances")
+        if instances is not None and len(instances):
+            boxes = self._target_boxes(labels)
+            for x1, y1, x2, y2 in boxes:
+                cv2.rectangle(canvas, (round(x1), round(y1)), (round(x2), round(y2)), (0, 255, 0), 1)
+        out_dir = self.debug_dir / mode
+        out_dir.mkdir(parents=True, exist_ok=True)
+        index = int(self.stats["debug_dump_count"])
+        cv2.imwrite(str(out_dir / f"{index:04d}.jpg"), canvas)
+        self.stats["debug_dump_count"] += 1
 
     def diagnostics(self) -> dict[str, float]:
         out = dict(self.stats)
@@ -433,10 +454,259 @@ class SmallObjectCopyPaste:
             self.stats["pasted_instances"] += sum(len(b) for b in pasted_boxes)
             if len(self._target_boxes(labels)) == sum(len(b) for b in pasted_boxes):
                 self.stats["empty_target_augmented"] += 1
+            self._dump_debug(labels, self.unit)
         return labels
 
 
-__all__ = ["ObjectRecord", "SmallObjectCopyPaste"]
+def _box_area(box: np.ndarray) -> float:
+    box = np.asarray(box, dtype=np.float32)
+    return max(float((box[2] - box[0]) * (box[3] - box[1])), 0.0)
+
+
+def _intersection_area(box_a: np.ndarray, box_b: np.ndarray) -> float:
+    x1 = max(float(box_a[0]), float(box_b[0]))
+    y1 = max(float(box_a[1]), float(box_b[1]))
+    x2 = min(float(box_a[2]), float(box_b[2]))
+    y2 = min(float(box_a[3]), float(box_b[3]))
+    return max(x2 - x1, 0.0) * max(y2 - y1, 0.0)
+
+
+class CrowdedCopyPaste(SmallObjectCopyPaste):
+    """Paste one similarly-sized object over an existing target object.
+
+    This intentionally uses rectangular, hard pasted bbox crops.  It isolates
+    controlled overlap from mask quality, scaling, and depth/consensus losses.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        p: float = 0.3,
+        copies: int = 1,
+        overlap_min: float = 0.10,
+        overlap_max: float = 0.30,
+        min_visibility: float = 0.60,
+        size_ratio_min: float = 0.75,
+        size_ratio_max: float = 1.33,
+        trials: int = 30,
+        rng=None,
+        debug_dir: str | Path | None = None,
+    ) -> None:
+        super().__init__(
+            dataset, p=p, unit="single", copies=copies, placement="random",
+            max_overlap=0.0, padding=0.0, scale=1.0, blend="hard",
+            max_trials=trials, allow_empty_target=False, allow_same_source=True,
+            rng=rng,
+            debug_dir=debug_dir,
+        )
+        if not 0.0 <= overlap_min <= overlap_max:
+            raise ValueError("crowd overlap range must satisfy 0 <= min <= max")
+        if not 0.0 < min_visibility <= 1.0:
+            raise ValueError("crowd min_visibility must be in (0, 1]")
+        if not 0.0 < size_ratio_min <= size_ratio_max:
+            raise ValueError("crowd size ratio range must be positive and ordered")
+        self.overlap_min = float(overlap_min)
+        self.overlap_max = float(overlap_max)
+        self.min_visibility = float(min_visibility)
+        self.size_ratio_min = float(size_ratio_min)
+        self.size_ratio_max = float(size_ratio_max)
+        self.stats.update({
+            "crowd_attempted": 0,
+            "crowd_applied": 0,
+            "crowd_overlap_sum": 0.0,
+            "crowd_visibility_sum": 0.0,
+            "crowd_size_ratio_sum": 0.0,
+            "crowd_rejected_overlap": 0,
+        })
+
+    def _crowd_destination(self, anchor: np.ndarray, patch_shape: tuple[int, int], canvas_shape: tuple[int, int]):
+        ph, pw = patch_shape
+        h, w = canvas_shape
+        if ph > h or pw > w:
+            self.stats["rejected_boundary"] += 1
+            return None
+        anchor_w = max(float(anchor[2] - anchor[0]), 1.0)
+        anchor_h = max(float(anchor[3] - anchor[1]), 1.0)
+        for _ in range(self.max_trials):
+            # Sampling around the anchor keeps the constructed relation local.
+            cx = self.rng.uniform(float(anchor[0] - pw * 0.35), float(anchor[2] + pw * 0.35))
+            cy = self.rng.uniform(float(anchor[1] - ph * 0.35), float(anchor[3] + ph * 0.35))
+            x = int(round(np.clip(cx - pw / 2, 0, w - pw)))
+            y = int(round(np.clip(cy - ph / 2, 0, h - ph)))
+            box = np.array([x, y, x + pw, y + ph], dtype=np.float32)
+            overlap = _intersection_area(anchor, box) / max(min(_box_area(anchor), _box_area(box)), 1e-8)
+            visibility = 1.0 - _intersection_area(anchor, box) / max(_box_area(anchor), 1e-8)
+            if self.overlap_min <= overlap <= self.overlap_max and visibility >= self.min_visibility:
+                return x, y, box, overlap, visibility
+        self.stats["crowd_rejected_overlap"] += 1
+        self.stats["failed_trials"] += 1
+        return None
+
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
+        if self.p <= 0 or self.rng.random() >= self.p:
+            return labels
+        self._build_pool()
+        existing = self._target_boxes(labels)
+        if len(existing) == 0 or not self.object_pool:
+            return labels
+        self.stats["crowd_attempted"] += 1
+        target = existing[int(self.rng.randrange(len(existing)))]
+        target_size = np.sqrt(max(_box_area(target), 1e-8))
+        candidates = [
+            record for record in self.object_pool
+            if self.size_ratio_min <= np.sqrt(max(_box_area(np.asarray(record.bbox_xyxy)), 1e-8)) / target_size <= self.size_ratio_max
+        ]
+        if not candidates:
+            return labels
+        pasted_boxes, pasted_classes = [], []
+        for _ in range(self.copies):
+            record = self.rng.choice(candidates)
+            source = self._load_raw(record.image_index)
+            prepared = None if source is None else self._crop_single(record, source)
+            if prepared is None:
+                continue
+            crop, _ = prepared
+            destination = self._crowd_destination(target, crop.shape[:2], labels["img"].shape[:2])
+            if destination is None:
+                continue
+            x, y, box, overlap, visibility = destination
+            ph, pw = crop.shape[:2]
+            labels["img"][y:y + ph, x:x + pw] = crop
+            pasted_boxes.append(box.reshape(1, 4))
+            pasted_classes.append(np.array([record.class_id], dtype=np.int64))
+            existing = np.concatenate([existing, box.reshape(1, 4)], axis=0)
+            self.stats["crowd_overlap_sum"] += overlap
+            self.stats["crowd_visibility_sum"] += visibility
+            self.stats["crowd_size_ratio_sum"] += np.sqrt(max(_box_area(box), 1e-8)) / target_size
+        if pasted_boxes:
+            self._append_instances(labels, pasted_boxes, pasted_classes)
+            self.stats["crowd_applied"] += 1
+            self.stats["applied_images"] += 1
+            self.stats["pasted_instances"] += sum(len(b) for b in pasted_boxes)
+            self._dump_debug(labels, "crowded")
+        return labels
+
+    def diagnostics(self) -> dict[str, float]:
+        out = super().diagnostics()
+        n = max(int(out.get("crowd_applied", 0)), 1)
+        out["crowd/mean_overlap"] = out.get("crowd_overlap_sum", 0.0) / n
+        out["crowd/mean_visibility"] = out.get("crowd_visibility_sum", 0.0) / n
+        out["crowd/mean_size_ratio"] = out.get("crowd_size_ratio_sum", 0.0) / n
+        return out
+
+
+class ScaleMatchedCopyPaste(SmallObjectCopyPaste):
+    """Downsample source objects to sizes sampled from real GT statistics."""
+
+    def __init__(
+        self,
+        dataset,
+        p: float = 0.5,
+        copies: int = 1,
+        target_max_size: float = 20.0,
+        source_min_ratio: float = 1.25,
+        factor_min: float = 0.50,
+        factor_max: float = 0.90,
+        max_overlap: float = 0.0,
+        trials: int = 30,
+        rng=None,
+        debug_dir: str | Path | None = None,
+    ) -> None:
+        super().__init__(
+            dataset, p=p, unit="single", copies=copies, placement="collision_aware",
+            max_overlap=max_overlap, padding=0.0, scale=1.0, blend="hard",
+            max_trials=trials, rng=rng,
+            debug_dir=debug_dir,
+        )
+        if factor_min <= 0 or factor_min > factor_max or factor_max > 1.0:
+            raise ValueError("scale factors must satisfy 0 < min <= max <= 1")
+        self.target_max_size = float(target_max_size)
+        self.source_min_ratio = float(source_min_ratio)
+        self.factor_min = float(factor_min)
+        self.factor_max = float(factor_max)
+        self.target_size_pool: list[float] = []
+        self.stats.update({
+            "scale_attempted": 0,
+            "scale_applied": 0,
+            "scale_source_sum": 0.0,
+            "scale_target_sum": 0.0,
+            "scale_factor_sum": 0.0,
+            "scale_result_sum": 0.0,
+        })
+
+    def _build_pool(self) -> None:
+        super()._build_pool()
+        if self.target_size_pool:
+            return
+        for record in self.object_pool:
+            size = np.sqrt(max(_box_area(np.asarray(record.bbox_xyxy)), 1e-8))
+            if size <= self.target_max_size:
+                self.target_size_pool.append(float(size))
+
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
+        if self.p <= 0 or self.rng.random() >= self.p:
+            return labels
+        self._build_pool()
+        if not self.object_pool or not self.target_size_pool:
+            return labels
+        self.stats["scale_attempted"] += 1
+        target_size = float(self.rng.choice(self.target_size_pool))
+        candidates = []
+        for record in self.object_pool:
+            source_size = np.sqrt(max(_box_area(np.asarray(record.bbox_xyxy)), 1e-8))
+            ratio = source_size / max(target_size, 1e-8)
+            if ratio >= self.source_min_ratio:
+                candidates.append((record, source_size))
+        if not candidates:
+            return labels
+        existing = self._target_boxes(labels)
+        pasted_boxes, pasted_classes = [], []
+        for _ in range(self.copies):
+            record, source_size = self.rng.choice(candidates)
+            source = self._load_raw(record.image_index)
+            if source is None:
+                continue
+            x1, y1, x2, y2 = map(round, record.bbox_xyxy)
+            crop = source[max(0, y1):min(source.shape[0], y2), max(0, x1):min(source.shape[1], x2)].copy()
+            if crop.size == 0:
+                continue
+            factor = float(np.clip(target_size / max(source_size, 1e-8), self.factor_min, self.factor_max))
+            crop = cv2.resize(crop, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
+            destination = self._choose_destination(crop.shape[:2], labels["img"].shape[:2], existing)
+            if destination is None:
+                continue
+            x, y, box = destination
+            ph, pw = crop.shape[:2]
+            labels["img"][y:y + ph, x:x + pw] = crop
+            pasted_boxes.append(box.reshape(1, 4))
+            pasted_classes.append(np.array([record.class_id], dtype=np.int64))
+            existing = np.concatenate([existing, box.reshape(1, 4)], axis=0)
+            result_size = np.sqrt(max(_box_area(box), 1e-8))
+            self.stats["scale_source_sum"] += source_size
+            self.stats["scale_target_sum"] += target_size
+            self.stats["scale_factor_sum"] += factor
+            self.stats["scale_result_sum"] += result_size
+        if pasted_boxes:
+            self._append_instances(labels, pasted_boxes, pasted_classes)
+            self.stats["scale_applied"] += 1
+            self.stats["applied_images"] += 1
+            self.stats["pasted_instances"] += sum(len(b) for b in pasted_boxes)
+            self._dump_debug(labels, "scale_matched")
+        return labels
+
+    def diagnostics(self) -> dict[str, float]:
+        out = super().diagnostics()
+        n = max(int(out.get("scale_applied", 0)), 1)
+        out["scale/mean_source_size"] = out.get("scale_source_sum", 0.0) / n
+        out["scale/mean_target_size"] = out.get("scale_target_sum", 0.0) / n
+        out["scale/mean_factor"] = out.get("scale_factor_sum", 0.0) / n
+        out["scale/mean_result_size"] = out.get("scale_result_sum", 0.0) / n
+        return out
+
+
+__all__ = [
+    "ObjectRecord", "SmallObjectCopyPaste", "CrowdedCopyPaste", "ScaleMatchedCopyPaste",
+]
 
 
 def build_small_object_copy_paste(dataset, hyp):
@@ -447,6 +717,64 @@ def build_small_object_copy_paste(dataset, hyp):
     """
     if not bool(getattr(hyp, "copy_paste_enabled", False)):
         return None
+    mode = str(getattr(hyp, "copy_paste_mode", "single")).lower()
+    if mode in {"double", "cp2"}:
+        mode = "single"
+        copies = 2
+    else:
+        copies = int(getattr(hyp, "copy_paste_copies", 1))
+    if mode == "cluster":
+        mode = "single"
+        unit = "cluster"
+    else:
+        unit = str(getattr(hyp, "copy_paste_unit", "single"))
+    if mode == "negative":
+        from .negative_copy_paste import HardNegativeBank, NegativeCopyPaste
+
+        bank_path = str(
+            getattr(hyp, "negcp_bank_path", "")
+            or getattr(hyp, "copy_paste_negative_bank", "")
+            or ""
+        )
+        if not bank_path:
+            raise ValueError("copy_paste_mode='negative' requires negcp_bank_path")
+        bank = HardNegativeBank.load(bank_path)
+        return NegativeCopyPaste(
+            bank=bank,
+            p=float(getattr(hyp, "negcp", getattr(hyp, "copy_paste_p", 0.30))),
+            num=int(getattr(hyp, "negcp_num", 1)),
+            scale=float(getattr(hyp, "negcp_scale", 1.0)),
+            max_gt_ioa=float(getattr(hyp, "negcp_max_gt_ioa", 0.05)),
+            max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
+            same_source=bool(getattr(hyp, "negcp_same_source", False)),
+            debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
+        )
+    if mode == "crowded":
+        return CrowdedCopyPaste(
+            dataset=dataset,
+            p=float(getattr(hyp, "copy_paste_p", 0.30)),
+            copies=int(getattr(hyp, "crowd_num", copies)),
+            overlap_min=float(getattr(hyp, "crowd_overlap_min", 0.10)),
+            overlap_max=float(getattr(hyp, "crowd_overlap_max", 0.30)),
+            min_visibility=float(getattr(hyp, "crowd_min_visibility", 0.60)),
+            size_ratio_min=float(getattr(hyp, "crowd_size_ratio_min", 0.75)),
+            size_ratio_max=float(getattr(hyp, "crowd_size_ratio_max", 1.33)),
+            trials=int(getattr(hyp, "crowd_trials", 30)),
+            debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
+        )
+    if mode == "scale_matched":
+        return ScaleMatchedCopyPaste(
+            dataset=dataset,
+            p=float(getattr(hyp, "copy_paste_p", 0.50)),
+            copies=int(getattr(hyp, "scale_cp_num", copies)),
+            target_max_size=float(getattr(hyp, "scale_cp_target_max_size", 20.0)),
+            source_min_ratio=float(getattr(hyp, "scale_cp_source_min_ratio", 1.25)),
+            factor_min=float(getattr(hyp, "scale_cp_factor_min", 0.50)),
+            factor_max=float(getattr(hyp, "scale_cp_factor_max", 0.90)),
+            max_overlap=float(getattr(hyp, "scale_cp_max_overlap", 0.0)),
+            trials=int(getattr(hyp, "scale_cp_trials", 30)),
+            debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
+        )
     stats_path = str(getattr(hyp, "copy_paste_stats_path", "") or "")
     scene_stats = getattr(hyp, "copy_paste_scene_stats", None)
     if scene_stats is None and stats_path:
@@ -454,8 +782,8 @@ def build_small_object_copy_paste(dataset, hyp):
     return SmallObjectCopyPaste(
         dataset=dataset,
         p=float(getattr(hyp, "copy_paste_p", 0.5)),
-        unit=str(getattr(hyp, "copy_paste_unit", "single")),
-        copies=int(getattr(hyp, "copy_paste_copies", 1)),
+        unit=unit,
+        copies=copies,
         placement=str(getattr(hyp, "copy_paste_placement", "random")),
         max_overlap=float(getattr(hyp, "copy_paste_max_overlap", 0.0)),
         padding=float(getattr(hyp, "copy_paste_padding", 0.0)),
@@ -468,6 +796,7 @@ def build_small_object_copy_paste(dataset, hyp):
         cluster_min_objects=int(getattr(hyp, "copy_paste_cluster_min_objects", 2)),
         policy=str(getattr(hyp, "copy_paste_policy", "fixed")),
         scene_stats=scene_stats,
+        debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
     )
 
 
@@ -475,6 +804,7 @@ def copy_paste_config(hyp) -> dict[str, Any]:
     """Return the explicit Copy-Paste settings for a run manifest."""
     return {
         "enabled": bool(getattr(hyp, "copy_paste_enabled", False)),
+        "mode": str(getattr(hyp, "copy_paste_mode", "single")),
         "p": float(getattr(hyp, "copy_paste_p", 0.5)),
         "unit": str(getattr(hyp, "copy_paste_unit", "single")),
         "copies": int(getattr(hyp, "copy_paste_copies", 1)),
@@ -490,6 +820,20 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "cluster_min_objects": int(getattr(hyp, "copy_paste_cluster_min_objects", 2)),
         "policy": str(getattr(hyp, "copy_paste_policy", "fixed")),
         "stats_path": str(getattr(hyp, "copy_paste_stats_path", "") or ""),
+        "debug_dir": str(getattr(hyp, "copy_paste_debug_dir", "") or ""),
+        "negcp": float(getattr(hyp, "negcp", 0.30)),
+        "negcp_num": int(getattr(hyp, "negcp_num", 1)),
+        "negcp_bank_path": str(getattr(hyp, "negcp_bank_path", "") or ""),
+        "negcp_max_gt_ioa": float(getattr(hyp, "negcp_max_gt_ioa", 0.05)),
+        "crowd_overlap_min": float(getattr(hyp, "crowd_overlap_min", 0.10)),
+        "crowd_overlap_max": float(getattr(hyp, "crowd_overlap_max", 0.30)),
+        "crowd_min_visibility": float(getattr(hyp, "crowd_min_visibility", 0.60)),
+        "crowd_size_ratio_min": float(getattr(hyp, "crowd_size_ratio_min", 0.75)),
+        "crowd_size_ratio_max": float(getattr(hyp, "crowd_size_ratio_max", 1.33)),
+        "scale_cp_target_max_size": float(getattr(hyp, "scale_cp_target_max_size", 20.0)),
+        "scale_cp_source_min_ratio": float(getattr(hyp, "scale_cp_source_min_ratio", 1.25)),
+        "scale_cp_factor_min": float(getattr(hyp, "scale_cp_factor_min", 0.50)),
+        "scale_cp_factor_max": float(getattr(hyp, "scale_cp_factor_max", 0.90)),
     }
 
 
