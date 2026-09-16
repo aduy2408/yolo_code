@@ -170,7 +170,26 @@ def add_boxes(ax, boxes: np.ndarray, color: str = "#20a464", dashed: bool = Fals
                                linewidth=linewidth, linestyle="--" if dashed else "-"))
 
 
-def show(ax, image: np.ndarray, boxes: np.ndarray | None = None, title: str = "", box_color: str = "#20a464", dashed: bool = False) -> None:
+def zoom_view(image: np.ndarray, boxes: np.ndarray, margin: float = 0.34) -> tuple[np.ndarray, np.ndarray]:
+    """Crop a display view around objects and transform boxes into crop coordinates."""
+    if boxes is None or len(boxes) == 0:
+        return image, boxes
+    height, width = image.shape[:2]
+    x1, y1 = boxes[:, :2].min(axis=0)
+    x2, y2 = boxes[:, 2:].max(axis=0)
+    pad_x = max((x2 - x1) * margin, width * 0.025)
+    pad_y = max((y2 - y1) * margin, height * 0.025)
+    left, top, right, bottom = clip_box(np.array([x1 - pad_x, y1 - pad_y, x2 + pad_x, y2 + pad_y]), width, height)
+    view = image[top:bottom, left:right]
+    transformed = boxes.copy()
+    transformed[:, [0, 2]] -= left
+    transformed[:, [1, 3]] -= top
+    return view, transformed
+
+
+def show(ax, image: np.ndarray, boxes: np.ndarray | None = None, title: str = "", box_color: str = "#20a464", dashed: bool = False, zoom: bool = True) -> None:
+    if zoom and boxes is not None and len(boxes):
+        image, boxes = zoom_view(image, boxes)
     ax.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     if boxes is not None:
         add_boxes(ax, boxes, box_color, dashed)
@@ -227,7 +246,7 @@ def make_figure(items: list[Item], seed: int) -> plt.Figure:
     placed = (int(w * .53), int(h * .46), int(w * .53) + patch.shape[1], int(h * .46) + patch.shape[0])
     after, placed = paste(after, patch, np.full(patch.shape[:2], 210, np.uint8), placed[0], placed[1], scale=.48)
     row = 1
-    show(fig.add_subplot(gs[row, 0]), read_image(cluster), np.asarray([crop_box], np.float32), "source cluster", "#15803d", True)
+    show(fig.add_subplot(gs[row, 0]), patch, None, "source cluster", "#15803d", False, zoom=False)
     show(fig.add_subplot(gs[row, 1]), target, boxes, "target before", "#15803d")
     show(fig.add_subplot(gs[row, 2]), after, np.vstack([boxes, np.asarray([placed], dtype=np.float32)]), "after: cluster paste", "#ef4444")
     ax_note = fig.add_subplot(gs[row, 3]); ax_note.axis("off")
