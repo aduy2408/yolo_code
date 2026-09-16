@@ -105,6 +105,22 @@ def main() -> None:
             remote_files = set(api.list_repo_files(repo_id=args.output_repo, repo_type="dataset"))
             if remote_path not in remote_files:
                 raise RuntimeError(f"Missing uploaded post-hoc artifact: {remote_path}")
+            marker = out_dir / "upload_complete.json"
+            marker.write_text(
+                json.dumps({
+                    "repo_id": args.output_repo,
+                    "remote_path": remote_path,
+                    "variant": variant,
+                    "seed": seed,
+                }, indent=2, sort_keys=True) + "\n"
+            )
+            marker_remote_path = f"{relative}/upload_complete.json"
+            api.upload_file(
+                path_or_fileobj=str(marker), path_in_repo=marker_remote_path,
+                repo_id=args.output_repo, repo_type="dataset",
+            )
+            if marker_remote_path not in set(api.list_repo_files(repo_id=args.output_repo, repo_type="dataset")):
+                raise RuntimeError(f"Missing uploaded completion marker: {marker_remote_path}")
             print(
                 json.dumps({
                     "variant": variant,
