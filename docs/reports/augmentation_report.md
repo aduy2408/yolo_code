@@ -1,6 +1,6 @@
 # Augmentation Report: OACP, Copy-Paste, and Mosaic Runs
 
-**Updated:** 2026-09-14
+**Updated:** 2026-09-16
 **Scope:** the Hugging Face repositories and run names supplied in the request, filtered to experiments involving **OACP**, **Copy-Paste**, **Mosaic**, or a direct no-augmentation/no-Mosaic control.
 **Primary metric:** mAP50-95(B). Values are fractions, not percentages.
 
@@ -117,6 +117,64 @@ The supplied list also contains the following OACP families and controls:
 - Mixed OACP/model controls: `levir-yolov8n-p2p3p4-samc-oacp-current-seed42`, `levir-yolov8n-p2p3p4-samc-seed42`, `tinyperson-yolov8n-p2p3p4-samc-seed42`, `tinyperson-yolov8n-p2p3p4-oacp-current-seed42`, `tinyperson-yolov9t-cp3-mosaic-no-oacp-rerun`, and `tinyperson-yolov9t-no-oacp-no-mosaic-seed42`. These are retained as related controls, but are not pooled with the clean OACP/Copy-Paste/Mosaic ablations because they also change the detector, attention/module stack, or model family.
 
 The repository list also includes broader baseline/model runs such as `...samc...`, DETR, and MMDetection repositories. They are not augmentation results and are excluded from the tables below unless they serve as an explicitly named control.
+
+## 3.4 Newly uploaded augmentation results: 2026-09-14 to 2026-09-16
+
+This subsection adds the relevant repositories from the latest HF list. The date shown is the repository creation/upload date returned by the Hugging Face dataset API. The uploaded manifests do not contain a separate wall-clock training start/end timestamp, so this is not presented as an exact training date. All rows below use split seed 42 and training seed 42 unless the row explicitly lists multiple seeds. Metrics are fractions, and every metric is labeled by split.
+
+### Copy-Paste post-hoc test evaluation
+
+Repository: [`duyle2408/levir-copy-paste-posthoc-test-runs`](https://huggingface.co/datasets/duyle2408/levir-copy-paste-posthoc-test-runs), uploaded **2026-09-16**. These are post-hoc evaluations of checkpoints in [`duyle2408/stw-yolo-runs`](https://huggingface.co/datasets/duyle2408/stw-yolo-runs), whose Copy-Paste run repository was created/uploaded **2026-09-14**. They use the LEVIR post-hoc split, NMS IoU 0.50, and a fixed split seed of 42. Values are mean across the available training seeds, with sample standard deviation in parentheses.
+
+| Method | Seeds | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 |
+|---|---:|---:|---:|---:|---:|
+| CP0, no Copy-Paste control | 42, 43, 44 | 0.8297 | 0.3278 | 0.8203 (0.0094) | 0.3147 (0.0048) |
+| CP1, one single-object copy | 42, 43, 44 | 0.8262 | 0.3264 | 0.7974 (0.0144) | 0.3109 (0.0079) |
+| CP2, two single-object copies | 42, 43, 44 | 0.8233 | 0.3322 | 0.8046 (0.0174) | 0.3167 (0.0082) |
+| CP3, one clustered copy | 42, 43 | 0.8281 | 0.3324 | 0.7985 (0.0108) | 0.3046 (0.0011) |
+| Crowd mild | 42, 43 | 0.8132 | 0.3270 | 0.8012 (0.0110) | 0.2993 (0.0060) |
+| Crowd moderate | 42, 43 | 0.8262 | 0.3276 | 0.8124 (0.0039) | 0.3085 (0.0024) |
+| Negative Copy-Paste, offline | 42, 43 | 0.8333 | 0.3402 | 0.8113 (0.0081) | 0.3101 (0.0028) |
+| Scale-matched Copy-Paste | 42, 43 | 0.8225 | 0.3302 | 0.8103 (0.0047) | 0.3125 (0.0015) |
+
+**Interpretation:** the corrected post-hoc test table changes the earlier Copy-Paste interpretation. CP2 has the highest mean test mAP50-95 (**0.3167**) among the standard CP0-CP3 variants, while CP0 remains a strong control (**0.3147**). CP3 is lower in this post-hoc protocol (**0.3046**) and should not be described as the best Copy-Paste method without specifying the older artifact. The post-hoc artifact is the source of truth for these test values.
+
+### Mosaic-only policy variants
+
+Repository: [`duyle2408/mosaic-only-yolo-runs`](https://huggingface.co/datasets/duyle2408/mosaic-only-yolo-runs), uploaded **2026-09-15** and updated **2026-09-16**. These runs use the canonical upstream-style YOLOv8 P3/P4/P5 YAML, 100 epochs, workers 8, Mosaic enabled, and no OACP or Copy-Paste. Each row is a single seed-42 run.
+
+| Dataset | Method | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 |
+|---|---|---:|---:|---:|---:|
+| LEVIR-Ship | M2 cluster-preserving Mosaic | 0.7863 | 0.2735 | 0.7410 | 0.2634 |
+| LEVIR-Ship | M3 post-scale-constrained Mosaic | 0.7577 | 0.2735 | 0.7278 | 0.2546 |
+| LEVIR-Ship | M4 adaptive-geometry Mosaic | 0.7887 | 0.2819 | 0.7765 | 0.2767 |
+| LEVIR-Ship | M5 hard-negative Mosaic | **0.8180** | **0.3079** | **0.7883** | **0.2921** |
+| TinyPerson | M2 cluster-preserving Mosaic | 0.4689 | 0.1660 | 0.4458 | 0.1575 |
+| TinyPerson | M3 post-scale-constrained Mosaic | **0.5038** | **0.1759** | 0.4818 | 0.1736 |
+| TinyPerson | M4 adaptive-geometry Mosaic | 0.5006 | 0.1750 | **0.4874** | **0.1740** |
+
+**Interpretation:** M5 hard-negative Mosaic is strongest on LEVIR-Ship among this new set, while TinyPerson favors M3/M4 over M2. These are new policies and should be compared with the earlier standard/visibility/occupancy/context matrix only with the detector, schedule, and artifact protocol held constant.
+
+### Post-Mosaic OACP variants
+
+Repository: [`duyle2408/levir-post-mosaic-oacp-a63b4bd`](https://huggingface.co/datasets/duyle2408/levir-post-mosaic-oacp-a63b4bd), uploaded **2026-09-15**. These are LEVIR-Ship YOLOv8n/P2-family OACP experiments with explicit validation and test evaluation artifacts. The method column follows the manifest's OACP placement and variant fields.
+
+| Method | Mosaic | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 |
+|---|---:|---:|---:|---:|---:|
+| Fixed OACP, effect-adaptive R2 | Off | 0.8268 | 0.3323 | 0.8050 | 0.3085 |
+| Fixed OACP, effect-fixed R2 | Off | **0.8576** | **0.3396** | 0.8089 | **0.3104** |
+| Load-adaptive OACP, P2, post-Mosaic | On | 0.8254 | 0.3133 | 0.7848 | 0.2871 |
+| Load-adaptive OACP, P2, no Mosaic | Off | 0.8198 | 0.3205 | 0.8026 | 0.3096 |
+| Fixed OACP, R2, p=0.40 pre-transform | Off | 0.8266 | 0.3340 | **0.8296** | **0.3219** |
+| Sparse-probability load-adaptive OACP, pre-transform | Off | 0.8424 | 0.3415 | 0.8063 | 0.3126 |
+| Load-adaptive OACP, P2/P3/P4, post-Mosaic | On | 0.8298 | 0.3094 | 0.7843 | 0.2879 |
+| Spatial-load-adaptive OACP, P2/P3/P4, post-Mosaic | On | 0.8018 | 0.3116 | 0.7469 | 0.2778 |
+
+**Interpretation:** within this repository, the fixed R2 p=0.40 pre-transform run has the strongest test result (**test AP50 0.8296, test mAP50-95 0.3219**). The post-Mosaic load-adaptive variants are weaker than the no-Mosaic controls in this artifact, so the earlier conclusion that load-adaptive OACP + Mosaic is strongest must remain restricted to its matched experiment family and must not be generalized to this post-Mosaic implementation.
+
+### Repository with no usable result
+
+[`duyle2408/tinyperson-copy-paste-runs`](https://huggingface.co/datasets/duyle2408/tinyperson-copy-paste-runs) was created on **2026-09-16**, but currently contains only `.gitattributes` and no manifest, checkpoint metric, or evaluation artifact. It is therefore excluded from the result tables rather than treated as a failed or zero-valued Copy-Paste run.
 
 ## 4. Per-run settings audit
 
