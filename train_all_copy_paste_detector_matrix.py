@@ -24,6 +24,8 @@ from misc.prepare_levir_ship import prepare
 from utils.marimo_ops import ensure_hf_repo, require_training_context
 
 ULTRA = ROOT / "models_related" / "ultralytics"
+if str(ULTRA) not in sys.path:
+    sys.path.insert(0, str(ULTRA))
 CANONICAL_YAML = ULTRA / "ultralytics/cfg/models/v8/yolov8.yaml"
 P2P3P4_YAML = ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2p3p4_levir_plain.yaml"
 DETECTORS = {
