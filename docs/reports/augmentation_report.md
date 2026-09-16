@@ -19,6 +19,7 @@ Main observations:
 5. **The historical OACP results require provenance caution.** The older aggressive sweep used accidental double-OACP. The corrected single-pass sweep selected R4 by validation mAP50, while R2 had the highest test mAP50 and R7 the highest test AP75. These are screening results, not a final multi-seed claim.
 6. **Mosaic is not automatically helpful.** Its effect depends on policy, object visibility, detector scale, and dataset. No-Mosaic OACP can be competitive on LEVIR, while adaptive OACP + Mosaic is clearly stronger for the reported TinyPerson YOLOv8n runs than the no-Mosaic baseline.
 7. **The new R2 no-Mosaic OACP audit does not overturn the earlier ranking.** In the matched YOLOv8n P2/P3/P4, split-seed-42 audit, load-adaptive and effect-adaptive OACP are close at test mAP50-95 (**0.3094** and **0.3102**), while curriculum and size-adaptive variants are lower (**0.2992** and **0.2977**). These are single-seed screening results, not a replacement for the earlier matched Mosaic family.
+8. **The newly completed context-adaptive audit favors the C3 expand/protection policy in this single-seed screen.** C3 reaches test mAP50-95 **0.3145**, ahead of C1 strength (**0.3123**) and the existing R2 current audit (**0.3113**), while C2 scale is lower (**0.3051**). The detector, split seed, training seed, and no-Mosaic protocol are matched across these four context-audit rows.
 
 ## 2. Method definitions
 
@@ -247,6 +248,18 @@ Repository: [`duyle2408/levir-oacp-context-r2-audit-runs`](https://huggingface.c
 
 This four-scale P2-family detector is not the same architecture as the P2/P3/P4 plain detector used by the five adaptive R2 rows. It is retained as a provenance-qualified audit control, not pooled into either adaptive table.
 
+#### Newly completed context-adaptive audits
+
+Repositories: [`C1 strength`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-c1-strength-audit-runs), [`C2 scale`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-c2-scale-audit-runs), and [`C3 expand`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-c3-expand-audit-runs). These repositories were previously listed as empty, but were updated after the earlier audit. They now contain complete evaluation artifacts. All three use the same four-scale historical P2-family YAML `yolov8n_p2_levir_baseline.yaml`, single-pass/current OACP, no Mosaic, `imgsz=512`, workers 8, 100 epochs, training seed 42, split seed 42, and NMS IoU 0.50. The policy-specific manifest fields are: C1 `oacp_strength_policy=context_adaptive`, C2 `oacp_scale_policy=context_adaptive`, and C3 `oacp_protection_policy=contrast_adaptive`.
+
+| Context audit | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 | Test AP75 |
+|---|---:|---:|---:|---:|---:|
+| C1 strength-adaptive | 0.8280 | 0.3294 | 0.8034 | 0.3123 | 0.1347 |
+| C2 scale-adaptive | 0.8330 | 0.3251 | 0.7844 | 0.3051 | 0.1152 |
+| C3 expand/protection-adaptive | **0.8444** | **0.3366** | **0.8207** | **0.3145** | 0.1254 |
+
+**Interpretation:** C3 is the best test mAP50-95 and test AP50 in this matched screen, while C1 has the highest test AP75. These are still single-seed results and should be treated as context-policy screening evidence, not a multi-seed final ranking.
+
 #### TinyPerson Copy-Paste + Mosaic variants
 
 Repository: [`duyle2408/tinyperson-copy-paste-mosaic-runs`](https://huggingface.co/datasets/duyle2408/tinyperson-copy-paste-mosaic-runs). These are canonical YOLOv8n, seed 42, `mosaic=1.0`, `close_mosaic=10`, and no OACP. The source windows are `640x512`; detector input is `imgsz=640` and the test artifact is the merged corner-window evaluation.
@@ -264,9 +277,6 @@ The mode names are not CP0-CP3 and should not be merged with the earlier TinyPer
 
 The following supplied repositories currently contain no manifest, evaluation metrics, or uploaded run result and are excluded rather than treated as zero-valued experiments:
 
-- [`duyle2408/levir-oacp-context-c1-strength-audit-runs`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-c1-strength-audit-runs)
-- [`duyle2408/levir-oacp-context-c2-scale-audit-runs`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-c2-scale-audit-runs)
-- [`duyle2408/levir-oacp-context-c3-expand-audit-runs`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-c3-expand-audit-runs)
 - [`duyle2408/levir-oacp-r2-fixed-seed42-runs`](https://huggingface.co/datasets/duyle2408/levir-oacp-r2-fixed-seed42-runs)
 - [`duyle2408/tinyperson-copy-paste-runs`](https://huggingface.co/datasets/duyle2408/tinyperson-copy-paste-runs)
 
