@@ -225,6 +225,14 @@ def _oacp_config() -> dict[str, Any]:
         "strength": cfg["oacp_strength"],
         "resolution_scale": cfg["oacp_resolution_scale"],
         "budget": cfg["oacp_budget"],
+        "oacp_load_strength": [
+            float(cfg["oacp_load_strength_min"]),
+            float(cfg["oacp_load_strength_max"]),
+        ],
+        "oacp_load_saturation_count": cfg["oacp_load_saturation_count"],
+        "oacp_curriculum_strength": cfg["oacp_curriculum_strength"],
+        "oacp_curriculum_warmup_fraction": cfg["oacp_curriculum_warmup_fraction"],
+        "oacp_curriculum_cooldown_fraction": cfg["oacp_curriculum_cooldown_fraction"],
     }
 
 
