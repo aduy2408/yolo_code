@@ -18,6 +18,7 @@ Main observations:
 4. **Copy-Paste alone is not uniformly beneficial.** In the four-way no-Mosaic LEVIR ablation, CP3 has the highest reported mAP50-95 (**0.3234**) but is essentially tied with the no-Copy-Paste control (**0.3202**) within the limitations of the reported artifact. On TinyPerson, CP3 is more favorable (**0.1751** versus **0.1590** for CP0).
 5. **The historical OACP results require provenance caution.** The older aggressive sweep used accidental double-OACP. The corrected single-pass sweep selected R4 by validation mAP50, while R2 had the highest test mAP50 and R7 the highest test AP75. These are screening results, not a final multi-seed claim.
 6. **Mosaic is not automatically helpful.** Its effect depends on policy, object visibility, detector scale, and dataset. No-Mosaic OACP can be competitive on LEVIR, while adaptive OACP + Mosaic is clearly stronger for the reported TinyPerson YOLOv8n runs than the no-Mosaic baseline.
+7. **The new R2 no-Mosaic OACP audit does not overturn the earlier ranking.** In the matched YOLOv8n P2/P3/P4, split-seed-42 audit, load-adaptive and effect-adaptive OACP are close at test mAP50-95 (**0.3094** and **0.3102**), while curriculum and size-adaptive variants are lower (**0.2992** and **0.2977**). These are single-seed screening results, not a replacement for the earlier matched Mosaic family.
 
 ## 2. Method definitions
 
@@ -116,6 +117,10 @@ The supplied list also contains the following OACP families and controls:
 - Baseline controls used for interpretation: `tinyperson-yolo-baselines-no-mosaic`, `tinyperson-yolov8n-baselines`, `levir-yolov8n-p2-baseline-no-aug-no-mosaic-seed42-d1f8206`, and the no-augmentation DMM controls listed in the previous Hugging Face compilation.
 - Mixed OACP/model controls: `levir-yolov8n-p2p3p4-samc-oacp-current-seed42`, `levir-yolov8n-p2p3p4-samc-seed42`, `tinyperson-yolov8n-p2p3p4-samc-seed42`, `tinyperson-yolov8n-p2p3p4-oacp-current-seed42`, `tinyperson-yolov9t-cp3-mosaic-no-oacp-rerun`, and `tinyperson-yolov9t-no-oacp-no-mosaic-seed42`. These are retained as related controls, but are not pooled with the clean OACP/Copy-Paste/Mosaic ablations because they also change the detector, attention/module stack, or model family.
 
+- Latest R2 OACP audit repositories: `levir-oacp-context-r2-audit-runs`, `levir-oacp-r2-hardness-adaptive-seed42-runs`, `levir-oacp-r2-curriculum-seed42-runs`, `levir-oacp-r2-load-adaptive-seed42-runs`, `levir-oacp-r2-size-adaptive-seed42-runs`, and `levir-oacp-r2-effect-adaptive-seed42-runs`.
+- Latest matched augmentation controls: `levir-augmentation-baselines-seed42-runs` and `tinyperson-augmentation-baselines-seed42-runs`.
+- Latest TinyPerson Copy-Paste + Mosaic variants: `tinyperson-copy-paste-mosaic-runs`.
+
 The repository list also includes broader baseline/model runs such as `...samc...`, DETR, and MMDetection repositories. They are not augmentation results and are excluded from the tables below unless they serve as an explicitly named control.
 
 ## 3.4 Newly uploaded augmentation results: 2026-09-14 to 2026-09-16
@@ -188,6 +193,84 @@ The latest list contains related artifacts that should be grouped, but not blind
 | Empty TinyPerson Copy-Paste repository | `tinyperson-copy-paste-runs` | **Exclude** | It contains no result artifact, so it cannot be merged with `tinyperson-copy-paste` or used as a zero-valued result. |
 
 This prevents double counting. In particular, the same CP checkpoint is not counted once from `stw-yolo-runs` and again from the post-hoc repository, and the older manifest-only CP0-CP3 values are not mixed with the corrected post-hoc test values.
+
+### 3.6 Newly uploaded R2 audit and matched baseline results
+
+The following repositories were present in the supplied 2026-09-16 list but were not represented by result rows above. Metrics below come from each repository's uploaded `evaluation_metrics.json`; values are fractions. Every row reports validation and test metrics separately. Unless stated otherwise, the manifests record training seed 42, split seed 42, workers 8, 100 epochs, NMS IoU 0.50, and `mosaic=0.0`.
+
+#### LEVIR-Ship matched augmentation baselines
+
+Repository: [`duyle2408/levir-augmentation-baselines-seed42-runs`](https://huggingface.co/datasets/duyle2408/levir-augmentation-baselines-seed42-runs). The canonical rows use the upstream-style YOLOv8 P3/P4/P5 detector. The P2/P3/P4 rows use the explicitly different `yolov8n_p2p3p4_levir_plain.yaml` detector.
+
+| Detector | Method | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 |
+|---|---|---:|---:|---:|---:|
+| Canonical YOLOv8 P3/P4/P5 | No augmentation, no Mosaic | 0.7524 | 0.2710 | 0.7152 | 0.2615 |
+| Canonical YOLOv8 P3/P4/P5 | Standard Mosaic | 0.8044 | 0.3118 | 0.7653 | 0.2876 |
+| YOLOv8n P2/P3/P4 | No augmentation, no Mosaic | 0.7286 | 0.2774 | 0.6959 | 0.2583 |
+| YOLOv8n P2/P3/P4 | Standard Mosaic | **0.8282** | **0.3366** | **0.8078** | **0.3198** |
+
+The canonical standard-Mosaic row is a new baseline reference for the M2-M5 policy family. It must not be pooled with the earlier `levir-ship-mosaic-policy-matrix` standard row because the uploaded artifacts and evaluation values differ. The P2/P3/P4 rows are useful matched controls for the R2 OACP variants below, but they change the detector architecture relative to the canonical rows.
+
+#### TinyPerson matched augmentation baselines
+
+Repository: [`duyle2408/tinyperson-augmentation-baselines-seed42-runs`](https://huggingface.co/datasets/duyle2408/tinyperson-augmentation-baselines-seed42-runs). The dataset uses the merged corner-window test protocol in `test_merged_predictions.json`; the detector input is `imgsz=640`, while source windows are `640x512`.
+
+| Detector | Method | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 |
+|---|---|---:|---:|---:|---:|
+| Canonical YOLOv8 | No augmentation, no Mosaic | 0.4330 | 0.1480 | 0.4344 | 0.1470 |
+| Canonical YOLOv8 | Standard Mosaic | **0.5245** | **0.1889** | **0.4948** | **0.1750** |
+| YOLOv8n P2/P3/P4 | No augmentation, no Mosaic | 0.4827 | 0.1660 | 0.4715 | 0.1620 |
+
+These rows provide the missing no-augmentation control for the newer TinyPerson Copy-Paste + Mosaic variants, although the same-detector no-augmentation baseline is still not available for the canonical YOLOv8 Copy-Paste rows.
+
+#### R2 adaptive OACP screening, LEVIR-Ship
+
+Repositories: [`hardness`](https://huggingface.co/datasets/duyle2408/levir-oacp-r2-hardness-adaptive-seed42-runs), [`curriculum`](https://huggingface.co/datasets/duyle2408/levir-oacp-r2-curriculum-seed42-runs), [`load`](https://huggingface.co/datasets/duyle2408/levir-oacp-r2-load-adaptive-seed42-runs), [`size`](https://huggingface.co/datasets/duyle2408/levir-oacp-r2-size-adaptive-seed42-runs), [`effect`](https://huggingface.co/datasets/duyle2408/levir-oacp-r2-effect-adaptive-seed42-runs). All five artifacts use the YOLOv8n P2/P3/P4 plain detector, no Mosaic, `imgsz=512`, and a single training seed 42. The repository names identify the adaptive policy; the minimal uploaded manifests do not expose all policy-specific parameter fields, so the exact policy should be verified from the runner source before publication.
+
+| R2 policy | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 | Test AP75 |
+|---|---:|---:|---:|---:|---:|
+| Hardness-adaptive | 0.8332 | 0.3241 | 0.8016 | 0.3102 | 0.1059 |
+| Curriculum | 0.8082 | 0.3250 | 0.7871 | 0.2992 | 0.0998 |
+| Load-adaptive | 0.8337 | 0.3291 | **0.8189** | 0.3094 | **0.1154** |
+| Size-adaptive | 0.8257 | **0.3288** | 0.7854 | 0.2977 | 0.1110 |
+| Effect-adaptive | 0.8316 | 0.3298 | 0.8074 | 0.3102 | 0.1131 |
+
+The apparent test mAP50-95 difference between load-adaptive (**0.3094**) and effect-adaptive (**0.3102**) is small and should not be treated as a meaningful winner from one seed. Load-adaptive has the highest test AP50 and AP75 in this five-way screen; effect-adaptive has the highest validation mAP50-95. These rows are no-Mosaic controls and therefore are not duplicates of the earlier adaptive-OACP + Mosaic family.
+
+#### Context R2 audit baseline
+
+Repository: [`duyle2408/levir-oacp-context-r2-audit-runs`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-r2-audit-runs). This is a single-pass/current OACP R2 audit using the four-scale historical P2-family YAML `yolov8n_p2_levir_baseline.yaml`, no Mosaic, `imgsz=512`, and seed/split seed 42.
+
+| Method | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 | Test AP75 |
+|---|---:|---:|---:|---:|---:|
+| Current OACP R2 audit baseline | 0.8348 | 0.3262 | 0.8156 | 0.3113 | 0.1203 |
+
+This four-scale P2-family detector is not the same architecture as the P2/P3/P4 plain detector used by the five adaptive R2 rows. It is retained as a provenance-qualified audit control, not pooled into either adaptive table.
+
+#### TinyPerson Copy-Paste + Mosaic variants
+
+Repository: [`duyle2408/tinyperson-copy-paste-mosaic-runs`](https://huggingface.co/datasets/duyle2408/tinyperson-copy-paste-mosaic-runs). These are canonical YOLOv8n, seed 42, `mosaic=1.0`, `close_mosaic=10`, and no OACP. The source windows are `640x512`; detector input is `imgsz=640` and the test artifact is the merged corner-window evaluation.
+
+| Copy-Paste mode | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 |
+|---|---:|---:|---:|---:|
+| Crowded, mild overlap | 0.5441 | **0.2013** | 0.5166 | 0.1880 |
+| Crowded, moderate overlap | 0.5472 | 0.1994 | **0.5172** | 0.1853 |
+| Negative Copy-Paste, offline bank | 0.5467 | 0.2004 | 0.5201 | **0.1885** |
+| Scale-matched Copy-Paste | **0.5492** | 0.2030 | 0.5163 | 0.1885 |
+
+The mode names are not CP0-CP3 and should not be merged with the earlier TinyPerson CP3 table. Among these four new rows, negative and scale-matched Copy-Paste tie at the displayed precision for test mAP50-95, with negative Copy-Paste highest by the unrounded value. The differences are single-seed and small.
+
+#### Repositories with no usable result artifact
+
+The following supplied repositories currently contain no manifest, evaluation metrics, or uploaded run result and are excluded rather than treated as zero-valued experiments:
+
+- [`duyle2408/levir-oacp-context-c1-strength-audit-runs`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-c1-strength-audit-runs)
+- [`duyle2408/levir-oacp-context-c2-scale-audit-runs`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-c2-scale-audit-runs)
+- [`duyle2408/levir-oacp-context-c3-expand-audit-runs`](https://huggingface.co/datasets/duyle2408/levir-oacp-context-c3-expand-audit-runs)
+- [`duyle2408/levir-oacp-r2-fixed-seed42-runs`](https://huggingface.co/datasets/duyle2408/levir-oacp-r2-fixed-seed42-runs)
+- [`duyle2408/tinyperson-copy-paste-runs`](https://huggingface.co/datasets/duyle2408/tinyperson-copy-paste-runs)
+
+This is an artifact-status statement only. It does not imply failed training or zero performance.
 
 #### Baseline coverage by experiment family
 
