@@ -28,6 +28,26 @@ local implementation
 A live Marimo kernel, a live PID, a local marker, or one successful upload call
 is not completion evidence by itself.
 
+## Metric reporting contract
+
+Every completed run must evaluate and report **both validation and test**
+splits. The minimum required fields are:
+
+```text
+val/AP50
+val/mAP50-95
+test/AP50
+test/mAP50-95
+```
+
+Use explicit split-qualified names in JSON, manifests, tables, and prose. An
+unqualified `AP50`, `mAP50`, or `mAP50-95` is not acceptable in a final report.
+Never call validation output test output. If the dataset uses merged test
+windows, corner-window translation, or another custom test evaluator, record
+the evaluator and source artifact next to the test metrics. If a test metric
+cannot be produced, stop the workflow or mark the run incomplete rather than
+substituting validation metrics.
+
 ## Agent decision rules
 
 - If the user asks for Marimo execution, do not train/evaluate/upload locally.
@@ -146,6 +166,9 @@ HF repo and remote prefix
 required artifacts
 NMS IoU=0.5
 known partial checks
+val/AP50, val/mAP50-95
+test/AP50, test/mAP50-95
+test evaluator/protocol and source artifact
 ```
 
 ## 4. Marimo preflight
@@ -213,6 +236,7 @@ Minimum remote completion contract:
 all required local artifacts uploaded
 remote paths listed and verified
 upload_complete.json written only after verification
+split-qualified val/test AP50 and mAP50-95 artifacts uploaded and verified
 ```
 
 Selected Marimo runners must use the shared helper. A direct background launch

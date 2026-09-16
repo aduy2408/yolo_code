@@ -28,10 +28,24 @@ When a user asks to train, evaluate, or upload through Marimo, the agent MUST:
    `MARIMO_TASK_NAME` so the shared helper derives a task-specific repository,
    and fail preflight if neither is configured.
 
+8. Every evaluation and report MUST include both validation and test metrics,
+   explicitly labeled by split: `AP50`, `mAP50-95`, and the corresponding
+   `AP50`/`mAP50-95` values for **both** `val` and `test`. Never present a
+   validation metric as a test result, and never report an unlabeled AP/mAP
+   number. If a dataset has a merged or corner-window test protocol, record
+   that exact test protocol and its source artifact alongside the metrics.
+
 The policy is enforced at runtime too: upload-required runners must receive the
 `MARIMO_TRAIN_WORKFLOW=1` context injected by the shared launch helper and must
 have a valid `HF_TOKEN` and a task-specific HF repository ID. `AGENTS.md` is
 not a substitute for those fail-closed checks.
+
+The minimum metric handoff is:
+
+```text
+val/AP50
+val/mAP50-95
+test/AP50
 
 ## Local Python testing
 
