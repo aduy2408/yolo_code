@@ -42,7 +42,11 @@ def calibrate(dataset_root: Path, output: Path, split: str = "train") -> dict[st
     contrast: list[float] = []
     image_count = 0
     object_count = 0
-    for image_path in sorted(image_dir.glob("*.png")):
+    image_paths = sorted(
+        path for path in image_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg"}
+    )
+    for image_path in image_paths:
         image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
         label_path = label_dir / f"{image_path.stem}.txt"
         if image is None or not label_path.is_file():
@@ -63,7 +67,13 @@ def calibrate(dataset_root: Path, output: Path, split: str = "train") -> dict[st
         if np.isfinite(value):
             richness.append(float(value))
         if len(tiny):
-            _, records = _contrast_adaptive_expands(image, boxes, np.flatnonzero(sizes < 32.0), measurement_expand=2.5)
+            _, records = _contrast_adaptive_expands(
+                image,
+                boxes,
+                np.flatnonzero(sizes < 32.0),
+                stats={"local_contrast_q10": 0.0, "local_contrast_q90": 1.0},
+                measurement_expand=2.5,
+            )
             contrast.extend(float(record["contrast_raw"]) for record in records if record["contrast_raw"] is not None and np.isfinite(record["contrast_raw"]))
             object_count += len(records)
         image_count += 1

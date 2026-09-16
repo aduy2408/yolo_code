@@ -234,6 +234,13 @@ def augmentation_config() -> dict[str, Any]:
         or cfg["oacp_protection_policy"] == "contrast_adaptive"
     ) and not cfg["oacp_context_stats_path"]:
         raise ValueError("context-adaptive OACP policies require OACP_CONTEXT_STATS_PATH")
+    adaptive_axes = sum((
+        cfg["oacp_strength_policy"] == "context_adaptive",
+        cfg["oacp_scale_policy"] == "context_adaptive",
+        cfg["oacp_protection_policy"] == "contrast_adaptive",
+    ))
+    if adaptive_axes > 1:
+        raise ValueError("C1/C2/C3 context-adaptive policies are mutually exclusive")
     if cfg["oacp_protection_policy"] == "size_adaptive" and cfg["oacp_variant"] in {"density", "spacing_adaptive"}:
         raise ValueError("size_adaptive protection cannot be combined with density or spacing_adaptive")
     if profile == "r2":
@@ -432,18 +439,28 @@ def _mask_from_boxes_per_expand(
 def _context_stats() -> dict[str, float]:
     """Load immutable train-split quantiles for context-adaptive policies."""
     path = augmentation_config().get("oacp_context_stats_path", "")
-    if path and os.path.isfile(path):
-        try:
-            data = json.loads(open(path, encoding="utf-8").read())
-            return {key: float(value) for key, value in data.items() if isinstance(value, (int, float))}
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
-            pass
-    return {
-        "context_richness_q10": 0.0,
-        "context_richness_q90": 1.0,
-        "local_contrast_q10": 0.0,
-        "local_contrast_q90": 1.0,
-    }
+    if not path or not os.path.isfile(path):
+        raise ValueError(f"OACP_CONTEXT_STATS_PATH does not exist: {path!r}")
+    try:
+        data = json.loads(open(path, encoding="utf-8").read())
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid OACP context calibration JSON: {path}") from exc
+    required = (
+        "context_richness_q10", "context_richness_q90",
+        "local_contrast_q10", "local_contrast_q90",
+    )
+    if not isinstance(data, dict) or any(key not in data for key in required):
+        raise ValueError(f"OACP context calibration missing required keys: {required}")
+    stats = {}
+    for key in required:
+        value = data[key]
+        if not isinstance(value, (int, float)) or not np.isfinite(value):
+            raise ValueError(f"OACP context calibration value is not finite: {key}")
+        stats[key] = float(value)
+    for prefix in ("context_richness", "local_contrast"):
+        if stats[f"{prefix}_q90"] <= stats[f"{prefix}_q10"]:
+            raise ValueError(f"OACP context calibration requires q90 > q10: {prefix}")
+    return stats
 
 
 def _normalize_with_quantiles(value: float, q10: float, q90: float) -> float:
@@ -478,8 +495,9 @@ def _far_context_richness(img: np.ndarray, protected: np.ndarray) -> float:
     gx = cv2.Sobel(lum, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(lum, cv2.CV_32F, 0, 1, ksize=3)
     gradient = cv2.magnitude(gx, gy)
-    far = _far_mask(protected, *img.shape[:2]) > 0.55
-    return float(gradient[far].mean()) if far.any() else 0.0
+    far = _far_mask(protected, *img.shape[:2])
+    denominator = float(far.sum())
+    return float((far * gradient).sum() / denominator) if denominator > 1e-8 else 0.0
 
 
 def _object_local_contrast(
@@ -1044,7 +1062,17 @@ class OACP:
         diagnostics = oacp_diagnostics(
             (h, w), boxes, variant=variant, budget=budget, target_mass=target_mass, image=img
         )
-        stats = _context_stats()
+        context_axis_active = (
+            full_cfg["oacp_strength_policy"] == "context_adaptive"
+            or full_cfg["oacp_scale_policy"] == "context_adaptive"
+            or full_cfg["oacp_protection_policy"] == "contrast_adaptive"
+        )
+        stats = _context_stats() if context_axis_active else {
+            "context_richness_q10": 0.0,
+            "context_richness_q90": 1.0,
+            "local_contrast_q10": 0.0,
+            "local_contrast_q90": 1.0,
+        }
         context_richness_raw = _far_context_richness(img, protected)
         context_richness_norm = _normalize_with_quantiles(
             context_richness_raw,
@@ -1110,7 +1138,16 @@ class OACP:
             img.astype(np.float32) - degraded.astype(np.float32)
         ), axis=2)
         raw_effect = float(np.mean(mask[mask_pixels] * delta[mask_pixels])) if mask_pixels.any() else 0.0
-        attenuation = 1.0 - float(protected.mean()) if variant == "current" else 1.0
+        if variant == "current":
+            attenuation_mask = protected
+            if full_cfg["oacp_protection_policy"] == "contrast_adaptive":
+                # C3 must change only where perturbation begins.  Use the
+                # fixed R2 protection for blend attenuation so expand does not
+                # also change global severity.
+                attenuation_mask, _ = _protection(boxes, h, w)
+            attenuation = 1.0 - float(attenuation_mask.mean())
+        else:
+            attenuation = 1.0
         policy = full_cfg["oacp_strength_policy"]
         strength_min, strength_max = cfg["strength"]
         strength_load = float(diagnostics.get("object_load", 0.0))
@@ -1179,6 +1216,10 @@ class OACP:
         diagnostics["scale_min"] = float(scale_min)
         diagnostics["scale_max"] = float(scale_max)
         diagnostics["sampled_scale"] = float(sampled_scale)
+        diagnostics["attenuation"] = float(attenuation)
+        diagnostics["attenuation_reference"] = (
+            "r2_fixed" if full_cfg["oacp_protection_policy"] == "contrast_adaptive" else "actual_mask"
+        )
         diagnostics["curriculum_phase"] = curriculum_phase
         diagnostics["epoch"] = int(self.shared_state.epoch.value) if self.shared_state else 0
         diagnostics["hardness"] = float(hardness)

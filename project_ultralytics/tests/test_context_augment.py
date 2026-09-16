@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import cv2
 from ultralytics.utils.instance import Instances
 
 from project_ultralytics.context_augment import (
@@ -11,7 +12,7 @@ from project_ultralytics.context_augment import (
     _spatial_load_target_mass, _size_adaptive_expands, _curriculum_strength_range,
     _hardness_strength_range, _protection, _protection_for_variant, _spacing_adaptive_expands,
     _context_adaptive_scale_range, _context_adaptive_strength_range,
-    _contrast_adaptive_expands, _far_context_richness, _object_local_contrast,
+    _contrast_adaptive_expands, _far_context_richness, _far_mask, _object_local_contrast,
     calibrate_effect_target, oacp_diagnostics,
 )
 from project_ultralytics.oacp_state import OACPSharedState
@@ -462,6 +463,18 @@ def test_context_richness_increases_on_textured_far_context():
     assert _far_context_richness(textured, protected) > _far_context_richness(smooth, protected)
 
 
+def test_context_richness_is_soft_far_mask_weighted():
+    image = np.random.default_rng(92).integers(20, 180, (64, 64, 3), dtype=np.uint8)
+    protected = _mask_from_boxes_for_test(np.asarray([[28, 28, 36, 36]], dtype=np.float32), 64, 64, 3.0)
+    lum = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
+    gx = cv2.Sobel(lum, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(lum, cv2.CV_32F, 0, 1, ksize=3)
+    gradient = cv2.magnitude(gx, gy)
+    far = _far_mask(protected, 64, 64)
+    expected = float((far * gradient).sum() / far.sum())
+    assert _far_context_richness(image, protected) == pytest.approx(expected)
+
+
 def test_context_adaptive_strength_gets_stronger_with_richness(monkeypatch, tmp_path):
     monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
     (tmp_path / "stats.json").write_text("{}")
@@ -485,7 +498,8 @@ def test_context_adaptive_scale_gets_lower_with_richness(monkeypatch, tmp_path):
 def test_contrast_adaptive_expand_widens_for_low_contrast(monkeypatch, tmp_path):
     monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
     (tmp_path / "stats.json").write_text(
-        '{"local_contrast_q10": 0.0, "local_contrast_q90": 10.0}'
+        '{"context_richness_q10": 0.0, "context_richness_q90": 1.0, '
+        '"local_contrast_q10": 0.0, "local_contrast_q90": 10.0}'
     )
     boxes = np.asarray([[56, 56, 72, 72]], dtype=np.float32)
     low = np.full((128, 128, 3), 80, dtype=np.uint8)
@@ -509,13 +523,71 @@ def test_contrast_measurement_excludes_neighbor_gt():
 
 def test_contrast_adaptive_invalid_context_falls_back_to_r2(monkeypatch, tmp_path):
     monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
-    (tmp_path / "stats.json").write_text("{}")
+    (tmp_path / "stats.json").write_text(
+        '{"context_richness_q10": 0.0, "context_richness_q90": 1.0, '
+        '"local_contrast_q10": 0.0, "local_contrast_q90": 1.0}'
+    )
     boxes = np.asarray([[0, 0, 2, 2]], dtype=np.float32)
     expands, records = _contrast_adaptive_expands(
         np.full((4, 4, 3), 80, dtype=np.uint8), boxes, np.asarray([0])
     )
     assert expands[0] == pytest.approx(3.0)
     assert records[0]["fallback"] is True
+
+
+@pytest.mark.parametrize("payload", [
+    "{}",
+    '{"context_richness_q10": 0, "context_richness_q90": 1, "local_contrast_q10": 0}',
+    '{"context_richness_q10": 1, "context_richness_q90": 0, "local_contrast_q10": 0, "local_contrast_q90": 1}',
+    '{"context_richness_q10": 0, "context_richness_q90": 1, "local_contrast_q10": 0, "local_contrast_q90": "nan"}',
+])
+def test_context_calibration_fails_hard(monkeypatch, tmp_path, payload):
+    path = tmp_path / "stats.json"
+    path.write_text(payload)
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(path))
+    with pytest.raises(ValueError, match="calibration"):
+        from project_ultralytics.context_augment import _context_stats
+        _context_stats()
+
+
+def test_context_adaptive_policies_are_single_axis(monkeypatch, tmp_path):
+    path = tmp_path / "stats.json"
+    path.write_text(
+        '{"context_richness_q10": 0, "context_richness_q90": 1, '
+        '"local_contrast_q10": 0, "local_contrast_q90": 1}'
+    )
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(path))
+    monkeypatch.setenv("OACP_STRENGTH_POLICY", "context_adaptive")
+    monkeypatch.setenv("OACP_SCALE_POLICY", "context_adaptive")
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        from project_ultralytics.context_augment import augmentation_config
+        augmentation_config()
+
+
+def test_c3_uses_fixed_r2_attenuation_reference(monkeypatch, tmp_path):
+    path = tmp_path / "stats.json"
+    path.write_text(
+        '{"context_richness_q10": 0, "context_richness_q90": 1, '
+        '"local_contrast_q10": 0, "local_contrast_q90": 10}'
+    )
+    log = tmp_path / "c3.jsonl"
+    monkeypatch.setenv("OACP_PROFILE", "r2")
+    monkeypatch.setenv("OACP_EFFECT_POLICY", "fixed")
+    monkeypatch.setenv("OACP_STRENGTH_POLICY", "fixed")
+    monkeypatch.setenv("OACP_SCALE_POLICY", "fixed")
+    monkeypatch.setenv("OACP_PROTECTION_POLICY", "contrast_adaptive")
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(path))
+    monkeypatch.setenv("OACP_P", "0.40")
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    image = np.full((96, 96, 3), 80, dtype=np.uint8)
+    image[44:52, 44:52] = 220
+    out = OACP(p=1.0)({"img": image, "bboxes": np.asarray([[48 / 96, 48 / 96, 8 / 96, 8 / 96]], dtype=np.float32)})
+    assert out["img"].shape == image.shape
+    record = __import__("json").loads(log.read_text().strip())
+    assert record["attenuation_reference"] == "r2_fixed"
+    assert record["attenuation"] == pytest.approx(
+        1.0 - _protection(np.asarray([[44, 44, 52, 52]], dtype=np.float32), 96, 96)[0].mean()
+    )
 
 
 def _mask_from_boxes_for_test(boxes, h, w, expand):
