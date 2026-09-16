@@ -22,6 +22,7 @@ from .detection_loss import (
     positive_confidence_rescue_loss,
     scale_tempered_cls_targets,
 )
+from .hardness import foreground_assignment_hardness
 
 
 class FactorizedTALDetectionLoss(v8DetectionLoss):
@@ -144,8 +145,9 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
         # the upstream assignment/loss seam. This statistic is detached and
         # never contributes to the training objective.
         with torch.no_grad():
-            hardness_loss = self.bce(pred_scores.detach(), target_scores.detach().to(dtype))
-            self.last_per_image_hardness = hardness_loss.mean(dim=(1, 2)).detach()
+            self.last_per_image_hardness = foreground_assignment_hardness(
+                pred_scores, target_scores, fg_mask
+            )
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,

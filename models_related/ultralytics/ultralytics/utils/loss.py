@@ -18,6 +18,8 @@ from ultralytics.utils.ops import crop_mask, xywh2xyxy, xyxy2xywh
 from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigner, dist2bbox, dist2rbox, make_anchors
 from ultralytics.utils.torch_utils import autocast
 
+from project_ultralytics.hardness import foreground_assignment_hardness
+
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist, rbox2dist
 
@@ -2419,8 +2421,9 @@ class v8DetectionLoss:
         # image and commits a previous-epoch EMA into the shared augmentation
         # state, so workers do not react to a noisy same-epoch signal.
         with torch.no_grad():
-            hardness_loss = self.bce(pred_scores.detach(), cls_target_scores.detach().to(dtype))
-            self.last_per_image_hardness = hardness_loss.mean(dim=(1, 2)).detach()
+            self.last_per_image_hardness = foreground_assignment_hardness(
+                pred_scores, cls_target_scores, fg_mask
+            )
 
         self.positive_confidence_rescue_metrics = {}
         if self.positive_confidence_rescue_gain > 0:

@@ -193,6 +193,8 @@ def augmentation_config() -> dict[str, Any]:
         raise ValueError("OACP_EFFECT_POLICY=adaptive conflicts with the selected OACP_STRENGTH_POLICY")
     if cfg["oacp_strength_policy"] == "effect_adaptive" and cfg["oacp_effect_policy"] == "fixed":
         raise ValueError("OACP_STRENGTH_POLICY=effect_adaptive requires OACP_EFFECT_POLICY=adaptive")
+    if cfg["oacp_strength_policy"] == "effect_adaptive" and cfg["oacp_target_effect"] <= 0.0:
+        raise ValueError("OACP_TARGET_EFFECT must be > 0 for effect_adaptive strength")
     if cfg["oacp_protection_policy"] == "size_adaptive" and cfg["oacp_variant"] in {"density", "spacing_adaptive"}:
         raise ValueError("size_adaptive protection cannot be combined with density or spacing_adaptive")
     if profile == "r2":
@@ -202,12 +204,16 @@ def augmentation_config() -> dict[str, Any]:
             raise ValueError("OACP_PROFILE=r2 requires fixed p=0.40")
         if not np.allclose(cfg["oacp_resolution_scale"], [0.80, 0.95]):
             raise ValueError("OACP_PROFILE=r2 requires resolution scale 0.80-0.95")
+        if not np.allclose(cfg["oacp_strength"], [0.10, 0.25]):
+            raise ValueError("OACP_PROFILE=r2 requires base strength range 0.10-0.25")
         if not np.isclose(cfg["protected_expand"], 3.0):
             raise ValueError("OACP_PROFILE=r2 requires protected_expand=3.0")
     if not 0.0 <= cfg["oacp_curriculum_warmup_fraction"] < 1.0:
         raise ValueError("OACP_CURRICULUM_WARMUP_FRACTION must be in [0, 1)")
     if not 0.0 <= cfg["oacp_curriculum_cooldown_fraction"] < 1.0:
         raise ValueError("OACP_CURRICULUM_COOLDOWN_FRACTION must be in [0, 1)")
+    if cfg["oacp_curriculum_warmup_fraction"] + cfg["oacp_curriculum_cooldown_fraction"] >= 1.0:
+        raise ValueError("curriculum warmup and cooldown fractions must sum to < 1")
     return cfg
 
 

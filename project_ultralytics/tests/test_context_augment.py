@@ -13,6 +13,7 @@ from project_ultralytics.context_augment import (
     calibrate_effect_target, oacp_diagnostics,
 )
 from project_ultralytics.oacp_state import OACPSharedState
+from project_ultralytics.hardness import foreground_assignment_hardness
 
 
 def _labels(img, boxes):
@@ -438,3 +439,43 @@ def test_r2_profile_is_fixed_control(monkeypatch):
     assert cfg["oacp_resolution_scale"] == pytest.approx([0.80, 0.95])
     assert cfg["oacp_variant"] == "current"
     assert cfg["oacp_placement"] == "pre_transform"
+
+
+def test_effect_adaptive_requires_positive_target(monkeypatch):
+    monkeypatch.setenv("OACP_STRENGTH_POLICY", "effect_adaptive")
+    monkeypatch.setenv("OACP_EFFECT_POLICY", "adaptive")
+    monkeypatch.setenv("OACP_TARGET_EFFECT", "0")
+    with pytest.raises(ValueError, match="OACP_TARGET_EFFECT"):
+        from project_ultralytics.context_augment import augmentation_config
+
+        augmentation_config()
+
+
+def test_curriculum_phases_cannot_overlap(monkeypatch):
+    monkeypatch.setenv("OACP_CURRICULUM_WARMUP_FRACTION", "0.7")
+    monkeypatch.setenv("OACP_CURRICULUM_COOLDOWN_FRACTION", "0.3")
+    with pytest.raises(ValueError, match="sum to < 1"):
+        from project_ultralytics.context_augment import augmentation_config
+
+        augmentation_config()
+
+
+def test_r2_profile_rejects_strength_override(monkeypatch):
+    monkeypatch.setenv("OACP_PROFILE", "r2")
+    monkeypatch.setenv("OACP_STRENGTH_MIN", "0.05")
+    with pytest.raises(ValueError, match="base strength range"):
+        from project_ultralytics.context_augment import augmentation_config
+
+        augmentation_config()
+
+
+def test_hardness_uses_foreground_assignments_and_nan_for_empty_images():
+    logits = np.asarray([[[8.0], [-8.0], [0.0]], [[8.0], [8.0], [8.0]]], dtype=np.float32)
+    targets = np.asarray([[[1.0], [0.0], [0.0]], [[0.0], [0.0], [0.0]]], dtype=np.float32)
+    import torch
+
+    hardness = foreground_assignment_hardness(
+        torch.from_numpy(logits), torch.from_numpy(targets), torch.tensor([[True, False, False], [False, False, False]])
+    )
+    assert hardness[0].item() < 0.01
+    assert torch.isnan(hardness[1])
