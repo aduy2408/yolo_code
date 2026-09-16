@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-repo", required=True)
     parser.add_argument("--variants", nargs="+", required=True)
     parser.add_argument("--seeds", nargs="+", type=int, required=True)
+    parser.add_argument("--jobs", nargs="*", help="Exact variant:seed pairs; overrides the Cartesian product")
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda")
@@ -55,8 +56,14 @@ def main() -> None:
     api.create_repo(repo_id=args.output_repo, repo_type="dataset", exist_ok=True)
     data_yaml = prepare(args.data_root, args.dataset_root / "levir_ship_posthoc_split_42", 42)
 
-    for variant in args.variants:
-        for seed in args.seeds:
+    jobs = [(variant, seed) for variant in args.variants for seed in args.seeds]
+    if args.jobs:
+        jobs = []
+        for item in args.jobs:
+            variant, raw_seed = item.rsplit(":", 1)
+            jobs.append((variant, int(raw_seed)))
+
+    for variant, seed in jobs:
             relative = f"copy_paste/levir/{variant}/seed_{seed}"
             out_dir = args.work_dir / variant / f"seed_{seed}"
             out_dir.mkdir(parents=True, exist_ok=True)
