@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -22,6 +23,21 @@ import yaml
 from copy_paste_protocol import VARIANTS, effective_settings, variant_overrides
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _retry_hf(operation, *, attempts: int = 6, delay: float = 5.0):
+    """Retry transient Hugging Face failures without hiding permanent errors."""
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except Exception as exc:  # network/service errors are provider-specific
+            last_error = exc
+            if attempt + 1 == attempts:
+                raise
+            print(f"Hugging Face operation failed ({type(exc).__name__}); retrying {attempt + 1}/{attempts - 1}...", flush=True)
+            time.sleep(delay * (attempt + 1))
+    raise last_error  # pragma: no cover
 
 
 def _git_sha() -> str:
@@ -46,7 +62,7 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
     from huggingface_hub import HfApi
 
     api = HfApi(token=os.environ["HF_TOKEN"])
-    api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True)
+    _retry_hf(lambda: api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True))
     required = [
         "weights/best.pt", "weights/last.pt", "results.csv",
         "evaluation_metrics.json", "experiment_manifest.json",
@@ -59,12 +75,12 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
     missing_metrics = [key for key in required_metrics if key not in metrics]
     if missing_metrics:
         raise RuntimeError(f"Refusing upload without split-qualified metrics for {run_dir}: {missing_metrics}")
-    api.upload_folder(
-        folder_path=str(run_dir), repo_id=repo_id, repo_type="dataset",
-        path_in_repo=f"copy_paste/{dataset}/{variant}/seed_{seed}",
-    )
     remote_prefix = f"copy_paste/{dataset}/{variant}/seed_{seed}"
-    remote_files = set(api.list_repo_files(repo_id=repo_id, repo_type="dataset"))
+    _retry_hf(lambda: api.upload_folder(
+        folder_path=str(run_dir), repo_id=repo_id, repo_type="dataset",
+        path_in_repo=remote_prefix,
+    ))
+    remote_files = set(_retry_hf(lambda: api.list_repo_files(repo_id=repo_id, repo_type="dataset")))
     missing_remote = [f"{remote_prefix}/{path}" for path in required if f"{remote_prefix}/{path}" not in remote_files]
     if missing_remote:
         raise RuntimeError(f"Hugging Face upload verification failed: {missing_remote}")
@@ -72,12 +88,12 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
         json.dumps({"repo_id": repo_id, "dataset": dataset, "variant": variant, "seed": seed}, indent=2) + "\n",
         encoding="utf-8",
     )
-    api.upload_file(
+    _retry_hf(lambda: api.upload_file(
         path_or_fileobj=str(run_dir / "upload_complete.json"),
         path_in_repo=f"{remote_prefix}/upload_complete.json",
         repo_id=repo_id,
         repo_type="dataset",
-    )
+    ))
 
 
 def _train_images_and_labels(data_yaml: Path) -> tuple[list[Path], list[Path]]:
