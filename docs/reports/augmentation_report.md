@@ -266,6 +266,8 @@ The combined OACP + Copy-Paste repositories should not be compared with the plai
 
 The queued OACP workflow is sequential and uses a separate Hugging Face repository for each model/variant. Verified LEVIR density and TinyPerson budget artifacts are reused rather than retrained. Only missing or untrusted artifacts should enter the queue again.
 
+**TinyPerson resolution clarification:** the prepared corner windows are named `sw640_sh512`, meaning source crops are **640×512 (width×height)**. The detector training/evaluation setting is `imgsz=640`, so Ultralytics receives a **640×640 square model input** after its resize/letterbox pipeline. Therefore, `640×512` describes the dataset window geometry, not the tensor resolution used by the detector. The same distinction applies to the merged corner-window test protocol.
+
 ### 4.2a Exact detector YAML map
 
 This is the part that must not be inferred from the checkpoint name. In particular, `yolov8n.pt` only identifies the pretrained weights; it does **not** tell us whether the detector head is the canonical P3/P4/P5 graph, a P2/P3/P4 graph, or a P2-only graph.
