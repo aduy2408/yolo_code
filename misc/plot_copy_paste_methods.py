@@ -170,18 +170,43 @@ def add_boxes(ax, boxes: np.ndarray, color: str = "#20a464", dashed: bool = Fals
                                linewidth=linewidth, linestyle="--" if dashed else "-"))
 
 
+def zoom_group(boxes: np.ndarray) -> tuple[int, ...]:
+    """Select one object, or a close pair, following the previous report logic."""
+    if len(boxes) == 0:
+        return ()
+    centers = (boxes[:, :2] + boxes[:, 2:]) / 2
+    candidates: list[tuple[tuple[int, float, float], tuple[int, ...]]] = []
+    for index, box in enumerate(boxes):
+        area = float((box[2] - box[0]) * (box[3] - box[1]))
+        candidates.append(((1, 0.0, area), (index,)))
+        for other in range(index + 1, len(boxes)):
+            other_box = boxes[other]
+            distance = float(np.linalg.norm(centers[index] - centers[other]))
+            scale = max(box[2] - box[0], box[3] - box[1], other_box[2] - other_box[0], other_box[3] - other_box[1])
+            if distance / max(float(scale), 1.0) <= 2.0:
+                pair_area = float((box[2] - box[0]) * (box[3] - box[1]) + (other_box[2] - other_box[0]) * (other_box[3] - other_box[1]))
+                candidates.append(((2, -distance / max(float(scale), 1.0), pair_area), (index, other)))
+    return max(candidates, key=lambda candidate: candidate[0])[1]
+
+
+def zoom_bounds(boxes: np.ndarray, width: int, height: int) -> tuple[int, int, int, int]:
+    """Return a tight padded crop around one object or a close pair."""
+    selected = boxes[list(zoom_group(boxes))]
+    x1, y1 = selected[:, :2].min(axis=0)
+    x2, y2 = selected[:, 2:].max(axis=0)
+    padding = max(10.0, 1.25 * max(x2 - x1, y2 - y1))
+    return clip_box(np.array([x1 - padding, y1 - padding, x2 + padding, y2 + padding]), width, height)
+
+
 def zoom_view(image: np.ndarray, boxes: np.ndarray, margin: float = 0.34) -> tuple[np.ndarray, np.ndarray]:
-    """Crop a display view around objects and transform boxes into crop coordinates."""
+    """Crop and enlarge the sampled object zone used in the earlier plots."""
     if boxes is None or len(boxes) == 0:
         return image, boxes
     height, width = image.shape[:2]
-    x1, y1 = boxes[:, :2].min(axis=0)
-    x2, y2 = boxes[:, 2:].max(axis=0)
-    pad_x = max((x2 - x1) * margin, width * 0.025)
-    pad_y = max((y2 - y1) * margin, height * 0.025)
-    left, top, right, bottom = clip_box(np.array([x1 - pad_x, y1 - pad_y, x2 + pad_x, y2 + pad_y]), width, height)
+    selected = boxes[list(zoom_group(boxes))]
+    left, top, right, bottom = zoom_bounds(selected, width, height)
     view = image[top:bottom, left:right]
-    transformed = boxes.copy()
+    transformed = selected.copy()
     transformed[:, [0, 2]] -= left
     transformed[:, [1, 3]] -= top
     return view, transformed
