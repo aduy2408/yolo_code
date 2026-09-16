@@ -232,7 +232,12 @@ def prepare_test_set(data_root: Path, output_dir: Path) -> Path:
     test_labels_dir = test_out_dir / "labels"
 
     # If already prepared, skip
-    if test_images_dir.exists() and test_labels_dir.exists() and list(test_labels_dir.glob("*.txt")):
+    if (
+        test_images_dir.exists()
+        and test_labels_dir.exists()
+        and list(test_labels_dir.glob("*.txt"))
+        and (test_out_dir / "corner_manifest.json").is_file()
+    ):
         print("Test set already prepared.", flush=True)
         return test_out_dir
 
