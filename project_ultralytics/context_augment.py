@@ -38,9 +38,15 @@ AUG_CONFIG = {
     "oacp_effect_policy": "fixed",
     "oacp_target_effect": 0.0,
     "oacp_strength_policy": "fixed",
+    "oacp_scale_policy": "fixed",
     "oacp_load_strength_min": 0.05,
     "oacp_load_strength_max": 0.15,
     "oacp_protection_policy": "fixed",
+    "oacp_context_stats_path": "",
+    "oacp_context_measurement_expand": 2.5,
+    "oacp_context_strength_range": [0.05, 0.15, 0.30, 0.50],
+    "oacp_context_scale_range": [0.90, 1.00, 0.45, 0.70],
+    "oacp_contrast_expand_range": [1.5, 5.5],
     "oacp_size_expand_min": 2.0,
     "oacp_size_expand_max": 4.0,
     "oacp_size_expand_smax": 32.0,
@@ -109,6 +115,9 @@ def augmentation_config() -> dict[str, Any]:
     elif cfg["oacp_effect_policy"] == "adaptive":
         # Backward-compatible alias for the original effect policy flag.
         cfg["oacp_strength_policy"] = "effect_adaptive"
+    cfg["oacp_scale_policy"] = os.environ.get(
+        "OACP_SCALE_POLICY", cfg["oacp_scale_policy"]
+    ).lower()
     cfg["oacp_load_strength"] = [
         float(os.environ.get("OACP_LOAD_STRENGTH_MIN", cfg["oacp_load_strength_min"])),
         float(os.environ.get("OACP_LOAD_STRENGTH_MAX", cfg["oacp_load_strength_max"])),
@@ -116,6 +125,28 @@ def augmentation_config() -> dict[str, Any]:
     cfg["oacp_protection_policy"] = os.environ.get(
         "OACP_PROTECTION_POLICY", cfg["oacp_protection_policy"]
     ).lower()
+    cfg["oacp_context_stats_path"] = os.environ.get(
+        "OACP_CONTEXT_STATS_PATH", cfg["oacp_context_stats_path"]
+    )
+    cfg["oacp_context_measurement_expand"] = float(os.environ.get(
+        "OACP_CONTEXT_MEASUREMENT_EXPAND", cfg["oacp_context_measurement_expand"]
+    ))
+    cfg["oacp_context_strength_range"] = [
+        float(os.environ.get("OACP_CONTEXT_STRENGTH_SMOOTH_MIN", 0.05)),
+        float(os.environ.get("OACP_CONTEXT_STRENGTH_SMOOTH_MAX", 0.15)),
+        float(os.environ.get("OACP_CONTEXT_STRENGTH_RICH_MIN", 0.30)),
+        float(os.environ.get("OACP_CONTEXT_STRENGTH_RICH_MAX", 0.50)),
+    ]
+    cfg["oacp_context_scale_range"] = [
+        float(os.environ.get("OACP_CONTEXT_SCALE_SMOOTH_MIN", 0.90)),
+        float(os.environ.get("OACP_CONTEXT_SCALE_SMOOTH_MAX", 1.00)),
+        float(os.environ.get("OACP_CONTEXT_SCALE_RICH_MIN", 0.45)),
+        float(os.environ.get("OACP_CONTEXT_SCALE_RICH_MAX", 0.70)),
+    ]
+    cfg["oacp_contrast_expand_range"] = [
+        float(os.environ.get("OACP_CONTRAST_EXPAND_HIGH", 1.5)),
+        float(os.environ.get("OACP_CONTRAST_EXPAND_LOW", 5.5)),
+    ]
     cfg["oacp_size_expand"] = [
         float(os.environ.get("OACP_SIZE_EXPAND_MIN", cfg["oacp_size_expand_min"])),
         float(os.environ.get("OACP_SIZE_EXPAND_MAX", cfg["oacp_size_expand_max"])),
@@ -182,12 +213,14 @@ def augmentation_config() -> dict[str, Any]:
     }
     cfg["lea_stats_path"] = os.environ.get("LEA_STATS_PATH", "")
     cfg["sweep_label"] = os.environ.get("OACP_SWEEP_LABEL", "")
-    valid_strength = {"fixed", "effect_adaptive", "load_adaptive", "curriculum", "hardness_adaptive"}
+    valid_strength = {"fixed", "effect_adaptive", "load_adaptive", "curriculum", "hardness_adaptive", "context_adaptive"}
     if cfg["oacp_strength_policy"] not in valid_strength:
         raise ValueError(f"unknown OACP_STRENGTH_POLICY: {cfg['oacp_strength_policy']}")
     if cfg["oacp_effect_policy"] not in {"fixed", "adaptive"}:
         raise ValueError(f"unknown OACP_EFFECT_POLICY: {cfg['oacp_effect_policy']}")
-    if cfg["oacp_protection_policy"] not in {"fixed", "size_adaptive"}:
+    if cfg["oacp_scale_policy"] not in {"fixed", "context_adaptive"}:
+        raise ValueError(f"unknown OACP_SCALE_POLICY: {cfg['oacp_scale_policy']}")
+    if cfg["oacp_protection_policy"] not in {"fixed", "size_adaptive", "contrast_adaptive"}:
         raise ValueError(f"unknown OACP_PROTECTION_POLICY: {cfg['oacp_protection_policy']}")
     if explicit_strength_policy and cfg["oacp_effect_policy"] == "adaptive" and cfg["oacp_strength_policy"] != "effect_adaptive":
         raise ValueError("OACP_EFFECT_POLICY=adaptive conflicts with the selected OACP_STRENGTH_POLICY")
@@ -195,6 +228,12 @@ def augmentation_config() -> dict[str, Any]:
         raise ValueError("OACP_STRENGTH_POLICY=effect_adaptive requires OACP_EFFECT_POLICY=adaptive")
     if cfg["oacp_strength_policy"] == "effect_adaptive" and cfg["oacp_target_effect"] <= 0.0:
         raise ValueError("OACP_TARGET_EFFECT must be > 0 for effect_adaptive strength")
+    if (
+        cfg["oacp_strength_policy"] == "context_adaptive"
+        or cfg["oacp_scale_policy"] == "context_adaptive"
+        or cfg["oacp_protection_policy"] == "contrast_adaptive"
+    ) and not cfg["oacp_context_stats_path"]:
+        raise ValueError("context-adaptive OACP policies require OACP_CONTEXT_STATS_PATH")
     if cfg["oacp_protection_policy"] == "size_adaptive" and cfg["oacp_variant"] in {"density", "spacing_adaptive"}:
         raise ValueError("size_adaptive protection cannot be combined with density or spacing_adaptive")
     if profile == "r2":
@@ -224,6 +263,7 @@ def _oacp_config() -> dict[str, Any]:
         "protected_expand": cfg["protected_expand"],
         "strength": cfg["oacp_strength"],
         "resolution_scale": cfg["oacp_resolution_scale"],
+        "scale_policy": cfg["oacp_scale_policy"],
         "budget": cfg["oacp_budget"],
         "oacp_load_strength": [
             float(cfg["oacp_load_strength_min"]),
@@ -233,6 +273,7 @@ def _oacp_config() -> dict[str, Any]:
         "oacp_curriculum_strength": cfg["oacp_curriculum_strength"],
         "oacp_curriculum_warmup_fraction": cfg["oacp_curriculum_warmup_fraction"],
         "oacp_curriculum_cooldown_fraction": cfg["oacp_curriculum_cooldown_fraction"],
+        "context_stats_path": cfg["oacp_context_stats_path"],
     }
 
 
@@ -388,6 +429,125 @@ def _mask_from_boxes_per_expand(
     return mask
 
 
+def _context_stats() -> dict[str, float]:
+    """Load immutable train-split quantiles for context-adaptive policies."""
+    path = augmentation_config().get("oacp_context_stats_path", "")
+    if path and os.path.isfile(path):
+        try:
+            data = json.loads(open(path, encoding="utf-8").read())
+            return {key: float(value) for key, value in data.items() if isinstance(value, (int, float))}
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+    return {
+        "context_richness_q10": 0.0,
+        "context_richness_q90": 1.0,
+        "local_contrast_q10": 0.0,
+        "local_contrast_q90": 1.0,
+    }
+
+
+def _normalize_with_quantiles(value: float, q10: float, q90: float) -> float:
+    return float(np.clip((float(value) - float(q10)) / max(float(q90) - float(q10), 1e-8), 0.0, 1.0))
+
+
+def _context_adaptive_strength_range(norm: float) -> tuple[float, float]:
+    cfg = augmentation_config()
+    smooth_min, smooth_max, rich_min, rich_max = cfg["oacp_context_strength_range"]
+    norm = float(np.clip(norm, 0.0, 1.0))
+    return (
+        float(smooth_min + norm * (rich_min - smooth_min)),
+        float(smooth_max + norm * (rich_max - smooth_max)),
+    )
+
+
+def _context_adaptive_scale_range(norm: float) -> tuple[float, float]:
+    cfg = augmentation_config()
+    smooth_min, smooth_max, rich_min, rich_max = cfg["oacp_context_scale_range"]
+    norm = float(np.clip(norm, 0.0, 1.0))
+    return (
+        float(smooth_min + norm * (rich_min - smooth_min)),
+        float(smooth_max + norm * (rich_max - smooth_max)),
+    )
+
+
+def _far_context_richness(img: np.ndarray, protected: np.ndarray) -> float:
+    """Return mean LAB-L Sobel energy in the far-context region."""
+    if img is None or not protected.any():
+        return 0.0
+    lum = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
+    gx = cv2.Sobel(lum, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(lum, cv2.CV_32F, 0, 1, ksize=3)
+    gradient = cv2.magnitude(gx, gy)
+    far = _far_mask(protected, *img.shape[:2]) > 0.55
+    return float(gradient[far].mean()) if far.any() else 0.0
+
+
+def _object_local_contrast(
+    img: np.ndarray,
+    object_box: np.ndarray,
+    all_boxes: np.ndarray,
+    measurement_expand: float = 2.5,
+) -> tuple[float | None, int]:
+    """Measure LAB-L object/context separability, excluding every GT box."""
+    h, w = img.shape[:2]
+    x1, y1, x2, y2 = map(float, object_box)
+    cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    hw, hh = (x2 - x1) * measurement_expand / 2.0, (y2 - y1) * measurement_expand / 2.0
+    xa, xb = max(0, int(cx - hw)), min(w, int(cx + hw + 1))
+    ya, yb = max(0, int(cy - hh)), min(h, int(cy + hh + 1))
+    if xa >= xb or ya >= yb:
+        return None, 0
+    object_mask = np.zeros((h, w), dtype=bool)
+    object_mask[max(0, int(y1)):min(h, int(y2)), max(0, int(x1)):min(w, int(x2))] = True
+    context_mask = np.zeros((h, w), dtype=bool)
+    context_mask[ya:yb, xa:xb] = True
+    context_mask &= ~_mask_from_boxes(np.asarray(all_boxes), h, w, 1.0).astype(bool)
+    count = int(context_mask.sum())
+    if count < 8 or not object_mask.any():
+        return None, count
+    lum = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
+    contrast = abs(float(lum[object_mask].mean() - lum[context_mask].mean())) / (float(lum[context_mask].std()) + 1e-6)
+    return contrast, count
+
+
+def _contrast_adaptive_expands(
+    img: np.ndarray | None,
+    boxes: np.ndarray,
+    eligible_indices: np.ndarray,
+    *,
+    stats: dict[str, float] | None = None,
+    measurement_expand: float = 2.5,
+    expand_low: float = 1.5,
+    expand_high: float = 5.5,
+) -> tuple[np.ndarray, list[dict[str, Any]]]:
+    """Protect more local context for low-contrast ships."""
+    boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+    eligible_indices = np.asarray(eligible_indices, dtype=np.int64).reshape(-1)
+    stats = stats or _context_stats()
+    expands = np.full(len(eligible_indices), 3.0, dtype=np.float32)
+    records: list[dict[str, Any]] = []
+    for out_index, object_index in enumerate(eligible_indices):
+        raw = None
+        count = 0
+        if img is not None:
+            raw, count = _object_local_contrast(img, boxes[object_index], boxes, measurement_expand)
+        fallback = raw is None or not np.isfinite(raw)
+        norm = 0.5 if fallback else _normalize_with_quantiles(
+            raw, stats.get("local_contrast_q10", 0.0), stats.get("local_contrast_q90", 1.0)
+        )
+        expand = 3.0 if fallback else float(expand_high - norm * (expand_high - expand_low))
+        expands[out_index] = expand
+        records.append({
+            "object_index": int(object_index),
+            "contrast_raw": None if fallback else float(raw),
+            "contrast_norm": float(norm),
+            "context_pixel_count": int(count),
+            "adaptive_expand": float(expand),
+            "fallback": bool(fallback),
+        })
+    return expands, records
+
+
 def _bbox_edge_distance(box_a: np.ndarray, box_b: np.ndarray) -> float:
     """Return Euclidean edge-to-edge distance between two xyxy boxes."""
     ax1, ay1, ax2, ay2 = box_a
@@ -524,7 +684,13 @@ def _density_adaptive_expand(boxes: np.ndarray, h: int, w: int) -> tuple[float, 
     return float(candidates[index]), occupancy, target
 
 
-def _protection_for_variant(boxes: np.ndarray, h: int, w: int, variant: str) -> tuple[np.ndarray, np.ndarray, float, float, float]:
+def _protection_for_variant(
+    boxes: np.ndarray,
+    h: int,
+    w: int,
+    variant: str,
+    image: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, float, float, float]:
     sizes = np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1])) if len(boxes) else np.empty(0)
     eligible_indices = np.flatnonzero(sizes < AUG_CONFIG["object_max_size"])
     tiny = boxes[eligible_indices]
@@ -553,7 +719,21 @@ def _protection_for_variant(boxes: np.ndarray, h: int, w: int, variant: str) -> 
             expand = float(np.mean(expands))
     else:
         cfg = augmentation_config()
-        if cfg["oacp_protection_policy"] == "size_adaptive" and len(tiny):
+        if cfg["oacp_protection_policy"] == "contrast_adaptive" and len(tiny):
+            expands, _ = _contrast_adaptive_expands(
+                image,
+                boxes,
+                eligible_indices,
+                measurement_expand=cfg["oacp_context_measurement_expand"],
+                expand_low=cfg["oacp_contrast_expand_range"][0],
+                expand_high=cfg["oacp_contrast_expand_range"][1],
+            )
+            protected = _mask_from_boxes(
+                boxes, h, w, AUG_CONFIG["safety_expand"]
+            ).astype(bool)
+            protected |= _mask_from_boxes_per_expand(tiny, expands, h, w).astype(bool)
+            expand = float(np.mean(expands))
+        elif cfg["oacp_protection_policy"] == "size_adaptive" and len(tiny):
             expands, _ = _size_adaptive_expands(
                 tiny,
                 expand_min=cfg["oacp_size_expand"][0],
@@ -575,7 +755,8 @@ def _protection_for_variant(boxes: np.ndarray, h: int, w: int, variant: str) -> 
 
 def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.ndarray,
                      variant: str = "current", budget: float | None = None,
-                     target_mass: float | None = None) -> dict[str, Any]:
+                     target_mass: float | None = None,
+                     image: np.ndarray | None = None) -> dict[str, Any]:
     """Return geometry/severity diagnostics without modifying an image.
 
     ``boxes`` are absolute ``xyxy`` coordinates.  The budget is a fraction of
@@ -587,7 +768,9 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
     if variant not in {"current", "budget", "density", "mass_adaptive", "load_adaptive", "spatial_load_adaptive", "spacing_adaptive"}:
         raise ValueError(f"unknown OACP variant: {variant}")
     boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
-    protected, tiny, expand, occupancy, density_target = _protection_for_variant(boxes, h, w, variant)
+    protected, tiny, expand, occupancy, density_target = _protection_for_variant(
+        boxes, h, w, variant, image=image
+    )
     protected_ratio = float(protected.mean())
     gt_mask = _mask_from_boxes(boxes, h, w, 1.0).astype(bool)
     available = (protected == 0) & ~gt_mask
@@ -691,6 +874,16 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
             expand_max=cfg["oacp_size_expand"][1],
             size_smax=cfg["oacp_size_expand_smax"],
         )
+    contrast_records: list[dict[str, Any]] = []
+    if cfg["oacp_protection_policy"] == "contrast_adaptive" and len(tiny):
+        _, contrast_records = _contrast_adaptive_expands(
+            image,
+            boxes,
+            np.flatnonzero(sizes < AUG_CONFIG["object_max_size"]),
+            measurement_expand=cfg["oacp_context_measurement_expand"],
+            expand_low=cfg["oacp_contrast_expand_range"][0],
+            expand_high=cfg["oacp_contrast_expand_range"][1],
+        )
     normalized_spacings = [
         r["normalized_spacing"] for r in spacing_records
         if r["normalized_spacing"] is not None
@@ -737,6 +930,7 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "max_adaptive_expand": float(np.max(adaptive_expands)) if adaptive_expands else 0.0,
         "spacing_objects": spacing_records,
         "size_objects": size_records,
+        "contrast_objects": contrast_records,
         "gt_area_ratio": float(gt_mask.mean()),
         "perturb_gt_overlap_ratio": float((perturb.astype(bool) & gt_mask).mean()),
         "eligible": eligible,
@@ -749,6 +943,11 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "mean_size_adaptive_expand": float(np.mean([r["expand"] for r in size_records])) if size_records else 0.0,
         "min_size_adaptive_expand": float(np.min([r["expand"] for r in size_records])) if size_records else 0.0,
         "max_size_adaptive_expand": float(np.max([r["expand"] for r in size_records])) if size_records else 0.0,
+        "mean_contrast": float(np.mean([r["contrast_raw"] for r in contrast_records if r["contrast_raw"] is not None])) if any(r["contrast_raw"] is not None for r in contrast_records) else 0.0,
+        "mean_contrast_adaptive_expand": float(np.mean([r["adaptive_expand"] for r in contrast_records])) if contrast_records else 0.0,
+        "min_contrast_adaptive_expand": float(np.min([r["adaptive_expand"] for r in contrast_records])) if contrast_records else 0.0,
+        "max_contrast_adaptive_expand": float(np.max([r["adaptive_expand"] for r in contrast_records])) if contrast_records else 0.0,
+        "contrast_fallback_count": int(sum(r["fallback"] for r in contrast_records)),
         "perturb_budget_valid_background": budget if variant != "current" else 1.0,
     }
 
@@ -841,10 +1040,25 @@ class OACP:
             budget = None
         else:
             budget = random.uniform(*cfg["budget"]) if variant != "current" else None
-        protected, tiny, _, _, _ = _protection_for_variant(boxes, h, w, variant)
+        protected, tiny, _, _, _ = _protection_for_variant(boxes, h, w, variant, image=img)
         diagnostics = oacp_diagnostics(
-            (h, w), boxes, variant=variant, budget=budget, target_mass=target_mass
+            (h, w), boxes, variant=variant, budget=budget, target_mass=target_mass, image=img
         )
+        stats = _context_stats()
+        context_richness_raw = _far_context_richness(img, protected)
+        context_richness_norm = _normalize_with_quantiles(
+            context_richness_raw,
+            stats.get("context_richness_q10", 0.0),
+            stats.get("context_richness_q90", 1.0),
+        )
+        diagnostics.update({
+            "context_richness_raw": float(context_richness_raw),
+            "context_richness_norm": float(context_richness_norm),
+            "context_richness_q10": float(stats.get("context_richness_q10", 0.0)),
+            "context_richness_q90": float(stats.get("context_richness_q90", 1.0)),
+            "local_contrast_q10": float(stats.get("local_contrast_q10", 0.0)),
+            "local_contrast_q90": float(stats.get("local_contrast_q90", 1.0)),
+        })
         # A non-default constructor probability is an explicit fixed override,
         # retained for tests and programmatic callers. Training uses the
         # independent policy configured through the environment.
@@ -886,7 +1100,11 @@ class OACP:
         diagnostics["target_perturbed_area_ratio"] = diagnostics["target_perturbed_area_ratio_image"]
         diagnostics["perturb_gt_overlap_ratio"] = 0.0
         diagnostics["oacp_applied"] = True
-        degraded = _resize_degrade(img, random.uniform(*cfg["resolution_scale"]))
+        scale_min, scale_max = cfg["resolution_scale"]
+        if full_cfg["oacp_scale_policy"] == "context_adaptive":
+            scale_min, scale_max = _context_adaptive_scale_range(context_richness_norm)
+        sampled_scale = random.uniform(min(scale_min, scale_max), max(scale_min, scale_max))
+        degraded = _resize_degrade(img, sampled_scale)
         mask_pixels = mask > 0
         delta = np.mean(np.abs(
             img.astype(np.float32) - degraded.astype(np.float32)
@@ -942,6 +1160,9 @@ class OACP:
                     hardness, cfg["strength"], cfg["oacp_curriculum_strength"]
                 )
             base_strength = random.uniform(strength_min, strength_max)
+        elif policy == "context_adaptive":
+            strength_min, strength_max = _context_adaptive_strength_range(context_richness_norm)
+            base_strength = random.uniform(min(strength_min, strength_max), max(strength_min, strength_max))
         else:  # guarded by augmentation_config, retained for defensive callers
             raise ValueError(f"unknown OACP_STRENGTH_POLICY: {policy}")
         strength = float(base_strength * attenuation)
@@ -954,6 +1175,10 @@ class OACP:
         diagnostics["strength_min"] = float(strength_min)
         diagnostics["strength_max"] = float(strength_max)
         diagnostics["strength_load"] = float(strength_load)
+        diagnostics["scale_policy"] = full_cfg["oacp_scale_policy"]
+        diagnostics["scale_min"] = float(scale_min)
+        diagnostics["scale_max"] = float(scale_max)
+        diagnostics["sampled_scale"] = float(sampled_scale)
         diagnostics["curriculum_phase"] = curriculum_phase
         diagnostics["epoch"] = int(self.shared_state.epoch.value) if self.shared_state else 0
         diagnostics["hardness"] = float(hardness)

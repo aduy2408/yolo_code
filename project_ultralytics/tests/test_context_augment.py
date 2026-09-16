@@ -10,6 +10,8 @@ from project_ultralytics.context_augment import (
     _effect_adaptive_strength, _load_adaptive_probability, _load_adaptive_strength_range,
     _spatial_load_target_mass, _size_adaptive_expands, _curriculum_strength_range,
     _hardness_strength_range, _protection, _protection_for_variant, _spacing_adaptive_expands,
+    _context_adaptive_scale_range, _context_adaptive_strength_range,
+    _contrast_adaptive_expands, _far_context_richness, _object_local_contrast,
     calibrate_effect_target, oacp_diagnostics,
 )
 from project_ultralytics.oacp_state import OACPSharedState
@@ -449,6 +451,76 @@ def test_effect_adaptive_requires_positive_target(monkeypatch):
         from project_ultralytics.context_augment import augmentation_config
 
         augmentation_config()
+
+
+def test_context_richness_increases_on_textured_far_context():
+    smooth = np.full((128, 128, 3), 80, dtype=np.uint8)
+    textured = smooth.copy()
+    rng = np.random.default_rng(91)
+    textured[20:108, 20:108] = rng.integers(0, 255, (88, 88, 3), dtype=np.uint8)
+    protected = _mask_from_boxes_for_test(np.asarray([[56, 56, 72, 72]], dtype=np.float32), 128, 128, 3.0)
+    assert _far_context_richness(textured, protected) > _far_context_richness(smooth, protected)
+
+
+def test_context_adaptive_strength_gets_stronger_with_richness(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
+    (tmp_path / "stats.json").write_text("{}")
+    smooth = _context_adaptive_strength_range(0.0)
+    rich = _context_adaptive_strength_range(1.0)
+    assert smooth == pytest.approx((0.05, 0.15))
+    assert rich == pytest.approx((0.30, 0.50))
+    assert rich[0] > smooth[0] and rich[1] > smooth[1]
+
+
+def test_context_adaptive_scale_gets_lower_with_richness(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
+    (tmp_path / "stats.json").write_text("{}")
+    smooth = _context_adaptive_scale_range(0.0)
+    rich = _context_adaptive_scale_range(1.0)
+    assert smooth == pytest.approx((0.90, 1.00))
+    assert rich == pytest.approx((0.45, 0.70))
+    assert rich[0] < smooth[0] and rich[1] < smooth[1]
+
+
+def test_contrast_adaptive_expand_widens_for_low_contrast(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
+    (tmp_path / "stats.json").write_text(
+        '{"local_contrast_q10": 0.0, "local_contrast_q90": 10.0}'
+    )
+    boxes = np.asarray([[56, 56, 72, 72]], dtype=np.float32)
+    low = np.full((128, 128, 3), 80, dtype=np.uint8)
+    high = low.copy(); high[56:72, 56:72] = 220
+    low_expands, low_records = _contrast_adaptive_expands(low, boxes, np.asarray([0]))
+    high_expands, high_records = _contrast_adaptive_expands(high, boxes, np.asarray([0]))
+    assert low_expands[0] > high_expands[0]
+    assert low_records[0]["fallback"] is False
+    assert high_records[0]["fallback"] is False
+
+
+def test_contrast_measurement_excludes_neighbor_gt():
+    image = np.full((128, 128, 3), 80, dtype=np.uint8)
+    image[56:72, 56:72] = 220
+    boxes = np.asarray([[56, 56, 72, 72], [74, 56, 90, 72]], dtype=np.float32)
+    contrast, count = _object_local_contrast(image, boxes[0], boxes, 2.5)
+    _, without_neighbor_count = _object_local_contrast(image, boxes[0], boxes[:1], 2.5)
+    assert contrast is not None
+    assert count < without_neighbor_count
+
+
+def test_contrast_adaptive_invalid_context_falls_back_to_r2(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
+    (tmp_path / "stats.json").write_text("{}")
+    boxes = np.asarray([[0, 0, 2, 2]], dtype=np.float32)
+    expands, records = _contrast_adaptive_expands(
+        np.full((4, 4, 3), 80, dtype=np.uint8), boxes, np.asarray([0])
+    )
+    assert expands[0] == pytest.approx(3.0)
+    assert records[0]["fallback"] is True
+
+
+def _mask_from_boxes_for_test(boxes, h, w, expand):
+    from project_ultralytics.context_augment import _mask_from_boxes
+    return _mask_from_boxes(boxes, h, w, expand).astype(bool)
 
 
 def test_curriculum_phases_cannot_overlap(monkeypatch):
