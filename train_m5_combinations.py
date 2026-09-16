@@ -124,7 +124,8 @@ def train_one(job: str, data_yaml: Path, train_images: Path, test_root: Path, ar
     if all((run_dir / p).is_file() for p in REQUIRED if p != "evaluation_metrics.json"):
         return run_dir
 
-    base.local_ultralytics()
+    if str(base.ULTRA) not in sys.path:
+        sys.path.insert(0, str(base.ULTRA))
     from ultralytics import YOLO
 
     base.seed_everything(args.seed)
