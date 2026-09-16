@@ -176,6 +176,32 @@ Repository: [`duyle2408/levir-post-mosaic-oacp-a63b4bd`](https://huggingface.co/
 
 [`duyle2408/tinyperson-copy-paste-runs`](https://huggingface.co/datasets/duyle2408/tinyperson-copy-paste-runs) was created on **2026-09-16**, but currently contains only `.gitattributes` and no manifest, checkpoint metric, or evaluation artifact. It is therefore excluded from the result tables rather than treated as a failed or zero-valued Copy-Paste run.
 
+### 3.5 Deduplication and baseline-reference audit
+
+The latest list contains related artifacts that should be grouped, but not blindly pooled. The following consolidation is now used throughout this report:
+
+| Consolidated family | Repositories/artifacts | Action | Reason |
+|---|---|---|---|
+| LEVIR Copy-Paste post-hoc family | `stw-yolo-runs` + `levir-copy-paste-posthoc-test-runs` | **Merge as one family**; use the post-hoc artifact for test metrics and retain the STW repository as checkpoint/config provenance | The post-hoc JSON explicitly evaluates the STW checkpoints on the fixed post-hoc test split. The older manifest-reported CP table in Section 5.4 is retained only as historical evidence and must not be averaged with the post-hoc table. |
+| Mosaic policy results | `mosaic-only-yolo-runs` versus `levir-ship-mosaic-policy-matrix` | **Keep separate subfamilies** | Both use canonical YOLOv8-style detection, but the policy sets and uploaded artifacts differ. The newer M2-M5 policies are not duplicate rows of standard/visibility/occupancy/context. |
+| Post-Mosaic OACP | `levir-post-mosaic-oacp-a63b4bd` versus earlier adaptive-OACP repositories | **Keep separate subfamilies** | Placement (`post_mosaic`), detector/configuration, and artifact protocol differ. Similar method names do not establish a matched duplicate. |
+| Empty TinyPerson Copy-Paste repository | `tinyperson-copy-paste-runs` | **Exclude** | It contains no result artifact, so it cannot be merged with `tinyperson-copy-paste` or used as a zero-valued result. |
+
+This prevents double counting. In particular, the same CP checkpoint is not counted once from `stw-yolo-runs` and again from the post-hoc repository, and the older manifest-only CP0-CP3 values are not mixed with the corrected post-hoc test values.
+
+#### Baseline coverage by experiment family
+
+| Experiment family | Baseline currently available | Reference used in this report | Remaining baseline gap |
+|---|---|---|---|
+| LEVIR canonical Mosaic M2-M5 | **Partial** | Standard Mosaic M0 in the controlled policy matrix, Section 5.1 | No same-repository no-Mosaic/no-augmentation control for M2-M5. Use M0 only as a Mosaic-policy reference, not as a no-augmentation baseline. |
+| TinyPerson Mosaic M2-M4 | **Partial** | TinyPerson standard-policy control in the resize-policy matrix and M2-M4 rows above | No same-detector, same-artifact no-Mosaic/no-augmentation control in `mosaic-only-yolo-runs`. |
+| LEVIR Copy-Paste CP0-CP3 post-hoc | **Present** | CP0 is the matched no-Copy-Paste, no-Mosaic control in the same post-hoc protocol | No gap for the CP0-CP3 comparison. Crowd/negative/scale variants still use CP0 as the nearest control and should not be interpreted as a complete factorial design. |
+| LEVIR post-Mosaic OACP | **Partial** | No-Mosaic OACP rows in the same repository and earlier OACP controls | No pure no-augmentation P2/P3/P4 baseline in the same repository. The no-Mosaic OACP rows are augmentation controls, not no-augmentation controls. |
+| LEVIR adaptive OACP + Mosaic | **Partial** | Earlier standard/no-Mosaic OACP family in Section 5.2 | No single matched canonical P2/P3/P4 no-OACP baseline across every adaptive variant. Detector and policy effects remain confounded. |
+| TinyPerson CP3/OACP/Mosaic combinations | **Partial** | CP3 + Mosaic without OACP is available for the P2/P3/P4 group | Missing a same P2/P3/P4, no-OACP/no-Copy-Paste/no-Mosaic baseline. The YOLOv8 baseline elsewhere is not an architecture-matched substitute. |
+
+For publication-quality comparisons, the missing controls should be added as explicit rows rather than inferred from another repository. The minimum next baseline set is: canonical detector with no augmentation, canonical detector with standard Mosaic, P2/P3/P4 detector with no augmentation, and P2/P3/P4 detector with standard Mosaic, each using the same dataset split, training seed set, workers, schedule, and evaluation protocol as its augmentation family.
+
 ## 4. Per-run settings audit
 
 This section records the augmentation switches explicitly, rather than inferring them from a checkpoint name. `On` means `mosaic=1.0`; `Off` means `mosaic=0.0`. Unless a row says otherwise, Mosaic-enabled runs use `close_mosaic=10`, while the matched Copy-Paste-only protocol uses `close_mosaic=0`.
@@ -358,14 +384,14 @@ The fixed-split seed groups in the supplied list are useful for stability checks
 
 - For canonical YOLOv8 P3/P4/P5 Mosaic, prefer **visibility-aware Mosaic** over standard, occupancy, or context policy based on the controlled LEVIR matrix.
 - For P2/P3/P4 small-object detectors, **load-adaptive OACP + Mosaic** is the strongest adaptive OACP configuration currently reported on LEVIR, while **mass-adaptive OACP + CP3 + Mosaic** is the strongest reported TinyPerson combination.
-- Prefer **clustered Copy-Paste (CP3)** over isolated single-object copies when object co-occurrence or clustering is part of the target dataset distribution.
+- Clustered Copy-Paste (CP3) is promising when object co-occurrence or clustering matches the target distribution, but the corrected LEVIR post-hoc table favors CP2 on mean test mAP50-95. CP3 should therefore be treated as dataset/protocol-dependent, not as a universal default.
 - Treat OACP, Copy-Paste, Mosaic, detector YAML, and seed as separate factors. The current repository list contains many useful results, but not all of them are matched factorial comparisons.
 
 ### What cannot yet be claimed
 
 - No global claim that OACP always improves performance across datasets.
 - No claim that P2/P3/P4 is an augmentation improvement over P3/P4/P5, because it changes the detector architecture.
-- No claim that Copy-Paste improves LEVIR from the current manifest-only CP ablation; CP3 is only marginally ahead of CP0 on mAP50-95.
+- No universal claim that Copy-Paste improves LEVIR. In the corrected post-hoc family, CP2 is highest among CP0-CP3, while the older manifest-only table gives a different ranking and is retained only as historical evidence.
 - No pooling of legacy double-OACP and corrected single-pass OACP results.
 - No uncertainty estimate from the single-seed Mosaic and Copy-Paste matrices.
 - No validation/test result or upload-acceptance claim for the currently running adaptive Mosaic + current-OACP job.
