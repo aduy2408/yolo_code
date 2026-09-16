@@ -395,6 +395,10 @@ class BaseTrainer:
             self.epoch = epoch
             if hasattr(self, "train_loader") and hasattr(self.train_loader, "dataset"):
                 self.train_loader.dataset.epoch = epoch
+                oacp_state = getattr(self.train_loader.dataset, "oacp_shared_state", None)
+                if oacp_state is not None:
+                    oacp_state.set_epoch(epoch, self.epochs)
+                    oacp_state.begin_epoch()
             model_unwrapped = unwrap_model(self.model)
             if hasattr(model_unwrapped, "criterion") and hasattr(model_unwrapped.criterion, "epoch"):
                 model_unwrapped.criterion.epoch = epoch
@@ -454,6 +458,17 @@ class BaseTrainer:
                             loss, self.loss_items = unwrap_model(self.model).loss(batch, preds)
                         else:
                             loss, self.loss_items = self.model(batch)
+                        oacp_state = getattr(getattr(self, "train_loader", None), "dataset", None)
+                        oacp_state = getattr(oacp_state, "oacp_shared_state", None)
+                        criterion = getattr(unwrap_model(self.model), "criterion", None)
+                        hardness = getattr(criterion, "last_per_image_hardness", None)
+                        dataset_indices = batch.get("dataset_idx")
+                        if oacp_state is not None and hardness is not None and dataset_indices is not None:
+                            if hasattr(dataset_indices, "detach"):
+                                dataset_indices = dataset_indices.detach().cpu().tolist()
+                            if hasattr(hardness, "detach"):
+                                hardness = hardness.detach().cpu().tolist()
+                            oacp_state.update_hardness(dataset_indices, hardness)
                         self.loss = loss.sum()
                         if RANK != -1:
                             self.loss *= self.world_size
@@ -534,6 +549,10 @@ class BaseTrainer:
             if hasattr(unwrap_model(self.model).criterion, "epoch"):
                 unwrap_model(self.model).criterion.epoch = epoch
 
+            oacp_state = getattr(getattr(self, "train_loader", None), "dataset", None)
+            oacp_state = getattr(oacp_state, "oacp_shared_state", None)
+            oacp_state_metrics = oacp_state.finish_epoch() if oacp_state is not None else {}
+
             self.lr = {f"lr/pg{ir}": x["lr"] for ir, x in enumerate(self.optimizer.param_groups)}  # for loggers
 
             # Sync current epoch to all API modules for rho/weight warm-up scheduling.
@@ -546,6 +565,7 @@ class BaseTrainer:
                 unwrap_model(self.model).mechanism_epoch_metrics()
                 if hasattr(unwrap_model(self.model), "mechanism_epoch_metrics") else {}
             )
+            mechanism_metrics.update({f"oacp_{key}": value for key, value in oacp_state_metrics.items()})
             if RANK in {-1, 0}:
                 self.ema.update_attr(self.model, include=["yaml", "nc", "args", "names", "stride", "class_weights"])
 

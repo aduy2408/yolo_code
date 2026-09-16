@@ -406,6 +406,9 @@ class BaseDataset(Dataset):
             (dict[str, Any]): Label dictionary with image and metadata.
         """
         label = deepcopy(self.labels[index])  # requires deepcopy() https://github.com/ultralytics/ultralytics/pull/1948
+        # Stable identity for optional previous-epoch OACP hardness feedback.
+        # It is metadata only and does not participate in model loss.
+        label["dataset_idx"] = int(index)
         label.pop("shape", None)  # shape is for rect, remove it
         label["img"], label["ori_shape"], label["resized_shape"] = self.load_image(index)
         label["ratio_pad"] = (

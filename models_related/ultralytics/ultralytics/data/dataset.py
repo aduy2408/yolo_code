@@ -303,6 +303,8 @@ class YOLODataset(BaseDataset):
             value = values[i]
             if k == "resolution_scale":
                 value = torch.as_tensor(value, dtype=torch.float32)
+            elif k == "dataset_idx":
+                value = torch.as_tensor(value, dtype=torch.long)
             elif k in {"img", "text_feats", "semantic_mask", "sem_masks"}:
                 value = torch.stack(value, 0)
             elif k == "visuals":

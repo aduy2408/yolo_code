@@ -140,6 +140,12 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
         loss[0] *= _arg(self.hyp, "box", 1.0)
         loss[1] *= _arg(self.hyp, "cls", 1.0)
         loss[2] *= _arg(self.hyp, "dfl", 1.0)
+        # Keep the optional OACP feedback path available when FTAL overrides
+        # the upstream assignment/loss seam. This statistic is detached and
+        # never contributes to the training objective.
+        with torch.no_grad():
+            hardness_loss = self.bce(pred_scores.detach(), target_scores.detach().to(dtype))
+            self.last_per_image_hardness = hardness_loss.mean(dim=(1, 2)).detach()
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,

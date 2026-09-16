@@ -14,6 +14,8 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .oacp_state import OACPSharedState
+
 AUG_CONFIG = {
     "object_max_size": 32.0,
     "protected_expand": 3.0,
@@ -35,6 +37,18 @@ AUG_CONFIG = {
     "oacp_probability_max": 0.40,
     "oacp_effect_policy": "fixed",
     "oacp_target_effect": 0.0,
+    "oacp_strength_policy": "fixed",
+    "oacp_load_strength_min": 0.05,
+    "oacp_load_strength_max": 0.15,
+    "oacp_protection_policy": "fixed",
+    "oacp_size_expand_min": 2.0,
+    "oacp_size_expand_max": 4.0,
+    "oacp_size_expand_smax": 32.0,
+    "oacp_curriculum_warmup_fraction": 0.15,
+    "oacp_curriculum_cooldown_fraction": 0.10,
+    "oacp_curriculum_strength": [0.05, 0.15],
+    "oacp_hardness_warmup_epochs": 5,
+    "oacp_hardness_beta": 0.90,
     "oacp_budget": [0.30, 0.60],
     "oacp_density_expand_min": 1.0,
     "oacp_density_expand_max": 3.0,
@@ -57,8 +71,19 @@ AUG_CONFIG = {
 def augmentation_config() -> dict[str, Any]:
     """Return the complete immutable run configuration for manifests."""
     cfg = dict(AUG_CONFIG)
+    profile = os.environ.get("OACP_PROFILE", "").lower()
+    if profile not in {"", "r2"}:
+        raise ValueError(f"unknown OACP_PROFILE: {profile}")
+    profile_defaults = {
+        "p": "0.40" if profile == "r2" else "0.20",
+        "strength": ("0.10", "0.25") if profile == "r2" else ("0.20", "0.40"),
+        "scale": ("0.80", "0.95") if profile == "r2" else ("0.65", "0.85"),
+        "variant": "current" if profile == "r2" else "current",
+        "placement": "pre_transform" if profile == "r2" else "post_mosaic",
+    }
+    cfg["profile"] = profile or "default"
     cfg["protected_expand"] = float(os.environ.get("OACP_PROTECTED_EXPAND", cfg["protected_expand"]))
-    cfg["oacp_probability"] = float(os.environ.get("OACP_P", "0.20"))
+    cfg["oacp_probability"] = float(os.environ.get("OACP_P", profile_defaults["p"]))
     cfg["oacp_probability_policy"] = os.environ.get(
         "OACP_PROB_POLICY", cfg["oacp_probability_policy"]
     ).lower()
@@ -75,12 +100,48 @@ def augmentation_config() -> dict[str, Any]:
         "OACP_TARGET_EFFECT", cfg["oacp_target_effect"]
     ))
     cfg["oacp_strength"] = [
-        float(os.environ.get("OACP_STRENGTH_MIN", cfg["oacp_strength"][0])),
-        float(os.environ.get("OACP_STRENGTH_MAX", cfg["oacp_strength"][1])),
+        float(os.environ.get("OACP_STRENGTH_MIN", profile_defaults["strength"][0])),
+        float(os.environ.get("OACP_STRENGTH_MAX", profile_defaults["strength"][1])),
     ]
+    explicit_strength_policy = os.environ.get("OACP_STRENGTH_POLICY", "").lower()
+    if explicit_strength_policy:
+        cfg["oacp_strength_policy"] = explicit_strength_policy
+    elif cfg["oacp_effect_policy"] == "adaptive":
+        # Backward-compatible alias for the original effect policy flag.
+        cfg["oacp_strength_policy"] = "effect_adaptive"
+    cfg["oacp_load_strength"] = [
+        float(os.environ.get("OACP_LOAD_STRENGTH_MIN", cfg["oacp_load_strength_min"])),
+        float(os.environ.get("OACP_LOAD_STRENGTH_MAX", cfg["oacp_load_strength_max"])),
+    ]
+    cfg["oacp_protection_policy"] = os.environ.get(
+        "OACP_PROTECTION_POLICY", cfg["oacp_protection_policy"]
+    ).lower()
+    cfg["oacp_size_expand"] = [
+        float(os.environ.get("OACP_SIZE_EXPAND_MIN", cfg["oacp_size_expand_min"])),
+        float(os.environ.get("OACP_SIZE_EXPAND_MAX", cfg["oacp_size_expand_max"])),
+    ]
+    cfg["oacp_size_expand_smax"] = float(os.environ.get(
+        "OACP_SIZE_EXPAND_SMAX", cfg["oacp_size_expand_smax"]
+    ))
+    cfg["oacp_curriculum_warmup_fraction"] = float(os.environ.get(
+        "OACP_CURRICULUM_WARMUP_FRACTION", cfg["oacp_curriculum_warmup_fraction"]
+    ))
+    cfg["oacp_curriculum_cooldown_fraction"] = float(os.environ.get(
+        "OACP_CURRICULUM_COOLDOWN_FRACTION", cfg["oacp_curriculum_cooldown_fraction"]
+    ))
+    cfg["oacp_curriculum_strength"] = [
+        float(os.environ.get("OACP_CURRICULUM_STRENGTH_MIN", cfg["oacp_curriculum_strength"][0])),
+        float(os.environ.get("OACP_CURRICULUM_STRENGTH_MAX", cfg["oacp_curriculum_strength"][1])),
+    ]
+    cfg["oacp_hardness_warmup_epochs"] = int(os.environ.get(
+        "OACP_HARDNESS_WARMUP_EPOCHS", cfg["oacp_hardness_warmup_epochs"]
+    ))
+    cfg["oacp_hardness_beta"] = float(os.environ.get(
+        "OACP_HARDNESS_BETA", cfg["oacp_hardness_beta"]
+    ))
     cfg["oacp_resolution_scale"] = [
-        float(os.environ.get("OACP_SCALE_MIN", cfg["oacp_resolution_scale"][0])),
-        float(os.environ.get("OACP_SCALE_MAX", cfg["oacp_resolution_scale"][1])),
+        float(os.environ.get("OACP_SCALE_MIN", profile_defaults["scale"][0])),
+        float(os.environ.get("OACP_SCALE_MAX", profile_defaults["scale"][1])),
     ]
     cfg["oacp_budget"] = [
         float(os.environ.get("OACP_BUDGET_MIN", cfg["oacp_budget"][0])),
@@ -113,14 +174,40 @@ def augmentation_config() -> dict[str, Any]:
             "OACP_SPACING_EXPAND_MAX", cfg["oacp_spacing_expand_max"]
         )),
     }
-    cfg["oacp_variant"] = os.environ.get("OACP_VARIANT", "current").lower()
-    cfg["oacp_placement"] = os.environ.get("OACP_PLACEMENT", "post_mosaic").lower()
+    cfg["oacp_variant"] = os.environ.get("OACP_VARIANT", profile_defaults["variant"]).lower()
+    cfg["oacp_placement"] = os.environ.get("OACP_PLACEMENT", profile_defaults["placement"]).lower()
     cfg["mode"] = os.environ.get("YOLO_CONTEXT_AUG", "none").lower()
     cfg["legacy_double_oacp"] = os.environ.get("YOLO_LEGACY_DOUBLE_OACP", "0").lower() in {
         "1", "true", "yes", "on"
     }
     cfg["lea_stats_path"] = os.environ.get("LEA_STATS_PATH", "")
     cfg["sweep_label"] = os.environ.get("OACP_SWEEP_LABEL", "")
+    valid_strength = {"fixed", "effect_adaptive", "load_adaptive", "curriculum", "hardness_adaptive"}
+    if cfg["oacp_strength_policy"] not in valid_strength:
+        raise ValueError(f"unknown OACP_STRENGTH_POLICY: {cfg['oacp_strength_policy']}")
+    if cfg["oacp_effect_policy"] not in {"fixed", "adaptive"}:
+        raise ValueError(f"unknown OACP_EFFECT_POLICY: {cfg['oacp_effect_policy']}")
+    if cfg["oacp_protection_policy"] not in {"fixed", "size_adaptive"}:
+        raise ValueError(f"unknown OACP_PROTECTION_POLICY: {cfg['oacp_protection_policy']}")
+    if explicit_strength_policy and cfg["oacp_effect_policy"] == "adaptive" and cfg["oacp_strength_policy"] != "effect_adaptive":
+        raise ValueError("OACP_EFFECT_POLICY=adaptive conflicts with the selected OACP_STRENGTH_POLICY")
+    if cfg["oacp_strength_policy"] == "effect_adaptive" and cfg["oacp_effect_policy"] == "fixed":
+        raise ValueError("OACP_STRENGTH_POLICY=effect_adaptive requires OACP_EFFECT_POLICY=adaptive")
+    if cfg["oacp_protection_policy"] == "size_adaptive" and cfg["oacp_variant"] in {"density", "spacing_adaptive"}:
+        raise ValueError("size_adaptive protection cannot be combined with density or spacing_adaptive")
+    if profile == "r2":
+        if cfg["oacp_variant"] != "current" or cfg["oacp_placement"] != "pre_transform":
+            raise ValueError("OACP_PROFILE=r2 requires current variant and pre_transform placement")
+        if cfg["oacp_probability_policy"] != "fixed" or not np.isclose(cfg["oacp_probability"], 0.40):
+            raise ValueError("OACP_PROFILE=r2 requires fixed p=0.40")
+        if not np.allclose(cfg["oacp_resolution_scale"], [0.80, 0.95]):
+            raise ValueError("OACP_PROFILE=r2 requires resolution scale 0.80-0.95")
+        if not np.isclose(cfg["protected_expand"], 3.0):
+            raise ValueError("OACP_PROFILE=r2 requires protected_expand=3.0")
+    if not 0.0 <= cfg["oacp_curriculum_warmup_fraction"] < 1.0:
+        raise ValueError("OACP_CURRICULUM_WARMUP_FRACTION must be in [0, 1)")
+    if not 0.0 <= cfg["oacp_curriculum_cooldown_fraction"] < 1.0:
+        raise ValueError("OACP_CURRICULUM_COOLDOWN_FRACTION must be in [0, 1)")
     return cfg
 
 
@@ -160,6 +247,79 @@ def _effect_adaptive_strength(
     """Choose blend strength to target a measured raw pixel effect."""
     strength = float(target_effect) / max(float(raw_effect), eps)
     return float(np.clip(strength, strength_min, strength_max))
+
+
+def _load_adaptive_strength_range(
+    num_eligible: int,
+    base_range: tuple[float, float] | list[float],
+    dense_range: tuple[float, float] | list[float],
+    saturation_count: int,
+) -> tuple[float, float, float]:
+    """Interpolate severity range from sparse R2 to a milder dense range."""
+    if num_eligible <= 1:
+        load = 0.0
+    else:
+        load = (num_eligible - 1) / max(int(saturation_count) - 1, 1)
+    load = float(np.clip(load, 0.0, 1.0))
+    low = float(base_range[0] + load * (dense_range[0] - base_range[0]))
+    high = float(base_range[1] + load * (dense_range[1] - base_range[1]))
+    return load, min(low, high), max(low, high)
+
+
+def _size_adaptive_expands(
+    boxes: np.ndarray,
+    *,
+    expand_min: float,
+    expand_max: float,
+    size_smax: float,
+) -> tuple[np.ndarray, list[dict[str, Any]]]:
+    """Protect smaller eligible objects with a larger local context region."""
+    boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+    sizes = np.sqrt(
+        np.maximum(0.0, boxes[:, 2] - boxes[:, 0])
+        * np.maximum(0.0, boxes[:, 3] - boxes[:, 1])
+    ) if len(boxes) else np.empty(0, dtype=np.float32)
+    t = np.clip(sizes / max(float(size_smax), 1e-8), 0.0, 1.0)
+    expands = float(expand_max) - t * (float(expand_max) - float(expand_min))
+    records = [
+        {"object_size": float(size), "expand": float(expand), "size_fraction": float(frac)}
+        for size, expand, frac in zip(sizes, expands, t, strict=False)
+    ]
+    return expands.astype(np.float32), records
+
+
+def _curriculum_strength_range(
+    epoch: int,
+    total_epochs: int,
+    r2_range: tuple[float, float] | list[float],
+    mild_range: tuple[float, float] | list[float],
+    warmup_fraction: float,
+    cooldown_fraction: float,
+) -> tuple[str, float, float]:
+    """Piecewise mild -> R2 -> mild strength schedule."""
+    fraction = float(epoch) / max(int(total_epochs) - 1, 1)
+    if fraction < warmup_fraction:
+        phase = "warmup"
+        current = mild_range
+    elif fraction >= 1.0 - cooldown_fraction:
+        phase = "cooldown"
+        current = mild_range
+    else:
+        phase = "r2"
+        current = r2_range
+    return phase, float(current[0]), float(current[1])
+
+
+def _hardness_strength_range(
+    hardness: float,
+    r2_range: tuple[float, float] | list[float],
+    mild_range: tuple[float, float] | list[float],
+) -> tuple[float, float]:
+    """Map easy samples to R2 and hard samples to a milder severity range."""
+    hardness = float(np.clip(hardness, 0.0, 1.0))
+    low = float(r2_range[0] + hardness * (mild_range[0] - r2_range[0]))
+    high = float(r2_range[1] + hardness * (mild_range[1] - r2_range[1]))
+    return min(low, high), max(low, high)
 
 
 def _boxes(labels: dict[str, Any], h: int, w: int) -> np.ndarray:
@@ -378,9 +538,24 @@ def _protection_for_variant(boxes: np.ndarray, h: int, w: int, variant: str) -> 
         if len(expands):
             expand = float(np.mean(expands))
     else:
-        # Preserve the historical OACP control exactly: tiny objects get the
-        # configured context expansion, while every GT receives safety cover.
-        protected, tiny = _protection(boxes, h, w)
+        cfg = augmentation_config()
+        if cfg["oacp_protection_policy"] == "size_adaptive" and len(tiny):
+            expands, _ = _size_adaptive_expands(
+                tiny,
+                expand_min=cfg["oacp_size_expand"][0],
+                expand_max=cfg["oacp_size_expand"][1],
+                size_smax=cfg["oacp_size_expand_smax"],
+            )
+            protected = _mask_from_boxes(
+                boxes, h, w, AUG_CONFIG["safety_expand"]
+            ).astype(bool)
+            protected |= _mask_from_boxes_per_expand(tiny, expands, h, w).astype(bool)
+            expand = float(np.mean(expands))
+        else:
+            # Preserve the historical OACP control exactly: tiny objects get
+            # the configured context expansion, while every GT receives safety
+            # cover.
+            protected, tiny = _protection(boxes, h, w)
     return protected.astype(np.uint8), tiny, float(expand), occupancy, target
 
 
@@ -494,6 +669,14 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
             expand_min=spacing["expand_min"],
             expand_max=spacing["expand_max"],
         )
+    size_records: list[dict[str, Any]] = []
+    if cfg["oacp_protection_policy"] == "size_adaptive" and len(tiny):
+        _, size_records = _size_adaptive_expands(
+            tiny,
+            expand_min=cfg["oacp_size_expand"][0],
+            expand_max=cfg["oacp_size_expand"][1],
+            size_smax=cfg["oacp_size_expand_smax"],
+        )
     normalized_spacings = [
         r["normalized_spacing"] for r in spacing_records
         if r["normalized_spacing"] is not None
@@ -523,7 +706,9 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "oacp_load_saturation_count": int(cfg["oacp_load_saturation_count"]),
         "oacp_applied": False,
         "oacp_effect_policy": cfg["oacp_effect_policy"],
+        "oacp_strength_policy": cfg["oacp_strength_policy"],
         "oacp_target_effect": float(cfg["oacp_target_effect"]),
+        "oacp_protection_policy": cfg["oacp_protection_policy"],
         "raw_effect": 0.0,
         "effective_strength": 0.0,
         "actual_effect": 0.0,
@@ -537,6 +722,7 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "min_adaptive_expand": float(np.min(adaptive_expands)) if adaptive_expands else 0.0,
         "max_adaptive_expand": float(np.max(adaptive_expands)) if adaptive_expands else 0.0,
         "spacing_objects": spacing_records,
+        "size_objects": size_records,
         "gt_area_ratio": float(gt_mask.mean()),
         "perturb_gt_overlap_ratio": float((perturb.astype(bool) & gt_mask).mean()),
         "eligible": eligible,
@@ -546,6 +732,9 @@ def oacp_diagnostics(shape: tuple[int, int] | tuple[int, int, int], boxes: np.nd
         "density_target_protected_ratio": density_target,
         "mean_object_size": float(np.mean(np.sqrt(np.maximum(0, boxes[:, 2] - boxes[:, 0]) * np.maximum(0, boxes[:, 3] - boxes[:, 1])))) if len(boxes) else 0.0,
         "protected_expand": expand,
+        "mean_size_adaptive_expand": float(np.mean([r["expand"] for r in size_records])) if size_records else 0.0,
+        "min_size_adaptive_expand": float(np.min([r["expand"] for r in size_records])) if size_records else 0.0,
+        "max_size_adaptive_expand": float(np.max([r["expand"] for r in size_records])) if size_records else 0.0,
         "perturb_budget_valid_background": budget if variant != "current" else 1.0,
     }
 
@@ -559,6 +748,38 @@ def _record_oacp_diagnostics(labels: dict[str, Any], diagnostics: dict[str, Any]
     record["image"] = labels.get("im_file", "")
     with open(path, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def calibrate_effect_target(path: str, quantile: float = 0.50) -> dict[str, float | int]:
+    """Summarize applied fixed-R2 effect diagnostics for adaptive calibration.
+
+    The input should be JSONL generated with ``OACP_EFFECT_POLICY=fixed`` and
+    the R2 mask/scale/protection settings.  Only samples that actually passed
+    the probability/geometry gates contribute to the target distribution.
+    """
+    values: list[float] = []
+    with open(path, encoding="utf-8") as stream:
+        for line in stream:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if not record.get("oacp_applied"):
+                continue
+            value = float(record.get("actual_effect", 0.0))
+            if np.isfinite(value) and value >= 0.0:
+                values.append(value)
+    if not values:
+        raise ValueError(f"no applied actual_effect records found in {path}")
+    quantile = float(np.clip(quantile, 0.0, 1.0))
+    result = {
+        "count": int(len(values)),
+        "actual_effect_q40": float(np.quantile(values, 0.40)),
+        "actual_effect_median": float(np.quantile(values, 0.50)),
+        "actual_effect_q60": float(np.quantile(values, 0.60)),
+        "target_effect": float(np.quantile(values, quantile)),
+        "quantile": quantile,
+    }
+    return result
 
 
 def _far_mask(protected: np.ndarray, h: int, w: int) -> np.ndarray:
@@ -578,8 +799,9 @@ def _resize_degrade(img: np.ndarray, scale: float) -> np.ndarray:
 class OACP:
     """Degrade only far context around eligible tiny objects."""
 
-    def __init__(self, p: float = 0.20) -> None:
+    def __init__(self, p: float = 0.20, shared_state: OACPSharedState | None = None) -> None:
         self.p = float(p)
+        self.shared_state = shared_state
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         cfg = _oacp_config()
@@ -652,28 +874,78 @@ class OACP:
         diagnostics["oacp_applied"] = True
         degraded = _resize_degrade(img, random.uniform(*cfg["resolution_scale"]))
         mask_pixels = mask > 0
-        raw_effect = float(np.mean(np.abs(
-            img[mask_pixels].astype(np.float32)
-            - degraded[mask_pixels].astype(np.float32)
-        ))) if mask_pixels.any() else 0.0
-        if full_cfg["oacp_effect_policy"] == "fixed":
-            strength = random.uniform(*cfg["strength"])
-        elif full_cfg["oacp_effect_policy"] == "adaptive":
-            strength = _effect_adaptive_strength(
-                raw_effect,
+        delta = np.mean(np.abs(
+            img.astype(np.float32) - degraded.astype(np.float32)
+        ), axis=2)
+        raw_effect = float(np.mean(mask[mask_pixels] * delta[mask_pixels])) if mask_pixels.any() else 0.0
+        attenuation = 1.0 - float(protected.mean()) if variant == "current" else 1.0
+        policy = full_cfg["oacp_strength_policy"]
+        strength_min, strength_max = cfg["strength"]
+        strength_load = float(diagnostics.get("object_load", 0.0))
+        curriculum_phase = "none"
+        hardness = 0.5
+        if policy == "fixed":
+            base_strength = random.uniform(strength_min, strength_max)
+        elif policy == "effect_adaptive":
+            # Solve for the pre-attenuation strength.  The actual blend uses
+            # base_strength * attenuation, so the attenuation is included in
+            # the denominator rather than applied a second time afterwards.
+            base_strength = _effect_adaptive_strength(
+                raw_effect * attenuation,
                 full_cfg["oacp_target_effect"],
-                cfg["strength"][0],
-                cfg["strength"][1],
+                strength_min,
+                strength_max,
             )
-        else:
-            raise ValueError(f"unknown OACP_EFFECT_POLICY: {full_cfg['oacp_effect_policy']}")
-        if variant == "current":
-            strength *= 1.0 - float(protected.mean())
+        elif policy == "load_adaptive":
+            strength_load, strength_min, strength_max = _load_adaptive_strength_range(
+                diagnostics["num_eligible"],
+                cfg["strength"],
+                cfg["oacp_load_strength"],
+                cfg["oacp_load_saturation_count"],
+            )
+            base_strength = random.uniform(strength_min, strength_max)
+        elif policy == "curriculum":
+            total_epochs = int(self.shared_state.total_epochs.value) if self.shared_state else 0
+            total_epochs = total_epochs or int(os.environ.get("OACP_TOTAL_EPOCHS", "100"))
+            epoch = int(self.shared_state.epoch.value) if self.shared_state else 0
+            curriculum_phase, strength_min, strength_max = _curriculum_strength_range(
+                epoch,
+                total_epochs,
+                cfg["strength"],
+                cfg["oacp_curriculum_strength"],
+                cfg["oacp_curriculum_warmup_fraction"],
+                cfg["oacp_curriculum_cooldown_fraction"],
+            )
+            base_strength = random.uniform(strength_min, strength_max)
+        elif policy == "hardness_adaptive":
+            epoch = int(self.shared_state.epoch.value) if self.shared_state else 0
+            if epoch < full_cfg["oacp_hardness_warmup_epochs"]:
+                strength_min, strength_max = cfg["strength"]
+            else:
+                index = labels.get("dataset_idx", -1)
+                hardness = self.shared_state.read_hardness(index) if self.shared_state else 0.5
+                strength_min, strength_max = _hardness_strength_range(
+                    hardness, cfg["strength"], cfg["oacp_curriculum_strength"]
+                )
+            base_strength = random.uniform(strength_min, strength_max)
+        else:  # guarded by augmentation_config, retained for defensive callers
+            raise ValueError(f"unknown OACP_STRENGTH_POLICY: {policy}")
+        strength = float(base_strength * attenuation)
         out = img.astype(np.float32) * (1 - strength * mask[..., None]) + degraded.astype(np.float32) * (strength * mask[..., None])
-        labels["img"] = np.clip(out, 0, 255).astype(img.dtype)
+        output_img = np.clip(out, 0, 255).astype(img.dtype)
+        labels["img"] = output_img
         diagnostics["raw_effect"] = raw_effect
         diagnostics["effective_strength"] = float(strength)
-        diagnostics["actual_effect"] = float(raw_effect * strength)
+        diagnostics["base_strength"] = float(base_strength)
+        diagnostics["strength_min"] = float(strength_min)
+        diagnostics["strength_max"] = float(strength_max)
+        diagnostics["strength_load"] = float(strength_load)
+        diagnostics["curriculum_phase"] = curriculum_phase
+        diagnostics["epoch"] = int(self.shared_state.epoch.value) if self.shared_state else 0
+        diagnostics["hardness"] = float(hardness)
+        diagnostics["actual_effect"] = float(np.mean(
+            np.abs(output_img[mask_pixels].astype(np.float32) - img[mask_pixels].astype(np.float32))
+        )) if mask_pixels.any() else 0.0
         _record_oacp_diagnostics(labels, diagnostics)
         return labels
 
@@ -792,7 +1064,15 @@ class LEA:
 
 def build_context_augment(dataset):
     mode = os.environ.get("YOLO_CONTEXT_AUG", "none").lower()
-    if mode == "oacp": return [OACP()]
+    if mode == "oacp":
+        state = getattr(dataset, "oacp_shared_state", None)
+        if state is None:
+            state = OACPSharedState(
+                len(dataset),
+                beta=augmentation_config()["oacp_hardness_beta"],
+            )
+            dataset.oacp_shared_state = state
+        return [OACP(shared_state=state)]
     if mode == "cea": return [CEA(dataset)]
     if mode == "lea": return [LEA()]
     return []

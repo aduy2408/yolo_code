@@ -2414,6 +2414,14 @@ class v8DetectionLoss:
                 bce_loss *= self.class_weights
             loss[1] = bce_loss.sum() / cls_target_scores_sum  # BCE
 
+        # Optional OACP feedback statistic.  This is deliberately detached and
+        # never enters ``loss`` or backward.  The trainer consumes one value per
+        # image and commits a previous-epoch EMA into the shared augmentation
+        # state, so workers do not react to a noisy same-epoch signal.
+        with torch.no_grad():
+            hardness_loss = self.bce(pred_scores.detach(), cls_target_scores.detach().to(dtype))
+            self.last_per_image_hardness = hardness_loss.mean(dim=(1, 2)).detach()
+
         self.positive_confidence_rescue_metrics = {}
         if self.positive_confidence_rescue_gain > 0:
             raw_rescue, target, logits = self.positive_confidence_rescue_loss(pred_scores, target_scores, fg_mask)

@@ -7,10 +7,12 @@ from ultralytics.utils.instance import Instances
 
 from project_ultralytics.context_augment import (
     CEA, LEA, OACP, _load_adaptive_target_mass, _mass_adaptive_budget,
-    _effect_adaptive_strength, _load_adaptive_probability, _spatial_load_target_mass,
-    _protection, _protection_for_variant, _spacing_adaptive_expands,
-    oacp_diagnostics,
+    _effect_adaptive_strength, _load_adaptive_probability, _load_adaptive_strength_range,
+    _spatial_load_target_mass, _size_adaptive_expands, _curriculum_strength_range,
+    _hardness_strength_range, _protection, _protection_for_variant, _spacing_adaptive_expands,
+    calibrate_effect_target, oacp_diagnostics,
 )
+from project_ultralytics.oacp_state import OACPSharedState
 
 
 def _labels(img, boxes):
@@ -338,3 +340,101 @@ def test_cea_keeps_source_protected_region():
     # Dataset length one must be a no-op, proving the guard does not invent a donor.
     out = CEA(Dataset(), p=1.0)(_labels(img, [[65 / 128, 65 / 128, 10 / 128, 10 / 128]]))
     assert np.array_equal(out["img"], img)
+
+
+def test_effect_adaptive_records_corrected_strength_fields(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_EFFECT_POLICY", "adaptive")
+    monkeypatch.setenv("OACP_TARGET_EFFECT", "2.0")
+    monkeypatch.setenv("OACP_P", "1.0")
+    monkeypatch.setenv("OACP_STRENGTH_MIN", "0.10")
+    monkeypatch.setenv("OACP_STRENGTH_MAX", "0.25")
+    log = tmp_path / "effect_corrected.jsonl"
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    img = np.random.default_rng(52).integers(20, 100, (96, 96, 3), dtype=np.uint8)
+    out = OACP(p=1.0)(_labels(img, [[48 / 96, 48 / 96, 8 / 96, 8 / 96]]))
+    assert out["img"].shape == img.shape
+    record = __import__("json").loads(log.read_text().strip())
+    assert record["actual_effect"] >= 0.0
+    assert record["base_strength"] >= record["effective_strength"]
+    assert record["strength_min"] == pytest.approx(0.10)
+    assert record["strength_max"] == pytest.approx(0.25)
+
+
+def test_size_adaptive_expands_smaller_objects_more():
+    boxes = np.asarray([[10, 10, 14, 14], [30, 30, 62, 62]], dtype=np.float32)
+    expands, records = _size_adaptive_expands(
+        boxes, expand_min=2.0, expand_max=4.0, size_smax=32.0
+    )
+    assert expands[0] == pytest.approx(4.0 - 4.0 / 32.0 * 2.0)
+    assert expands[1] == pytest.approx(2.0)
+    assert records[0]["object_size"] < records[1]["object_size"]
+    assert expands[0] > expands[1]
+
+
+def test_size_adaptive_protection_logs_per_object_expands(monkeypatch):
+    monkeypatch.setenv("OACP_PROTECTION_POLICY", "size_adaptive")
+    monkeypatch.setenv("OACP_SIZE_EXPAND_MIN", "2.0")
+    monkeypatch.setenv("OACP_SIZE_EXPAND_MAX", "4.0")
+    boxes = np.asarray([[20, 20, 24, 24], [60, 60, 84, 84]], dtype=np.float32)
+    stats = oacp_diagnostics((128, 128), boxes, "current")
+    assert stats["oacp_protection_policy"] == "size_adaptive"
+    assert stats["min_size_adaptive_expand"] < stats["max_size_adaptive_expand"]
+    assert stats["size_objects"]
+
+
+def test_load_strength_range_preserves_r2_sparse_and_softens_dense():
+    assert _load_adaptive_strength_range(1, (0.10, 0.25), (0.05, 0.15), 10) == pytest.approx((0.0, 0.10, 0.25))
+    load, low, high = _load_adaptive_strength_range(10, (0.10, 0.25), (0.05, 0.15), 10)
+    assert load == pytest.approx(1.0)
+    assert (low, high) == pytest.approx((0.05, 0.15))
+
+
+def test_curriculum_and_hardness_strength_ranges():
+    assert _curriculum_strength_range(0, 100, (0.10, 0.25), (0.05, 0.15), 0.15, 0.10)[0] == "warmup"
+    assert _curriculum_strength_range(50, 100, (0.10, 0.25), (0.05, 0.15), 0.15, 0.10)[0] == "r2"
+    assert _curriculum_strength_range(99, 100, (0.10, 0.25), (0.05, 0.15), 0.15, 0.10)[0] == "cooldown"
+    assert _hardness_strength_range(0.0, (0.10, 0.25), (0.05, 0.15)) == pytest.approx((0.10, 0.25))
+    assert _hardness_strength_range(1.0, (0.10, 0.25), (0.05, 0.15)) == pytest.approx((0.05, 0.15))
+
+
+def test_shared_state_commits_previous_epoch_hardness_ema():
+    state = OACPSharedState(3, beta=0.9)
+    state.set_epoch(5, 100)
+    state.begin_epoch()
+    state.update_hardness([0, 1], [1.0, 3.0])
+    stats = state.finish_epoch()
+    assert stats["hardness_updates"] == 2.0
+    assert state.read_hardness(0) < state.read_hardness(1)
+    assert state.snapshot()["epoch"] == 5
+
+
+def test_calibrate_effect_target_uses_only_applied_records(tmp_path):
+    path = tmp_path / "r2.jsonl"
+    path.write_text(
+        '{"oacp_applied": true, "actual_effect": 1.0}\n'
+        '{"oacp_applied": false, "actual_effect": 100.0}\n'
+        '{"oacp_applied": true, "actual_effect": 3.0}\n'
+    )
+    result = calibrate_effect_target(str(path))
+    assert result["count"] == 2
+    assert result["target_effect"] == pytest.approx(2.0)
+
+
+def test_r2_profile_is_fixed_control(monkeypatch):
+    monkeypatch.setenv("OACP_PROFILE", "r2")
+    monkeypatch.delenv("OACP_P", raising=False)
+    monkeypatch.delenv("OACP_PROB_POLICY", raising=False)
+    monkeypatch.delenv("OACP_SCALE_MIN", raising=False)
+    monkeypatch.delenv("OACP_SCALE_MAX", raising=False)
+    monkeypatch.delenv("OACP_VARIANT", raising=False)
+    monkeypatch.delenv("OACP_PLACEMENT", raising=False)
+    monkeypatch.delenv("OACP_PROTECTED_EXPAND", raising=False)
+    from project_ultralytics.context_augment import augmentation_config
+
+    cfg = augmentation_config()
+    assert cfg["profile"] == "r2"
+    assert cfg["oacp_probability"] == pytest.approx(0.40)
+    assert cfg["oacp_strength"] == pytest.approx([0.10, 0.25])
+    assert cfg["oacp_resolution_scale"] == pytest.approx([0.80, 0.95])
+    assert cfg["oacp_variant"] == "current"
+    assert cfg["oacp_placement"] == "pre_transform"
