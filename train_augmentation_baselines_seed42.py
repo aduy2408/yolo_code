@@ -102,13 +102,15 @@ def prepare_dataset(dataset: str, args: argparse.Namespace) -> tuple[Path, Path]
     if dataset == "levir":
         from misc.prepare_levir_ship import prepare
 
+        data_root = args.levir_data_root
         output = args.dataset_root / f"levir_ship_yolo_seed{args.split_seed}"
-        return prepare(args.data_root, output, args.split_seed), output
+        return prepare(data_root, output, args.split_seed), output
 
     import train_all_tinyperson as workflow
 
-    test_root = workflow.prepare_test_set(args.data_root, args.dataset_root)
-    split_root = workflow.prepare_seed_dataset(args.data_root, args.dataset_root, test_root, args.split_seed)
+    data_root = args.tinyperson_data_root
+    test_root = workflow.prepare_test_set(data_root, args.dataset_root)
+    split_root = workflow.prepare_seed_dataset(data_root, args.dataset_root, test_root, args.split_seed)
     return split_root / "tinyperson.yaml", test_root
 
 
@@ -251,10 +253,10 @@ def evaluate_one(run_dir: Path, dataset: str, data_yaml: Path, test_root: Path, 
         custom_args = argparse.Namespace(
             imgsz=args.imgsz[dataset], batch_size=args.batch_size, device=args.device, workers=args.workers,
         )
-        merged = workflow.evaluate_merged_test(run_dir, test_root, args.data_root, custom_args)
+        merged = workflow.evaluate_merged_test(run_dir, test_root, args.tinyperson_data_root, custom_args)
         metrics.update({key: float(value) for key, value in merged.items() if isinstance(value, (int, float))})
         metrics["test_protocol"] = "TinyPerson standard test plus merged corner-window evaluator"
-        metrics["test_protocol_source"] = str(args.data_root / workflow.TEST_MERGED_JSON)
+        metrics["test_protocol_source"] = str(args.tinyperson_data_root / workflow.TEST_MERGED_JSON)
     else:
         metrics["test_protocol"] = "LEVIR-Ship standard held-out test split"
         metrics["test_protocol_source"] = str(data_yaml)
@@ -290,7 +292,8 @@ def upload_and_verify(run_dir: Path, dataset: str, job: str, args: argparse.Name
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--levir-data-root", type=Path, required=True)
+    parser.add_argument("--tinyperson-data-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--project", type=Path, default=ROOT / "runs/augmentation_baselines_seed42")
     parser.add_argument("--hf-repo-levir", default="duyle2408/levir-augmentation-baselines-seed42-runs")
@@ -321,7 +324,9 @@ def main(argv: list[str] | None = None) -> None:
     if not args.confirm_settings:
         raise RuntimeError("Refusing to train without --confirm-settings")
     require_training_context(hf_repo_id=args.hf_repo_levir)
-    args.data_root, args.dataset_root, args.project = args.data_root.resolve(), args.dataset_root.resolve(), args.project.resolve()
+    args.levir_data_root = args.levir_data_root.resolve()
+    args.tinyperson_data_root = args.tinyperson_data_root.resolve()
+    args.dataset_root, args.project = args.dataset_root.resolve(), args.project.resolve()
     args.hf_repo_id = {"levir": args.hf_repo_levir, "tinyperson": args.hf_repo_tinyperson}
     args.imgsz = {"levir": args.imgsz_levir, "tinyperson": args.imgsz_tinyperson}
 
