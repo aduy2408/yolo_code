@@ -70,7 +70,6 @@ def configure_variant(variant: str, context_stats: Path | None, effect_target: f
     env = {
         "YOLO_CONTEXT_AUG": "oacp",
         "YOLO_LEGACY_DOUBLE_OACP": "0",
-        "OACP_PROFILE": "default",
         "OACP_VARIANT": "current",
         "OACP_PLACEMENT": "pre_transform",
         "OACP_PROB_POLICY": "fixed",
