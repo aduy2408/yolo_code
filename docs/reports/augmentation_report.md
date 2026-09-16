@@ -145,6 +145,8 @@ Repository: [`duyle2408/levir-copy-paste-posthoc-test-runs`](https://huggingface
 
 **Interpretation:** the corrected post-hoc test table changes the earlier Copy-Paste interpretation. CP2 has the highest mean test mAP50-95 (**0.3167**) among the standard CP0-CP3 variants, while CP0 remains a strong control (**0.3147**). CP3 is lower in this post-hoc protocol (**0.3046**) and should not be described as the best Copy-Paste method without specifying the older artifact. The post-hoc artifact is the source of truth for these test values.
 
+**HF detector provenance audit (2026-09-16):** the earlier uncertainty about this family is now resolved. The LEVIR CP0, CP1, CP2, and CP3 manifests in [`duyle2408/stw-yolo-runs`](https://huggingface.co/datasets/duyle2408/stw-yolo-runs/tree/main/copy_paste/levir) all record the same `yolov8n.pt` model path, commit `32f5899cdec987a0b07dbb0e5d558e8b971fed5f`, split seed 42, workers 8, and `mosaic=0.0`. The CP0 checkpoint was downloaded from HF and inspected with the project Ultralytics loader: its serialized `Detect` layer is `f=[15, 18, 21]`, `nl=3`, and strides `[8, 16, 32]`, which is the canonical YOLOv8 **P3/P4/P5** head, not a P2 detector. The CP1-CP3 manifests confirm the same model path and commit, so the corrected LEVIR CP0-CP3 post-hoc table is a matched canonical P3/P4/P5 family. The post-hoc JSON repository contains evaluation files only; model/config provenance comes from `stw-yolo-runs`.
+
 ### Mosaic-only policy variants
 
 Repository: [`duyle2408/mosaic-only-yolo-runs`](https://huggingface.co/datasets/duyle2408/mosaic-only-yolo-runs), uploaded **2026-09-15** and updated **2026-09-16**. These runs use the canonical upstream-style YOLOv8 P3/P4/P5 YAML, 100 epochs, workers 8, Mosaic enabled, and no OACP or Copy-Paste. Each row is a single seed-42 run.
@@ -439,6 +441,8 @@ All four rows use the canonical upstream-style YOLOv8 P3/P4/P5 YAML, fixed split
 ### 5.4 Copy-Paste without Mosaic
 
 Metrics below are manifest-reported because these Copy-Paste repositories do not expose the same explicit evaluation artifact as the Mosaic matrix.
+
+The HF checkpoint audit resolves the architecture for the older no-Mosaic CP ablations. The LEVIR CP0-CP3 checkpoints in `duyle2408/levir-ship-copy-paste` and the TinyPerson CP0 checkpoint in `duyle2408/tinyperson-copy-paste` serialize the same three-output canonical YOLOv8 head, `Detect f=[15, 18, 21]`, with strides `[8, 16, 32]`. These rows are therefore **canonical P3/P4/P5**, not YOLOv8 P2/P3/P4. The older TinyPerson manifests omit a model field, so this conclusion is based on direct checkpoint inspection rather than the manifest name alone.
 
 #### LEVIR-Ship
 
