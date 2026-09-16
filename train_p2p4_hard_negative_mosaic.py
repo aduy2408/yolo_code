@@ -66,6 +66,7 @@ def mine_bank(images: Path, labels: Path, output: Path, weights: str) -> None:
     # upstream package. The project fork's Detect head has extra fields that
     # are only present on models constructed from the project YAMLs.
     env["PYTHONPATH"] = f"{UPSTREAM_ULTRA}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    env["MOSAIC_MINER_ULTRALYTICS_ROOT"] = str(UPSTREAM_ULTRA)
     subprocess.run([
         sys.executable, "tools/mine_mosaic_hard_negatives.py",
         "--weights", weights, "--images", str(images), "--labels", str(labels),

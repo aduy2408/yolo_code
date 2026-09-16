@@ -9,10 +9,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+_upstream_root = os.environ.get("MOSAIC_MINER_ULTRALYTICS_ROOT")
+if _upstream_root:
+    sys.path.insert(0, _upstream_root)
 
 
 def iou(a, b):
