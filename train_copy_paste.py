@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -204,6 +205,9 @@ def _evaluate_run(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> d
         import train_all_tinyperson as workflow
 
         test_out_dir = workflow.prepare_test_set(args.data_root, args.dataset_root)
+        if not (test_out_dir / "corner_manifest.json").is_file():
+            shutil.rmtree(test_out_dir, ignore_errors=True)
+            test_out_dir = workflow.prepare_test_set(args.data_root, args.dataset_root)
         custom_args = argparse.Namespace(
             imgsz=args.imgsz, batch_size=args.batch_size, device=args.device, workers=args.workers,
         )
@@ -224,12 +228,8 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
 
     run_dir = args.project / args.dataset / variant / f"seed_{seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    required = [
-        run_dir / "weights/best.pt", run_dir / "weights/last.pt", run_dir / "results.csv",
-        run_dir / "evaluation_metrics.json", run_dir / "experiment_manifest.json",
-    ]
-    if all(path.is_file() for path in required):
-        return run_dir
+    training_artifacts = [run_dir / "weights/best.pt", run_dir / "weights/last.pt", run_dir / "results.csv"]
+    training_complete = all(path.is_file() for path in training_artifacts)
     settings = variant_overrides(variant)
     settings["copy_paste_policy"] = args.copy_paste_policy
     settings["copy_paste_stats_path"] = str(args.copy_paste_stats_path or "")
@@ -248,21 +248,22 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         settings["mosaic_policy_topk"] = 4
         settings["mosaic_visibility_thresh"] = 0.7
         settings["mosaic_visibility_lambda"] = 1.0
-    model = YOLO(args.model)
-    model.train(
-        data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
-        device=args.device, workers=args.workers, patience=0, seed=seed,
-        deterministic=True, amp=True, plots=False, project=str(run_dir.parent),
-        name=run_dir.name, exist_ok=True, val=True, iou=0.5, **settings,
-    )
-    cp_diagnostics = _find_copy_paste_diagnostics(
-        getattr(getattr(model, "trainer", None), "train_loader", None)
-        and model.trainer.train_loader.dataset.transforms
-    )
-    if cp_diagnostics is not None:
-        (run_dir / "copy_paste_diagnostics.json").write_text(
-            json.dumps(cp_diagnostics, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    if not training_complete:
+        model = YOLO(args.model)
+        model.train(
+            data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
+            device=args.device, workers=args.workers, patience=0, seed=seed,
+            deterministic=True, amp=True, plots=False, project=str(run_dir.parent),
+            name=run_dir.name, exist_ok=True, val=True, iou=0.5, **settings,
         )
+        cp_diagnostics = _find_copy_paste_diagnostics(
+            getattr(getattr(model, "trainer", None), "train_loader", None)
+            and model.trainer.train_loader.dataset.transforms
+        )
+        if cp_diagnostics is not None:
+            (run_dir / "copy_paste_diagnostics.json").write_text(
+                json.dumps(cp_diagnostics, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
     metrics = _evaluate_run(run_dir, data_yaml, args)
     (run_dir / "evaluation_metrics.json").write_text(
         json.dumps(metrics, indent=2, sort_keys=True) + "\n",
