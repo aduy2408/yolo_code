@@ -214,13 +214,14 @@ The canonical standard-Mosaic row is a new baseline reference for the M2-M5 poli
 
 #### TinyPerson matched augmentation baselines
 
-Repository: [`duyle2408/tinyperson-augmentation-baselines-seed42-runs`](https://huggingface.co/datasets/duyle2408/tinyperson-augmentation-baselines-seed42-runs). The dataset uses the merged corner-window test protocol in `test_merged_predictions.json`; the detector input is `imgsz=640`, while source windows are `640x512`.
+Repository: [`duyle2408/tinyperson-augmentation-baselines-seed42-runs`](https://huggingface.co/datasets/duyle2408/tinyperson-augmentation-baselines-seed42-runs). The uploaded baseline manifest identifies the primary metrics as the standard Ultralytics test split and also records merged corner-window metrics for TinyPerson. The detector input is `imgsz=640`, while source windows are `640x512`.
 
 | Detector | Method | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 |
 |---|---|---:|---:|---:|---:|
 | Canonical YOLOv8 | No augmentation, no Mosaic | 0.4330 | 0.1480 | 0.4344 | 0.1470 |
 | Canonical YOLOv8 | Standard Mosaic | **0.5245** | **0.1889** | **0.4948** | **0.1750** |
 | YOLOv8n P2/P3/P4 | No augmentation, no Mosaic | 0.4827 | 0.1660 | 0.4715 | 0.1620 |
+| YOLOv8n P2/P3/P4 | Standard Mosaic | **0.5617** | **0.2006** | **0.5153** | **0.1862** |
 
 These rows provide the missing no-augmentation control for the newer TinyPerson Copy-Paste + Mosaic variants, although the same-detector no-augmentation baseline is still not available for the canonical YOLOv8 Copy-Paste rows.
 
