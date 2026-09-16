@@ -10,7 +10,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+LEGACY = ROOT / "models_related/ultralytics"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(LEGACY) not in sys.path:
+    sys.path.insert(0, str(LEGACY))
 
 from project_ultralytics.context_augment import calibrate_effect_target
 
