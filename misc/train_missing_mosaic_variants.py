@@ -28,7 +28,8 @@ DATASETS = ("levir", "tinyperson")
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--levir-data-root", type=Path, required=True)
+    parser.add_argument("--tinyperson-data-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--hf-repo-id", required=True, help="task-specific repository for this complete matrix")
@@ -53,7 +54,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _dataset_args(args: argparse.Namespace, dataset: str) -> Namespace:
     return Namespace(
         dataset=dataset,
-        data_root=args.data_root,
+        data_root=getattr(args, f"{dataset}_data_root"),
         dataset_root=args.dataset_root,
         project=args.project / dataset,
         hf_repo_id=args.hf_repo_id,
