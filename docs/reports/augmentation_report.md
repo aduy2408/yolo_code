@@ -266,6 +266,25 @@ The combined OACP + Copy-Paste repositories should not be compared with the plai
 
 The queued OACP workflow is sequential and uses a separate Hugging Face repository for each model/variant. Verified LEVIR density and TinyPerson budget artifacts are reused rather than retrained. Only missing or untrusted artifacts should enter the queue again.
 
+### 4.2a Exact detector YAML map
+
+This is the part that must not be inferred from the checkpoint name. In particular, `yolov8n.pt` only identifies the pretrained weights; it does **not** tell us whether the detector head is the canonical P3/P4/P5 graph, a P2/P3/P4 graph, or a P2-only graph.
+
+| Label used in this report | Exact YAML / source | Detection levels and important structure | Runs that belong here |
+|---|---|---|---|
+| **Canonical YOLOv8 baseline** | `models_related/ultralytics/ultralytics/cfg/models/v8/yolov8.yaml` | Upstream-style YOLOv8. The `Detect` layer consumes **P3, P4, P5** (`[15, 18, 21]`). There is no P2 detection output. | `levir-ship-mosaic-policy-matrix`, `mosaic-only-yolo-runs`, `misc/train_mosaic_policy_matrix.py`, and other rows explicitly described as canonical YOLOv8 P3/P4/P5. |
+| **YOLOv8n P2/P3/P4, plain neck, LEVIR** | `models_related/models_config/yolov8/levir/yolov8n_p2p3p4_levir_plain.yaml` (the context-augmentation runner source is `misc/train_context_aug_matrix.py`) | Custom small-object detector. The `Detect` layer consumes **P2, P3, P4** (`[18, 15, 12]`), using a plain `RepC2f` neck. | LEVIR YOLOv8n adaptive OACP, density/budget, and the P2/P3/P4 Copy-Paste/OACP combinations when the row says `YOLOv8n P2/P3/P4`. |
+| **YOLOv8n P2/P3/P4, plain neck, TinyPerson** | `models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3p4_plain.yaml` | Same output scale pattern, **P2, P3, P4**, but with the TinyPerson-specific YAML and `nc: 1`. | TinyPerson rows explicitly labeled `YOLOv8n P2/P3/P4`, including `tinyperson-yolov8n-p2p3p4-cp3-mosaic-no-oacp` and the P2/P3/P4 OACP + CP3 combinations. |
+| **YOLOv8n P2-only historical family** | A separate historical YAML family under `models_related/models_config/yolov8/levir/`, for example `yolov8n_p2_fpn_only_plain.yaml` or an explicitly named P2 attention/loss variant. | **P2 only** at the detection head. These are not the same model as either canonical P3/P4/P5 or P2/P3/P4. Some historical files also change the neck, attention, or loss integration. | `levir-yolov8n-p2-*` OACP/no-Mosaic and FTAL rows, unless the artifact's manifest names a more specific P2 YAML. Do not merge these with the P2/P3/P4 rows. |
+| **YOLOv9t / YOLOv10n / YOLO11n families** | The corresponding version-specific YAML, not a YOLOv8 YAML. | Model family and output graph differ from YOLOv8. The `P2/P3/P4` label still means the detector has those output levels, but it does not make the model equivalent to YOLOv8n P2/P3/P4. | `tinyperson-yolo11-oacp-mosaic-matrix`, YOLOv9t/YOLOv10n rows, and the YOLOv9t P2/P3/P4 rows. |
+
+**How to read the tables:**
+
+1. Rows labeled **canonical YOLOv8 baseline** are the only rows using the upstream P3/P4/P5 detector unless a table explicitly says otherwise.
+2. Rows labeled **P2/P3/P4** add a high-resolution P2 output and therefore change the detector architecture. Any augmentation gain in those rows is a combined detector-plus-augmentation result.
+3. Rows labeled **P2-only** are a third group. They must not be compared directly with either P3/P4/P5 or P2/P3/P4 without an architecture-matched control.
+4. Where only a Hugging Face result table was available and the manifest did not expose the YAML filename, the report keeps the architecture label but marks the exact path as provenance-qualified rather than guessing it from the repository name.
+
 ### 4.3 Exact YOLO11 matrix variants
 
 The four YOLO11 variants are not interchangeable:
