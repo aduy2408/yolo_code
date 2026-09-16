@@ -53,6 +53,11 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
     missing = [path for path in required if not (run_dir / path).is_file()]
     if missing:
         raise RuntimeError(f"Refusing incomplete upload for {run_dir}: {missing}")
+    metrics = json.loads((run_dir / "evaluation_metrics.json").read_text(encoding="utf-8"))
+    required_metrics = ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95")
+    missing_metrics = [key for key in required_metrics if key not in metrics]
+    if missing_metrics:
+        raise RuntimeError(f"Refusing upload without split-qualified metrics for {run_dir}: {missing_metrics}")
     api.upload_folder(
         folder_path=str(run_dir), repo_id=repo_id, repo_type="dataset",
         path_in_repo=f"copy_paste/{dataset}/{variant}/seed_{seed}",
@@ -165,6 +170,48 @@ def _find_copy_paste_diagnostics(obj):
     return None
 
 
+def _split_metrics(result, split: str) -> dict[str, float]:
+    """Persist stable split-qualified metric aliases alongside Ultralytics keys."""
+    values = {key: float(value) for key, value in result.results_dict.items()}
+    output = {f"{split}/{key}": value for key, value in values.items()}
+    output[f"{split}/AP50"] = values["metrics/mAP50(B)"]
+    output[f"{split}/mAP50-95"] = values["metrics/mAP50-95(B)"]
+    return output
+
+
+def _evaluate_run(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> dict[str, float]:
+    """Evaluate both standard validation and test splits.
+
+    TinyPerson additionally runs its merged corner-window evaluator, whose
+    protocol-specific metrics remain in the same JSON artifact.
+    """
+    ultralytics_path = ROOT / "models_related" / "ultralytics"
+    if str(ultralytics_path) not in sys.path:
+        sys.path.insert(0, str(ultralytics_path))
+    from ultralytics import YOLO
+
+    model = YOLO(run_dir / "weights/best.pt")
+    metrics: dict[str, float] = {}
+    for split in ("val", "test"):
+        result = model.val(
+            data=str(data_yaml), split=split, imgsz=args.imgsz, batch=args.batch_size,
+            device=args.device, workers=args.workers, plots=False, iou=0.5,
+            project=str(run_dir / "evaluation"), name=split, exist_ok=True,
+        )
+        metrics.update(_split_metrics(result, split))
+
+    if args.dataset == "tinyperson":
+        import train_all_tinyperson as workflow
+
+        test_out_dir = workflow.prepare_test_set(args.data_root, args.dataset_root)
+        custom_args = argparse.Namespace(
+            imgsz=args.imgsz, batch_size=args.batch_size, device=args.device, workers=args.workers,
+        )
+        custom_metrics = workflow.evaluate(run_dir, data_yaml, test_out_dir, args.data_root, custom_args)
+        metrics.update({key: float(value) for key, value in custom_metrics.items() if isinstance(value, (int, float))})
+    return metrics
+
+
 def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int) -> Path:
     if args.oacp_variant != "none":
         os.environ["YOLO_CONTEXT_AUG"] = "oacp"
@@ -216,12 +263,9 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         (run_dir / "copy_paste_diagnostics.json").write_text(
             json.dumps(cp_diagnostics, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-    model = YOLO(run_dir / "weights/best.pt")
-    metrics = model.val(data=str(data_yaml), split="val", imgsz=args.imgsz, batch=args.batch_size,
-                        device=args.device, workers=args.workers, plots=False, iou=0.5,
-                        project=str(run_dir / "evaluation"), name="val", exist_ok=True)
+    metrics = _evaluate_run(run_dir, data_yaml, args)
     (run_dir / "evaluation_metrics.json").write_text(
-        json.dumps({key: float(value) for key, value in metrics.results_dict.items()}, indent=2, sort_keys=True) + "\n",
+        json.dumps(metrics, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     manifest = effective_settings(
@@ -233,7 +277,7 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         mosaic_interaction=args.mosaic_interaction,
         oacp_variant=args.oacp_variant,
         oacp_legacy_double=False,
-        metrics={key: float(value) for key, value in metrics.results_dict.items()},
+        metrics=metrics,
     )
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return run_dir
