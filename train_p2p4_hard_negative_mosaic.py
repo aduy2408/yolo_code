@@ -19,6 +19,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 ULTRA = ROOT / "models_related/ultralytics"
+UPSTREAM_ULTRA = ROOT / "vendor/ultralytics_upstream"
 CONFIGS = {
     "levir": ROOT / "models_related/models_config/yolov8/levir/baseline_controls/yolov8n_p2p3p4_levir_plain.yaml",
     "tinyperson": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3p4_plain.yaml",
@@ -61,7 +62,10 @@ def mine_bank(images: Path, labels: Path, output: Path, weights: str) -> None:
             return
     output.parent.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
-    env["PYTHONPATH"] = f"{ULTRA}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    # The downloaded official yolov8n.pt must be mined with the clean pinned
+    # upstream package. The project fork's Detect head has extra fields that
+    # are only present on models constructed from the project YAMLs.
+    env["PYTHONPATH"] = f"{UPSTREAM_ULTRA}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
     subprocess.run([
         sys.executable, "tools/mine_mosaic_hard_negatives.py",
         "--weights", weights, "--images", str(images), "--labels", str(labels),
