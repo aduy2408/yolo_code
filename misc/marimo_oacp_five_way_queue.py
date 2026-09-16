@@ -17,7 +17,7 @@ from utils.marimo_ops import launch_detached, status
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = os.environ.get("MARIMO_PYTHON", "/tmp/uv-venv/bin/python")
-POLICIES = ("fixed", "effect_adaptive", "size_adaptive", "load_adaptive", "curriculum", "hardness_adaptive")
+POLICIES = ("effect_adaptive", "size_adaptive", "load_adaptive", "curriculum", "hardness_adaptive")
 REQUIRED = (
     "weights/best.pt",
     "weights/last.pt",
@@ -55,7 +55,7 @@ def _job(args: argparse.Namespace, policy: str, repo: str) -> dict[str, object]:
         "OACP_VARIANT": "current",
         "OACP_PLACEMENT": "pre_transform",
         "OACP_PROB_POLICY": "fixed",
-        "OACP_STRENGTH_POLICY": "fixed" if policy in {"fixed", "size_adaptive"} else policy,
+        "OACP_STRENGTH_POLICY": "fixed" if policy == "size_adaptive" else policy,
         "OACP_PROTECTION_POLICY": "size_adaptive" if policy == "size_adaptive" else "fixed",
         "MARIMO_HF_REPO_ID": repo,
     }
@@ -99,7 +99,6 @@ def run(args: argparse.Namespace) -> None:
     if (args.seed, args.split_seed, args.epochs, args.patience) != (42, 42, 100, 0):
         raise ValueError("R2 adaptive matrix requires seed=42, split-seed=42, epochs=100, patience=0")
     repos = {
-        "fixed": args.fixed_repo,
         "effect_adaptive": args.effect_repo,
         "size_adaptive": args.size_repo,
         "load_adaptive": args.load_repo,
@@ -129,7 +128,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--dataset-root", type=Path, default=ROOT / "datasets/levir_r2_adaptive_split42")
     parser.add_argument("--project", type=Path, default=ROOT / "runs/levir_r2_adaptive")
     parser.add_argument("--effect-target", type=float, required=True)
-    parser.add_argument("--fixed-repo", required=True)
     parser.add_argument("--effect-repo", required=True)
     parser.add_argument("--size-repo", required=True)
     parser.add_argument("--load-repo", required=True)
