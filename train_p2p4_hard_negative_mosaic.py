@@ -60,12 +60,14 @@ def mine_bank(images: Path, labels: Path, output: Path, weights: str) -> None:
         if isinstance(bank, list) and bank:
             return
     output.parent.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = f"{ULTRA}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
     subprocess.run([
         sys.executable, "tools/mine_mosaic_hard_negatives.py",
         "--weights", weights, "--images", str(images), "--labels", str(labels),
         "--output", str(output), "--conf-min", "0.20", "--gt-iou-max", "0.10",
         "--context-expand", "4.0", "--min-crop", "96",
-    ], cwd=ROOT, check=True)
+    ], cwd=ROOT, env=env, check=True)
     bank = json.loads(output.read_text(encoding="utf-8"))
     if not isinstance(bank, list) or not bank:
         raise RuntimeError(f"hard-negative miner produced no crops: {output}")
