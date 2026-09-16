@@ -23,7 +23,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyArrowPatch, Rectangle
+from matplotlib.patches import ConnectionPatch, Rectangle
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -144,6 +144,16 @@ def choose(items: list[Item], predicate, rng: random.Random, fallback: int = 0) 
     return rng.choice(candidates or [items[fallback % len(items)]])
 
 
+def best_object_item(items: list[Item], minimum_objects: int = 1) -> Item:
+    """Choose the image with the largest annotated object for a readable figure."""
+    candidates = [item for item in items if len(item.boxes) >= minimum_objects]
+    if not candidates:
+        candidates = items
+    return max(candidates, key=lambda item: max(
+        float((box[2] - box[0]) * (box[3] - box[1])) for box in item.boxes
+    ))
+
+
 def object_patch(item: Item, index: int = 0) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int, int]]:
     image = read_image(item)
     box = item.boxes[min(index, len(item.boxes) - 1)]
@@ -228,113 +238,130 @@ def arrow(fig, left_ax, right_ax, y: float, color: str = "#64748b") -> None:
                                    arrowstyle="-|>", mutation_scale=15, linewidth=2.0, color=color))
 
 
+def zoom_pair(fig, ax_full, ax_zoom, image: np.ndarray, boxes: np.ndarray, title: str) -> None:
+    """Render a contextual object view, sampled crop zone, and linked zoom view."""
+    selected_indices = zoom_group(boxes)
+    left, top, right, bottom = zoom_bounds(boxes, image.shape[1], image.shape[0])
+    crop = image[top:bottom, left:right]
+    selected = boxes[list(selected_indices)]
+
+    # The source tiles are 512x512 while ships can be only a few dozen pixels.
+    # Show a contextual crop on the left, then the tighter sampled crop on the
+    # right. This is the same visual relationship as the earlier report figure.
+    x1, y1 = selected[:, :2].min(axis=0)
+    x2, y2 = selected[:, 2:].max(axis=0)
+    context_pad = max(2.0 * float(max(x2 - x1, y2 - y1)), 24.0)
+    context_left, context_top, context_right, context_bottom = clip_box(
+        np.array([x1 - context_pad, y1 - context_pad, x2 + context_pad, y2 + context_pad]),
+        image.shape[1], image.shape[0]
+    )
+    context = image[context_top:context_bottom, context_left:context_right]
+    crop_left, crop_top = left - context_left, top - context_top
+
+    ax_full.imshow(cv2.cvtColor(context, cv2.COLOR_BGR2RGB), interpolation="nearest")
+    for x1, y1, x2, y2 in boxes:
+        if x2 < context_left or x1 > context_right or y2 < context_top or y1 > context_bottom:
+            continue
+        ax_full.add_patch(Rectangle((x1 - context_left, y1 - context_top), x2 - x1, y2 - y1,
+                                    fill=False, edgecolor="#ff3b30", linewidth=1.5))
+    ax_full.add_patch(Rectangle((crop_left, crop_top), right - left, bottom - top, fill=False,
+                                edgecolor="#ffd60a", linewidth=2.2, linestyle="--"))
+    ax_full.set_title(title, fontsize=10.5, weight="bold", pad=5)
+    ax_full.axis("off")
+
+    ax_zoom.imshow(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB), interpolation="nearest")
+    for x1, y1, x2, y2 in selected:
+        ax_zoom.add_patch(Rectangle((x1 - left, y1 - top), x2 - x1, y2 - y1,
+                                    fill=False, edgecolor="#ff3b30", linewidth=1.8))
+    ax_zoom.text(0.03, 0.97, "ZOOM", transform=ax_zoom.transAxes, va="top", ha="left",
+                 fontsize=10, weight="bold", color="#111111",
+                 bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "none", "pad": 2})
+    ax_zoom.axis("off")
+    fig.add_artist(ConnectionPatch((crop_left + right - left, crop_top), (0, 1), coordsA=ax_full.transData,
+                                   coordsB=ax_zoom.transAxes, color="#ffd60a", linewidth=1.2))
+    fig.add_artist(ConnectionPatch((crop_left + right - left, crop_top + bottom - top), (0, 0), coordsA=ax_full.transData,
+                                   coordsB=ax_zoom.transAxes, color="#ffd60a", linewidth=1.2))
+
+
 def make_figure(items: list[Item], seed: int) -> plt.Figure:
     rng = random.Random(seed)
-    base = choose(items, lambda x: len(x.boxes) >= 2, rng)
-    single = choose(items, lambda x: len(x.boxes) >= 1, rng, 1)
-    cluster = choose(items, lambda x: len(x.boxes) >= 3, rng, 2)
-    large = choose(items, lambda x: max((b[2] - b[0]) * (b[3] - b[1]) for b in x.boxes) > 0, rng, 3)
+    # Use the same deterministic crop/zoom idea as the old report, but prefer
+    # the largest annotated ships so the resulting panels are actually legible.
+    base = best_object_item(items, 2)
+    single = best_object_item(items, 1)
+    cluster = best_object_item(items, 3)
+    large = best_object_item(items, 1)
 
-    fig = plt.figure(figsize=(15.5, 15.5), dpi=180, facecolor="#f8fafc")
-    gs = fig.add_gridspec(5, 4, height_ratios=[1.0, 1.0, 1.0, 1.0, 1.0], hspace=0.72, wspace=0.28,
-                          left=0.045, right=0.985, top=0.895, bottom=0.08)
+    fig = plt.figure(figsize=(17, 16), dpi=180, facecolor="white")
+    gs = fig.add_gridspec(5, 5, width_ratios=[1.10, 0.88, 1.22, 1.22, 0.88],
+                          hspace=0.82, wspace=0.24, left=0.035, right=0.985, top=0.91, bottom=0.06)
     colors = ["#2563eb", "#15803d", "#c2410c", "#7c3aed", "#be123c"]
     titles = [
-        ("A", "Positive object injection", "Paste one or more real objects; add labels"),
-        ("B", "Structure-preserving injection", "Paste a local cluster; keep its relative layout"),
-        ("C", "Geometry-conditioned injection", "Paste with controlled overlap to model crowding"),
-        ("D", "Distribution-conditioned injection", "Match the target scale before pasting"),
-        ("E", "Hard-negative injection", "Paste confusing patches without adding labels"),
+        ("A", "Positive injection", "real object → valid positive"),
+        ("B", "Structure-preserving injection", "local cluster stays together"),
+        ("C", "Geometry-conditioned injection", "controlled overlap / crowding"),
+        ("D", "Distribution-conditioned injection", "match the target scale"),
+        ("E", "Hard-negative injection", "visible patch, no new label"),
     ]
 
+    rows: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, str]] = []
+
     # A: one object, then two copies.
-    target, boxes = target_with_boxes(base)
+    target, target_boxes = target_with_boxes(base)
     patch, alpha, _ = object_patch(single)
-    after = target.copy()
-    h, w = after.shape[:2]
-    pasted = []
-    for x, y in [(int(w * 0.62), int(h * 0.16)), (int(w * 0.70), int(h * 0.62))]:
-        after, placed = paste(after, patch, alpha, x, y, scale=0.82)
-        pasted.append(placed)
-    row = 0
-    show(fig.add_subplot(gs[row, 0]), patch, None, "source crop", "#15803d")
-    show(fig.add_subplot(gs[row, 1]), target, boxes, "target before", "#15803d")
-    show(fig.add_subplot(gs[row, 2]), after, np.vstack([boxes, np.asarray(pasted, dtype=np.float32)]), "after: +2 objects", "#ef4444")
-    ax_note = fig.add_subplot(gs[row, 3]); ax_note.axis("off")
-    ax_note.text(0, .72, "new objects are\nvalid positives", fontsize=12, weight="bold", color=colors[row], va="top")
-    ax_note.text(0, .33, "single-object unit\nrandom placement", fontsize=10, color="#475569", va="top")
+    after = target.copy(); h, w = after.shape[:2]; pasted = []
+    for x, y in [(int(w * .62), int(h * .16)), (int(w * .70), int(h * .62))]:
+        after, placed = paste(after, patch, alpha, x, y, scale=.82); pasted.append(placed)
+    rows.append((patch, target, target_boxes, after, np.vstack([target_boxes, np.asarray(pasted, np.float32)]), "source crop"))
 
     # B: cluster patch.
-    target, boxes = target_with_boxes(base)
-    patch, crop_box = cluster_patch(cluster)
+    target, target_boxes = target_with_boxes(base)
+    patch, _ = cluster_patch(cluster)
     after = target.copy(); h, w = after.shape[:2]
-    placed = (int(w * .53), int(h * .46), int(w * .53) + patch.shape[1], int(h * .46) + patch.shape[0])
-    after, placed = paste(after, patch, np.full(patch.shape[:2], 210, np.uint8), placed[0], placed[1], scale=.48)
-    row = 1
-    show(fig.add_subplot(gs[row, 0]), patch, None, "source cluster", "#15803d", False, zoom=False)
-    show(fig.add_subplot(gs[row, 1]), target, boxes, "target before", "#15803d")
-    show(fig.add_subplot(gs[row, 2]), after, np.vstack([boxes, np.asarray([placed], dtype=np.float32)]), "after: cluster paste", "#ef4444")
-    ax_note = fig.add_subplot(gs[row, 3]); ax_note.axis("off")
-    ax_note.text(0, .72, "local structure\nis preserved", fontsize=12, weight="bold", color=colors[row], va="top")
-    ax_note.text(0, .33, "relative spacing and\norientation stay intact", fontsize=10, color="#475569", va="top")
+    after, placed = paste(after, patch, np.full(patch.shape[:2], 210, np.uint8), int(w * .53), int(h * .46), scale=.48)
+    rows.append((patch, target, target_boxes, after, np.vstack([target_boxes, np.asarray([placed], np.float32)]), "source cluster"))
 
-    # C: mild and moderate overlap in one clean row.
-    target, boxes = target_with_boxes(base)
+    # C: two controlled crowding placements.
+    target, target_boxes = target_with_boxes(base)
     patch, alpha, _ = object_patch(single)
     after = target.copy(); h, w = after.shape[:2]
-    p1 = (int(w * .50), int(h * .18)); p2 = (int(w * .58), int(h * .24))
-    after, mild = paste(after, patch, alpha, *p1, scale=.9)
-    after, moderate = paste(after, patch, alpha, *p2, scale=.9)
-    row = 2
-    show(fig.add_subplot(gs[row, 0]), target, boxes, "target before", "#15803d")
-    show(fig.add_subplot(gs[row, 1]), after, np.vstack([boxes, np.asarray([mild, moderate], np.float32)]), "after: controlled overlap", "#ef4444")
-    ax = fig.add_subplot(gs[row, 2]); ax.axis("off")
-    ax.text(.02, .76, "mild", fontsize=12, weight="bold", color="#c2410c")
-    ax.text(.02, .58, "10–30% overlap", fontsize=11, color="#475569")
-    ax.text(.02, .32, "moderate", fontsize=12, weight="bold", color="#c2410c")
-    ax.text(.02, .14, "20–40% overlap", fontsize=11, color="#475569")
-    ax_note = fig.add_subplot(gs[row, 3]); ax_note.axis("off")
-    ax_note.text(0, .72, "crowding is\nintentional", fontsize=12, weight="bold", color=colors[row], va="top")
-    ax_note.text(0, .33, "visibility constraint\nprevents unrealistic paste", fontsize=10, color="#475569", va="top")
+    after, mild = paste(after, patch, alpha, int(w * .50), int(h * .18), scale=.9)
+    after, moderate = paste(after, patch, alpha, int(w * .58), int(h * .24), scale=.9)
+    rows.append((patch, target, target_boxes, after, np.vstack([target_boxes, np.asarray([mild, moderate], np.float32)]), "source object"))
 
-    # D: scale matched. Use a deliberately smaller pasted object.
-    target, boxes = target_with_boxes(base)
-    patch, alpha, _ = object_patch(large)
+    # D: scale-matched placement.
+    target, target_boxes = target_with_boxes(base)
+    patch, alpha, _ = object_patch(large); scale = .42
     after = target.copy(); h, w = after.shape[:2]
-    scale = .42
     after, placed = paste(after, patch, alpha, int(w * .66), int(h * .57), scale=scale)
-    row = 3
-    show(fig.add_subplot(gs[row, 0]), patch, None, "source: larger object", "#15803d")
-    show(fig.add_subplot(gs[row, 1]), cv2.resize(patch, (max(2, int(patch.shape[1]*scale)), max(2, int(patch.shape[0]*scale)))), None, "resized to target scale", "#15803d")
-    show(fig.add_subplot(gs[row, 2]), after, np.vstack([boxes, np.asarray([placed], np.float32)]), "after: scale-matched", "#ef4444")
-    ax_note = fig.add_subplot(gs[row, 3]); ax_note.axis("off")
-    ax_note.text(0, .72, "size follows\nthe target scene", fontsize=12, weight="bold", color=colors[row], va="top")
-    ax_note.text(0, .33, "avoids oversized\nsynthetic ships", fontsize=10, color="#475569", va="top")
+    resized = cv2.resize(patch, (max(2, int(patch.shape[1] * scale)), max(2, int(patch.shape[0] * scale))))
+    rows.append((resized, target, target_boxes, after, np.vstack([target_boxes, np.asarray([placed], np.float32)]), "resized source"))
 
-    # E: blurred hard-negative patch, no new box.
-    target, boxes = target_with_boxes(base)
+    # E: blurred hard-negative, intentionally omitted from the label boxes.
+    target, target_boxes = target_with_boxes(base)
     patch, _, _ = object_patch(single)
     negative = cv2.GaussianBlur(patch, (0, 0), sigmaX=max(2, min(patch.shape[:2]) / 8))
     after = target.copy(); h, w = after.shape[:2]
-    after, placed = paste(after, negative, np.full(negative.shape[:2], 210, np.uint8), int(w * .63), int(h * .18), scale=.72)
-    row = 4
-    show(fig.add_subplot(gs[row, 0]), negative, None, "hard-negative patch", "#be123c")
-    show(fig.add_subplot(gs[row, 1]), target, boxes, "target before", "#15803d")
-    show(fig.add_subplot(gs[row, 2]), after, boxes, "after: no new label", "#be123c")
-    ax_note = fig.add_subplot(gs[row, 3]); ax_note.axis("off")
-    ax_note.text(0, .72, "background\nconfuser", fontsize=12, weight="bold", color=colors[row], va="top")
-    ax_note.text(0, .33, "red patch is visible,\nbut no GT box is added", fontsize=10, color="#475569", va="top")
+    after, _ = paste(after, negative, np.full(negative.shape[:2], 210, np.uint8), int(w * .63), int(h * .18), scale=.72)
+    rows.append((negative, target, target_boxes, after, target_boxes, "negative patch"))
 
-    # Row labels and arrows are added after axes exist.
     for row, (letter, title, subtitle) in enumerate(titles):
-        y = 0.905 - row * 0.164
-        fig.text(.048, y, f"{letter}. {title}", fontsize=15, weight="bold", color=colors[row], va="top")
-        fig.text(.27, y - .002, subtitle, fontsize=10.5, color="#475569", va="top")
-    fig.suptitle("Copy–Paste augmentation: five controlled hypotheses", fontsize=23, weight="bold", color="#0f172a", y=.965)
-    fig.text(.5, .94, "Illustrations use real LEVIR-Ship imagery; green = original ground truth, red = pasted region.",
-             ha="center", fontsize=11.5, color="#475569")
-    fig.text(.5, .032, "The augmentation changes the training distribution, not the detector architecture.",
-             ha="center", fontsize=11, weight="bold", color="#334155")
+        ax_label = fig.add_subplot(gs[row, 0]); ax_label.axis("off")
+        ax_label.text(0, .82, f"{letter}. {title}", fontsize=10.8, weight="bold", color=colors[row], va="top", wrap=True)
+        ax_label.text(0, .54, subtitle, fontsize=8.8, color="#475569", va="top", wrap=True)
+        patch, before, before_boxes, after, after_boxes, patch_title = rows[row]
+        show(ax_label.figure.add_subplot(gs[row, 1]), patch, None, patch_title, colors[row], zoom=False)
+        ax_full = fig.add_subplot(gs[row, 2])
+        show(ax_full, before, before_boxes, "target before", "#20a464", zoom=False)
+        ax_after = fig.add_subplot(gs[row, 3])
+        ax_zoom = fig.add_subplot(gs[row, 4])
+        zoom_pair(fig, ax_after, ax_zoom, after, after_boxes, "after / sampled zone")
+
+    fig.suptitle("Copy–Paste augmentation: sample the object zone, then zoom it", fontsize=22, weight="bold", color="#0f172a", y=.965)
+    fig.text(.5, .938, "Yellow dashed box = the sampled crop region; red = object annotations / pasted region; green = target ground truth.",
+             ha="center", fontsize=10.8, color="#475569")
+    fig.text(.5, .025, "The crop-and-zoom view follows the existing zoom_group / zoom_bounds visualization code.",
+             ha="center", fontsize=10.5, weight="bold", color="#334155")
     return fig
 
 
