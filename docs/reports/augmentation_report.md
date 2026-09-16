@@ -382,7 +382,7 @@ This is the part that must not be inferred from the checkpoint name. In particul
 1. Rows labeled **canonical YOLOv8 baseline** are the only rows using the upstream P3/P4/P5 detector unless a table explicitly says otherwise.
 2. Rows labeled **P2/P3/P4** add a high-resolution P2 output and therefore change the detector architecture. Any augmentation gain in those rows is a combined detector-plus-augmentation result.
 3. Rows labeled **P2-only** are a separate group from both P2/P3/P4 and the historical four-scale P2/P3/P4/P5 family. The substring `p2` in a repository name is not enough to identify this group.
-4. Where only a Hugging Face result table was available and the manifest did not expose the YAML filename, the report keeps the architecture label but marks the exact path as provenance-qualified rather than guessing it from the repository name.
+4. Where only a Hugging Face result table is available and neither the manifest nor a downloadable checkpoint exposes the detector graph, the report keeps the architecture label provenance-qualified rather than guessing it from the repository name. The CP0-CP3 families documented in Section 3.4 and Section 5.4 are exceptions because their HF checkpoints were directly inspected.
 
 ### 4.3 Exact YOLO11 matrix variants
 
