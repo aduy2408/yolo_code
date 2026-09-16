@@ -50,6 +50,36 @@ class MarimoOpsTests(unittest.TestCase):
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = value
+
+    def test_training_context_rejects_missing_task_specific_repository(self) -> None:
+        from utils.marimo_ops import resolve_hf_repo_id
+
+        old_marker = os.environ.get("MARIMO_TRAIN_WORKFLOW")
+        old_token = os.environ.get("HF_TOKEN")
+        old_repo = os.environ.get("MARIMO_HF_REPO_ID")
+        old_task = os.environ.get("MARIMO_TASK_NAME")
+        old_hf_repo = os.environ.get("HF_REPO_ID")
+        old_experiment = os.environ.get("MARIMO_EXPERIMENT_NAME")
+        try:
+            os.environ["MARIMO_TRAIN_WORKFLOW"] = "1"
+            os.environ["HF_TOKEN"] = "test-token"
+            for key in ("MARIMO_HF_REPO_ID", "HF_REPO_ID", "MARIMO_TASK_NAME", "MARIMO_EXPERIMENT_NAME"):
+                os.environ.pop(key, None)
+            with self.assertRaises(MarimoOpsError):
+                resolve_hf_repo_id(token="test-token")
+        finally:
+            for key, value in {
+                "MARIMO_TRAIN_WORKFLOW": old_marker,
+                "HF_TOKEN": old_token,
+                "MARIMO_HF_REPO_ID": old_repo,
+                "MARIMO_TASK_NAME": old_task,
+                "HF_REPO_ID": old_hf_repo,
+                "MARIMO_EXPERIMENT_NAME": old_experiment,
+            }.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
     def test_current_process_is_alive(self) -> None:
         self.assertTrue(is_pid_alive(__import__("os").getpid()))
         self.assertFalse(is_pid_alive(-1))

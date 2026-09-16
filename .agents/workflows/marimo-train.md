@@ -51,11 +51,17 @@ is not completion evidence by itself.
 - Never print, echo, commit, or store auth tokens in notebook cells, logs, or
   process arguments. Pass them through the live kernel environment to the
   detached child process.
-- Upload-required runs must not wait for the user to supply an artifact
-  repository ID. Resolve `MARIMO_HF_REPO_ID` or `HF_REPO_ID` when configured;
-  otherwise derive `<hf-username>/stw-yolo-runs` from the live `HF_TOKEN` and
-  create it with `HfApi.create_repo(..., exist_ok=True)` before preflight. Never
-  print or persist the token.
+- Every upload-required task must use its own task-specific Hugging Face
+  repository. Do not reuse or derive the generic `stw-yolo-runs` repository.
+  Prefer an explicit `MARIMO_HF_REPO_ID`/`HF_REPO_ID` following
+  `<hf-username>/<dataset>-<experiment>-runs`, such as
+  `<hf-username>/levir-copy-paste-runs`. If the user did not provide an ID,
+  create one from the task name by setting `MARIMO_TASK_NAME` or
+  `MARIMO_EXPERIMENT_NAME`; the shared helper derives
+  `<hf-username>/<task-name>-runs`. Fail preflight if neither an explicit ID
+  nor a task name is available. Create the selected repository with
+  `HfApi.create_repo(..., exist_ok=True)` before preflight, and record the exact
+  ID in the manifest and handoff. Never print or persist the token.
 - **HF_TOKEN is provided by the live Marimo global kernel namespace, not by
   `os.environ` in the notebook scratchpad.** Read it from the kernel's global
   state and pass it only through the detached child-process environment. Never

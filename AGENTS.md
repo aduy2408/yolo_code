@@ -20,10 +20,18 @@ When a user asks to train, evaluate, or upload through Marimo, the agent MUST:
 6. After each run, verify local artifacts and the remote upload before starting
    the next variant.
 
+7. Create and use a **task-specific Hugging Face repository** for every
+   experiment. Never use a generic shared repository such as
+   `stw-yolo-runs`. Prefer an explicit ID following
+   `<hf-user>/<dataset>-<experiment>-runs`, for example
+   `duyle2408/levir-copy-paste-runs`. If no explicit ID is available, set
+   `MARIMO_TASK_NAME` so the shared helper derives a task-specific repository,
+   and fail preflight if neither is configured.
+
 The policy is enforced at runtime too: upload-required runners must receive the
 `MARIMO_TRAIN_WORKFLOW=1` context injected by the shared launch helper and must
-have a valid `HF_TOKEN`. `AGENTS.md` is not a substitute for those fail-closed
-checks.
+have a valid `HF_TOKEN` and a task-specific HF repository ID. `AGENTS.md` is
+not a substitute for those fail-closed checks.
 
 ## Local Python testing
 

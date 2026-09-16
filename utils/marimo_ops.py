@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -37,11 +38,14 @@ class MarimoOpsError(RuntimeError):
     """A preflight, launch, status, or artifact contract failure."""
 
 
-DEFAULT_HF_REPO_NAME = "stw-yolo-runs"
-
-
 def resolve_hf_repo_id(repo_id: str | None = None, *, token: str | None = None) -> str:
-    """Resolve an artifact repository without requiring notebook user input."""
+    """Resolve an artifact repository without falling back to a shared bucket.
+
+    Upload-required experiments must identify their task.  A caller may provide
+    an explicit ``repo_id`` or configure ``MARIMO_HF_REPO_ID``/``HF_REPO_ID``.
+    Otherwise ``MARIMO_TASK_NAME`` or ``MARIMO_EXPERIMENT_NAME`` is converted
+    into a task-specific ``<user>/<task>-runs`` repository name.
+    """
     configured = repo_id or os.environ.get("MARIMO_HF_REPO_ID") or os.environ.get("HF_REPO_ID")
     if configured and configured.strip():
         return configured.strip()
@@ -58,7 +62,16 @@ def resolve_hf_repo_id(repo_id: str | None = None, *, token: str | None = None) 
         raise MarimoOpsError(f"Unable to resolve the Hugging Face username: {exc}") from exc
     if not username:
         raise MarimoOpsError("Hugging Face identity did not include a username")
-    return f"{username}/{DEFAULT_HF_REPO_NAME}"
+    task_name = os.environ.get("MARIMO_TASK_NAME") or os.environ.get("MARIMO_EXPERIMENT_NAME")
+    if not task_name or not task_name.strip():
+        raise MarimoOpsError(
+            "HF repository is not configured. Set MARIMO_HF_REPO_ID/HF_REPO_ID "
+            "or provide MARIMO_TASK_NAME for a task-specific repository."
+        )
+    slug = re.sub(r"[^a-z0-9]+", "-", task_name.lower()).strip("-")
+    if not slug:
+        raise MarimoOpsError("MARIMO_TASK_NAME must contain at least one alphanumeric character")
+    return f"{username}/{slug}-runs"
 
 
 def ensure_hf_repo(repo_id: str | None = None, *, repo_type: str = "dataset") -> str:
