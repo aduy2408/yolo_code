@@ -8,6 +8,12 @@ import argparse
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "marimo_config.json")
 
 def load_config():
+    # Prefer process environment so server credentials never need to be
+    # persisted in the repository config file or command history.
+    env_url = os.environ.get("MARIMO_URL")
+    env_token = os.environ.get("MARIMO_TOKEN") or os.environ.get("MARIMO_ACCESS_TOKEN")
+    if env_url and env_token:
+        return {"url": env_url, "token": env_token}
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r") as f:
