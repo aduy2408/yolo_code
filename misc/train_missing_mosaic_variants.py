@@ -32,7 +32,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tinyperson-data-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--project", type=Path, required=True)
-    parser.add_argument("--hf-repo-id", required=True, help="task-specific repository for this complete matrix")
+    parser.add_argument("--hf-repo-id", required=True, help="task-specific repository for this matrix")
+    parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS))
+    parser.add_argument("--policies", nargs="+", choices=POLICIES, default=list(POLICIES))
     parser.add_argument("--levir-hard-negative-bank", type=Path, required=True)
     parser.add_argument("--tinyperson-hard-negative-bank", type=Path, required=True)
     parser.add_argument("--levir-scale-statistics", type=Path, required=True)
@@ -59,7 +61,7 @@ def _dataset_args(args: argparse.Namespace, dataset: str) -> Namespace:
         project=args.project / dataset,
         hf_repo_id=args.hf_repo_id,
         pretrained=args.pretrained,
-        policies=list(POLICIES),
+        policies=list(args.policies),
         seed=args.seed,
         split_seed=args.split_seed,
         epochs=args.epochs,
@@ -83,7 +85,7 @@ def validate(args: argparse.Namespace) -> None:
         raise ValueError("This matrix requires seed=42 and split-seed=42")
     if args.epochs != 100 or args.patience != 0:
         raise ValueError("This matrix requires epochs=100 and patience=0")
-    for dataset in DATASETS:
+    for dataset in args.datasets:
         for field in ("hard_negative_bank", "scale_statistics"):
             path = getattr(args, f"{dataset}_{field}").resolve()
             if not path.is_file():
@@ -103,7 +105,7 @@ def run_dataset(args: argparse.Namespace, dataset: str) -> None:
         image_root,
         run_args.dataset_root / f"{dataset}_mosaic_context_seed{run_args.split_seed}.npz",
     )
-    for policy in POLICIES:
+    for policy in run_args.policies:
         run_dir = run_args.project / policy / f"seed_{run_args.seed}"
         matrix.train(run_dir, data_yaml, config, cache, run_args, policy)
         matrix.evaluate(run_dir, data_yaml, run_args)
@@ -116,7 +118,7 @@ def main(argv: list[str] | None = None) -> None:
     validate(args)
     # The shared launcher injects MARIMO_TRAIN_WORKFLOW=1 and validates HF auth.
     matrix.require_training_context(hf_repo_id=args.hf_repo_id)
-    for dataset in DATASETS:
+    for dataset in args.datasets:
         run_dataset(args, dataset)
 
 
