@@ -32,6 +32,27 @@ DEFAULT_REQUIRED_ARTIFACTS = (
     "results.csv",
     "evaluation_metrics.json",
 )
+COMPLETION_REQUIRED_ARTIFACTS = DEFAULT_REQUIRED_ARTIFACTS + (
+    "experiment_manifest.json",
+    "upload_complete.json",
+)
+REQUIRED_METRIC_KEYS = (
+    "val/AP50",
+    "val/mAP50-95",
+    "test/AP50",
+    "test/mAP50-95",
+)
+REQUIRED_CONTRACT_KEYS = (
+    "dataset",
+    "model_yaml",
+    "seed",
+    "split_seed",
+    "workers",
+    "epochs",
+    "patience",
+    "nms_iou",
+    "hf_repo_id",
+)
 
 
 class MarimoOpsError(RuntimeError):
@@ -130,6 +151,19 @@ def write_json(path: Path, value: Mapping[str, object]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(dict(value), indent=2, sort_keys=True) + "\n")
     tmp.replace(path)
+
+
+def write_run_contract(run_dir: Path, contract: Mapping[str, object]) -> dict[str, object]:
+    """Write the immutable pre-launch contract used by completion checks."""
+    missing = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
+    if missing:
+        raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing))
+    path = run_dir / "run_contract.json"
+    if path.exists():
+        raise MarimoOpsError(f"Refusing to overwrite existing run contract: {path}")
+    payload = {"created_at": now_utc(), **dict(contract)}
+    write_json(path, payload)
+    return payload
 
 
 def run_checked(command: Sequence[str], *, cwd: Path | None = None) -> str:
@@ -329,7 +363,9 @@ def launch_detached(
     )
 
 
-def status(run_dir: Path, *, pid_file: str = "train.pid", log_file: str = "train.log") -> dict[str, object]:
+def status(
+    run_dir: Path, *, pid_file: str = "train.pid", log_file: str = "train.log", emit: bool = True
+) -> dict[str, object]:
     """Report liveness and progress separately. No claim of completion is inferred."""
     pid_path = run_dir / pid_file
     log_path = run_dir / log_file
@@ -369,13 +405,50 @@ def status(run_dir: Path, *, pid_file: str = "train.pid", log_file: str = "train
             item: (run_dir / item).is_file() for item in DEFAULT_REQUIRED_ARTIFACTS
         },
     }
-    print(json.dumps(result, indent=2, sort_keys=True))
+    if emit:
+        print(json.dumps(result, indent=2, sort_keys=True))
     return result
 
 
 def artifacts(run_dir: Path, required: Iterable[str] = DEFAULT_REQUIRED_ARTIFACTS) -> dict[str, object]:
     present = require_files(run_dir, required)
     result = {"run_dir": str(run_dir), "required_artifacts": present}
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return result
+
+
+def complete_verified(run_dir: Path) -> dict[str, object]:
+    """Fail closed unless local metrics, provenance, and upload evidence are complete."""
+    report = status(run_dir, emit=False)
+    if report["process_alive"]:
+        raise MarimoOpsError("Run is still active; completion cannot be verified")
+    require_files(run_dir, COMPLETION_REQUIRED_ARTIFACTS)
+    contract = read_json(run_dir / "run_contract.json")
+    missing_contract = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
+    if missing_contract:
+        raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing_contract))
+    metrics = read_json(run_dir / "evaluation_metrics.json")
+    missing_metrics = [key for key in REQUIRED_METRIC_KEYS if key not in metrics]
+    if missing_metrics:
+        raise MarimoOpsError("Evaluation is missing split-qualified metrics: " + ", ".join(missing_metrics))
+    for key in REQUIRED_METRIC_KEYS:
+        try:
+            value = float(metrics[key])
+        except (TypeError, ValueError) as exc:
+            raise MarimoOpsError(f"Metric {key} is not numeric") from exc
+        if not (value == value and abs(value) != float("inf")):
+            raise MarimoOpsError(f"Metric {key} is not finite")
+    marker = read_json(run_dir / "upload_complete.json")
+    if not marker.get("repo_id") or not marker.get("remote_prefix") or not marker.get("verified"):
+        raise MarimoOpsError("Upload marker lacks remote verification evidence")
+    result = {
+        "run_dir": str(run_dir),
+        "status": "complete_verified",
+        "required_artifacts": list(COMPLETION_REQUIRED_ARTIFACTS),
+        "metrics": {key: float(metrics[key]) for key in REQUIRED_METRIC_KEYS},
+        "hf_repo_id": marker["repo_id"],
+        "remote_prefix": marker["remote_prefix"],
+    }
     print(json.dumps(result, indent=2, sort_keys=True))
     return result
 
@@ -403,6 +476,13 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("artifacts")
     p.add_argument("--run-dir", type=Path, required=True)
     p.add_argument("--required-path", action="append", default=list(DEFAULT_REQUIRED_ARTIFACTS))
+
+    p = sub.add_parser("contract")
+    p.add_argument("--run-dir", type=Path, required=True)
+    p.add_argument("--contract-json", type=Path, required=True)
+
+    p = sub.add_parser("complete_verified")
+    p.add_argument("--run-dir", type=Path, required=True)
 
     p = sub.add_parser("launch")
     p.add_argument("--cwd", type=Path, required=True)
@@ -433,6 +513,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             status(args.run_dir, pid_file=args.pid_file, log_file=args.log_file)
         elif args.action == "artifacts":
             artifacts(args.run_dir, args.required_path)
+        elif args.action == "contract":
+            contract = read_json(args.contract_json)
+            payload = write_run_contract(args.run_dir, contract)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        elif args.action == "complete_verified":
+            complete_verified(args.run_dir)
         elif args.action == "launch":
             command = list(args.command)
             if command and command[0] == "--":

@@ -273,6 +273,20 @@ state.json
 
 It refuses to launch if the recorded PID is still alive.
 
+Before launching, create one immutable `run_contract.json` in the run
+directory. The contract must include the dataset, exact model YAML, training
+and split seeds, workers, epochs, patience, NMS IoU, and task-specific HF
+repository. For example:
+
+```bash
+"$MARIMO_PYTHON" -m utils.marimo_ops contract \
+  --run-dir /marimo/yolo_code/runs/<experiment> \
+  --contract-json /marimo/yolo_code/runs/<experiment>/contract_input.json
+```
+
+The command refuses to overwrite an existing contract. Do not launch when the
+contract does not match the runner arguments.
+
 ## 7. Initial health check
 
 After launch, check briefly. Do not repeatedly stream long logs:
@@ -315,6 +329,17 @@ relevant.
 - Wrong SHA or dirty checkout: stop before launch.
 
 ## 9. Completion and post-run
+
+Use the completion gate instead of interpreting logs manually:
+
+```bash
+"$MARIMO_PYTHON" -m utils.marimo_ops complete_verified \
+  --run-dir /marimo/yolo_code/runs/<experiment>
+```
+
+It fails unless the process has stopped and the run has complete weights,
+training results, manifest, run contract, split-qualified validation and test
+metrics, and an upload marker containing remote verification evidence.
 
 Only report a run complete when all are true:
 

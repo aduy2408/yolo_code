@@ -16,11 +16,13 @@ from pathlib import Path
 from utils.marimo_ops import (
     MarimoOpsError,
     artifacts,
+    complete_verified,
     is_pid_alive,
     launch_detached,
     preflight,
     require_training_context,
     status,
+    write_run_contract,
 )
 
 
@@ -103,6 +105,67 @@ class MarimoOpsTests(unittest.TestCase):
                 ["required_artifacts"],
                 ["weights/best.pt", "weights/last.pt", "results.csv"],
             )
+
+    def test_run_contract_is_required_and_immutable(self) -> None:
+        contract = {
+            "dataset": "levir",
+            "model_yaml": "models/yolov8.yaml",
+            "seed": 42,
+            "split_seed": 42,
+            "workers": 8,
+            "epochs": 100,
+            "patience": 0,
+            "nms_iou": 0.5,
+            "hf_repo_id": "user/task-runs",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            payload = write_run_contract(run_dir, contract)
+            self.assertEqual(payload["dataset"], "levir")
+            with self.assertRaises(MarimoOpsError):
+                write_run_contract(run_dir, contract)
+
+    def test_complete_verified_requires_all_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            with self.assertRaises(MarimoOpsError):
+                complete_verified(run_dir)
+            for relative in (
+                "weights/best.pt",
+                "weights/last.pt",
+                "results.csv",
+                "experiment_manifest.json",
+            ):
+                path = run_dir / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("artifact")
+            write_run_contract(
+                run_dir,
+                {
+                    "dataset": "levir",
+                    "model_yaml": "models/yolov8.yaml",
+                    "seed": 42,
+                    "split_seed": 42,
+                    "workers": 8,
+                    "epochs": 100,
+                    "patience": 0,
+                    "nms_iou": 0.5,
+                    "hf_repo_id": "user/task-runs",
+                },
+            )
+            (run_dir / "evaluation_metrics.json").write_text(json.dumps({
+                "val/AP50": 0.8,
+                "val/mAP50-95": 0.3,
+                "test/AP50": 0.7,
+                "test/mAP50-95": 0.25,
+            }))
+            (run_dir / "upload_complete.json").write_text(json.dumps({
+                "repo_id": "user/task-runs",
+                "remote_prefix": "levir/seed_42",
+                "verified": ["weights/best.pt"],
+            }))
+            result = complete_verified(run_dir)
+            self.assertEqual(result["status"], "complete_verified")
 
     def test_preflight_checks_exact_sha_clean_tree_and_upload_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
