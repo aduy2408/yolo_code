@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+UPSTREAM_ULTRALYTICS = ROOT / "vendor/ultralytics_upstream"
 MODELS = {
     "yolov5": ("yolov5nu.pt", "vendor/ultralytics_upstream/ultralytics/cfg/models/v5/yolov5.yaml"),
     "yolov8": ("yolov8n.pt", "vendor/ultralytics_upstream/ultralytics/cfg/models/v8/yolov8.yaml"),
@@ -51,6 +52,13 @@ def seed_everything(seed: int) -> None:
         pass
 
 
+def local_ultralytics() -> None:
+    """Use the pinned upstream package shipped as the repository submodule."""
+    path = str(UPSTREAM_ULTRALYTICS)
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
+
 def git_sha() -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
 
@@ -72,6 +80,7 @@ def prepare_dataset(name: str, data_root: Path, dataset_root: Path) -> Path:
 
 def model_from_baseline_yaml(model_name: str):
     """Construct from the pinned upstream baseline YAML, then load n/t weights."""
+    local_ultralytics()
     from ultralytics import YOLO
 
     weights_name, yaml_name = MODELS[model_name]
@@ -108,6 +117,7 @@ def selected_jobs(datasets: list[str], models: list[str], seeds: list[int], mach
 
 
 def evaluate_standard(run_dir: Path, data_yaml: Path, dataset: str, args: argparse.Namespace) -> dict[str, float]:
+    local_ultralytics()
     from ultralytics import YOLO
     metrics: dict[str, float] = {}
     for split in ("val", "test"):
@@ -151,6 +161,7 @@ def train_one(dataset: str, model_name: str, seed: int, data_yaml: Path, args: a
         seed_everything(seed)
         last = run_dir / "weights/last.pt"
         if last.is_file():
+            local_ultralytics()
             from ultralytics import YOLO
             model = YOLO(str(last))
         else:
