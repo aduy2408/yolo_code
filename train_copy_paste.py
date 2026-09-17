@@ -328,6 +328,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--copy-paste-policy", choices=("fixed", "load_adaptive", "layout_adaptive"), default="fixed")
     parser.add_argument("--copy-paste-stats-path", type=Path, default=None)
     parser.add_argument("--negcp-bank-path", type=Path, default=None)
+    parser.add_argument("--negcp-mine-device", default="cpu",
+                        help="Device used only for offline hard-negative mining")
     parser.add_argument("--print-effective-config", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--smoke", action="store_true", help="Run one bounded smoke variant and upload its artifacts")
@@ -385,8 +387,10 @@ def main(argv: list[str] | None = None) -> None:
         args.negcp_bank_path = configured_bank_path
         for variant in ordered_variants:
             if variant == "negcp_offline" and not configured_bank_path:
+                mine_args = argparse.Namespace(**vars(args))
+                mine_args.device = args.negcp_mine_device
                 args.negcp_bank_path = _mine_negcp_bank(
-                    args,
+                    mine_args,
                     data_yaml,
                     args.project / args.dataset / "cp0" / f"seed_{seed}" / "weights" / "best.pt",
                     args.project / args.dataset / "negcp_banks" / f"split_{args.split_seed}_seed_{seed}.json",
