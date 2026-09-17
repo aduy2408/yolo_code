@@ -26,6 +26,13 @@ from utils.marimo_ops import (
     validate_command_contract,
     write_run_contract,
 )
+from utils.marimo.contracts import (
+    DatasetSpec,
+    ExecutionSpec,
+    ExperimentContract,
+    OutputSpec,
+    SourceSpec,
+)
 
 COMPLETION_ARTIFACTS_FOR_TEST = (
     "weights/best.pt",
@@ -38,6 +45,51 @@ COMPLETION_ARTIFACTS_FOR_TEST = (
 
 
 class MarimoOpsTests(unittest.TestCase):
+    def test_generic_contract_supports_baseline_and_external_sources(self) -> None:
+        for kind, source_kind in (("baseline", "git"), ("external_repo", "external_git")):
+            contract = ExperimentContract(
+                run_id=f"run-{kind}",
+                experiment_kind=kind,
+                source=SourceSpec(
+                    kind=source_kind,
+                    repo="/marimo/sources/project",
+                    commit="abc123",
+                    remote="https://example.invalid/project.git",
+                ),
+                dataset=DatasetSpec(
+                    name="levir",
+                    root="/marimo/LevirShip",
+                    yaml="/marimo/experiment/data.yaml",
+                    split_seed=42,
+                ),
+                execution=ExecutionSpec(
+                    command=("python", "train.py"),
+                    cwd="/marimo/experiment",
+                    seed=43,
+                ),
+                outputs=OutputSpec(
+                    artifact_root="/marimo/runs/run-1",
+                    hf_repo_id="user/task-runs",
+                ),
+                extra={"architecture": "baseline"},
+            )
+            restored = ExperimentContract.from_mapping(contract.to_dict())
+            self.assertEqual(restored.experiment_kind, kind)
+            self.assertEqual(restored.source.kind, source_kind)
+            self.assertEqual(restored.execution.command, ("python", "train.py"))
+
+    def test_generic_contract_rejects_non_marimo_backend(self) -> None:
+        with self.assertRaises(ValueError):
+            ExperimentContract(
+                run_id="run",
+                experiment_kind="baseline",
+                source=SourceSpec(kind="git", repo="/repo", commit="abc"),
+                dataset=DatasetSpec(name="data", root="/data", yaml="/data.yaml"),
+                execution=ExecutionSpec(command=("python", "train.py"), cwd="/repo"),
+                outputs=OutputSpec(artifact_root="/runs/run"),
+                backend="local",
+            )
+
     def test_training_context_is_fail_closed(self) -> None:
         old_marker = os.environ.pop("MARIMO_TRAIN_WORKFLOW", None)
         old_token = os.environ.pop("HF_TOKEN", None)

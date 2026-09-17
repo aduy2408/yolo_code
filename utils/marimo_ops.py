@@ -26,6 +26,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+from utils.marimo.contracts import (
+    DatasetSpec,
+    ExecutionSpec,
+    ExperimentContract,
+    OutputSpec,
+    SourceSpec,
+)
+
 
 DEFAULT_REQUIRED_ARTIFACTS = (
     "weights/best.pt",
