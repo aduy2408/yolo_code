@@ -122,8 +122,8 @@ def _augmentation(dataset: str) -> dict[str, Any]:
     return {**COMMON_AUGMENTATION, "mosaic": 1.0, "close_mosaic": 10, "mosaic_policy": "standard"}
 
 
-def _complete(run_dir: Path, epochs: int) -> bool:
-    if not all((run_dir / item).is_file() for item in REQUIRED):
+def _training_complete(run_dir: Path, epochs: int) -> bool:
+    if not all((run_dir / item).is_file() for item in ("weights/best.pt", "weights/last.pt", "results.csv")):
         return False
     results = run_dir / "results.csv"
     return sum(1 for _ in results.open(encoding="utf-8")) - 1 == epochs
@@ -164,7 +164,7 @@ def train_one(job: str, data_yaml: Path, args: argparse.Namespace) -> Path:
     env = configure_variant(variant, args.context_stats[dataset], args.effect_target)
     (run_dir / "config.yaml").write_text(CANONICAL_CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
     (run_dir / "experiment_manifest.json").write_text(json.dumps(_manifest(job, dataset, variant, data_yaml, args, env), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    if _complete(run_dir, args.epochs):
+    if _training_complete(run_dir, args.epochs):
         return run_dir
     local_ultralytics()
     from ultralytics import YOLO
@@ -179,7 +179,7 @@ def train_one(job: str, data_yaml: Path, args: argparse.Namespace) -> Path:
         plots=False, project=str(args.project / dataset / variant), name=f"seed_{args.seed}",
         exist_ok=True, **_augmentation(dataset),
     )
-    if not _complete(run_dir, args.epochs):
+    if not _training_complete(run_dir, args.epochs):
         raise RuntimeError(f"{job}: incomplete training artifacts")
     return run_dir
 
