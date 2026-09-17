@@ -491,6 +491,7 @@ def launch_detached(
     pid_path: Path,
     state_path: Path,
     artifact_root: Path | None = None,
+    contract_path: Path | None = None,
     env: Mapping[str, str] | None = None,
 ) -> LaunchResult:
     """Launch one durable process and record enough evidence to inspect it later."""
@@ -529,6 +530,7 @@ def launch_detached(
     resolved_artifact_root = None
     if artifact_root is not None:
         resolved_artifact_root = artifact_root if artifact_root.is_absolute() else cwd / artifact_root
+    effective_contract_path = contract_path or state_path.parent / "run_contract.json"
     state = {
         "status": "running",
         "pid": proc.pid,
@@ -538,8 +540,8 @@ def launch_detached(
         "pid_path": str(pid_path),
         "state_path": str(state_path),
         "artifact_root": str(resolved_artifact_root.resolve()) if resolved_artifact_root else None,
-        "contract_sha256": file_sha256(state_path.parent / "run_contract.json")
-        if (state_path.parent / "run_contract.json").is_file()
+        "contract_sha256": file_sha256(effective_contract_path)
+        if effective_contract_path.is_file()
         else None,
         "started_at": started_at,
     }
@@ -602,31 +604,37 @@ def status(
         default=None,
     )
     required_present = all(path.is_file() for path in artifact_paths)
-    if active:
-        observed_status = "running"
-    elif alive and process_identity == "mismatch":
-        observed_status = "stale_pid_or_pid_reuse"
-    elif (artifact_root / "upload_complete.json").is_file() and required_present:
-        observed_status = "artifacts_present"
-    elif latest is not None or state is not None:
-        observed_status = "not_running_unverified"
-    else:
-        observed_status = "not_started_or_unknown"
     upload_marker_path = artifact_root / "upload_complete.json"
     upload_marker_present = upload_marker_path.is_file()
     upload_verified = False
     if upload_marker_present:
         try:
             marker = read_json(upload_marker_path)
+            verified_files = marker.get("verified")
             upload_verified = bool(
-                marker.get("repo_id") and marker.get("remote_prefix") and marker.get("verified")
+                marker.get("repo_id")
+                and marker.get("remote_prefix")
+                and isinstance(verified_files, list)
+                and all(item in verified_files for item in COMPLETION_REQUIRED_ARTIFACTS)
             )
             contract_path = run_dir / "run_contract.json"
             if upload_verified and contract_path.is_file():
                 contract = read_json(contract_path)
                 upload_verified = marker["repo_id"] == contract.get("hf_repo_id")
+            else:
+                upload_verified = False
         except MarimoOpsError:
             upload_verified = False
+    if active:
+        observed_status = "running"
+    elif alive and process_identity == "mismatch":
+        observed_status = "stale_pid_or_pid_reuse"
+    elif upload_verified and required_present:
+        observed_status = "artifacts_present"
+    elif latest is not None or state is not None:
+        observed_status = "not_running_unverified"
+    else:
+        observed_status = "not_started_or_unknown"
     result = {
         "run_dir": str(run_dir),
         "artifact_root": str(artifact_root),
@@ -715,18 +723,24 @@ def complete_verified(
         raise MarimoOpsError(
             f"PID is alive but process identity is {report['process_identity']}; completion is blocked"
         )
+    state = report.get("state")
+    if not isinstance(state, dict):
+        raise MarimoOpsError("Missing launch state; completion cannot be verified")
+    if state.get("status") != "exited":
+        raise MarimoOpsError("Run has no recorded clean process exit")
+    if state.get("returncode") != 0:
+        raise MarimoOpsError(f"Training exited with return code {state.get('returncode')!r}")
     artifact_root = Path(str(report["artifact_root"]))
     require_files(artifact_root, COMPLETION_REQUIRED_ARTIFACTS)
     contract = read_json(run_dir / "run_contract.json")
     missing_contract = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
     if missing_contract:
         raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing_contract))
-    state = report.get("state")
-    expected_hash = state.get("contract_sha256") if isinstance(state, dict) else None
-    if expected_hash and file_sha256(run_dir / "run_contract.json") != expected_hash:
+    expected_hash = state.get("contract_sha256")
+    if not expected_hash:
+        raise MarimoOpsError("Launch state lacks the run contract hash")
+    if file_sha256(run_dir / "run_contract.json") != expected_hash:
         raise MarimoOpsError("Run contract changed after launch")
-    if isinstance(state, dict) and state.get("returncode") not in (None, 0):
-        raise MarimoOpsError(f"Training exited with return code {state['returncode']}")
     metrics = read_json(artifact_root / "evaluation_metrics.json")
     missing_metrics = [key for key in REQUIRED_METRIC_KEYS if key not in metrics]
     if missing_metrics:
@@ -739,8 +753,16 @@ def complete_verified(
         if not (value == value and abs(value) != float("inf")):
             raise MarimoOpsError(f"Metric {key} is not finite")
     marker = read_json(artifact_root / "upload_complete.json")
-    if not marker.get("repo_id") or not marker.get("remote_prefix") or not marker.get("verified"):
+    verified_files = marker.get("verified")
+    if not marker.get("repo_id") or not marker.get("remote_prefix"):
         raise MarimoOpsError("Upload marker lacks remote verification evidence")
+    if not isinstance(verified_files, list) or not all(isinstance(item, str) for item in verified_files):
+        raise MarimoOpsError("Upload marker verified field must be a list of remote files")
+    missing_remote_evidence = [item for item in COMPLETION_REQUIRED_ARTIFACTS if item not in verified_files]
+    if missing_remote_evidence:
+        raise MarimoOpsError(
+            "Upload marker lacks verification for: " + ", ".join(missing_remote_evidence)
+        )
     if marker["repo_id"] != contract["hf_repo_id"]:
         raise MarimoOpsError(
             f"Upload repository mismatch: contract={contract['hf_repo_id']!r}, marker={marker['repo_id']!r}"
@@ -854,6 +876,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 pid_path=args.run_dir / args.pid_file,
                 state_path=args.run_dir / args.state_file,
                 artifact_root=args.artifact_root,
+                contract_path=args.run_dir / "run_contract.json",
                 env=launch_env,
             )
         return 0

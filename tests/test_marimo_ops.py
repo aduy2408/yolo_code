@@ -17,6 +17,7 @@ from utils.marimo_ops import (
     MarimoOpsError,
     artifacts,
     complete_verified,
+    file_sha256,
     is_pid_alive,
     launch_detached,
     preflight,
@@ -268,6 +269,11 @@ class MarimoOpsTests(unittest.TestCase):
                     "hf_repo_id": "user/task-runs",
                 },
             )
+            (run_dir / "state.json").write_text(json.dumps({
+                "status": "exited",
+                "returncode": 0,
+                "contract_sha256": file_sha256(run_dir / "run_contract.json"),
+            }))
             (run_dir / "evaluation_metrics.json").write_text(json.dumps({
                 "val/AP50": 0.8,
                 "val/mAP50-95": 0.3,
@@ -277,7 +283,7 @@ class MarimoOpsTests(unittest.TestCase):
             (run_dir / "upload_complete.json").write_text(json.dumps({
                 "repo_id": "user/task-runs",
                 "remote_prefix": "levir/seed_42",
-                "verified": ["weights/best.pt"],
+                "verified": list(COMPLETION_ARTIFACTS_FOR_TEST),
             }))
             result = complete_verified(run_dir)
             self.assertEqual(result["status"], "complete_verified")
@@ -297,6 +303,9 @@ class MarimoOpsTests(unittest.TestCase):
                 },
             )
             (run_dir / "state.json").write_text(json.dumps({
+                "status": "exited",
+                "returncode": 0,
+                "contract_sha256": file_sha256(run_dir / "run_contract.json"),
                 "cwd": str(root),
                 "command": ["runner.py", "--project", "outputs/run-1"],
             }))
@@ -309,7 +318,8 @@ class MarimoOpsTests(unittest.TestCase):
                 "test/AP50": 0.7, "test/mAP50-95": 0.25,
             }))
             (artifact_root / "upload_complete.json").write_text(json.dumps({
-                "repo_id": "user/task-runs", "remote_prefix": "run-1", "verified": ["weights/best.pt"],
+                "repo_id": "user/task-runs", "remote_prefix": "run-1",
+                "verified": list(COMPLETION_ARTIFACTS_FOR_TEST),
             }))
             report = status(run_dir, emit=False)
             self.assertEqual(report["artifact_root"], str(artifact_root.resolve()))
