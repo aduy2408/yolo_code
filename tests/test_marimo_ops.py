@@ -21,6 +21,7 @@ from utils.marimo_ops import (
     launch_detached,
     preflight,
     require_training_context,
+    resolve_marimo_dataset_root,
     status,
     write_run_contract,
 )
@@ -126,6 +127,26 @@ class MarimoOpsTests(unittest.TestCase):
             self.assertEqual(payload["dataset"], "levir")
             with self.assertRaises(MarimoOpsError):
                 write_run_contract(run_dir, contract)
+
+    def test_marimo_dataset_mounts_are_canonical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            marimo = Path(tmp) / "marimo"
+            (marimo / "LevirShip").mkdir(parents=True)
+            (marimo / "Varroa").mkdir()
+            (marimo / "TinyPerson").mkdir()
+            self.assertEqual(resolve_marimo_dataset_root("levir", marimo), (marimo / "LevirShip").resolve())
+            self.assertEqual(resolve_marimo_dataset_root("varroa", marimo), (marimo / "Varroa").resolve())
+            self.assertEqual(resolve_marimo_dataset_root("tinyperson", marimo), (marimo / "TinyPerson").resolve())
+            with self.assertRaises(MarimoOpsError):
+                resolve_marimo_dataset_root("unknown", marimo)
+
+    def test_status_classifies_checkpoint_continuation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "weights").mkdir()
+            (run_dir / "weights/last.pt").write_text("checkpoint")
+            report = status(run_dir, emit=False)
+            self.assertEqual(report["continuation_state"], "checkpoint_present_evaluation_pending")
 
     def test_complete_verified_requires_all_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

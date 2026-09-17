@@ -15,6 +15,9 @@ When a user asks to train, evaluate, or upload through Marimo, the agent MUST:
    The dataset check must record and validate the exact `data_root` and
    `dataset_yaml`, including existing `train`, `val`, and `test` paths. Do not
    guess a familiar path or silently substitute another dataset.
+   Persistent Marimo source mounts are canonical: `/marimo/LevirShip`,
+   `/marimo/Varroa`, and `/marimo/TinyPerson` (with the known Levir nested
+   layout `/marimo/LevirShip/LevirShipData`).
 4. Launch only through `python -m utils.marimo_ops launch`. Direct
    `subprocess.Popen`, `nohup`, or ad-hoc background launches are forbidden for
    training jobs.
@@ -22,6 +25,11 @@ When a user asks to train, evaluate, or upload through Marimo, the agent MUST:
    root, or substitute a repository to make a run proceed.
 6. After each run, verify local artifacts and the remote upload before starting
    the next variant.
+
+Progress and continuation checks must use the run's `state.json`, PID, command,
+log/artifact timestamps, and `run_contract.json`. A checkpoint without test
+metrics is an evaluation-pending run, not permission to retrain. A dead PID
+with incomplete artifacts must be classified as interrupted or unverified.
 
 7. Create and use a **task-specific Hugging Face repository** for every
    experiment. Never use a generic shared repository such as

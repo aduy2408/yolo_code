@@ -311,6 +311,9 @@ latest_artifact_mtime
 log_mtime
 required_artifacts
 upload_verified
+continuation_state
+dataset/data_root
+dataset/dataset_yaml
 ```
 
 `process_alive=true` does not mean training is progressing. When the PID is
@@ -318,6 +321,20 @@ dead, use `observed_status` rather than trusting a stale `state.json`:
 `not_running_unverified` is not completion. Check epoch/log or artifact
 timestamps when diagnosing a stall. Check `nvidia-smi` only when GPU state is
 relevant.
+
+The helper classifies continuation explicitly:
+
+```text
+running
+checkpoint_present_evaluation_pending
+evaluation_or_upload_pending
+not_running_unverified
+no_checkpoint_unverified
+```
+
+For `checkpoint_present_evaluation_pending`, reuse the checkpoint for
+evaluation. Do not start a new training process unless the contract and resume
+metadata have been checked.
 
 ## 8. Recovery rules
 

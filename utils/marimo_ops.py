@@ -55,6 +55,13 @@ REQUIRED_CONTRACT_KEYS = (
     "nms_iou",
     "hf_repo_id",
 )
+MARIMO_DATASET_ROOTS = {
+    "levir": ("LevirShip", "LevirShip/LevirShipData"),
+    "levir_ship": ("LevirShip", "LevirShip/LevirShipData"),
+    "levirship": ("LevirShip", "LevirShip/LevirShipData"),
+    "varroa": ("Varroa",),
+    "tinyperson": ("TinyPerson", "TinyPersonData"),
+}
 
 
 class MarimoOpsError(RuntimeError):
@@ -193,6 +200,21 @@ def validate_dataset(data_root: Path, dataset_yaml: Path) -> dict[str, str]:
         if not split_path.exists():
             raise MarimoOpsError(f"Dataset {split} path does not exist: {split_path}")
     return {"data_root": str(data_root.resolve()), "dataset_yaml": str(dataset_yaml.resolve())}
+
+
+def resolve_marimo_dataset_root(dataset: str, marimo_root: Path = Path("/marimo")) -> Path:
+    """Resolve only the repository's canonical persistent Marimo dataset mounts."""
+    candidates = MARIMO_DATASET_ROOTS.get(dataset.strip().lower())
+    if not candidates:
+        raise MarimoOpsError(
+            f"Unknown dataset {dataset!r}; expected one of: {', '.join(sorted(MARIMO_DATASET_ROOTS))}"
+        )
+    for relative in candidates:
+        candidate = marimo_root / relative
+        if candidate.is_dir():
+            return candidate.resolve()
+    expected = ", ".join(str(marimo_root / item) for item in candidates)
+    raise MarimoOpsError(f"Dataset {dataset!r} is not mounted at a canonical path: {expected}")
 
 
 def run_checked(command: Sequence[str], *, cwd: Path | None = None) -> str:
@@ -442,6 +464,22 @@ def status(
             item: (run_dir / item).is_file() for item in DEFAULT_REQUIRED_ARTIFACTS
         },
     }
+    contract_path = run_dir / "run_contract.json"
+    if contract_path.is_file():
+        contract = read_json(contract_path)
+        result["dataset"] = contract.get("dataset")
+        result["data_root"] = contract.get("data_root")
+        result["dataset_yaml"] = contract.get("dataset_yaml")
+    if alive:
+        result["continuation_state"] = "running"
+    elif (run_dir / "evaluation_metrics.json").is_file() and not (run_dir / "upload_complete.json").is_file():
+        result["continuation_state"] = "evaluation_or_upload_pending"
+    elif (run_dir / "weights/last.pt").is_file() and not (run_dir / "evaluation_metrics.json").is_file():
+        result["continuation_state"] = "checkpoint_present_evaluation_pending"
+    elif not (run_dir / "weights/last.pt").is_file():
+        result["continuation_state"] = "no_checkpoint_unverified"
+    else:
+        result["continuation_state"] = "not_running_unverified"
     if emit:
         print(json.dumps(result, indent=2, sort_keys=True))
     return result
