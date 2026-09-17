@@ -21,6 +21,7 @@ import numpy as np
 import yaml
 
 from copy_paste_protocol import VARIANTS, effective_settings, variant_overrides
+from utils.marimo_ops import require_training_context
 
 ROOT = Path(__file__).resolve().parent
 
@@ -385,10 +386,7 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError("full Copy-Paste screening requires epochs=100")
     if args.smoke and (len(args.seeds) != 1 or len(args.variants) != 1):
         raise ValueError("--smoke requires exactly one seed and one variant")
-    if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
-        raise RuntimeError("refusing to train outside the Marimo training workflow")
-    if not os.environ.get("HF_TOKEN"):
-        raise RuntimeError("HF_TOKEN is required for upload-required Copy-Paste screening")
+    require_training_context(hf_repo_id=args.hf_repo_id)
     if "negcp_offline" in args.variants and not args.negcp_bank_path and "cp0" not in args.variants:
         raise ValueError("negcp_offline without --negcp-bank-path requires cp0 in --variants for bank mining")
     ordered_variants = ["cp0"] + [variant for variant in args.variants if variant != "cp0"] if "cp0" in args.variants else list(args.variants)

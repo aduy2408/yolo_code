@@ -228,9 +228,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
-        raise RuntimeError("Use utils.marimo_ops launch for upload-required Marimo training")
     args = parse_args()
+    from utils.marimo_ops import require_training_context
+    require_training_context(hf_repo_id=args.hf_repo_id)
     args.project = args.project.resolve()
     args.runtime_root = args.runtime_root.resolve()
     args.project.mkdir(parents=True, exist_ok=True)

@@ -219,8 +219,7 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError("Full matrix requires epochs=100")
     if args.workers != 8:
         raise ValueError("Matched matrix requires workers=8")
-    if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
-        require_training_context(hf_repo_id=args.hf_repo_id)
+    require_training_context(hf_repo_id=args.hf_repo_id)
     repo_id = ensure_hf_repo(args.hf_repo_id)
     args.data_root, args.dataset_root, args.project = (
         path.resolve() for path in (args.data_root, args.dataset_root, args.project)

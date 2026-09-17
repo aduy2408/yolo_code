@@ -9,6 +9,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from utils.marimo_ops import require_training_context
+
 ROOT = Path(__file__).resolve().parent
 
 
@@ -40,8 +42,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
-        raise RuntimeError("post-hoc evaluation must run through utils.marimo_ops launch")
+    require_training_context(hf_repo_id=args.output_repo)
     token = os.environ.get("HF_TOKEN")
     if not token:
         raise RuntimeError("HF_TOKEN is required for post-hoc evaluation uploads")

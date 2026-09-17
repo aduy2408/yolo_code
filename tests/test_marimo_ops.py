@@ -454,7 +454,8 @@ class MarimoOpsTests(unittest.TestCase):
             self.assertTrue((run_dir / "train.log").is_file())
             state = json.loads((run_dir / "state.json").read_text())
             self.assertEqual(state["pid"], result.pid)
-            self.assertEqual(state["status"], "running")
+            self.assertEqual(state["status"], "exited")
+            self.assertEqual(state["returncode"], 0)
 
 
 if __name__ == "__main__":

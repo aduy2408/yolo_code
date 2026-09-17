@@ -13,6 +13,7 @@ It is safe to import from a runner. It never prints secret environment values.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -160,6 +161,14 @@ def write_json(path: Path, value: Mapping[str, object]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(dict(value), indent=2, sort_keys=True) + "\n")
     tmp.replace(path)
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def write_run_contract(run_dir: Path, contract: Mapping[str, object]) -> dict[str, object]:
@@ -495,9 +504,6 @@ def launch_detached(
     child_env = dict(os.environ)
     if env is not None:
         child_env.update(env)
-    # Upload-required runners reject direct invocation. The shared launcher is
-    # the sole trusted path that marks a child as an approved training job.
-    child_env["MARIMO_TRAIN_WORKFLOW"] = "1"
     proc = subprocess.Popen(
         list(command),
         cwd=cwd,
@@ -511,9 +517,6 @@ def launch_detached(
     # The child owns the duplicated descriptor after Popen returns. Keeping the
     # parent's descriptor open causes warnings and delays EOF on short jobs.
     log_file.close()
-    # Reap the child without coupling the caller to the training duration. This
-    # prevents short jobs from becoming zombies while long jobs remain detached.
-    threading.Thread(target=proc.wait, name=f"marimo-reaper-{proc.pid}", daemon=True).start()
     pid_path.write_text(f"{proc.pid}\n")
     resolved_artifact_root = None
     if artifact_root is not None:
@@ -527,9 +530,20 @@ def launch_detached(
         "pid_path": str(pid_path),
         "state_path": str(state_path),
         "artifact_root": str(resolved_artifact_root.resolve()) if resolved_artifact_root else None,
+        "contract_sha256": file_sha256(state_path.parent / "run_contract.json")
+        if (state_path.parent / "run_contract.json").is_file()
+        else None,
         "started_at": started_at,
     }
     write_json(state_path, state)
+    # Reap after state exists so short-lived jobs still record their exit code.
+    def reap() -> None:
+        returncode = proc.wait()
+        finished = read_json(state_path) if state_path.is_file() else state
+        finished.update({"status": "exited", "returncode": returncode, "finished_at": now_utc()})
+        write_json(state_path, finished)
+
+    threading.Thread(target=reap, name=f"marimo-reaper-{proc.pid}", daemon=True).start()
     print(json.dumps(state, indent=2, sort_keys=True))
     return LaunchResult(
         pid=proc.pid,
@@ -699,6 +713,12 @@ def complete_verified(
     missing_contract = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
     if missing_contract:
         raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing_contract))
+    state = report.get("state")
+    expected_hash = state.get("contract_sha256") if isinstance(state, dict) else None
+    if expected_hash and file_sha256(run_dir / "run_contract.json") != expected_hash:
+        raise MarimoOpsError("Run contract changed after launch")
+    if isinstance(state, dict) and state.get("returncode") not in (None, 0):
+        raise MarimoOpsError(f"Training exited with return code {state['returncode']}")
     metrics = read_json(artifact_root / "evaluation_metrics.json")
     missing_metrics = [key for key in REQUIRED_METRIC_KEYS if key not in metrics]
     if missing_metrics:
