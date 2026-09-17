@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from utils.marimo_ops import (
@@ -114,16 +115,17 @@ class MarimoOpsTests(unittest.TestCase):
             subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
             sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
 
-            result = preflight(
-                repo=repo,
-                expected_sha=sha,
-                python=sys.executable,
-                required_paths=["ready.txt"],
-                epochs=100,
-                patience=0,
-                upload_required=True,
-                hf_repo_id="test/repo",
-            )
+            with patch("utils.marimo_ops.ensure_hf_repo", return_value="test/repo"):
+                result = preflight(
+                    repo=repo,
+                    expected_sha=sha,
+                    python=sys.executable,
+                    required_paths=["ready.txt"],
+                    epochs=100,
+                    patience=0,
+                    upload_required=True,
+                    hf_repo_id="test/repo",
+                )
             self.assertEqual(result["git_sha"], sha)
             self.assertEqual(result["python"], sys.executable)
 

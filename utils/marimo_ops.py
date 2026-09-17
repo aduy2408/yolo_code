@@ -97,6 +97,11 @@ def require_training_context(*, hf_repo_id: str | None = None) -> None:
         )
     if not os.environ.get("HF_TOKEN"):
         raise MarimoOpsError("HF_TOKEN is required for upload-required Marimo training")
+    configured_repo = os.environ.get("MARIMO_HF_REPO_ID") or os.environ.get("HF_REPO_ID")
+    if hf_repo_id and configured_repo and configured_repo.strip() != hf_repo_id.strip():
+        raise MarimoOpsError(
+            f"HF repository mismatch: configured {configured_repo.strip()}, got {hf_repo_id.strip()}"
+        )
     expected_repo = resolve_hf_repo_id(hf_repo_id, token=os.environ.get("HF_TOKEN"))
     if expected_repo and hf_repo_id and expected_repo != hf_repo_id:
         raise MarimoOpsError(
