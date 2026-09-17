@@ -12,6 +12,9 @@ When a user asks to train, evaluate, or upload through Marimo, the agent MUST:
 3. Run the complete preflight before spawning any process. This includes the
    exact checkout, executable, dataset, runner import, requested epochs,
    patience, seed, variants, HF repository, and authentication.
+   The dataset check must record and validate the exact `data_root` and
+   `dataset_yaml`, including existing `train`, `val`, and `test` paths. Do not
+   guess a familiar path or silently substitute another dataset.
 4. Launch only through `python -m utils.marimo_ops launch`. Direct
    `subprocess.Popen`, `nohup`, or ad-hoc background launches are forbidden for
    training jobs.

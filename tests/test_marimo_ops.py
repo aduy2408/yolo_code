@@ -109,6 +109,8 @@ class MarimoOpsTests(unittest.TestCase):
     def test_run_contract_is_required_and_immutable(self) -> None:
         contract = {
             "dataset": "levir",
+            "data_root": "/data/levir",
+            "dataset_yaml": "/data/levir/data.yaml",
             "model_yaml": "models/yolov8.yaml",
             "seed": 42,
             "split_seed": 42,
@@ -143,6 +145,8 @@ class MarimoOpsTests(unittest.TestCase):
                 run_dir,
                 {
                     "dataset": "levir",
+                    "data_root": "/data/levir",
+                    "dataset_yaml": "/data/levir/data.yaml",
                     "model_yaml": "models/yolov8.yaml",
                     "seed": 42,
                     "split_seed": 42,
@@ -174,7 +178,12 @@ class MarimoOpsTests(unittest.TestCase):
             subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
             subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
             (repo / "ready.txt").write_text("ready")
-            subprocess.run(["git", "add", "ready.txt"], cwd=repo, check=True)
+            data_root = repo / "dataset"
+            for split in ("train", "val", "test"):
+                (data_root / "images" / split).mkdir(parents=True, exist_ok=True)
+            dataset_yaml = data_root / "data.yaml"
+            dataset_yaml.write_text("path: .\ntrain: images/train\nval: images/val\ntest: images/test\n")
+            subprocess.run(["git", "add", "ready.txt", "dataset/data.yaml"], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
             sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
 
@@ -188,6 +197,8 @@ class MarimoOpsTests(unittest.TestCase):
                     patience=0,
                     upload_required=True,
                     hf_repo_id="test/repo",
+                    data_root=data_root,
+                    dataset_yaml=dataset_yaml,
                 )
             self.assertEqual(result["git_sha"], sha)
             self.assertEqual(result["python"], sys.executable)

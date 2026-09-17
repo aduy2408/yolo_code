@@ -182,6 +182,8 @@ Run the following **inside the live Marimo environment**, not local:
   --python "$MARIMO_PYTHON" \
   --epochs 100 \
   --patience 0 \
+  --data-root "$DATA_ROOT" \
+  --dataset-yaml "$DATASET_YAML" \
   --upload-required \
   --hf-repo-id "$HF_REPO_ID"
 ```
@@ -195,6 +197,9 @@ correct Git SHA
 clean worktree
 requested epochs
 requested patience
+dataset root exists
+dataset YAML exists
+train/val/test split paths exist
 upload required
 HF repository configured
 ```

@@ -44,6 +44,8 @@ REQUIRED_METRIC_KEYS = (
 )
 REQUIRED_CONTRACT_KEYS = (
     "dataset",
+    "data_root",
+    "dataset_yaml",
     "model_yaml",
     "seed",
     "split_seed",
@@ -166,6 +168,33 @@ def write_run_contract(run_dir: Path, contract: Mapping[str, object]) -> dict[st
     return payload
 
 
+def validate_dataset(data_root: Path, dataset_yaml: Path) -> dict[str, str]:
+    """Validate the declared dataset root, YAML, and train/val/test directories."""
+    if not data_root.is_dir():
+        raise MarimoOpsError(f"Dataset root does not exist: {data_root}")
+    if not dataset_yaml.is_file():
+        raise MarimoOpsError(f"Dataset YAML does not exist: {dataset_yaml}")
+    text = dataset_yaml.read_text()
+    values: dict[str, str] = {}
+    for key in ("path", "train", "val", "test"):
+        match = re.search(rf"^\s*{key}\s*:\s*['\"]?([^#\n'\"]+)['\"]?\s*$", text, re.MULTILINE)
+        if match:
+            values[key] = match.group(1).strip()
+    missing = [key for key in ("train", "val", "test") if key not in values]
+    if missing:
+        raise MarimoOpsError(f"Dataset YAML is missing split paths: {', '.join(missing)}")
+    base = Path(values.get("path", str(data_root)))
+    if not base.is_absolute():
+        base = (dataset_yaml.parent / base).resolve()
+    for split in ("train", "val", "test"):
+        split_path = Path(values[split])
+        if not split_path.is_absolute():
+            split_path = base / split_path
+        if not split_path.exists():
+            raise MarimoOpsError(f"Dataset {split} path does not exist: {split_path}")
+    return {"data_root": str(data_root.resolve()), "dataset_yaml": str(dataset_yaml.resolve())}
+
+
 def run_checked(command: Sequence[str], *, cwd: Path | None = None) -> str:
     try:
         return subprocess.check_output(
@@ -242,6 +271,8 @@ def preflight(
     patience: int | None = None,
     upload_required: bool = False,
     hf_repo_id: str | None = None,
+    data_root: Path | None = None,
+    dataset_yaml: Path | None = None,
     allow_dirty: bool = False,
 ) -> dict[str, object]:
     """Run fail-closed checks before any expensive remote job."""
@@ -262,6 +293,11 @@ def preflight(
         executable = sys.executable
     if upload_required:
         hf_repo_id = ensure_hf_repo(hf_repo_id)
+    dataset_info = {}
+    if data_root is not None or dataset_yaml is not None:
+        if data_root is None or dataset_yaml is None:
+            raise MarimoOpsError("Both data_root and dataset_yaml are required for dataset validation")
+        dataset_info = validate_dataset(data_root, dataset_yaml)
     if epochs is not None and epochs <= 0:
         raise MarimoOpsError(f"epochs must be positive, got {epochs}")
     if patience is not None and patience < 0:
@@ -277,6 +313,7 @@ def preflight(
         "patience": patience,
         "upload_required": upload_required,
         "hf_repo_id": hf_repo_id,
+        **dataset_info,
         "required_paths": required,
     }
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -466,6 +503,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--patience", type=int)
     p.add_argument("--upload-required", action="store_true")
     p.add_argument("--hf-repo-id")
+    p.add_argument("--data-root", type=Path)
+    p.add_argument("--dataset-yaml", type=Path)
     p.add_argument("--allow-dirty", action="store_true")
 
     p = sub.add_parser("status")
@@ -507,6 +546,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 patience=args.patience,
                 upload_required=args.upload_required,
                 hf_repo_id=args.hf_repo_id,
+                data_root=args.data_root,
+                dataset_yaml=args.dataset_yaml,
                 allow_dirty=args.allow_dirty,
             )
         elif args.action == "status":
