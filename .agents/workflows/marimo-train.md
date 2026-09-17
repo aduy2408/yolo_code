@@ -248,12 +248,14 @@ Selected Marimo runners must use the shared helper. A direct background launch
 from a notebook cell is a policy violation:
 
 ```python
-from utils.marimo_ops import artifacts, launch_detached, preflight, status
+from utils.marimo_ops import artifacts, preflight, status
 ```
 
-The helper injects `MARIMO_TRAIN_WORKFLOW=1`; upload-required runners reject
-direct invocation without that marker. This makes the workflow requirement a
-runtime gate rather than an instruction the agent can accidentally skip.
+Launch through the CLI command below, not by calling the low-level
+`launch_detached()` primitive from notebook code. The CLI injects
+`MARIMO_TRAIN_WORKFLOW=1`; upload-required runners reject direct invocation
+without that marker. This makes the workflow requirement a runtime gate rather
+than an instruction the agent can accidentally skip.
 
 ## 6. Detached launch
 
@@ -265,7 +267,11 @@ Never attach a long training job to the request stream. Use the shared helper:
   --run-dir /marimo/yolo_code/runs/<experiment> \
   -- \
 "$MARIMO_PYTHON" train_all_<experiment>.py \
-  --epochs 100 --patience 0 --upload
+  --epochs 100 --patience 0 --workers 8 \
+  --seed 42 --split-seed 42 \
+  --model-yaml models/yolov8.yaml \
+  --data-root /marimo/LevirShip/LevirShipData \
+  --hf-repo-id "$HF_REPO_ID" --upload
 ```
 
 The helper creates durable:
@@ -278,9 +284,9 @@ state.json
 
 It refuses to launch if the recorded PID is still alive.
 
-The launch command also refuses to start without `run_contract.json`, and
-compares explicit command values against it. This covers epochs, patience,
-workers, seeds, model YAML, data root, and HF repository. A mismatch is a
+The launch command refuses to start without `run_contract.json`, and requires
+the command to explicitly carry matching epochs, patience, workers, seeds,
+model YAML, data root, and HF repository values. A mismatch or omission is a
 pre-launch failure, not something to discover after training.
 
 Before launching, create one immutable `run_contract.json` in the run
@@ -310,6 +316,8 @@ A useful status report distinguishes:
 
 ```text
 process_alive
+process_identity
+process_active
 observed_status
 process_command
 latest_artifact_mtime
@@ -329,9 +337,8 @@ relevant.
 
 If the wrapper run directory differs from the training output directory, the
 helper follows `--project`, `--output-dir`, or `--project-dir` from the stored
-command and reports the resolved `artifact_root`. This prevents a live job
-from appearing empty merely because its PID files and model outputs are in
-different directories.
+command and uses the resolved `artifact_root` for artifact, progress, and
+completion checks. Relative output paths are resolved from the launch cwd.
 
 The helper classifies continuation explicitly:
 
@@ -341,6 +348,8 @@ checkpoint_present_evaluation_pending
 evaluation_or_upload_pending
 not_running_unverified
 no_checkpoint_unverified
+resume_blocked
+artifacts_present
 ```
 
 For `checkpoint_present_evaluation_pending`, reuse the checkpoint for
@@ -349,7 +358,8 @@ metadata have been checked.
 
 For a command containing `--resume`, a dead process without log evidence of
 resumption is `resume_blocked`. Never silently convert that case into a fresh
-training run.
+training run. `artifacts_present` only means the basic artifact files exist;
+run `complete_verified` before calling the run complete.
 
 ## 8. Recovery rules
 

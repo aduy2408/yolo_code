@@ -266,11 +266,38 @@ def process_command(pid: int) -> str:
 
 
 def command_option_values(command: Sequence[str], option: str) -> list[str]:
-    return [command[index + 1] for index, value in enumerate(command[:-1]) if value == option]
+    values: list[str] = []
+    for index, value in enumerate(command):
+        if value == option and index + 1 < len(command):
+            values.append(command[index + 1])
+        elif value.startswith(option + "="):
+            values.append(value.split("=", 1)[1])
+    return values
+
+
+def _path_value(value: str) -> str:
+    """Accept dataset aliases such as ``varroa=/marimo/Varroa``."""
+    return value.split("=", 1)[1] if "=" in value else value
+
+
+def _same_contract_value(key: str, expected: object, actual: str) -> bool:
+    if key in {"data_root", "model_yaml"}:
+        return os.path.normpath(_path_value(str(expected))) == os.path.normpath(_path_value(actual))
+    if key in {"epochs", "patience", "workers", "seed", "split_seed"}:
+        try:
+            return int(expected) == int(actual)
+        except (TypeError, ValueError):
+            return False
+    if key == "nms_iou":
+        try:
+            return float(expected) == float(actual)
+        except (TypeError, ValueError):
+            return False
+    return str(expected) == actual
 
 
 def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
-    """Reject launch commands whose explicit settings disagree with the contract."""
+    """Reject launch commands that omit or disagree with contract settings."""
     contract_path = run_dir / "run_contract.json"
     if not contract_path.is_file():
         raise MarimoOpsError(f"Missing mandatory run contract: {contract_path}")
@@ -286,15 +313,18 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
         "split_seed": "--split-seed",
         "hf_repo_id": "--hf-repo-id",
         "model_yaml": "--model-yaml",
+        "data_root": "--data-root",
     }
     mismatches: list[str] = []
     for key, option in options.items():
         values = command_option_values(command, option)
-        if values and str(contract[key]) not in values:
+        if not values:
+            mismatches.append(f"{option}: missing (contract={contract[key]!r})")
+        elif not all(_same_contract_value(key, contract[key], value) for value in values):
             mismatches.append(f"{option}: contract={contract[key]!r}, command={values!r}")
-    data_values = command_option_values(command, "--data-root")
-    if data_values and not any(str(contract["data_root"]) in value for value in data_values):
-        mismatches.append(f"--data-root: contract={contract['data_root']!r}, command={data_values!r}")
+    nms_values = command_option_values(command, "--nms-iou")
+    if nms_values and not all(_same_contract_value("nms_iou", contract["nms_iou"], value) for value in nms_values):
+        mismatches.append(f"--nms-iou: contract={contract['nms_iou']!r}, command={nms_values!r}")
     if mismatches:
         raise MarimoOpsError("Launch command disagrees with run contract:\n- " + "\n- ".join(mismatches))
 
@@ -306,8 +336,17 @@ def artifact_root_from_state(run_dir: Path, state: Mapping[str, object] | None) 
         for option in ("--project", "--output-dir", "--project-dir"):
             values = command_option_values([str(item) for item in command], option)
             if values:
-                return Path(values[-1]).resolve()
-    return run_dir
+                output = Path(_path_value(values[-1]))
+                if not output.is_absolute() and state and state.get("cwd"):
+                    output = Path(str(state["cwd"])) / output
+                return output.resolve()
+    return run_dir.resolve()
+
+
+def artifact_root_and_state(run_dir: Path) -> tuple[Path, dict[str, object] | None]:
+    state_path = run_dir / "state.json"
+    state = read_json(state_path) if state_path.is_file() else None
+    return artifact_root_from_state(run_dir, state), state
 
 
 def newest_mtime(path: Path) -> float | None:
@@ -473,7 +512,6 @@ def status(
     """Report liveness and progress separately. No claim of completion is inferred."""
     pid_path = run_dir / pid_file
     log_path = run_dir / log_file
-    state_path = run_dir / "state.json"
     pid: int | None = None
     if pid_path.exists():
         try:
@@ -481,19 +519,30 @@ def status(
         except ValueError:
             pass
     alive = is_pid_alive(pid) if pid is not None else False
-    state = read_json(state_path) if state_path.is_file() else None
-    artifact_root = artifact_root_from_state(run_dir, state)
+    artifact_root, state = artifact_root_and_state(run_dir)
+    actual_command = process_command(pid) if alive and pid else ""
+    expected_command = state.get("command") if isinstance(state, dict) else None
+    process_identity = "unknown"
+    if alive and isinstance(expected_command, list):
+        try:
+            process_identity = "matched" if shlex.split(actual_command) == [str(item) for item in expected_command] else "mismatch"
+        except ValueError:
+            process_identity = "mismatch"
+    elif alive:
+        process_identity = "unverified"
+    active = alive and process_identity in {"matched", "unverified"}
+    artifact_paths = [artifact_root / item for item in DEFAULT_REQUIRED_ARTIFACTS]
     latest = max(
-        (value for value in (newest_mtime(run_dir), newest_mtime(artifact_root)) if value is not None),
+        (value for value in [newest_mtime(run_dir), *(newest_mtime(path) for path in artifact_paths)] if value is not None),
         default=None,
     )
-    required_present = all(
-        (run_dir / item).is_file() for item in DEFAULT_REQUIRED_ARTIFACTS
-    )
-    if alive:
+    required_present = all(path.is_file() for path in artifact_paths)
+    if active:
         observed_status = "running"
-    elif (run_dir / "upload_complete.json").is_file() and required_present:
-        observed_status = "complete_verified"
+    elif alive and process_identity == "mismatch":
+        observed_status = "stale_pid_or_pid_reuse"
+    elif (artifact_root / "upload_complete.json").is_file() and required_present:
+        observed_status = "artifacts_present"
     elif latest is not None or state is not None:
         observed_status = "not_running_unverified"
     else:
@@ -503,15 +552,17 @@ def status(
         "artifact_root": str(artifact_root),
         "pid": pid,
         "process_alive": alive,
+        "process_identity": process_identity,
+        "process_active": active,
         "observed_status": observed_status,
-        "process_command": process_command(pid) if alive and pid else "",
+        "process_command": actual_command,
         "latest_artifact_mtime": latest,
         "log_exists": log_path.is_file(),
         "log_mtime": log_path.stat().st_mtime if log_path.is_file() else None,
         "state": state,
-        "upload_verified": (run_dir / "upload_complete.json").is_file(),
+        "upload_verified": (artifact_root / "upload_complete.json").is_file(),
         "required_artifacts": {
-            item: (run_dir / item).is_file() for item in DEFAULT_REQUIRED_ARTIFACTS
+            item: (artifact_root / item).is_file() for item in DEFAULT_REQUIRED_ARTIFACTS
         },
     }
     contract_path = run_dir / "run_contract.json"
@@ -520,13 +571,13 @@ def status(
         result["dataset"] = contract.get("dataset")
         result["data_root"] = contract.get("data_root")
         result["dataset_yaml"] = contract.get("dataset_yaml")
-    if alive:
+    if active:
         result["continuation_state"] = "running"
-    elif (run_dir / "evaluation_metrics.json").is_file() and not (run_dir / "upload_complete.json").is_file():
+    elif (artifact_root / "evaluation_metrics.json").is_file() and not (artifact_root / "upload_complete.json").is_file():
         result["continuation_state"] = "evaluation_or_upload_pending"
-    elif (run_dir / "weights/last.pt").is_file() and not (run_dir / "evaluation_metrics.json").is_file():
+    elif (artifact_root / "weights/last.pt").is_file() and not (artifact_root / "evaluation_metrics.json").is_file():
         result["continuation_state"] = "checkpoint_present_evaluation_pending"
-    elif not (run_dir / "weights/last.pt").is_file():
+    elif not (artifact_root / "weights/last.pt").is_file():
         result["continuation_state"] = "no_checkpoint_unverified"
     else:
         result["continuation_state"] = "not_running_unverified"
@@ -542,8 +593,9 @@ def status(
 
 
 def artifacts(run_dir: Path, required: Iterable[str] = DEFAULT_REQUIRED_ARTIFACTS) -> dict[str, object]:
-    present = require_files(run_dir, required)
-    result = {"run_dir": str(run_dir), "required_artifacts": present}
+    artifact_root, _ = artifact_root_and_state(run_dir)
+    present = require_files(artifact_root, required)
+    result = {"run_dir": str(run_dir), "artifact_root": str(artifact_root), "required_artifacts": present}
     print(json.dumps(result, indent=2, sort_keys=True))
     return result
 
@@ -553,12 +605,13 @@ def complete_verified(run_dir: Path) -> dict[str, object]:
     report = status(run_dir, emit=False)
     if report["process_alive"]:
         raise MarimoOpsError("Run is still active; completion cannot be verified")
-    require_files(run_dir, COMPLETION_REQUIRED_ARTIFACTS)
+    artifact_root = Path(str(report["artifact_root"]))
+    require_files(artifact_root, COMPLETION_REQUIRED_ARTIFACTS)
     contract = read_json(run_dir / "run_contract.json")
     missing_contract = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
     if missing_contract:
         raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing_contract))
-    metrics = read_json(run_dir / "evaluation_metrics.json")
+    metrics = read_json(artifact_root / "evaluation_metrics.json")
     missing_metrics = [key for key in REQUIRED_METRIC_KEYS if key not in metrics]
     if missing_metrics:
         raise MarimoOpsError("Evaluation is missing split-qualified metrics: " + ", ".join(missing_metrics))
@@ -569,11 +622,12 @@ def complete_verified(run_dir: Path) -> dict[str, object]:
             raise MarimoOpsError(f"Metric {key} is not numeric") from exc
         if not (value == value and abs(value) != float("inf")):
             raise MarimoOpsError(f"Metric {key} is not finite")
-    marker = read_json(run_dir / "upload_complete.json")
+    marker = read_json(artifact_root / "upload_complete.json")
     if not marker.get("repo_id") or not marker.get("remote_prefix") or not marker.get("verified"):
         raise MarimoOpsError("Upload marker lacks remote verification evidence")
     result = {
         "run_dir": str(run_dir),
+        "artifact_root": str(artifact_root),
         "status": "complete_verified",
         "required_artifacts": list(COMPLETION_REQUIRED_ARTIFACTS),
         "metrics": {key: float(metrics[key]) for key in REQUIRED_METRIC_KEYS},

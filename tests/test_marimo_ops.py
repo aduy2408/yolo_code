@@ -27,6 +27,15 @@ from utils.marimo_ops import (
     write_run_contract,
 )
 
+COMPLETION_ARTIFACTS_FOR_TEST = (
+    "weights/best.pt",
+    "weights/last.pt",
+    "results.csv",
+    "evaluation_metrics.json",
+    "experiment_manifest.json",
+    "upload_complete.json",
+)
+
 
 class MarimoOpsTests(unittest.TestCase):
     def test_training_context_is_fail_closed(self) -> None:
@@ -166,7 +175,14 @@ class MarimoOpsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
             write_run_contract(run_dir, contract)
-            validate_command_contract(run_dir, ["runner.py", "--epochs", "100", "--workers", "8"])
+            validate_command_contract(
+                run_dir,
+                [
+                    "runner.py", "--epochs", "100", "--patience", "0", "--workers", "8",
+                    "--seed", "42", "--split-seed", "42", "--hf-repo-id", "user/task-runs",
+                    "--model-yaml", "models/yolov8.yaml", "--data-root", "/marimo/LevirShip/LevirShipData",
+                ],
+            )
             with self.assertRaises(MarimoOpsError):
                 validate_command_contract(run_dir, ["runner.py", "--epochs", "400"])
 
@@ -213,6 +229,41 @@ class MarimoOpsTests(unittest.TestCase):
             }))
             result = complete_verified(run_dir)
             self.assertEqual(result["status"], "complete_verified")
+
+    def test_artifact_root_is_used_for_status_and_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "wrapper"
+            artifact_root = root / "outputs" / "run-1"
+            write_run_contract(
+                run_dir,
+                {
+                    "dataset": "levir", "data_root": "/data/levir",
+                    "dataset_yaml": "/data/levir/data.yaml", "model_yaml": "models/yolov8.yaml",
+                    "seed": 42, "split_seed": 42, "workers": 8, "epochs": 100,
+                    "patience": 0, "nms_iou": 0.5, "hf_repo_id": "user/task-runs",
+                },
+            )
+            (run_dir / "state.json").write_text(json.dumps({
+                "cwd": str(root),
+                "command": ["runner.py", "--project", "outputs/run-1"],
+            }))
+            for relative in COMPLETION_ARTIFACTS_FOR_TEST:
+                path = artifact_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}" if path.suffix == ".json" else "artifact")
+            (artifact_root / "evaluation_metrics.json").write_text(json.dumps({
+                "val/AP50": 0.8, "val/mAP50-95": 0.3,
+                "test/AP50": 0.7, "test/mAP50-95": 0.25,
+            }))
+            (artifact_root / "upload_complete.json").write_text(json.dumps({
+                "repo_id": "user/task-runs", "remote_prefix": "run-1", "verified": ["weights/best.pt"],
+            }))
+            report = status(run_dir, emit=False)
+            self.assertEqual(report["artifact_root"], str(artifact_root.resolve()))
+            self.assertEqual(report["observed_status"], "artifacts_present")
+            verified = complete_verified(run_dir)
+            self.assertEqual(verified["artifact_root"], str(artifact_root.resolve()))
 
     def test_preflight_checks_exact_sha_clean_tree_and_upload_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -328,6 +379,9 @@ class MarimoOpsTests(unittest.TestCase):
                     sys.executable,
                     "-c",
                     "print('cli-launch-ok')",
+                    "--epochs", "100", "--patience", "0", "--workers", "8",
+                    "--seed", "42", "--split-seed", "42", "--hf-repo-id", "user/task-runs",
+                    "--model-yaml", "models/yolov8.yaml", "--data-root", "/marimo/LevirShip/LevirShipData",
                 ],
                 check=True,
                 capture_output=True,
