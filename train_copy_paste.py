@@ -152,7 +152,8 @@ def _mine_negcp_bank(args: argparse.Namespace, data_yaml: Path, checkpoint: Path
         image_paths,
         label_paths,
         model.predict(source=[str(path) for path in image_paths], conf=0.25, iou=0.5,
-                      device=args.device, stream=True, verbose=False),
+                      device=args.device, batch=args.negcp_mine_batch_size,
+                      stream=True, verbose=False),
     ):
         image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
         if image is None:
@@ -330,6 +331,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--negcp-bank-path", type=Path, default=None)
     parser.add_argument("--negcp-mine-device", default="cpu",
                         help="Device used only for offline hard-negative mining")
+    parser.add_argument("--negcp-mine-batch-size", type=int, default=4,
+                        help="Bounded inference batch size used for offline hard-negative mining")
     parser.add_argument("--print-effective-config", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--smoke", action="store_true", help="Run one bounded smoke variant and upload its artifacts")
