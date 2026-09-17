@@ -148,24 +148,31 @@ def _mine_negcp_bank(args: argparse.Namespace, data_yaml: Path, checkpoint: Path
     model = YOLO(str(checkpoint))
     predictions = []
     valid_gts = []
-    for image_path, label_path, result in zip(
-        image_paths,
-        label_paths,
-        model.predict(source=[str(path) for path in image_paths], conf=0.25, iou=0.5,
-                      device=args.device, batch=args.negcp_mine_batch_size,
-                      stream=True, verbose=False),
-    ):
-        image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
-        if image is None:
-            raise RuntimeError(f"Failed to read training image while mining NegCP: {image_path}")
-        boxes = result.boxes
-        if boxes is None or len(boxes) == 0:
-            predictions.append(np.empty((0, 5), dtype=np.float32))
-        else:
-            xyxy = boxes.xyxy.detach().cpu().numpy()
-            conf = boxes.conf.detach().cpu().numpy().reshape(-1, 1)
-            predictions.append(np.concatenate((xyxy, conf), axis=1))
-        valid_gts.append(_read_yolo_boxes(label_path, image.shape[:2]))
+    mine_batch = max(1, int(args.negcp_mine_batch_size))
+    for start in range(0, len(image_paths), mine_batch):
+        image_chunk = image_paths[start : start + mine_batch]
+        label_chunk = label_paths[start : start + mine_batch]
+        results = model.predict(
+            source=[str(path) for path in image_chunk], conf=0.25, iou=0.5,
+            device=args.device, batch=mine_batch, stream=True, verbose=False,
+        )
+        for image_path, label_path, result in zip(image_chunk, label_chunk, results):
+            image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+            if image is None:
+                raise RuntimeError(f"Failed to read training image while mining NegCP: {image_path}")
+            boxes = result.boxes
+            if boxes is None or len(boxes) == 0:
+                predictions.append(np.empty((0, 5), dtype=np.float32))
+            else:
+                xyxy = boxes.xyxy.detach().cpu().numpy()
+                conf = boxes.conf.detach().cpu().numpy().reshape(-1, 1)
+                predictions.append(np.concatenate((xyxy, conf), axis=1))
+            valid_gts.append(_read_yolo_boxes(label_path, image.shape[:2]))
+        del results
+        if str(args.device).startswith("cuda"):
+            import torch
+
+            torch.cuda.empty_cache()
     miner = HardNegativeMiner()
     bank = miner.mine(image_paths, predictions, valid_gts)
     output.parent.mkdir(parents=True, exist_ok=True)
