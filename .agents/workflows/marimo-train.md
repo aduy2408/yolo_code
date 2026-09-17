@@ -278,6 +278,11 @@ state.json
 
 It refuses to launch if the recorded PID is still alive.
 
+The launch command also refuses to start without `run_contract.json`, and
+compares explicit command values against it. This covers epochs, patience,
+workers, seeds, model YAML, data root, and HF repository. A mismatch is a
+pre-launch failure, not something to discover after training.
+
 Before launching, create one immutable `run_contract.json` in the run
 directory. The contract must include the dataset, exact model YAML, training
 and split seeds, workers, epochs, patience, NMS IoU, and task-specific HF
@@ -322,6 +327,12 @@ dead, use `observed_status` rather than trusting a stale `state.json`:
 timestamps when diagnosing a stall. Check `nvidia-smi` only when GPU state is
 relevant.
 
+If the wrapper run directory differs from the training output directory, the
+helper follows `--project`, `--output-dir`, or `--project-dir` from the stored
+command and reports the resolved `artifact_root`. This prevents a live job
+from appearing empty merely because its PID files and model outputs are in
+different directories.
+
 The helper classifies continuation explicitly:
 
 ```text
@@ -335,6 +346,10 @@ no_checkpoint_unverified
 For `checkpoint_present_evaluation_pending`, reuse the checkpoint for
 evaluation. Do not start a new training process unless the contract and resume
 metadata have been checked.
+
+For a command containing `--resume`, a dead process without log evidence of
+resumption is `resume_blocked`. Never silently convert that case into a fresh
+training run.
 
 ## 8. Recovery rules
 

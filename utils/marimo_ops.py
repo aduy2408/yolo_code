@@ -265,6 +265,51 @@ def process_command(pid: int) -> str:
     return raw.strip()
 
 
+def command_option_values(command: Sequence[str], option: str) -> list[str]:
+    return [command[index + 1] for index, value in enumerate(command[:-1]) if value == option]
+
+
+def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
+    """Reject launch commands whose explicit settings disagree with the contract."""
+    contract_path = run_dir / "run_contract.json"
+    if not contract_path.is_file():
+        raise MarimoOpsError(f"Missing mandatory run contract: {contract_path}")
+    contract = read_json(contract_path)
+    missing = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
+    if missing:
+        raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing))
+    options = {
+        "epochs": "--epochs",
+        "patience": "--patience",
+        "workers": "--workers",
+        "seed": "--seed",
+        "split_seed": "--split-seed",
+        "hf_repo_id": "--hf-repo-id",
+        "model_yaml": "--model-yaml",
+    }
+    mismatches: list[str] = []
+    for key, option in options.items():
+        values = command_option_values(command, option)
+        if values and str(contract[key]) not in values:
+            mismatches.append(f"{option}: contract={contract[key]!r}, command={values!r}")
+    data_values = command_option_values(command, "--data-root")
+    if data_values and not any(str(contract["data_root"]) in value for value in data_values):
+        mismatches.append(f"--data-root: contract={contract['data_root']!r}, command={data_values!r}")
+    if mismatches:
+        raise MarimoOpsError("Launch command disagrees with run contract:\n- " + "\n- ".join(mismatches))
+
+
+def artifact_root_from_state(run_dir: Path, state: Mapping[str, object] | None) -> Path:
+    """Find the project output root when the wrapper and artifact directories differ."""
+    command = state.get("command") if state else None
+    if isinstance(command, list):
+        for option in ("--project", "--output-dir", "--project-dir"):
+            values = command_option_values([str(item) for item in command], option)
+            if values:
+                return Path(values[-1]).resolve()
+    return run_dir
+
+
 def newest_mtime(path: Path) -> float | None:
     if not path.exists():
         return None
@@ -436,8 +481,12 @@ def status(
         except ValueError:
             pass
     alive = is_pid_alive(pid) if pid is not None else False
-    latest = newest_mtime(run_dir)
     state = read_json(state_path) if state_path.is_file() else None
+    artifact_root = artifact_root_from_state(run_dir, state)
+    latest = max(
+        (value for value in (newest_mtime(run_dir), newest_mtime(artifact_root)) if value is not None),
+        default=None,
+    )
     required_present = all(
         (run_dir / item).is_file() for item in DEFAULT_REQUIRED_ARTIFACTS
     )
@@ -451,6 +500,7 @@ def status(
         observed_status = "not_started_or_unknown"
     result = {
         "run_dir": str(run_dir),
+        "artifact_root": str(artifact_root),
         "pid": pid,
         "process_alive": alive,
         "observed_status": observed_status,
@@ -480,6 +530,12 @@ def status(
         result["continuation_state"] = "no_checkpoint_unverified"
     else:
         result["continuation_state"] = "not_running_unverified"
+    command_for_resume = state.get("command") if isinstance(state, dict) else []
+    if isinstance(command_for_resume, list) and "--resume" in command_for_resume:
+        log_text = log_path.read_text(errors="replace") if log_path.is_file() else ""
+        result["resume_evidence"] = "confirmed" if re.search(r"resum|from epoch", log_text, re.I) else "pending"
+        if not alive and result["resume_evidence"] != "confirmed":
+            result["continuation_state"] = "resume_blocked"
     if emit:
         print(json.dumps(result, indent=2, sort_keys=True))
     return result
@@ -602,6 +658,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             command = list(args.command)
             if command and command[0] == "--":
                 command = command[1:]
+            validate_command_contract(args.run_dir, command)
             launch_env = os.environ.copy()
             launch_env["MARIMO_TRAIN_WORKFLOW"] = "1"
             if "--hf-repo-id" in command:

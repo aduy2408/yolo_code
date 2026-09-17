@@ -23,6 +23,7 @@ from utils.marimo_ops import (
     require_training_context,
     resolve_marimo_dataset_root,
     status,
+    validate_command_contract,
     write_run_contract,
 )
 
@@ -147,6 +148,27 @@ class MarimoOpsTests(unittest.TestCase):
             (run_dir / "weights/last.pt").write_text("checkpoint")
             report = status(run_dir, emit=False)
             self.assertEqual(report["continuation_state"], "checkpoint_present_evaluation_pending")
+
+    def test_launch_command_must_match_contract(self) -> None:
+        contract = {
+            "dataset": "levir",
+            "data_root": "/marimo/LevirShip/LevirShipData",
+            "dataset_yaml": "/marimo/yolo_code/datasets/levir.yaml",
+            "model_yaml": "models/yolov8.yaml",
+            "seed": 42,
+            "split_seed": 42,
+            "workers": 8,
+            "epochs": 100,
+            "patience": 0,
+            "nms_iou": 0.5,
+            "hf_repo_id": "user/task-runs",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            write_run_contract(run_dir, contract)
+            validate_command_contract(run_dir, ["runner.py", "--epochs", "100", "--workers", "8"])
+            with self.assertRaises(MarimoOpsError):
+                validate_command_contract(run_dir, ["runner.py", "--epochs", "400"])
 
     def test_complete_verified_requires_all_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -276,6 +298,22 @@ class MarimoOpsTests(unittest.TestCase):
     def test_cli_launch_creates_durable_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "run"
+            write_run_contract(
+                run_dir,
+                {
+                    "dataset": "levir",
+                    "data_root": "/marimo/LevirShip/LevirShipData",
+                    "dataset_yaml": "/marimo/yolo_code/datasets/levir.yaml",
+                    "model_yaml": "models/yolov8.yaml",
+                    "seed": 42,
+                    "split_seed": 42,
+                    "workers": 8,
+                    "epochs": 100,
+                    "patience": 0,
+                    "nms_iou": 0.5,
+                    "hf_repo_id": "user/task-runs",
+                },
+            )
             completed = subprocess.run(
                 [
                     sys.executable,
