@@ -178,6 +178,7 @@ Run the following **inside the live Marimo environment**, not local:
 ```bash
 "$MARIMO_PYTHON" -m utils.marimo_ops preflight \
   --repo /marimo/yolo_code \
+  --contract /marimo/yolo_code/runs/<experiment>/run_contract.json \
   --expected-sha "$EXPECTED_SHA" \
   --python "$MARIMO_PYTHON" \
   --epochs 100 \
@@ -265,6 +266,7 @@ Never attach a long training job to the request stream. Use the shared helper:
 "$MARIMO_PYTHON" -m utils.marimo_ops launch \
   --cwd /marimo/yolo_code \
   --run-dir /marimo/yolo_code/runs/<experiment> \
+  --artifact-root /marimo/yolo_code/runs/<experiment> \
   -- \
 "$MARIMO_PYTHON" train_all_<experiment>.py \
   --epochs 100 --patience 0 --workers 8 \
@@ -281,6 +283,12 @@ train.pid
 train.log
 state.json
 ```
+
+If the runner writes outputs somewhere other than the wrapper directory, pass
+that exact directory with `--artifact-root`. Do not rely on guessing from a
+parent `--project` directory. The same `--state-file`, `--pid-file`, and
+`--log-file` values must be passed to later `status`, `artifacts`, and
+`complete_verified` commands.
 
 It refuses to launch if the recorded PID is still alive.
 
@@ -323,6 +331,7 @@ process_command
 latest_artifact_mtime
 log_mtime
 required_artifacts
+upload_marker_present
 upload_verified
 continuation_state
 dataset/data_root
@@ -335,10 +344,11 @@ dead, use `observed_status` rather than trusting a stale `state.json`:
 timestamps when diagnosing a stall. Check `nvidia-smi` only when GPU state is
 relevant.
 
-If the wrapper run directory differs from the training output directory, the
-helper follows `--project`, `--output-dir`, or `--project-dir` from the stored
-command and uses the resolved `artifact_root` for artifact, progress, and
-completion checks. Relative output paths are resolved from the launch cwd.
+If the wrapper run directory differs from the training output directory, pass
+the actual output directory with `--artifact-root`. The helper stores and uses
+that exact `artifact_root` for artifact, progress, and completion checks.
+Without it, the helper uses the supported output option fallback and resolves
+relative paths from the launch cwd.
 
 The helper classifies continuation explicitly:
 
@@ -357,9 +367,10 @@ evaluation. Do not start a new training process unless the contract and resume
 metadata have been checked.
 
 For a command containing `--resume`, a dead process without log evidence of
-resumption is `resume_blocked`. Never silently convert that case into a fresh
-training run. `artifacts_present` only means the basic artifact files exist;
-run `complete_verified` before calling the run complete.
+resumption is `resume_blocked`. The `log_hint` value is only a log observation,
+not proof that the expected checkpoint was loaded. Never silently convert that
+case into a fresh training run. `artifacts_present` only means the basic
+artifact files exist; run `complete_verified` before calling the run complete.
 
 ## 8. Recovery rules
 

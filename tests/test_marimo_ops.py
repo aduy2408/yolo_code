@@ -265,6 +265,45 @@ class MarimoOpsTests(unittest.TestCase):
             verified = complete_verified(run_dir)
             self.assertEqual(verified["artifact_root"], str(artifact_root.resolve()))
 
+    def test_custom_state_file_and_upload_marker_are_consistent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "wrapper"
+            artifact_root = root / "outputs"
+            write_run_contract(
+                run_dir,
+                {
+                    "dataset": "levir", "data_root": "/data/levir",
+                    "dataset_yaml": "/data/levir/data.yaml", "model_yaml": "models/yolov8.yaml",
+                    "seed": 42, "split_seed": 42, "workers": 8, "epochs": 100,
+                    "patience": 0, "nms_iou": 0.5, "hf_repo_id": "user/task-runs",
+                },
+            )
+            (run_dir / "custom-state.json").parent.mkdir(parents=True, exist_ok=True)
+            (run_dir / "custom-state.json").write_text(json.dumps({
+                "cwd": str(root), "artifact_root": str(artifact_root),
+                "command": ["runner.py", "--resume=/checkpoints/last.pt"],
+                "log_path": "custom.log",
+            }))
+            (run_dir / "custom.log").write_text("resume failed before loading checkpoint\n")
+            (artifact_root / "upload_complete.json").parent.mkdir(parents=True, exist_ok=True)
+            (artifact_root / "upload_complete.json").write_text(json.dumps({
+                "repo_id": "wrong/repo", "remote_prefix": "run", "verified": ["x"],
+            }))
+            report = status(run_dir, state_file="custom-state.json", emit=False)
+            self.assertEqual(report["artifact_root"], str(artifact_root.resolve()))
+            self.assertTrue(report["upload_marker_present"])
+            self.assertFalse(report["upload_verified"])
+            self.assertEqual(report["resume_evidence"], "pending")
+
+    def test_require_files_preserves_generator_paths(self) -> None:
+        from utils.marimo_ops import require_files
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "artifact.txt").write_text("ok")
+            self.assertEqual(require_files(root, (item for item in ["artifact.txt"])), ["artifact.txt"])
+
     def test_preflight_checks_exact_sha_clean_tree_and_upload_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

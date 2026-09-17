@@ -331,6 +331,11 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
 
 def artifact_root_from_state(run_dir: Path, state: Mapping[str, object] | None) -> Path:
     """Find the project output root when the wrapper and artifact directories differ."""
+    if state and state.get("artifact_root"):
+        root = Path(str(state["artifact_root"]))
+        if not root.is_absolute() and state.get("cwd"):
+            root = Path(str(state["cwd"])) / root
+        return root.resolve()
     command = state.get("command") if state else None
     if isinstance(command, list):
         for option in ("--project", "--output-dir", "--project-dir"):
@@ -359,12 +364,13 @@ def newest_mtime(path: Path) -> float | None:
 
 
 def require_files(root: Path, relative_paths: Iterable[str]) -> list[str]:
-    missing = [relative for relative in relative_paths if not (root / relative).is_file()]
+    paths = list(relative_paths)
+    missing = [relative for relative in paths if not (root / relative).is_file()]
     if missing:
         raise MarimoOpsError(
             "Missing required artifacts:\n" + "\n".join(f"- {item}" for item in missing)
         )
-    return list(relative_paths)
+    return paths
 
 
 def preflight(
@@ -379,9 +385,32 @@ def preflight(
     hf_repo_id: str | None = None,
     data_root: Path | None = None,
     dataset_yaml: Path | None = None,
+    contract_json: Path | None = None,
     allow_dirty: bool = False,
 ) -> dict[str, object]:
     """Run fail-closed checks before any expensive remote job."""
+    contract: dict[str, object] | None = None
+    if contract_json is not None:
+        contract = read_json(contract_json)
+        missing = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
+        if missing:
+            raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing))
+        declared = {
+            "epochs": contract["epochs"],
+            "patience": contract["patience"],
+            "hf_repo_id": contract["hf_repo_id"],
+            "data_root": Path(_path_value(str(contract["data_root"]))),
+            "dataset_yaml": Path(_path_value(str(contract["dataset_yaml"]))),
+        }
+        for key, actual in (("epochs", epochs), ("patience", patience), ("hf_repo_id", hf_repo_id),
+                            ("data_root", data_root), ("dataset_yaml", dataset_yaml)):
+            if actual is not None and not _same_contract_value(key, declared[key], str(actual)):
+                raise MarimoOpsError(f"Preflight disagrees with run contract for {key}: contract={declared[key]!r}, got={actual!r}")
+        epochs = int(declared["epochs"])
+        patience = int(declared["patience"])
+        hf_repo_id = str(declared["hf_repo_id"])
+        data_root = declared["data_root"]
+        dataset_yaml = declared["dataset_yaml"]
     if not repo.is_dir():
         raise MarimoOpsError(f"Repository does not exist: {repo}")
     actual_sha = git_sha(repo)
@@ -444,6 +473,7 @@ def launch_detached(
     log_path: Path,
     pid_path: Path,
     state_path: Path,
+    artifact_root: Path | None = None,
     env: Mapping[str, str] | None = None,
 ) -> LaunchResult:
     """Launch one durable process and record enough evidence to inspect it later."""
@@ -485,12 +515,18 @@ def launch_detached(
     # prevents short jobs from becoming zombies while long jobs remain detached.
     threading.Thread(target=proc.wait, name=f"marimo-reaper-{proc.pid}", daemon=True).start()
     pid_path.write_text(f"{proc.pid}\n")
+    resolved_artifact_root = None
+    if artifact_root is not None:
+        resolved_artifact_root = artifact_root if artifact_root.is_absolute() else cwd / artifact_root
     state = {
         "status": "running",
         "pid": proc.pid,
         "command": list(command),
         "cwd": str(cwd),
         "log_path": str(log_path),
+        "pid_path": str(pid_path),
+        "state_path": str(state_path),
+        "artifact_root": str(resolved_artifact_root.resolve()) if resolved_artifact_root else None,
         "started_at": started_at,
     }
     write_json(state_path, state)
@@ -507,7 +543,12 @@ def launch_detached(
 
 
 def status(
-    run_dir: Path, *, pid_file: str = "train.pid", log_file: str = "train.log", emit: bool = True
+    run_dir: Path,
+    *,
+    pid_file: str = "train.pid",
+    log_file: str = "train.log",
+    state_file: str = "state.json",
+    emit: bool = True,
 ) -> dict[str, object]:
     """Report liveness and progress separately. No claim of completion is inferred."""
     pid_path = run_dir / pid_file
@@ -519,7 +560,9 @@ def status(
         except ValueError:
             pass
     alive = is_pid_alive(pid) if pid is not None else False
-    artifact_root, state = artifact_root_and_state(run_dir)
+    state_path = run_dir / state_file
+    state = read_json(state_path) if state_path.is_file() else None
+    artifact_root = artifact_root_from_state(run_dir, state)
     actual_command = process_command(pid) if alive and pid else ""
     expected_command = state.get("command") if isinstance(state, dict) else None
     process_identity = "unknown"
@@ -530,7 +573,7 @@ def status(
             process_identity = "mismatch"
     elif alive:
         process_identity = "unverified"
-    active = alive and process_identity in {"matched", "unverified"}
+    active = alive and process_identity == "matched"
     artifact_paths = [artifact_root / item for item in DEFAULT_REQUIRED_ARTIFACTS]
     latest = max(
         (value for value in [newest_mtime(run_dir), *(newest_mtime(path) for path in artifact_paths)] if value is not None),
@@ -547,6 +590,21 @@ def status(
         observed_status = "not_running_unverified"
     else:
         observed_status = "not_started_or_unknown"
+    upload_marker_path = artifact_root / "upload_complete.json"
+    upload_marker_present = upload_marker_path.is_file()
+    upload_verified = False
+    if upload_marker_present:
+        try:
+            marker = read_json(upload_marker_path)
+            upload_verified = bool(
+                marker.get("repo_id") and marker.get("remote_prefix") and marker.get("verified")
+            )
+            contract_path = run_dir / "run_contract.json"
+            if upload_verified and contract_path.is_file():
+                contract = read_json(contract_path)
+                upload_verified = marker["repo_id"] == contract.get("hf_repo_id")
+        except MarimoOpsError:
+            upload_verified = False
     result = {
         "run_dir": str(run_dir),
         "artifact_root": str(artifact_root),
@@ -560,7 +618,8 @@ def status(
         "log_exists": log_path.is_file(),
         "log_mtime": log_path.stat().st_mtime if log_path.is_file() else None,
         "state": state,
-        "upload_verified": (artifact_root / "upload_complete.json").is_file(),
+        "upload_marker_present": upload_marker_present,
+        "upload_verified": upload_verified,
         "required_artifacts": {
             item: (artifact_root / item).is_file() for item in DEFAULT_REQUIRED_ARTIFACTS
         },
@@ -582,29 +641,58 @@ def status(
     else:
         result["continuation_state"] = "not_running_unverified"
     command_for_resume = state.get("command") if isinstance(state, dict) else []
-    if isinstance(command_for_resume, list) and "--resume" in command_for_resume:
-        log_text = log_path.read_text(errors="replace") if log_path.is_file() else ""
-        result["resume_evidence"] = "confirmed" if re.search(r"resum|from epoch", log_text, re.I) else "pending"
-        if not alive and result["resume_evidence"] != "confirmed":
+    resume_values = command_option_values(command_for_resume, "--resume") if isinstance(command_for_resume, list) else []
+    if resume_values:
+        state_log_path = Path(str(state.get("log_path"))) if isinstance(state, dict) and state.get("log_path") else log_path
+        if not state_log_path.is_absolute():
+            state_log_path = run_dir / state_log_path
+        log_text = state_log_path.read_text(errors="replace") if state_log_path.is_file() else ""
+        result["resume_evidence"] = "log_hint" if re.search(
+            r"(?:resum(?:ed|ing)|loaded checkpoint|from epoch)", log_text, re.I
+        ) else "pending"
+        if not alive and result["resume_evidence"] != "log_hint":
             result["continuation_state"] = "resume_blocked"
     if emit:
         print(json.dumps(result, indent=2, sort_keys=True))
     return result
 
 
-def artifacts(run_dir: Path, required: Iterable[str] = DEFAULT_REQUIRED_ARTIFACTS) -> dict[str, object]:
-    artifact_root, _ = artifact_root_and_state(run_dir)
+def artifacts(
+    run_dir: Path,
+    required: Iterable[str] = DEFAULT_REQUIRED_ARTIFACTS,
+    *,
+    state_file: str = "state.json",
+) -> dict[str, object]:
+    state_path = run_dir / state_file
+    state = read_json(state_path) if state_path.is_file() else None
+    artifact_root = artifact_root_from_state(run_dir, state)
     present = require_files(artifact_root, required)
     result = {"run_dir": str(run_dir), "artifact_root": str(artifact_root), "required_artifacts": present}
     print(json.dumps(result, indent=2, sort_keys=True))
     return result
 
 
-def complete_verified(run_dir: Path) -> dict[str, object]:
+def complete_verified(
+    run_dir: Path,
+    *,
+    pid_file: str = "train.pid",
+    log_file: str = "train.log",
+    state_file: str = "state.json",
+) -> dict[str, object]:
     """Fail closed unless local metrics, provenance, and upload evidence are complete."""
-    report = status(run_dir, emit=False)
-    if report["process_alive"]:
+    report = status(
+        run_dir,
+        pid_file=pid_file,
+        log_file=log_file,
+        state_file=state_file,
+        emit=False,
+    )
+    if report["process_active"]:
         raise MarimoOpsError("Run is still active; completion cannot be verified")
+    if report["process_alive"]:
+        raise MarimoOpsError(
+            f"PID is alive but process identity is {report['process_identity']}; completion is blocked"
+        )
     artifact_root = Path(str(report["artifact_root"]))
     require_files(artifact_root, COMPLETION_REQUIRED_ARTIFACTS)
     contract = read_json(run_dir / "run_contract.json")
@@ -625,6 +713,10 @@ def complete_verified(run_dir: Path) -> dict[str, object]:
     marker = read_json(artifact_root / "upload_complete.json")
     if not marker.get("repo_id") or not marker.get("remote_prefix") or not marker.get("verified"):
         raise MarimoOpsError("Upload marker lacks remote verification evidence")
+    if marker["repo_id"] != contract["hf_repo_id"]:
+        raise MarimoOpsError(
+            f"Upload repository mismatch: contract={contract['hf_repo_id']!r}, marker={marker['repo_id']!r}"
+        )
     result = {
         "run_dir": str(run_dir),
         "artifact_root": str(artifact_root),
@@ -653,16 +745,19 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--hf-repo-id")
     p.add_argument("--data-root", type=Path)
     p.add_argument("--dataset-yaml", type=Path)
+    p.add_argument("--contract", dest="contract_json", type=Path)
     p.add_argument("--allow-dirty", action="store_true")
 
     p = sub.add_parser("status")
     p.add_argument("--run-dir", type=Path, required=True)
     p.add_argument("--pid-file", default="train.pid")
     p.add_argument("--log-file", default="train.log")
+    p.add_argument("--state-file", default="state.json")
 
     p = sub.add_parser("artifacts")
     p.add_argument("--run-dir", type=Path, required=True)
     p.add_argument("--required-path", action="append", default=list(DEFAULT_REQUIRED_ARTIFACTS))
+    p.add_argument("--state-file", default="state.json")
 
     p = sub.add_parser("contract")
     p.add_argument("--run-dir", type=Path, required=True)
@@ -670,6 +765,9 @@ def _parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("complete_verified")
     p.add_argument("--run-dir", type=Path, required=True)
+    p.add_argument("--pid-file", default="train.pid")
+    p.add_argument("--log-file", default="train.log")
+    p.add_argument("--state-file", default="state.json")
 
     p = sub.add_parser("launch")
     p.add_argument("--cwd", type=Path, required=True)
@@ -677,6 +775,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--log-file", default="train.log")
     p.add_argument("--pid-file", default="train.pid")
     p.add_argument("--state-file", default="state.json")
+    p.add_argument("--artifact-root", type=Path)
     p.add_argument("command", nargs=argparse.REMAINDER)
     return parser
 
@@ -696,18 +795,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 hf_repo_id=args.hf_repo_id,
                 data_root=args.data_root,
                 dataset_yaml=args.dataset_yaml,
+                contract_json=args.contract_json,
                 allow_dirty=args.allow_dirty,
             )
         elif args.action == "status":
-            status(args.run_dir, pid_file=args.pid_file, log_file=args.log_file)
+            status(args.run_dir, pid_file=args.pid_file, log_file=args.log_file, state_file=args.state_file)
         elif args.action == "artifacts":
-            artifacts(args.run_dir, args.required_path)
+            artifacts(args.run_dir, args.required_path, state_file=args.state_file)
         elif args.action == "contract":
             contract = read_json(args.contract_json)
             payload = write_run_contract(args.run_dir, contract)
             print(json.dumps(payload, indent=2, sort_keys=True))
         elif args.action == "complete_verified":
-            complete_verified(args.run_dir)
+            complete_verified(args.run_dir, pid_file=args.pid_file, log_file=args.log_file, state_file=args.state_file)
         elif args.action == "launch":
             command = list(args.command)
             if command and command[0] == "--":
@@ -725,6 +825,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 log_path=args.run_dir / args.log_file,
                 pid_path=args.run_dir / args.pid_file,
                 state_path=args.run_dir / args.state_file,
+                artifact_root=args.artifact_root,
                 env=launch_env,
             )
         return 0
