@@ -179,7 +179,7 @@ def train_one(dataset: str, model_name: str, seed: int, data_yaml: Path, args: a
             project=str(args.project / dataset / model_name),
             name=f"seed_{seed}", exist_ok=True,
         )
-        model.train(resume=True) if last.is_file() else model.train(**kwargs)
+        model.train(**kwargs)
     if not training_complete(run_dir):
         raise RuntimeError(f"Incomplete training artifacts: {run_dir}")
     return run_dir
