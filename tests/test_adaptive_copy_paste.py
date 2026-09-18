@@ -17,6 +17,7 @@ from project_ultralytics.online_negative_bank import (
     OnlineNegativeCopyPaste,
     collect_online_hard_negatives,
     configure_online_hard_negative_training,
+    deduplicate_candidate_indices,
     finish_online_hard_negative_epoch,
 )
 from ultralytics.utils.instance import Instances
@@ -185,3 +186,50 @@ def test_adaptive_builder_rejects_unmatched_mosaic_statistics(tmp_path):
 def test_scale_conditioned_defaults_to_shrink_only(tmp_path):
     transform = AdaptiveCopyPaste(_dataset(tmp_path), budget=AdaptivePasteBudget([2], 1), p=1.0)
     assert transform.factor_max <= 1.0
+
+
+def test_online_builder_rejects_raw_budget_distribution_after_mosaic(tmp_path):
+    root = tmp_path / "bank"
+    bank = OnlineHardNegativeBank(root)
+    bank.commit()
+    hyp = SimpleNamespace(
+        copy_paste_enabled=True, copy_paste_mode="online_negative", mosaic=1.0,
+        online_negcp_bank_path=str(root), copy_paste_p=1.0,
+    )
+    with pytest.raises(ValueError, match="post-Mosaic"):
+        build_small_object_copy_paste(_dataset(tmp_path), hyp)
+
+
+def test_online_negative_placement_rejects_overlap_between_patches(tmp_path):
+    class FixedRng:
+        def random(self):
+            return 0.0
+        def randint(self, low, high):
+            return 0
+
+    bank = OnlineHardNegativeBank(tmp_path / "bank")
+    bank.add_patch(np.full((4, 4, 3), 40, np.uint8), OnlineHardNegativeRecord("a.jpg", 4, 0.8, 0.8, "a"))
+    bank.add_patch(np.full((4, 4, 3), 200, np.uint8), OnlineHardNegativeRecord("b.jpg", 4, 0.7, 0.7, "b"))
+    labels = _labels(np.zeros((16, 16, 3), np.uint8))
+    OnlineNegativeCopyPaste(bank, p=1.0, max_objects=2, max_trials=1, rng=FixedRng())(labels)
+    assert int(labels["img"][0, 0, 0]) < 100
+
+
+def test_adaptive_scale_conditioning_stays_on_original_destination_scales(tmp_path):
+    transform = AdaptiveCopyPaste(
+        _dataset(tmp_path), budget=AdaptivePasteBudget([3], 2), p=1.0,
+        policy="scale_conditioned", max_trials=100, rng=random.Random(5),
+    )
+    seen = []
+    original = transform._target_scale
+    transform._target_scale = lambda scales: (seen.append(tuple(scales)) or original(scales))
+    transform(_labels(np.zeros((64, 64, 3), np.uint8), [[48, 48, 56, 56]]))
+    assert len(seen) == 2
+    assert all(scales == (8.0,) for scales in seen)
+
+
+def test_hard_negative_candidate_dedup_keeps_spatially_distinct_boxes():
+    boxes = torch.tensor([[0, 0, 10, 10], [1, 1, 9, 9], [20, 20, 30, 30]], dtype=torch.float32)
+    scores = torch.tensor([0.9, 0.8, 0.7])
+    kept = deduplicate_candidate_indices(boxes, scores, torch.ones(3, dtype=torch.bool), limit=3)
+    assert kept == [0, 2]

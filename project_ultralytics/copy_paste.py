@@ -792,6 +792,11 @@ def build_small_object_copy_paste(dataset, hyp):
         if not bank_path:
             raise ValueError("online negative modes require online_negcp_bank_path")
         target_counts = getattr(hyp, "adaptive_cp_target_counts", None)
+        if float(getattr(hyp, "mosaic", 0.0)) > 0 and target_counts is None:
+            raise ValueError(
+                "online NegCP after Mosaic requires adaptive_cp_target_counts from post-Mosaic scenes; "
+                "disable mosaic for the no-Mosaic study or provide matched statistics"
+            )
         if target_counts is None:
             target_counts = [len(label.get("bboxes", ())) for label in getattr(dataset, "labels", ())] or [0]
         budget = AdaptivePasteBudget(target_counts, max_objects=int(getattr(hyp, "online_negcp_max_objects", 3)))

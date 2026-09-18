@@ -23,6 +23,7 @@ from .detection_loss import (
     scale_tempered_cls_targets,
 )
 from .hardness import foreground_assignment_hardness
+from .online_negative_bank import deduplicate_candidate_indices
 
 
 class FactorizedTALDetectionLoss(v8DetectionLoss):
@@ -157,11 +158,11 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
                 if mask_gt[batch_idx].any():
                     self.last_hard_negative_candidates.append([])
                     continue
-                indices = torch.nonzero((~fg_mask[batch_idx]) & (scores[batch_idx] >= threshold)).flatten()
-                if indices.numel():
-                    indices = indices[torch.argsort(scores[batch_idx, indices], descending=True)[:limit]]
+                indices = deduplicate_candidate_indices(
+                    boxes[batch_idx], scores[batch_idx], (~fg_mask[batch_idx]) & (scores[batch_idx] >= threshold), limit
+                )
                 rows = []
-                for index in indices.tolist():
+                for index in indices:
                     confidence = scores[batch_idx, index].clamp_max(1 - 1e-6)
                     rows.append([
                         *boxes[batch_idx, index].float().cpu().tolist(),

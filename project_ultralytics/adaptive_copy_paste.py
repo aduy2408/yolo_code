@@ -134,14 +134,14 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
         labels["img"][y:y + crop.shape[0], x:x + crop.shape[1]] = crop
         return box.reshape(1, 4), np.array([record.class_id], dtype=np.int64)
 
-    def _paste_cluster(self, labels, record: ObjectRecord, existing: np.ndarray):
+    def _paste_cluster(self, labels, record: ObjectRecord, existing: np.ndarray, conditioning_scales: Sequence[float]):
         source = self._load_raw(record.image_index)
         cluster = self._cluster(record.image_index, record.bbox_xyxy, source) if source is not None else None
         if cluster is None:
             return None
         crop, relative, classes, union = cluster
         member_scales = [math.sqrt(max(_box_area(box), 1e-8)) for box in relative]
-        target = self._target_scale(self._scene_scales(existing))
+        target = self._target_scale(conditioning_scales)
         native = float(np.median(member_scales))
         factor = target / max(native, 1e-8)
         if not self.factor_min <= factor <= self.factor_max:
@@ -172,7 +172,7 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
         if budget <= 0:
             return labels
         boxes, classes = [], []
-        scene_scales = self._scene_scales(existing)
+        conditioning_scales = self._scene_scales(existing)
         remaining = budget
         attempts = 0
         max_attempts = max(3, remaining * 4)
@@ -180,15 +180,15 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
             attempts += 1
             record = self.rng.choice(self.object_pool)
             if self.policy == "cluster":
-                result = self._paste_cluster(labels, record, existing)
+                result = self._paste_cluster(labels, record, existing, conditioning_scales)
                 added = len(result[0]) if result is not None else 0
                 if added > remaining:
-                    target_size = self._target_scale(scene_scales)
+                    target_size = self._target_scale(conditioning_scales)
                     selected = self._record_for_scale(target_size, target_index)
                     result = self._paste_single(labels, selected, target_size, existing) if selected is not None else None
                     added = 1 if result is not None else 0
             else:
-                target_size = self._target_scale(scene_scales)
+                target_size = self._target_scale(conditioning_scales)
                 selected = self._record_for_scale(target_size, target_index)
                 result = self._paste_single(labels, selected, target_size, existing) if selected is not None else None
                 added = 1 if result is not None else 0
@@ -198,7 +198,6 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
             boxes.append(new_boxes)
             classes.append(new_classes)
             existing = np.concatenate([existing, new_boxes], axis=0)
-            scene_scales.extend(self._scene_scales(new_boxes))
             remaining -= added
         if boxes:
             self._append_instances(labels, boxes, classes)

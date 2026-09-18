@@ -19,6 +19,7 @@ from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigne
 from ultralytics.utils.torch_utils import autocast
 
 from project_ultralytics.hardness import foreground_assignment_hardness
+from project_ultralytics.online_negative_bank import deduplicate_candidate_indices
 
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist, rbox2dist
@@ -2437,12 +2438,11 @@ class v8DetectionLoss:
                     self.last_hard_negative_candidates.append([])
                     continue
                 candidates = (~fg_mask[batch_idx]) & (image_scores[batch_idx] >= score_threshold)
-                indices = torch.nonzero(candidates).flatten()
-                if indices.numel():
-                    order = torch.argsort(image_scores[batch_idx, indices], descending=True)[:max_candidates]
-                    indices = indices[order]
+                indices = deduplicate_candidate_indices(
+                    image_boxes[batch_idx], image_scores[batch_idx], candidates, max_candidates
+                )
                 rows = []
-                for index in indices.tolist():
+                for index in indices:
                     confidence = float(image_scores[batch_idx, index].item())
                     rows.append([
                         *image_boxes[batch_idx, index].float().cpu().tolist(),

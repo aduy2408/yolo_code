@@ -14,6 +14,35 @@ import cv2
 import numpy as np
 
 
+def deduplicate_candidate_indices(boxes, scores, mask, limit: int, iou_threshold: float = 0.5) -> list[int]:
+    """Greedily retain high-score candidates separated by spatial IoU."""
+    if int(limit) <= 0:
+        return []
+    import torch
+
+    indices = torch.nonzero(mask).flatten()
+    kept: list[int] = []
+    if not indices.numel():
+        return kept
+    order = indices[torch.argsort(scores[indices], descending=True)]
+    for index in order.tolist():
+        box = boxes[index]
+        if kept:
+            previous = boxes[torch.tensor(kept, device=box.device)]
+            top_left = torch.maximum(previous[:, :2], box[:2])
+            bottom_right = torch.minimum(previous[:, 2:], box[2:])
+            inter = (bottom_right - top_left).clamp_min(0).prod(-1)
+            area = (box[2:] - box[:2]).clamp_min(0).prod()
+            previous_area = (previous[:, 2:] - previous[:, :2]).clamp_min(0).prod(-1)
+            iou = inter / (area + previous_area - inter).clamp_min(1e-8)
+            if bool((iou > iou_threshold).any()):
+                continue
+        kept.append(index)
+        if len(kept) >= int(limit):
+            break
+    return kept
+
+
 @dataclass
 class OnlineHardNegativeRecord:
     patch_path: str
@@ -196,6 +225,7 @@ class OnlineNegativeCopyPaste:
         image = labels["img"]
         h, w = image.shape[:2]
         boxes = self._boxes(labels)
+        occupied = boxes.copy()
         target = float(np.median([np.sqrt(max((b[2] - b[0]) * (b[3] - b[1]), 1e-8)) for b in boxes])) if len(boxes) else 0.0
         count = self.budget(len(boxes), self.rng) if self.budget is not None else self.max_objects
         choices = self.bank.ranked(target if self.scale_matched and target else None)
@@ -206,9 +236,10 @@ class OnlineNegativeCopyPaste:
             for _ in range(self.max_trials):
                 x, y = self.rng.randint(0, w - patch.shape[1]), self.rng.randint(0, h - patch.shape[0])
                 candidate = np.array([x, y, x + patch.shape[1], y + patch.shape[0]], dtype=np.float32)
-                if any(self._ioa(candidate, gt) >= self.max_gt_ioa for gt in boxes):
+                if any(self._ioa(candidate, gt) >= self.max_gt_ioa for gt in occupied):
                     continue
                 image[y:y + patch.shape[0], x:x + patch.shape[1]] = patch
+                occupied = np.concatenate([occupied, candidate.reshape(1, 4)], axis=0)
                 break
         return labels
 
@@ -273,6 +304,7 @@ def finish_online_hard_negative_epoch(trainer) -> int:
 
 
 __all__ = [
+    "deduplicate_candidate_indices",
     "OnlineHardNegativeRecord", "OnlineHardNegativeBank", "OnlineHardNegativeCollector",
     "OnlineNegativeCopyPaste", "iter_online_negative_transforms", "configure_online_hard_negative_training",
     "collect_online_hard_negatives", "finish_online_hard_negative_epoch",
