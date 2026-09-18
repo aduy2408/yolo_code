@@ -199,6 +199,20 @@ def upload_and_verify(api: object, repo_id: str, run_dir: Path, remote: str) -> 
     api.upload_file(path_or_fileobj=str(marker), path_in_repo=f"{remote}/upload_complete.json", repo_id=repo_id, repo_type="dataset")
 
 
+def verified_remote_prefixes(api: object, repo_id: str) -> set[str]:
+    """Return run prefixes whose upload marker was verified remotely.
+
+    This makes a restarted shard continue the matrix instead of retraining jobs
+    that completed before the Marimo kernel or server was replaced.
+    """
+    marker_suffix = "/upload_complete.json"
+    return {
+        path[: -len(marker_suffix)]
+        for path in api.list_repo_files(repo_id, repo_type="dataset")
+        if path.endswith(marker_suffix)
+    }
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS))
@@ -238,8 +252,13 @@ def main(argv: list[str] | None = None) -> None:
     from huggingface_hub import HfApi
     api = HfApi(token=token)
     jobs = selected_jobs(args.datasets, args.models, args.seeds, args.machine_index, args.machine_count)
+    verified = verified_remote_prefixes(api, repo_id)
     print(json.dumps({"machine_index": args.machine_index, "machine_count": args.machine_count, "jobs": len(jobs)}, sort_keys=True), flush=True)
     for dataset, model_name, seed in jobs:
+        remote = f"runs/{dataset}/{model_name}/seed_{seed}"
+        if remote in verified:
+            print(f"SKIP_VERIFIED {dataset}/{model_name}/seed_{seed}", flush=True)
+            continue
         data_yaml = prepare_dataset(dataset, Path(roots[dataset]), args.dataset_root)
         run_dir = train_one(dataset, model_name, seed, data_yaml, args)
         metrics = evaluate_tinyperson(run_dir, data_yaml, Path(roots[dataset]), args) if dataset == "tinyperson" else evaluate_standard(run_dir, data_yaml, dataset, args)
@@ -256,7 +275,7 @@ def main(argv: list[str] | None = None) -> None:
         }
         (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
         (run_dir / "evaluation_metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n")
-        upload_and_verify(api, repo_id, run_dir, f"runs/{dataset}/{model_name}/seed_{seed}")
+        upload_and_verify(api, repo_id, run_dir, remote)
         print(f"COMPLETE {dataset}/{model_name}/seed_{seed}", flush=True)
 
 
