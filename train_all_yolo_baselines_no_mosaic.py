@@ -11,8 +11,10 @@ import argparse
 import json
 import os
 import random
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -57,6 +59,11 @@ def local_ultralytics() -> None:
     path = str(UPSTREAM_ULTRALYTICS)
     if path not in sys.path:
         sys.path.insert(0, path)
+
+
+def training_complete(run_dir: Path) -> bool:
+    results = run_dir / "results.csv"
+    return all((run_dir / path).is_file() for path in ("weights/best.pt", "weights/last.pt")) and results.is_file() and sum(1 for _ in results.open(encoding="utf-8")) > 1
 
 
 def git_sha() -> str:
@@ -157,25 +164,23 @@ def evaluate_tinyperson(run_dir: Path, data_yaml: Path, data_root: Path, args: a
 def train_one(dataset: str, model_name: str, seed: int, data_yaml: Path, args: argparse.Namespace) -> Path:
     run_dir = args.project / dataset / model_name / f"seed_{seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    if not all((run_dir / path).is_file() for path in ("weights/best.pt", "weights/last.pt", "results.csv")):
+    if not training_complete(run_dir):
+        if run_dir.exists():
+            archive = run_dir.with_name(f"{run_dir.name}_incomplete_{int(time.time())}")
+            shutil.move(str(run_dir), str(archive))
         seed_everything(seed)
-        last = run_dir / "weights/last.pt"
-        if last.is_file():
-            local_ultralytics()
-            from ultralytics import YOLO
-            model = YOLO(str(last))
-        else:
-            model, _ = model_from_baseline_yaml(model_name)
+        model, _ = model_from_baseline_yaml(model_name)
         kwargs = dict(
             data=str(data_yaml), epochs=args.epochs, imgsz=IMAGE_SIZES[dataset],
             batch=args.batch_size, device=args.device, workers=args.workers,
             patience=args.patience, seed=seed, deterministic=True, amp=True,
+            optimizer="SGD",
             mosaic=0.0, close_mosaic=0, plots=False,
             project=str(args.project / dataset / model_name),
             name=f"seed_{seed}", exist_ok=True,
         )
         model.train(resume=True) if last.is_file() else model.train(**kwargs)
-    if not all((run_dir / path).is_file() for path in ("weights/best.pt", "weights/last.pt", "results.csv")):
+    if not training_complete(run_dir):
         raise RuntimeError(f"Incomplete training artifacts: {run_dir}")
     return run_dir
 
