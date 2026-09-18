@@ -254,7 +254,11 @@ def iter_online_negative_transforms(dataset):
         if current is None or id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, OnlineNegativeCopyPaste):
+        # The live Ultralytics stack can import project modules through a second
+        # sys.path entry, producing a class with the same public type but a
+        # different Python identity.  The explicit name fallback keeps the
+        # integration hook attached to that valid transform instance.
+        if isinstance(current, OnlineNegativeCopyPaste) or type(current).__name__ == "OnlineNegativeCopyPaste":
             yield current
         children = list(getattr(current, "transforms", ()) or ())
         # YOLODataset wraps the canonical Compose in AlternatePartialClipPipeline.

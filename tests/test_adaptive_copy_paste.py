@@ -130,6 +130,15 @@ def test_online_transform_discovery_handles_wrapped_yolodataset_pipeline(tmp_pat
     assert list(iter_online_negative_transforms(dataset)) == [transform]
 
 
+def test_online_transform_discovery_accepts_duplicate_module_identity(tmp_path):
+    bank = OnlineHardNegativeBank(tmp_path / "bank")
+    duplicate_type = type("OnlineNegativeCopyPaste", (), {})
+    duplicate = duplicate_type()
+    compose = type("Compose", (), {"transforms": [duplicate]})()
+    dataset = type("Dataset", (), {"transforms": compose})()
+    assert list(iter_online_negative_transforms(dataset)) == [duplicate]
+
+
 def test_cluster_does_not_overspend_and_matches_member_scale(tmp_path):
     image = np.zeros((64, 64, 3), dtype=np.uint8)
     image[4:20, 4:20] = 50
