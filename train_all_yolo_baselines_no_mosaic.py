@@ -226,6 +226,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--project", type=Path, default=ROOT / "runs/yolo_baselines_no_mosaic")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
+    parser.add_argument("--split-seed", type=int, default=SPLIT_SEED)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--device", default="cuda")
@@ -237,6 +238,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if args.split_seed != SPLIT_SEED:
+        raise ValueError(f"This baseline matrix requires split-seed={SPLIT_SEED}, got {args.split_seed}")
     if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
         raise RuntimeError("Use python -m utils.marimo_ops launch for upload-required training")
     from utils.marimo_ops import ensure_hf_repo, require_training_context

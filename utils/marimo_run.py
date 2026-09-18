@@ -50,20 +50,27 @@ def run_code_on_server(code, config):
         if not sessions:
             print("No active Marimo sessions found. Open the notebook in your browser.")
             sys.exit(1)
-        session_id = list(sessions.keys())[0]
+        session_ids = list(sessions.keys())
     except Exception as e:
         print(f"Connection error: {e}")
         sys.exit(1)
 
-    # 2. Execute code via execute endpoint
-    headers["Marimo-Session-Id"] = session_id
+    # 2. Execute code via execute endpoint. Marimo can briefly expose a stale
+    # session while its kernel is restarting, so try each advertised session.
     payload = {"code": code}
-    
+
     try:
         # Use SSE stream mode to print output in real-time
-        r = requests.post(f"{url}/api/kernel/execute", headers=headers, json=payload, stream=True)
-        if r.status_code != 200:
-            print(f"Failed to execute code. Status: {r.status_code}")
+        r = None
+        for session_id in session_ids:
+            headers["Marimo-Session-Id"] = session_id
+            candidate = requests.post(f"{url}/api/kernel/execute", headers=headers, json=payload, stream=True)
+            if candidate.status_code == 200:
+                r = candidate
+                break
+            candidate.close()
+        if r is None:
+            print("Failed to execute code on any active Marimo session.")
             sys.exit(1)
             
         current_event = ""
