@@ -35,6 +35,7 @@ DEFAULT_DATA_ROOTS = {
     "levirship": "/marimo/LevirShip/LevirShipData",
 }
 IMAGE_SIZES = {"varroa": 640, "tinyperson": 640, "levirship": 512}
+OPTIMIZER = "auto"
 REQUIRED = (
     "weights/best.pt", "weights/last.pt", "results.csv", "args.yaml",
     "evaluation_metrics.json", "experiment_manifest.json",
@@ -174,7 +175,9 @@ def train_one(dataset: str, model_name: str, seed: int, data_yaml: Path, args: a
             data=str(data_yaml), epochs=args.epochs, imgsz=IMAGE_SIZES[dataset],
             batch=args.batch_size, device=args.device, workers=args.workers,
             patience=args.patience, seed=seed, deterministic=True, amp=True,
-            optimizer="SGD",
+            # Pinned Ultralytics selects MuSGD for runs with >10,000 iterations.
+            # Keep this shared across all datasets, including TinyPerson.
+            optimizer=OPTIMIZER,
             mosaic=0.0, close_mosaic=0, plots=False,
             project=str(args.project / dataset / model_name),
             name=f"seed_{seed}", exist_ok=True,
@@ -267,6 +270,7 @@ def main(argv: list[str] | None = None) -> None:
             "model_yaml": str((ROOT / MODELS[model_name][1]).resolve()),
             "seed": seed, "split_seed": SPLIT_SEED, "mosaic": 0.0, "close_mosaic": 0,
             "epochs": args.epochs, "patience": args.patience, "imgsz": IMAGE_SIZES[dataset],
+            "optimizer": OPTIMIZER, "optimizer_expected": "MuSGD (Ultralytics auto when iterations > 10000)",
             "batch_size": args.batch_size, "workers": args.workers, "nms_iou": 0.5,
             "data_yaml": str(data_yaml), "git_sha": git_sha(), "hf_repo_id": repo_id,
             "machine_index": args.machine_index, "machine_count": args.machine_count,
