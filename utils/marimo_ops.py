@@ -334,6 +334,11 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
     }
     mismatches: list[str] = []
     for key, option in options.items():
+        # A single supervisor may intentionally own a deterministic shard of
+        # several datasets/models/seeds. In that case the contract records a
+        # matrix wildcard and the runner's own manifest carries per-run values.
+        if contract.get(key) == "matrix":
+            continue
         values = command_option_values(command, option)
         if not values:
             mismatches.append(f"{option}: missing (contract={contract[key]!r})")
