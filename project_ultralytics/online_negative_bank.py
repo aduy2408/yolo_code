@@ -260,14 +260,21 @@ def iter_online_negative_transforms(dataset):
         # integration hook attached to that valid transform instance.
         if isinstance(current, OnlineNegativeCopyPaste) or type(current).__name__ == "OnlineNegativeCopyPaste":
             yield current
-        children = list(getattr(current, "transforms", ()) or ())
-        # YOLODataset wraps the canonical Compose in AlternatePartialClipPipeline.
-        # Its normal route is stored under ``normal_pipeline`` rather than the
-        # standard Compose ``transforms`` attribute, so include that branch too.
-        for attribute in ("normal_pipeline", "pre_transform"):
+        children = []
+        for attribute in ("transforms", "normal_pipeline", "pre_transform"):
             child = getattr(current, attribute, None)
-            if child is not None:
+            if isinstance(child, (list, tuple)):
+                children.extend(child)
+            elif child is not None:
                 children.append(child)
+        # Some project wrappers expose their nested Compose through instance
+        # state without using the conventional attribute names.  Walk only
+        # object-valued state, preserving the cycle guard above.
+        for value in getattr(current, "__dict__", {}).values():
+            if isinstance(value, (list, tuple)):
+                children.extend(item for item in value if hasattr(item, "__dict__"))
+            elif hasattr(value, "__dict__"):
+                children.append(value)
         stack.extend(children)
 
 
