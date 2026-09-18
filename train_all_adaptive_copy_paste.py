@@ -228,7 +228,7 @@ def _train_one(args: argparse.Namespace, data_yaml: Path, repo_id: str, variant:
             data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
             device=args.device, workers=args.workers, patience=args.patience, seed=seed,
             deterministic=True, amp=True, plots=False, project=str(run_dir.parent),
-            name=run_dir.name, exist_ok=True, val=True, iou=0.5, **settings,
+            name=run_dir.name, exist_ok=True, val=True, iou=args.nms_iou, **settings,
         )
     if not all(path.is_file() for path in training_files):
         raise RuntimeError(f"Training artifacts incomplete: {run_dir}")
@@ -237,7 +237,7 @@ def _train_one(args: argparse.Namespace, data_yaml: Path, repo_id: str, variant:
     for split in ("val", "test"):
         result = model.val(
             data=str(data_yaml), split=split, imgsz=args.imgsz, batch=args.batch_size,
-            device=args.device, workers=args.workers, plots=False, iou=0.5,
+            device=args.device, workers=args.workers, plots=False, iou=args.nms_iou,
             project=str(run_dir / "evaluation"), name=split, exist_ok=True,
         )
         metrics.update(_split_metrics(result, split))
@@ -266,8 +266,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--seeds", nargs="+", type=int, default=[42])
+    parser.add_argument("--seeds", nargs="+", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None, help="Single-seed alias required by the Marimo launch contract")
     parser.add_argument("--split-seed", type=int, default=42)
+    parser.add_argument("--nms-iou", type=float, default=0.5)
     parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS))
     parser.add_argument("--mosaic", type=float, default=0.0)
     parser.add_argument("--close-mosaic", type=int, default=0)
@@ -282,6 +284,11 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError("The full adaptive matrix requires --epochs 100")
     if args.workers != 8:
         raise ValueError("Matched adaptive runs require --workers 8")
+    if args.seed is not None and args.seeds is not None:
+        raise ValueError("Use either --seed or --seeds, not both")
+    args.seeds = [args.seed] if args.seed is not None else (args.seeds or [42])
+    if args.nms_iou != 0.5:
+        raise ValueError("The adaptive matrix requires --nms-iou 0.5")
     if args.model_yaml.resolve() != CANONICAL_MODEL_YAML.resolve():
         raise ValueError("The adaptive matrix is fixed to the canonical YOLOv8 P3/P4/P5 YAML")
     args.data_root, args.dataset_root, args.project, args.model_yaml = (
