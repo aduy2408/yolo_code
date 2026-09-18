@@ -209,6 +209,7 @@ def _train_one(args: argparse.Namespace, data_yaml: Path, repo_id: str, variant:
         "batch_size": args.batch_size,
         "workers": args.workers,
         "device": args.device,
+        "optimizer": args.optimizer,
         "nms_iou": 0.5,
         "mosaic": args.mosaic,
         "close_mosaic": args.close_mosaic,
@@ -228,7 +229,8 @@ def _train_one(args: argparse.Namespace, data_yaml: Path, repo_id: str, variant:
             data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
             device=args.device, workers=args.workers, patience=args.patience, seed=seed,
             deterministic=True, amp=True, plots=False, project=str(run_dir.parent),
-            name=run_dir.name, exist_ok=True, val=True, iou=args.nms_iou, **settings,
+            name=run_dir.name, exist_ok=True, val=True, iou=args.nms_iou,
+            optimizer=args.optimizer, **settings,
         )
     if not all(path.is_file() for path in training_files):
         raise RuntimeError(f"Training artifacts incomplete: {run_dir}")
@@ -266,6 +268,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--optimizer", choices=("auto", "SGD", "Adam", "AdamW"), default="auto")
     parser.add_argument("--seeds", nargs="+", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None, help="Single-seed alias required by the Marimo launch contract")
     parser.add_argument("--split-seed", type=int, default=42)
@@ -300,7 +303,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.mosaic > 0 and ADAPTIVE_VARIANTS.intersection(args.variants) and post_mosaic_counts is None:
         raise ValueError("Adaptive Mosaic runs require --adaptive-target-counts-file with post-Mosaic counts")
     if args.print_effective_config:
-        print(json.dumps({"variants": args.variants, "seeds": args.seeds, "model_yaml": str(args.model_yaml), "mosaic": args.mosaic, "close_mosaic": args.close_mosaic, "split_seed": args.split_seed}, indent=2, sort_keys=True))
+        print(json.dumps({"variants": args.variants, "seeds": args.seeds, "model_yaml": str(args.model_yaml), "optimizer": args.optimizer, "mosaic": args.mosaic, "close_mosaic": args.close_mosaic, "split_seed": args.split_seed}, indent=2, sort_keys=True))
         return
     require_training_context(hf_repo_id=args.hf_repo_id)
     repo_id = ensure_hf_repo(args.hf_repo_id)
