@@ -404,6 +404,39 @@ class MarimoOpsTests(unittest.TestCase):
             with self.assertRaises(MarimoOpsError):
                 preflight(repo=repo, expected_sha="0" * 40, allow_dirty=True)
 
+    def test_preflight_matrix_contract_requires_and_validates_explicit_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            data_root = repo / "dataset"
+            for split in ("train", "val", "test"):
+                (data_root / split).mkdir(parents=True)
+            dataset_yaml = data_root / "data.yaml"
+            dataset_yaml.write_text("path: .\ntrain: train\nval: val\ntest: test\n")
+            (repo / "ready.txt").write_text("ready")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repo, check=True)
+            sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+            contract = repo / "run_contract.json"
+            contract.write_text(json.dumps({
+                "dataset": "matrix", "data_root": "matrix", "dataset_yaml": "matrix",
+                "model_yaml": "matrix", "seed": "matrix", "split_seed": 42,
+                "workers": 8, "epochs": 100, "patience": 0, "nms_iou": 0.5,
+                "hf_repo_id": "user/task-runs",
+            }))
+            subprocess.run(["git", "add", "run_contract.json"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "contract"], cwd=repo, check=True)
+            sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+            result = preflight(
+                repo=repo, expected_sha=sha, python=sys.executable,
+                required_paths=["ready.txt"], epochs=100, patience=0,
+                hf_repo_id="user/task-runs", data_root=data_root,
+                dataset_yaml=dataset_yaml, contract_json=contract,
+            )
+            self.assertEqual(result["dataset_yaml"], str(dataset_yaml.resolve()))
+
     def test_duplicate_launch_is_rejected_while_pid_is_alive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)

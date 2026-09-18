@@ -421,18 +421,24 @@ def preflight(
             "epochs": contract["epochs"],
             "patience": contract["patience"],
             "hf_repo_id": contract["hf_repo_id"],
-            "data_root": Path(_path_value(str(contract["data_root"]))),
-            "dataset_yaml": Path(_path_value(str(contract["dataset_yaml"]))),
+            "data_root": None if contract["data_root"] == "matrix" else Path(_path_value(str(contract["data_root"]))),
+            "dataset_yaml": None if contract["dataset_yaml"] == "matrix" else Path(_path_value(str(contract["dataset_yaml"]))),
         }
         for key, actual in (("epochs", epochs), ("patience", patience), ("hf_repo_id", hf_repo_id),
                             ("data_root", data_root), ("dataset_yaml", dataset_yaml)):
+            if declared[key] is None:
+                if actual is None:
+                    raise MarimoOpsError(f"Preflight must provide matrix contract value for {key}")
+                continue
             if actual is not None and not _same_contract_value(key, declared[key], str(actual)):
                 raise MarimoOpsError(f"Preflight disagrees with run contract for {key}: contract={declared[key]!r}, got={actual!r}")
         epochs = int(declared["epochs"])
         patience = int(declared["patience"])
         hf_repo_id = str(declared["hf_repo_id"])
-        data_root = declared["data_root"]
-        dataset_yaml = declared["dataset_yaml"]
+        if declared["data_root"] is not None:
+            data_root = declared["data_root"]
+        if declared["dataset_yaml"] is not None:
+            dataset_yaml = declared["dataset_yaml"]
     if not repo.is_dir():
         raise MarimoOpsError(f"Repository does not exist: {repo}")
     actual_sha = git_sha(repo)
