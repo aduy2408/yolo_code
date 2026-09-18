@@ -352,6 +352,9 @@ class BaseTrainer:
             self.args.batch = self.batch_size = self.auto_batch()
 
         self._build_train_pipeline()
+        from project_ultralytics.online_negative_bank import configure_online_hard_negative_training
+
+        configure_online_hard_negative_training(self)
         self.validator = self.get_validator()
         self.ema = ModelEMA(self.model)
         self.set_class_weights()  # compute class weights after dataloader is ready
@@ -469,6 +472,10 @@ class BaseTrainer:
                             if hasattr(hardness, "detach"):
                                 hardness = hardness.detach().cpu().tolist()
                             oacp_state.update_hardness(dataset_indices, hardness)
+                        if hasattr(self, "_online_hn_collector"):
+                            from project_ultralytics.online_negative_bank import collect_online_hard_negatives
+
+                            collect_online_hard_negatives(self, batch, criterion, epoch)
                         self.loss = loss.sum()
                         if RANK != -1:
                             self.loss *= self.world_size
@@ -552,6 +559,10 @@ class BaseTrainer:
             oacp_state = getattr(getattr(self, "train_loader", None), "dataset", None)
             oacp_state = getattr(oacp_state, "oacp_shared_state", None)
             oacp_state_metrics = oacp_state.finish_epoch() if oacp_state is not None else {}
+            if hasattr(self, "_online_hn_collector"):
+                from project_ultralytics.online_negative_bank import finish_online_hard_negative_epoch
+
+                finish_online_hard_negative_epoch(self)
 
             self.lr = {f"lr/pg{ir}": x["lr"] for ir, x in enumerate(self.optimizer.param_groups)}  # for loggers
 

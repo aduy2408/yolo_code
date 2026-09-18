@@ -148,6 +148,27 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
             self.last_per_image_hardness = foreground_assignment_hardness(
                 pred_scores, target_scores, fg_mask
             )
+            self.last_hard_negative_candidates = []
+            threshold = float(_arg(self.hyp, "online_negcp_conf_threshold", 0.25))
+            limit = int(_arg(self.hyp, "online_negcp_max_candidates", 3))
+            scores = pred_scores.detach().sigmoid().amax(dim=-1)
+            boxes = (pred_bboxes.detach() * stride_tensor).detach()
+            for batch_idx in range(pred_scores.shape[0]):
+                if mask_gt[batch_idx].any():
+                    self.last_hard_negative_candidates.append([])
+                    continue
+                indices = torch.nonzero((~fg_mask[batch_idx]) & (scores[batch_idx] >= threshold)).flatten()
+                if indices.numel():
+                    indices = indices[torch.argsort(scores[batch_idx, indices], descending=True)[:limit]]
+                rows = []
+                for index in indices.tolist():
+                    confidence = scores[batch_idx, index].clamp_max(1 - 1e-6)
+                    rows.append([
+                        *boxes[batch_idx, index].float().cpu().tolist(),
+                        float(confidence.item()),
+                        float(-torch.log1p(-confidence).item()),
+                    ])
+                self.last_hard_negative_candidates.append(rows)
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,

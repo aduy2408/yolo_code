@@ -760,6 +760,11 @@ def build_small_object_copy_paste(dataset, hyp):
             "adaptive_cluster": "cluster",
         }[mode]
         target_counts = getattr(hyp, "adaptive_cp_target_counts", None)
+        if float(getattr(hyp, "mosaic", 0.0)) > 0 and target_counts is None:
+            raise ValueError(
+                "adaptive Copy-Paste after Mosaic requires adaptive_cp_target_counts from post-Mosaic scenes; "
+                "disable mosaic for the no-Mosaic study or provide matched statistics"
+            )
         budget = AdaptivePasteBudget(
             target_counts if target_counts is not None else [len(label.get("bboxes", ())) for label in getattr(dataset, "labels", ())] or [0],
             max_objects=int(getattr(hyp, "adaptive_cp_max_objects", 4)),
@@ -770,7 +775,7 @@ def build_small_object_copy_paste(dataset, hyp):
             policy=policy,
             p=float(getattr(hyp, "copy_paste_p", 1.0)),
             factor_min=float(getattr(hyp, "adaptive_cp_factor_min", 0.4)),
-            factor_max=float(getattr(hyp, "adaptive_cp_factor_max", 2.5)),
+            factor_max=float(getattr(hyp, "adaptive_cp_factor_max", 1.0)),
             deficit_gamma=float(getattr(hyp, "adaptive_cp_deficit_gamma", 0.5)),
             max_weight_ratio=float(getattr(hyp, "adaptive_cp_max_weight_ratio", 3.0)),
             max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
@@ -781,10 +786,15 @@ def build_small_object_copy_paste(dataset, hyp):
         )
     if mode in {"online_negative", "online_negative_scale_matched"}:
         from .online_negative_bank import OnlineHardNegativeBank, OnlineNegativeCopyPaste
+        from .adaptive_copy_paste import AdaptivePasteBudget
 
         bank_path = str(getattr(hyp, "online_negcp_bank_path", "") or "")
         if not bank_path:
             raise ValueError("online negative modes require online_negcp_bank_path")
+        target_counts = getattr(hyp, "adaptive_cp_target_counts", None)
+        if target_counts is None:
+            target_counts = [len(label.get("bboxes", ())) for label in getattr(dataset, "labels", ())] or [0]
+        budget = AdaptivePasteBudget(target_counts, max_objects=int(getattr(hyp, "online_negcp_max_objects", 3)))
         return OnlineNegativeCopyPaste(
             bank=OnlineHardNegativeBank.load(bank_path),
             p=float(getattr(hyp, "negcp", getattr(hyp, "copy_paste_p", 0.30))),
@@ -792,6 +802,7 @@ def build_small_object_copy_paste(dataset, hyp):
             scale_matched=mode == "online_negative_scale_matched",
             max_gt_ioa=float(getattr(hyp, "negcp_max_gt_ioa", 0.05)),
             max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
+            budget=budget,
         )
     if mode == "crowded":
         return CrowdedCopyPaste(
@@ -864,12 +875,15 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "cluster_min_objects": int(getattr(hyp, "copy_paste_cluster_min_objects", 2)),
         "policy": str(getattr(hyp, "copy_paste_policy", "fixed")),
         "adaptive_policy": str(getattr(hyp, "adaptive_cp_policy", "scale_conditioned")),
+        "adaptive_target_counts": getattr(hyp, "adaptive_cp_target_counts", None),
         "adaptive_max_objects": int(getattr(hyp, "adaptive_cp_max_objects", 4)),
         "adaptive_factor_min": float(getattr(hyp, "adaptive_cp_factor_min", 0.4)),
-        "adaptive_factor_max": float(getattr(hyp, "adaptive_cp_factor_max", 2.5)),
+        "adaptive_factor_max": float(getattr(hyp, "adaptive_cp_factor_max", 1.0)),
         "adaptive_deficit_gamma": float(getattr(hyp, "adaptive_cp_deficit_gamma", 0.5)),
         "online_negcp_bank_path": str(getattr(hyp, "online_negcp_bank_path", "") or ""),
         "online_negcp_max_objects": int(getattr(hyp, "online_negcp_max_objects", 3)),
+        "online_negcp_conf_threshold": float(getattr(hyp, "online_negcp_conf_threshold", 0.25)),
+        "online_negcp_max_candidates": int(getattr(hyp, "online_negcp_max_candidates", 3)),
         "stats_path": str(getattr(hyp, "copy_paste_stats_path", "") or ""),
         "debug_dir": str(getattr(hyp, "copy_paste_debug_dir", "") or ""),
         "negcp": float(getattr(hyp, "negcp", 0.30)),
@@ -886,7 +900,3 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "scale_cp_factor_min": float(getattr(hyp, "scale_cp_factor_min", 0.50)),
         "scale_cp_factor_max": float(getattr(hyp, "scale_cp_factor_max", 0.90)),
     }
-
-
-__all__.append("build_small_object_copy_paste")
-__all__.append("copy_paste_config")

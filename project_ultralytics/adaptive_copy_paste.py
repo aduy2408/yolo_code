@@ -39,11 +39,13 @@ class AdaptivePasteBudget:
         counts = [len(label.get("bboxes", ())) for label in getattr(dataset, "labels", ())]
         return cls(counts or (0,), max_objects=max_objects)
 
-    def target(self, current_count: int, rng=random) -> int:
-        return int(rng.choice(self.target_counts))
+    def target(self, current_count: int, rng=random) -> int | None:
+        valid = [count for count in self.target_counts if count > int(current_count)]
+        return int(rng.choice(valid)) if valid else None
 
     def __call__(self, current_count: int, rng=random) -> int:
-        return max(0, min(self.target(current_count, rng) - int(current_count), self.max_objects))
+        target = self.target(current_count, rng)
+        return 0 if target is None else min(target - int(current_count), self.max_objects)
 
 
 class AdaptiveCopyPaste(SmallObjectCopyPaste):
@@ -57,7 +59,7 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
         p: float = 1.0,
         max_objects: int = 4,
         factor_min: float = 0.4,
-        factor_max: float = 2.5,
+        factor_max: float = 1.0,
         deficit_gamma: float = 0.5,
         max_weight_ratio: float = 3.0,
         **kwargs,
@@ -75,11 +77,14 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
         self.max_weight_ratio = float(max_weight_ratio)
         self._train_scales: list[float] = []
         self._scale_bins: Counter[int] = Counter()
+        self._scale_bin_values: dict[int, list[float]] = {}
         self._build_pool()
         for record in self.object_pool:
             size = math.sqrt(max(_box_area(np.asarray(record.bbox_xyxy)), 1e-8))
             self._train_scales.append(size)
-            self._scale_bins[self._bin(size)] += 1
+            bin_id = self._bin(size)
+            self._scale_bins[bin_id] += 1
+            self._scale_bin_values.setdefault(bin_id, []).append(size)
 
     @staticmethod
     def _bin(size: float) -> int:
@@ -89,7 +94,7 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
         return [math.sqrt(max(_box_area(box), 1e-8)) for box in boxes]
 
     def _target_scale(self, scene_scales: Sequence[float]) -> float:
-        if self.policy == "scale_conditioned" and scene_scales:
+        if self.policy in {"scale_conditioned", "cluster"} and scene_scales:
             return float(self.rng.choice(scene_scales))
         if self.policy == "scale_deficit" and self._scale_bins:
             bins = sorted(self._scale_bins)
@@ -97,7 +102,8 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
             weights = np.power(counts + 1e-6, -self.deficit_gamma)
             weights = np.maximum(weights, weights.max() / self.max_weight_ratio)
             weights /= weights.sum()
-            return float(2 ** self.rng.choices(bins, weights=weights.tolist(), k=1)[0])
+            selected = self.rng.choices(bins, weights=weights.tolist(), k=1)[0]
+            return float(self.rng.choice(self._scale_bin_values[selected]))
         return float(self.rng.choice(self._train_scales))
 
     def _record_for_scale(self, target: float, target_index: int | None) -> ObjectRecord | None:
@@ -119,7 +125,8 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
         crop, source_box = prepared
         native = math.sqrt(max(_box_area(source_box), 1e-8))
         factor = target_size / max(native, 1e-8)
-        crop = cv2.resize(crop, None, fx=factor, fy=factor, interpolation=cv2.INTER_LINEAR)
+        interpolation = cv2.INTER_AREA if factor < 1.0 else cv2.INTER_LINEAR
+        crop = cv2.resize(crop, None, fx=factor, fy=factor, interpolation=interpolation)
         destination = self._choose_destination(crop.shape[:2], labels["img"].shape[:2], existing)
         if destination is None:
             return None
@@ -133,10 +140,14 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
         if cluster is None:
             return None
         crop, relative, classes, union = cluster
+        member_scales = [math.sqrt(max(_box_area(box), 1e-8)) for box in relative]
         target = self._target_scale(self._scene_scales(existing))
-        native = math.sqrt(max(_box_area(union), 1e-8))
+        native = float(np.median(member_scales))
         factor = target / max(native, 1e-8)
-        crop = cv2.resize(crop, None, fx=factor, fy=factor, interpolation=cv2.INTER_LINEAR)
+        if not self.factor_min <= factor <= self.factor_max:
+            return None
+        interpolation = cv2.INTER_AREA if factor < 1.0 else cv2.INTER_LINEAR
+        crop = cv2.resize(crop, None, fx=factor, fy=factor, interpolation=interpolation)
         destination = self._choose_destination(crop.shape[:2], labels["img"].shape[:2], existing)
         if destination is None:
             return None
@@ -163,18 +174,26 @@ class AdaptiveCopyPaste(SmallObjectCopyPaste):
         boxes, classes = [], []
         scene_scales = self._scene_scales(existing)
         remaining = budget
-        while remaining > 0:
+        attempts = 0
+        max_attempts = max(3, remaining * 4)
+        while remaining > 0 and attempts < max_attempts:
+            attempts += 1
             record = self.rng.choice(self.object_pool)
             if self.policy == "cluster":
                 result = self._paste_cluster(labels, record, existing)
                 added = len(result[0]) if result is not None else 0
+                if added > remaining:
+                    target_size = self._target_scale(scene_scales)
+                    selected = self._record_for_scale(target_size, target_index)
+                    result = self._paste_single(labels, selected, target_size, existing) if selected is not None else None
+                    added = 1 if result is not None else 0
             else:
                 target_size = self._target_scale(scene_scales)
                 selected = self._record_for_scale(target_size, target_index)
                 result = self._paste_single(labels, selected, target_size, existing) if selected is not None else None
                 added = 1 if result is not None else 0
             if result is None:
-                break
+                continue
             new_boxes, new_classes = result
             boxes.append(new_boxes)
             classes.append(new_classes)

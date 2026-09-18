@@ -340,12 +340,25 @@ copy_paste_cluster_min_objects: 2 # (int) minimum objects in a natural cluster
 copy_paste_policy: fixed # (str) fixed, load_adaptive, or layout_adaptive
 copy_paste_stats_path: "" # (str) JSON scene-stat thresholds for adaptive policies
 copy_paste_debug_dir: "" # (str) optional bounded augmentation debug output directory
+adaptive_cp_policy: scale_conditioned # (str) scale_conditioned, scale_deficit, or cluster
+adaptive_cp_target_counts: # (list[int], optional) post-transform scene-count targets; empty uses dataset counts
+adaptive_cp_max_objects: 4 # (int) maximum positive objects added per image
+adaptive_cp_factor_min: 0.40 # (float) minimum source-to-target scale factor
+adaptive_cp_factor_max: 1.0 # (float) maximum source-to-target scale factor; V1 is shrink-only
+adaptive_cp_deficit_gamma: 0.5 # (float) damped inverse-frequency exponent
+adaptive_cp_max_weight_ratio: 3.0 # (float) maximum scale-bin sampling weight ratio
 negcp: 0.30 # (float) negative Copy-Paste image probability
 negcp_num: 1 # (int) negative patches per applied image
 negcp_scale: 1.0 # (float) V1 locks negative patch scale to native size
 negcp_max_gt_ioa: 0.05 # (float) maximum negative patch IoA with valid GT
 negcp_same_source: false # (bool) allow sampling a negative patch from the target image
 negcp_bank_path: "" # (str) offline hard-negative bank JSON
+online_negcp_bank_path: "" # (str) versioned online hard-negative bank directory
+online_negcp_max_objects: 3 # (int) cap for adaptive online negative objects per image
+online_negcp_conf_threshold: 0.25 # (float) minimum FP confidence for online mining
+online_negcp_max_candidates: 3 # (int) maximum mined candidates per image
+online_negcp_crop_expand: 1.5 # (float) crop expansion around an online FP
+online_negcp_beta: 0.9 # (float) EMA coefficient for repeated hard regions
 crowd_num: 1 # (int) crowded patches per applied image
 crowd_overlap_min: 0.10 # (float) controlled overlap lower bound
 crowd_overlap_max: 0.30 # (float) controlled overlap upper bound

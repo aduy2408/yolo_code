@@ -2424,6 +2424,32 @@ class v8DetectionLoss:
             self.last_per_image_hardness = foreground_assignment_hardness(
                 pred_scores, cls_target_scores, fg_mask
             )
+            # Online NegCP mines only empty-GT images in V1, where retained
+            # object-like predictions are unambiguous false positives.  The
+            # trainer consumes these detached candidates after forward.
+            self.last_hard_negative_candidates = []
+            score_threshold = float(getattr(self.hyp, "online_negcp_conf_threshold", 0.25))
+            max_candidates = int(getattr(self.hyp, "online_negcp_max_candidates", 3))
+            image_scores = pred_scores.detach().sigmoid().amax(dim=-1)
+            image_boxes = (pred_bboxes.detach() * stride_tensor).detach()
+            for batch_idx in range(batch_size):
+                if mask_gt[batch_idx].any():
+                    self.last_hard_negative_candidates.append([])
+                    continue
+                candidates = (~fg_mask[batch_idx]) & (image_scores[batch_idx] >= score_threshold)
+                indices = torch.nonzero(candidates).flatten()
+                if indices.numel():
+                    order = torch.argsort(image_scores[batch_idx, indices], descending=True)[:max_candidates]
+                    indices = indices[order]
+                rows = []
+                for index in indices.tolist():
+                    confidence = float(image_scores[batch_idx, index].item())
+                    rows.append([
+                        *image_boxes[batch_idx, index].float().cpu().tolist(),
+                        confidence,
+                        float(-torch.log1p(-image_scores[batch_idx, index].clamp_max(1 - 1e-6)).item()),
+                    ])
+                self.last_hard_negative_candidates.append(rows)
 
         self.positive_confidence_rescue_metrics = {}
         if self.positive_confidence_rescue_gain > 0:
