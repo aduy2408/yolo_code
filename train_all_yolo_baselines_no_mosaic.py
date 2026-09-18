@@ -31,7 +31,7 @@ SPLIT_SEED = 42
 DATASETS = ("varroa", "tinyperson", "levirship")
 DEFAULT_DATA_ROOTS = {
     "varroa": "/marimo/Varroa",
-    "tinyperson": "/marimo/TinyPersonData",
+    "tinyperson": "/marimo/TinyPerson",
     "levirship": "/marimo/LevirShip/LevirShipData",
 }
 IMAGE_SIZES = {"varroa": 640, "tinyperson": 640, "levirship": 512}
