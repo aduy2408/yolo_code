@@ -706,6 +706,7 @@ class ScaleMatchedCopyPaste(SmallObjectCopyPaste):
 
 __all__ = [
     "ObjectRecord", "SmallObjectCopyPaste", "CrowdedCopyPaste", "ScaleMatchedCopyPaste",
+    "build_small_object_copy_paste", "copy_paste_config",
 ]
 
 
@@ -748,6 +749,49 @@ def build_small_object_copy_paste(dataset, hyp):
             max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
             same_source=bool(getattr(hyp, "negcp_same_source", False)),
             debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
+        )
+    if mode in {"adaptive", "adaptive_scale_conditioned", "adaptive_scale_deficit", "adaptive_cluster"}:
+        from .adaptive_copy_paste import AdaptiveCopyPaste, AdaptivePasteBudget
+
+        policy = {
+            "adaptive": str(getattr(hyp, "adaptive_cp_policy", "scale_conditioned")),
+            "adaptive_scale_conditioned": "scale_conditioned",
+            "adaptive_scale_deficit": "scale_deficit",
+            "adaptive_cluster": "cluster",
+        }[mode]
+        target_counts = getattr(hyp, "adaptive_cp_target_counts", None)
+        budget = AdaptivePasteBudget(
+            target_counts if target_counts is not None else [len(label.get("bboxes", ())) for label in getattr(dataset, "labels", ())] or [0],
+            max_objects=int(getattr(hyp, "adaptive_cp_max_objects", 4)),
+        )
+        return AdaptiveCopyPaste(
+            dataset=dataset,
+            budget=budget,
+            policy=policy,
+            p=float(getattr(hyp, "copy_paste_p", 1.0)),
+            factor_min=float(getattr(hyp, "adaptive_cp_factor_min", 0.4)),
+            factor_max=float(getattr(hyp, "adaptive_cp_factor_max", 2.5)),
+            deficit_gamma=float(getattr(hyp, "adaptive_cp_deficit_gamma", 0.5)),
+            max_weight_ratio=float(getattr(hyp, "adaptive_cp_max_weight_ratio", 3.0)),
+            max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
+            allow_empty_target=bool(getattr(hyp, "copy_paste_allow_empty_target", True)),
+            allow_same_source=bool(getattr(hyp, "copy_paste_allow_same_source", True)),
+            debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
+            rng=getattr(hyp, "copy_paste_rng", None),
+        )
+    if mode in {"online_negative", "online_negative_scale_matched"}:
+        from .online_negative_bank import OnlineHardNegativeBank, OnlineNegativeCopyPaste
+
+        bank_path = str(getattr(hyp, "online_negcp_bank_path", "") or "")
+        if not bank_path:
+            raise ValueError("online negative modes require online_negcp_bank_path")
+        return OnlineNegativeCopyPaste(
+            bank=OnlineHardNegativeBank.load(bank_path),
+            p=float(getattr(hyp, "negcp", getattr(hyp, "copy_paste_p", 0.30))),
+            max_objects=int(getattr(hyp, "online_negcp_max_objects", 3)),
+            scale_matched=mode == "online_negative_scale_matched",
+            max_gt_ioa=float(getattr(hyp, "negcp_max_gt_ioa", 0.05)),
+            max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
         )
     if mode == "crowded":
         return CrowdedCopyPaste(
@@ -819,6 +863,13 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "cluster_expand": float(getattr(hyp, "copy_paste_cluster_expand", 3.0)),
         "cluster_min_objects": int(getattr(hyp, "copy_paste_cluster_min_objects", 2)),
         "policy": str(getattr(hyp, "copy_paste_policy", "fixed")),
+        "adaptive_policy": str(getattr(hyp, "adaptive_cp_policy", "scale_conditioned")),
+        "adaptive_max_objects": int(getattr(hyp, "adaptive_cp_max_objects", 4)),
+        "adaptive_factor_min": float(getattr(hyp, "adaptive_cp_factor_min", 0.4)),
+        "adaptive_factor_max": float(getattr(hyp, "adaptive_cp_factor_max", 2.5)),
+        "adaptive_deficit_gamma": float(getattr(hyp, "adaptive_cp_deficit_gamma", 0.5)),
+        "online_negcp_bank_path": str(getattr(hyp, "online_negcp_bank_path", "") or ""),
+        "online_negcp_max_objects": int(getattr(hyp, "online_negcp_max_objects", 3)),
         "stats_path": str(getattr(hyp, "copy_paste_stats_path", "") or ""),
         "debug_dir": str(getattr(hyp, "copy_paste_debug_dir", "") or ""),
         "negcp": float(getattr(hyp, "negcp", 0.30)),

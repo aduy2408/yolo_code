@@ -1,10 +1,12 @@
 from pathlib import Path
 import random
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
 
 from project_ultralytics.adaptive_copy_paste import AdaptiveCopyPaste, AdaptivePasteBudget
+from project_ultralytics.copy_paste import build_small_object_copy_paste, copy_paste_config
 from project_ultralytics.online_negative_bank import (
     OnlineHardNegativeBank,
     OnlineHardNegativeCollector,
@@ -73,3 +75,29 @@ def test_online_collector_and_negative_paste_leave_labels_unchanged(tmp_path):
     OnlineNegativeCopyPaste(bank, p=1.0, scale_matched=True, rng=random.Random(3))(labels)
     assert np.array_equal(before, labels["instances"].bboxes)
     assert np.any(labels["img"] == 120)
+
+
+def test_public_builder_exposes_adaptive_and_online_modes(tmp_path):
+    dataset = _dataset(tmp_path)
+    adaptive_hyp = SimpleNamespace(
+        copy_paste_enabled=True, copy_paste_mode="adaptive_scale_deficit",
+        copy_paste_p=1.0, adaptive_cp_target_counts=[2], adaptive_cp_max_objects=2,
+        copy_paste_allow_empty_target=True, copy_paste_allow_same_source=True,
+        copy_paste_max_trials=20,
+    )
+    transform = build_small_object_copy_paste(dataset, adaptive_hyp)
+    assert isinstance(transform, AdaptiveCopyPaste)
+    assert transform.policy == "scale_deficit"
+    assert copy_paste_config(adaptive_hyp)["adaptive_max_objects"] == 2
+
+    bank_root = tmp_path / "bank"
+    bank = OnlineHardNegativeBank(bank_root)
+    bank.add_patch(np.full((4, 4, 3), 70, np.uint8), OnlineHardNegativeRecord("p.jpg", 4.0, 0.8, 0.8, "src"))
+    bank.commit()
+    online_hyp = SimpleNamespace(
+        copy_paste_enabled=True, copy_paste_mode="online_negative_scale_matched",
+        online_negcp_bank_path=str(bank_root), copy_paste_p=1.0,
+    )
+    online = build_small_object_copy_paste(dataset, online_hyp)
+    assert isinstance(online, OnlineNegativeCopyPaste)
+    assert online.scale_matched is True
