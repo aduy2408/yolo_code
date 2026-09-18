@@ -19,6 +19,7 @@ from project_ultralytics.online_negative_bank import (
     configure_online_hard_negative_training,
     deduplicate_candidate_indices,
     finish_online_hard_negative_epoch,
+    iter_online_negative_transforms,
 )
 from ultralytics.utils.instance import Instances
 
@@ -118,6 +119,15 @@ def test_online_training_helpers_collect_and_commit_epoch(tmp_path):
     assert collect_online_hard_negatives(trainer, batch, criterion, epoch=1) == 1
     assert finish_online_hard_negative_epoch(trainer) == 1
     assert len(OnlineHardNegativeBank.load(tmp_path / "bank")) == 1
+
+
+def test_online_transform_discovery_handles_wrapped_yolodataset_pipeline(tmp_path):
+    bank = OnlineHardNegativeBank(tmp_path / "bank")
+    transform = OnlineNegativeCopyPaste(bank, p=1.0, rng=random.Random(1))
+    compose = type("Compose", (), {"transforms": [transform]})()
+    wrapper = type("AlternatePartialClipPipeline", (), {"normal_pipeline": compose})()
+    dataset = type("Dataset", (), {"transforms": type("Compose", (), {"transforms": [wrapper]})()})()
+    assert list(iter_online_negative_transforms(dataset)) == [transform]
 
 
 def test_cluster_does_not_overspend_and_matches_member_scale(tmp_path):

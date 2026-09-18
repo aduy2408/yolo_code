@@ -248,12 +248,23 @@ def iter_online_negative_transforms(dataset):
     """Yield online transforms from nested Ultralytics Compose objects."""
     root = getattr(dataset, "transforms", None)
     stack = [root] if root is not None else []
+    seen = set()
     while stack:
         current = stack.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
         if isinstance(current, OnlineNegativeCopyPaste):
             yield current
-        for child in getattr(current, "transforms", ()) or ():
-            stack.append(child)
+        children = list(getattr(current, "transforms", ()) or ())
+        # YOLODataset wraps the canonical Compose in AlternatePartialClipPipeline.
+        # Its normal route is stored under ``normal_pipeline`` rather than the
+        # standard Compose ``transforms`` attribute, so include that branch too.
+        for attribute in ("normal_pipeline", "pre_transform"):
+            child = getattr(current, attribute, None)
+            if child is not None:
+                children.append(child)
+        stack.extend(children)
 
 
 def configure_online_hard_negative_training(trainer) -> bool:
