@@ -147,6 +147,14 @@ def _evaluate_coco(gt_path: Path, prediction_path: Path) -> dict[str, float]:
     spec.loader.exec_module(module)
     previous_standard = module.Params.EVAL_STRANDARD
     module.Params.EVAL_STRANDARD = "tiny"
+    old_linspace = module.np.linspace
+
+    def compatible_linspace(start, stop, num=50, *args, **kwargs):
+        if isinstance(num, (float, np.floating)):
+            num = int(num)
+        return old_linspace(start, stop, num, *args, **kwargs)
+
+    module.np.linspace = compatible_linspace
     try:
         coco_gt = COCO(str(gt_path))
         coco_dt = coco_gt.loadRes(str(prediction_path))
@@ -173,6 +181,7 @@ def _evaluate_coco(gt_path: Path, prediction_path: Path) -> dict[str, float]:
             metrics[f"test_size/AP-{name}"] = float(np.mean(valid_bucket)) if valid_bucket else -1.0
         return metrics
     finally:
+        module.np.linspace = old_linspace
         module.Params.EVAL_STRANDARD = previous_standard
 
 
