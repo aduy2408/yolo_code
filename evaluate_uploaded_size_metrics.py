@@ -17,6 +17,7 @@ from train_all_yolo_baselines_no_mosaic import IMAGE_SIZES, local_ultralytics, p
 MODELS = ("yolov5", "yolov8", "yolov9", "yolov10", "yolov11")
 SEEDS = (42, 43, 44)
 DATASETS = ("varroa", "levirship")
+STANDARD_METRICS = ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95")
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +44,38 @@ def roots_from_args(args: argparse.Namespace) -> dict[str, Path]:
     if missing:
         raise ValueError(f"Missing dataset roots: {missing}")
     return roots
+
+
+def evaluate_standard_metrics(
+    run_dir: Path,
+    data_yaml: Path,
+    dataset: str,
+    *,
+    batch: int,
+    device: str,
+    workers: int,
+) -> dict[str, float]:
+    from ultralytics import YOLO
+
+    model = YOLO(run_dir / "weights/best.pt")
+    metrics: dict[str, float] = {}
+    for split in ("val", "test"):
+        result = model.val(
+            data=str(data_yaml),
+            split=split,
+            imgsz=IMAGE_SIZES[dataset],
+            batch=batch,
+            device=device,
+            workers=workers,
+            iou=0.5,
+            plots=False,
+            project=str(run_dir / "evaluation"),
+            name=split,
+            exist_ok=True,
+        )
+        metrics[f"{split}/AP50"] = float(result.results_dict["metrics/mAP50(B)"])
+        metrics[f"{split}/mAP50-95"] = float(result.results_dict["metrics/mAP50-95(B)"])
+    return metrics
 
 
 def uploaded_prefixes(api: HfApi, repo_id: str) -> set[str]:
@@ -113,8 +146,10 @@ def main() -> None:
         metrics_path = run_dir / "evaluation_metrics.json"
         manifest_path = run_dir / "experiment_manifest.json"
         remote_prefix = prefix
+        current_metrics = json.loads(metrics_path.read_text(encoding="utf-8")) if metrics_path.exists() else {}
+        needs_standard = any(key not in current_metrics for key in STANDARD_METRICS)
         has_local_marker = metrics_path.exists() and (run_dir / "size_metrics_complete.json").exists()
-        if not args.force and has_local_marker:
+        if not args.force and has_local_marker and not needs_standard:
             if remote_prefix in remote_size_prefixes:
                 print(f"SKIP_SIZE_VERIFIED {remote_prefix}", flush=True)
                 continue
@@ -129,19 +164,48 @@ def main() -> None:
             ):
                 pending_operations.append(CommitOperationAdd(path_in_repo=remote, path_or_fileobj=str(local)))
             continue
-        metrics = json.loads(metrics_path.read_text(encoding="utf-8")) if metrics_path.exists() else {}
-        size_metrics = evaluate_native_test_size_buckets(
-            run_dir,
-            yaml_by_dataset[dataset],
-            imgsz=IMAGE_SIZES[dataset],
-            batch=args.batch_size,
-            device=args.device,
-            workers=args.workers,
-        )
-        metrics.update(size_metrics)
-        metrics["test_size/dataset"] = dataset
+        metrics = current_metrics
+        if needs_standard:
+            print(f"EVALUATE_STANDARD {remote_prefix}", flush=True)
+            metrics.update(
+                evaluate_standard_metrics(
+                    run_dir,
+                    yaml_by_dataset[dataset],
+                    dataset,
+                    batch=args.batch_size,
+                    device=args.device,
+                    workers=args.workers,
+                )
+            )
+        if not has_local_marker:
+            size_metrics = evaluate_native_test_size_buckets(
+                run_dir,
+                yaml_by_dataset[dataset],
+                imgsz=IMAGE_SIZES[dataset],
+                batch=args.batch_size,
+                device=args.device,
+                workers=args.workers,
+            )
+            metrics.update(size_metrics)
+            metrics["test_size/dataset"] = dataset
+        else:
+            size_metrics = {
+                "test_size/protocol": metrics.get(
+                    "test_size/protocol",
+                    "TinyBenchmark area buckets on native YOLO test images; IoU=0.50:0.05:0.75; maxDets=200",
+                )
+            }
         metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+        manifest.update({
+            "dataset": dataset,
+            "model": model,
+            "seed": seed,
+            "split_seed": 42,
+            "nms_iou": 0.5,
+            "hf_repo_id": args.repo_id,
+            **{key: metrics[key] for key in STANDARD_METRICS if key in metrics},
+        })
         manifest["test_size_protocol"] = size_metrics["test_size/protocol"]
         manifest["test_size_source_artifact"] = "evaluation/test_size_predictions.json"
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
