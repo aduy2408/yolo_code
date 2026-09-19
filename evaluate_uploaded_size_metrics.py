@@ -9,7 +9,7 @@ import os
 import shutil
 from pathlib import Path
 
-from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub import CommitOperationAdd, HfApi, snapshot_download
 
 from size_bucket_evaluator import evaluate_native_test_size_buckets
 from train_all_yolo_baselines_no_mosaic import IMAGE_SIZES, local_ultralytics, prepare_dataset
@@ -53,10 +53,6 @@ def uploaded_prefixes(api: HfApi, repo_id: str) -> set[str]:
     }
 
 
-def upload_json(api: HfApi, repo_id: str, local: Path, remote: str) -> None:
-    api.upload_file(path_or_fileobj=str(local), path_in_repo=remote, repo_id=repo_id, repo_type="dataset")
-
-
 def main() -> None:
     args = parse_args()
     if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
@@ -95,6 +91,8 @@ def main() -> None:
         )
     )
 
+    pending_operations: list[CommitOperationAdd] = []
+    pending_prefixes: set[str] = set()
     for prefix in prefixes:
         _, dataset, model, seed_name = prefix.split("/")
         seed = int(seed_name.removeprefix("seed_"))
@@ -148,9 +146,27 @@ def main() -> None:
             (run_dir / "evaluation/test_size_predictions.json", f"{remote_prefix}/evaluation/test_size_predictions.json"),
             (marker_path, f"{remote_prefix}/size_metrics_complete.json"),
         ):
-            upload_json(api, args.repo_id, local, remote)
+            pending_operations.append(CommitOperationAdd(path_in_repo=remote, path_or_fileobj=str(local)))
+        pending_prefixes.add(remote_prefix)
+
+    if pending_operations:
+        api.create_commit(
+            repo_id=args.repo_id,
+            repo_type="dataset",
+            operations=pending_operations,
+            commit_message="Add native test size-bucket metrics",
+        )
+        print(f"BATCH_UPLOADED {len(pending_prefixes)} runs", flush=True)
+
+    for remote_prefix in sorted(pending_prefixes):
         remote_files = set(api.list_repo_files(args.repo_id, repo_type="dataset"))
-        missing = set(marker["verified"]) | {f"{remote_prefix}/size_metrics_complete.json"}
+        missing = {
+            f"{remote_prefix}/evaluation_metrics.json",
+            f"{remote_prefix}/experiment_manifest.json",
+            f"{remote_prefix}/evaluation/test_size_ground_truth.json",
+            f"{remote_prefix}/evaluation/test_size_predictions.json",
+            f"{remote_prefix}/size_metrics_complete.json",
+        }
         if not missing.issubset(remote_files):
             raise RuntimeError(f"Remote size metric verification failed for {remote_prefix}: {sorted(missing - remote_files)}")
         print(f"SIZE_COMPLETE {remote_prefix}", flush=True)
