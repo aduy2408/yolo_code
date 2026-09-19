@@ -66,7 +66,13 @@ def main() -> None:
     args.project = args.project.resolve()
     args.project.mkdir(parents=True, exist_ok=True)
     api = HfApi(token=token)
+    remote_files = set(api.list_repo_files(repo_id=args.repo_id, repo_type="dataset"))
     prefixes = sorted(uploaded_prefixes(api, args.repo_id))
+    remote_size_prefixes = {
+        path[: -len("/size_metrics_complete.json")]
+        for path in remote_files
+        if path.endswith("/size_metrics_complete.json")
+    }
     print(json.dumps({"repo_id": args.repo_id, "uploaded_native_runs": len(prefixes)}, sort_keys=True), flush=True)
 
     yaml_by_dataset = {
@@ -107,8 +113,21 @@ def main() -> None:
         metrics_path = run_dir / "evaluation_metrics.json"
         manifest_path = run_dir / "experiment_manifest.json"
         remote_prefix = prefix
-        if not args.force and (metrics_path.exists() and (run_dir / "size_metrics_complete.json").exists()):
-            print(f"SKIP_SIZE_VERIFIED {remote_prefix}", flush=True)
+        has_local_marker = metrics_path.exists() and (run_dir / "size_metrics_complete.json").exists()
+        if not args.force and has_local_marker:
+            if remote_prefix in remote_size_prefixes:
+                print(f"SKIP_SIZE_VERIFIED {remote_prefix}", flush=True)
+                continue
+            print(f"QUEUE_SIZE_UPLOAD {remote_prefix}", flush=True)
+            pending_prefixes.add(remote_prefix)
+            for local, remote in (
+                (metrics_path, f"{remote_prefix}/evaluation_metrics.json"),
+                (manifest_path, f"{remote_prefix}/experiment_manifest.json"),
+                (run_dir / "evaluation/test_size_ground_truth.json", f"{remote_prefix}/evaluation/test_size_ground_truth.json"),
+                (run_dir / "evaluation/test_size_predictions.json", f"{remote_prefix}/evaluation/test_size_predictions.json"),
+                (run_dir / "size_metrics_complete.json", f"{remote_prefix}/size_metrics_complete.json"),
+            ):
+                pending_operations.append(CommitOperationAdd(path_in_repo=remote, path_or_fileobj=str(local)))
             continue
         metrics = json.loads(metrics_path.read_text(encoding="utf-8")) if metrics_path.exists() else {}
         size_metrics = evaluate_native_test_size_buckets(
