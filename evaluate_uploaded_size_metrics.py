@@ -12,7 +12,7 @@ from pathlib import Path
 from huggingface_hub import HfApi, snapshot_download
 
 from size_bucket_evaluator import evaluate_native_test_size_buckets
-from train_all_yolo_baselines_no_mosaic import IMAGE_SIZES, prepare_dataset
+from train_all_yolo_baselines_no_mosaic import IMAGE_SIZES, local_ultralytics, prepare_dataset
 
 MODELS = ("yolov5", "yolov8", "yolov9", "yolov10", "yolov11")
 SEEDS = (42, 43, 44)
@@ -65,6 +65,7 @@ def main() -> None:
     if not token:
         raise RuntimeError("HF_TOKEN is required")
     roots = roots_from_args(args)
+    local_ultralytics()
     args.dataset_root = args.dataset_root.resolve()
     args.project = args.project.resolve()
     args.project.mkdir(parents=True, exist_ok=True)
