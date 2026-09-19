@@ -80,7 +80,15 @@ def main() -> None:
         snapshot_download(
             repo_id=args.repo_id,
             repo_type="dataset",
-            allow_patterns=[f"{prefix}/weights/best.pt" for prefix in prefixes],
+            allow_patterns=[
+                pattern
+                for prefix in prefixes
+                for pattern in (
+                    f"{prefix}/weights/best.pt",
+                    f"{prefix}/evaluation_metrics.json",
+                    f"{prefix}/experiment_manifest.json",
+                )
+            ],
             local_dir=str(args.project / "hf_snapshot"),
             token=token,
         )
