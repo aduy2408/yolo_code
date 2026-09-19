@@ -172,6 +172,10 @@ def evaluate_standard(run_dir: Path, data_yaml: Path, dataset: str, args: argpar
 
 def evaluate_tinyperson(run_dir: Path, data_yaml: Path, data_root: Path, args: argparse.Namespace) -> dict[str, float]:
     import train_all_tinyperson as tiny
+    # The shared TinyPerson helper is also used by legacy custom-model runs and
+    # normally prepends models_related/ultralytics. This baseline matrix trains
+    # from the pinned upstream package, so keep evaluation on the same runtime.
+    tiny.local_ultralytics = local_ultralytics
     # The established evaluator emits split-qualified val and merged-test
     # metrics and records the official corner-window protocol.
     tiny_args = argparse.Namespace(**vars(args))
