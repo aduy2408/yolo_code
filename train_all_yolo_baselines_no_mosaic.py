@@ -154,9 +154,10 @@ def selected_jobs(datasets: list[str], models: list[str], seeds: list[int], mach
     return [job for index, job in enumerate(jobs) if index % machine_count == machine_index]
 
 
-def evaluate_standard(run_dir: Path, data_yaml: Path, dataset: str, args: argparse.Namespace) -> dict[str, float]:
+def evaluate_standard(run_dir: Path, data_yaml: Path, dataset: str, args: argparse.Namespace) -> dict[str, float | str]:
     local_ultralytics()
     from ultralytics import YOLO
+    from size_bucket_evaluator import evaluate_native_test_size_buckets
     metrics: dict[str, float] = {}
     for split in ("val", "test"):
         result = YOLO(run_dir / "weights/best.pt").val(
@@ -167,6 +168,16 @@ def evaluate_standard(run_dir: Path, data_yaml: Path, dataset: str, args: argpar
         )
         metrics[f"{split}/AP50"] = metric_value(result, "metrics/mAP50(B)")
         metrics[f"{split}/mAP50-95"] = metric_value(result, "metrics/mAP50-95(B)")
+    metrics.update(
+        evaluate_native_test_size_buckets(
+            run_dir,
+            data_yaml,
+            imgsz=IMAGE_SIZES[dataset],
+            batch=args.batch_size,
+            device=args.device,
+            workers=args.workers,
+        )
+    )
     return metrics
 
 
@@ -313,7 +324,11 @@ def main(argv: list[str] | None = None) -> None:
             "batch_size": args.batch_size, "workers": args.workers, "nms_iou": 0.5,
             "data_yaml": str(data_yaml), "git_sha": git_sha(), "hf_repo_id": repo_id,
             "machine_index": args.machine_index, "machine_count": args.machine_count,
-            "test_protocol": "TinyPerson official corner-window merged test" if dataset == "tinyperson" else "Ultralytics test split",
+            "test_protocol": (
+                "TinyPerson official corner-window merged test"
+                if dataset == "tinyperson"
+                else "Ultralytics native test split plus TinyBenchmark area buckets"
+            ),
             **metrics,
         }
         (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")

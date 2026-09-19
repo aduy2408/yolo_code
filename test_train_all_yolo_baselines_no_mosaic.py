@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import train_all_yolo_baselines_no_mosaic as runner
+from size_bucket_evaluator import AREA_LABELS, AREA_RANGES, BUCKET_LABELS, IOU_THRESHOLDS
 
 
 def test_requested_models_datasets_and_seeds() -> None:
@@ -30,6 +31,30 @@ def test_all_standard_metrics_are_split_qualified() -> None:
     source = open("train_all_yolo_baselines_no_mosaic.py", encoding="utf-8").read()
     for key in ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95"):
         assert key in source
+
+
+def test_size_bucket_protocol_matches_tinyperson_ranges() -> None:
+    assert AREA_LABELS == ("all", "tiny", "tiny1", "tiny2", "tiny3", "small", "medium", "reasonable")
+    assert AREA_RANGES == (
+        (1**2, 1e5**2),
+        (1**2, 20**2),
+        (1**2, 8**2),
+        (8**2, 12**2),
+        (12**2, 20**2),
+        (20**2, 32**2),
+        (32**2, 96**2),
+        (32**2, 1e5**2),
+    )
+    assert IOU_THRESHOLDS == (0.5, 0.55, 0.6, 0.65, 0.7, 0.75)
+    assert BUCKET_LABELS == ("Tiny1", "Tiny2", "Tiny3", "Small", "Medium")
+
+
+def test_non_tinyperson_protocol_is_explicitly_size_bucketed() -> None:
+    source = open("train_all_yolo_baselines_no_mosaic.py", encoding="utf-8").read()
+    size_source = open("size_bucket_evaluator.py", encoding="utf-8").read()
+    assert '"test_size/AP50-{' in size_source
+    assert '"test_size/AP-{' in size_source
+    assert "Ultralytics native test split plus TinyBenchmark area buckets" in source
 
 
 def test_two_server_sharding_is_disjoint_and_complete() -> None:
