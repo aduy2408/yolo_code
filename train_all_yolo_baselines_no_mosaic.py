@@ -109,6 +109,36 @@ def model_from_baseline_yaml(model_name: str):
     return YOLO(str(yaml_path)).load(weights_name), yaml_path
 
 
+def patch_musgd_noncontiguous() -> None:
+    """Keep pinned MuSGD compatible with non-contiguous convolution gradients.
+
+    The pinned upstream implementation calls ``view`` on foreach-generated
+    updates. Those updates can be non-contiguous for valid convolution
+    gradients. Keep the vendor submodule untouched and normalize only the
+    tensors passed to its public ``muon_update`` function.
+    """
+    local_ultralytics()
+    from ultralytics.optim import muon
+
+    if getattr(muon, "_project_noncontiguous_patch", False):
+        return
+    original = muon.muon_update
+
+    def compatible(grad, momentum, beta=0.95, nesterov=True):
+        single = hasattr(grad, "ndim")
+        gradients = [grad] if single else list(grad)
+        buffers = [momentum] if single else list(momentum)
+        contiguous_gradients = [item.contiguous() for item in gradients]
+        contiguous_buffers = [item.contiguous() for item in buffers]
+        updates = original(contiguous_gradients, contiguous_buffers, beta=beta, nesterov=nesterov)
+        for target, source in zip(buffers, contiguous_buffers):
+            target.copy_(source)
+        return updates
+
+    muon.muon_update = compatible
+    muon._project_noncontiguous_patch = True
+
+
 def metric_value(result: object, key: str) -> float:
     value = getattr(result, "results_dict", {}).get(key)
     if value is None:
@@ -171,6 +201,7 @@ def train_one(dataset: str, model_name: str, seed: int, data_yaml: Path, args: a
             shutil.move(str(run_dir), str(archive))
         seed_everything(seed)
         model, _ = model_from_baseline_yaml(model_name)
+        patch_musgd_noncontiguous()
         kwargs = dict(
             data=str(data_yaml), epochs=args.epochs, imgsz=IMAGE_SIZES[dataset],
             batch=args.batch_size, device=args.device, workers=args.workers,
@@ -274,6 +305,7 @@ def main(argv: list[str] | None = None) -> None:
             "seed": seed, "split_seed": SPLIT_SEED, "mosaic": 0.0, "close_mosaic": 0,
             "epochs": args.epochs, "patience": args.patience, "imgsz": IMAGE_SIZES[dataset],
             "optimizer": OPTIMIZER, "optimizer_expected": "MuSGD (Ultralytics auto when iterations > 10000)",
+            "optimizer_compatibility": "project patch for pinned MuSGD non-contiguous updates",
             "batch_size": args.batch_size, "workers": args.workers, "nms_iou": 0.5,
             "data_yaml": str(data_yaml), "git_sha": git_sha(), "hf_repo_id": repo_id,
             "machine_index": args.machine_index, "machine_count": args.machine_count,

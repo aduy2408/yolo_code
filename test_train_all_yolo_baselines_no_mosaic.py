@@ -23,6 +23,7 @@ def test_default_training_settings_disable_mosaic() -> None:
     assert runner.OPTIMIZER == "auto"
     assert "optimizer=OPTIMIZER" in source
     assert 'optimizer_expected": "MuSGD' in source
+    assert "patch_musgd_noncontiguous" in source
 
 
 def test_all_standard_metrics_are_split_qualified() -> None:
