@@ -148,6 +148,9 @@ def _evaluate_coco(gt_path: Path, prediction_path: Path) -> dict[str, float]:
     previous_standard = module.Params.EVAL_STRANDARD
     module.Params.EVAL_STRANDARD = "tiny"
     old_linspace = module.np.linspace
+    had_np_float = hasattr(module.np, "float")
+    if not had_np_float:
+        module.np.float = float
 
     def compatible_linspace(start, stop, num=50, *args, **kwargs):
         if isinstance(num, (float, np.floating)):
@@ -182,6 +185,8 @@ def _evaluate_coco(gt_path: Path, prediction_path: Path) -> dict[str, float]:
         return metrics
     finally:
         module.np.linspace = old_linspace
+        if not had_np_float:
+            del module.np.float
         module.Params.EVAL_STRANDARD = previous_standard
 
 
