@@ -20,6 +20,7 @@ Main observations:
 6. **Mosaic is not automatically helpful.** Its effect depends on policy, object visibility, detector scale, and dataset. No-Mosaic OACP can be competitive on LEVIR, while adaptive OACP + Mosaic is clearly stronger for the reported TinyPerson YOLOv8n runs than the no-Mosaic baseline.
 7. **The new R2 no-Mosaic OACP audit does not overturn the earlier ranking.** In the matched YOLOv8n P2/P3/P4, split-seed-42 audit, load-adaptive and effect-adaptive OACP are close at test mAP50-95 (**0.3094** and **0.3102**), while curriculum and size-adaptive variants are lower (**0.2992** and **0.2977**). These are single-seed screening results, not a replacement for the earlier matched Mosaic family.
 8. **The newly completed context-adaptive audit favors the C3 expand/protection policy in this single-seed screen.** C3 reaches test mAP50-95 **0.3145**, ahead of C1 strength (**0.3123**) and the existing R2 current audit (**0.3113**), while C2 scale is lower (**0.3051**). The detector, split seed, training seed, and no-Mosaic protocol are matched across these four context-audit rows.
+9. **The completed negative-canvas ablation isolates four Copy-Paste hypotheses on the same canonical protocol.** R2 has the strongest validation result, while R1 has the strongest test mAP50-95 among R1-R4. The larger-donor policy in R3 reduces test performance, and weak post-resize blur in R4 recovers most of that loss without exceeding R1 on test mAP50-95.
 
 ## 2. Consolidated result tables
 
@@ -74,7 +75,38 @@ transform gate while their actual paste count is controlled by the adaptive
 budget. Online negative variants use `negcp=0.30`; this is not the same
 effective probability as the positive variants.
 
-### 2.3 Mosaic
+### 2.3 Negative-canvas Copy-Paste ablation
+
+These four runs are a matched LEVIR-Ship study using the canonical YOLOv8
+P3/P4/P5 detector, seed 42, split seed 42, 100 epochs, patience 0, workers 8,
+MuSGD (`optimizer=auto`), Mosaic off, hard collision-aware placement, one paste
+maximum, and target size at most 20 px. The probability is `negative_cp_p=0.30`
+conditional on an **originally negative** training image. Each row has a clean
+artifact contract and a verified upload in
+`duyle2408/levir-negative-canvas-r1-r4-runs`.
+
+| Run | Target policy | Donor policy | Rendering | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 |
+|---|---|---|---|---:|---:|---:|---:|
+| R1 | Empirical small-size distribution | Matched, 1.0 <= source/target < 1.5 | Resize only | 0.8213 | 0.3248 | **0.8222** | **0.3156** |
+| R2 | Scale deficit, gamma 0.5, capped ratio 3 | Matched, 1.0 <= source/target < 1.5 | Resize only | **0.8440** | 0.3322 | 0.8207 | 0.3133 |
+| R3 | Scale deficit, gamma 0.5, capped ratio 3 | Larger, 1.5 <= source/target <= 2.5 | Resize only | 0.8230 | 0.3291 | 0.7915 | 0.3003 |
+| R4 | Scale deficit, gamma 0.5, capped ratio 3 | Larger, 1.5 <= source/target <= 2.5 | Resize + weak Gaussian blur, sigma 0.5 | 0.8305 | **0.3352** | 0.8200 | 0.3158 |
+
+**Interpretation:** R1 tests whether negative images can serve as synthetic-positive
+canvases. R2-R1 isolates deficit-aware target-scale sampling. R3-R2 isolates
+larger-to-small donor geometry and is negative on the test split in this screen.
+R4-R3 isolates fixed weak post-resize degradation and recovers the R3 test result
+to approximately the R1 level, but does not establish a winner. These are
+single-seed hypothesis checks, not a parameter sweep or a multi-seed claim.
+
+Remote prefixes, all with verified `upload_complete.json`:
+
+- `copy_paste/levir/negative_canvas_r1/seed_42`
+- `copy_paste/levir/negative_canvas_r2/seed_42`
+- `copy_paste/levir/negative_canvas_r3/seed_42`
+- `copy_paste/levir/negative_canvas_r4/seed_42`
+
+### 2.4 Mosaic
 
 These rows are Mosaic-only or matched Mosaic-policy references with no OACP or
 Copy-Paste in the stated configuration. Mosaic policy changes the source-tile
@@ -94,7 +126,7 @@ test mAP50-95 values `0.2453`, `0.2580`, `0.2454`, and `0.2474`, respectively,
 but does not expose all four split-qualified metrics in the same summary
 artifact. Those rows remain in Section 6.1 without imputing missing AP50 values.
 
-### 2.4 OACP
+### 2.5 OACP
 
 The OACP rows below are kept separate from Copy-Paste. They perturb far context
 around eligible small objects while protecting the object and local context.
@@ -163,7 +195,26 @@ The reported CP variants are:
 
 The implementation also contains adaptive Copy-Paste policies, including `load_adaptive` and `layout_adaptive`, but the main reported CP0-CP3 ablations are fixed-policy comparisons. CP3 therefore means **clustered Copy-Paste**, not Mosaic status.
 
-### 3.3 Mosaic policies
+### 3.3 Negative-canvas Copy-Paste
+
+`NegativeCanvasCopyPaste` is a separate transform and does not modify the older
+`ScaleMatchedCopyPaste` or `AdaptiveCopyPaste` behavior. It first checks the
+original dataset label to ensure the source image was negative, then applies
+`negative_cp_p` conditional on that image. It samples one target size either
+from the empirical small-object pool or from inverse-frequency scale bins,
+selects a donor from one of two disjoint source/target size ranges, resizes with
+`INTER_AREA`, optionally applies fixed weak blur, and performs one hard,
+collision-safe paste. Donor feasibility and placement failures are reported in
+the transform diagnostics rather than silently falling back to another policy.
+
+| Run | Configured method |
+|---|---|
+| R1 | `negative_canvas`, empirical target, matched donor, no degradation |
+| R2 | `negative_canvas`, deficit target, matched donor, no degradation |
+| R3 | `negative_canvas`, deficit target, larger donor, no degradation |
+| R4 | `negative_canvas`, deficit target, larger donor, `weak_blur` |
+
+### 3.4 Mosaic policies
 
 All Mosaic rows should be interpreted together with the manifest's `mosaic` and `close_mosaic` fields. In the requested runs, Mosaic is generally enabled with `mosaic=1.0` and disabled for the final 10 epochs with `close_mosaic=10`.
 
