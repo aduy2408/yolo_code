@@ -274,7 +274,8 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         settings["mosaic_visibility_thresh"] = 0.7
         settings["mosaic_visibility_lambda"] = 1.0
     if not training_complete:
-        model = YOLO(args.model)
+        model = YOLO(args.model_yaml)
+        model.load(args.model, smart_transfer=True)
         model.train(
             data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
             device=args.device, workers=args.workers, patience=args.patience, seed=seed,
@@ -296,7 +297,8 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
     )
     manifest = effective_settings(
         args.dataset, variant, seed, args.split_seed, commit_sha=_git_sha(),
-        model=args.model, data_yaml=str(data_yaml), epochs=args.epochs, patience=args.patience, imgsz=args.imgsz,
+        model=args.model, model_yaml=args.model_yaml, pretrained=args.model,
+        data_yaml=str(data_yaml), epochs=args.epochs, patience=args.patience, imgsz=args.imgsz,
         batch_size=args.batch_size, device=args.device, workers=args.workers,
         nms_iou=args.nms_iou, hf_repo_id=args.hf_repo_id, upload_required=True,
         augmentation=settings,
@@ -315,10 +317,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--project", type=Path, required=True)
-    parser.add_argument("--model", default="yolov8n.pt")
+    parser.add_argument("--model", default="yolov8n.pt", help="Pretrained checkpoint")
     parser.add_argument(
-        "--model-yaml", dest="model", default=argparse.SUPPRESS,
-        help="Explicit detector YAML or checkpoint path",
+        "--model-yaml", dest="model_yaml",
+        default=str(ROOT / "models_related/ultralytics/ultralytics/cfg/models/v8/yolov8.yaml"),
+        help="Exact detector architecture YAML",
     )
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
@@ -363,9 +366,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.scene_compatible_mosaic and not args.mosaic_interaction:
         raise ValueError("--scene-compatible-mosaic requires --mosaic-interaction")
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
-    configs = [effective_settings(args.dataset, variant, seed, args.split_seed, epochs=args.epochs, patience=0,
+    configs = [effective_settings(args.dataset, variant, seed, args.split_seed, epochs=args.epochs, patience=args.patience,
                                   imgsz=args.imgsz, batch_size=args.batch_size, device=args.device,
-                                  workers=args.workers, hf_repo_id=args.hf_repo_id,
+                                  workers=args.workers, model=args.model, model_yaml=args.model_yaml,
+                                  pretrained=args.model, nms_iou=args.nms_iou, hf_repo_id=args.hf_repo_id,
                                   augmentation={**variant_overrides(variant),
                                                 **({"mosaic": args.mosaic, "close_mosaic": args.close_mosaic}
                                                    if args.mosaic_interaction else {}),
