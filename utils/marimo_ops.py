@@ -520,31 +520,11 @@ def launch_detached(
     pid_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     started_at = now_utc()
-    log_file = open(log_path, "ab", buffering=0)
-    child_env = dict(os.environ)
-    if env is not None:
-        child_env.update(env)
-    proc = subprocess.Popen(
-        list(command),
-        cwd=cwd,
-        env=child_env,
-        stdin=subprocess.DEVNULL,
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-        close_fds=True,
-    )
-    # The child owns the duplicated descriptor after Popen returns. Keeping the
-    # parent's descriptor open causes warnings and delays EOF on short jobs.
-    log_file.close()
-    pid_path.write_text(f"{proc.pid}\n")
     resolved_artifact_root = None
     if artifact_root is not None:
         resolved_artifact_root = artifact_root if artifact_root.is_absolute() else cwd / artifact_root
     effective_contract_path = contract_path or state_path.parent / "run_contract.json"
-    state = {
-        "status": "running",
-        "pid": proc.pid,
+    state_base = {
         "command": list(command),
         "cwd": str(cwd),
         "log_path": str(log_path),
@@ -556,18 +536,68 @@ def launch_detached(
         else None,
         "started_at": started_at,
     }
-    write_json(state_path, state)
-    # Reap after state exists so short-lived jobs still record their exit code.
-    def reap() -> None:
-        returncode = proc.wait()
-        finished = read_json(state_path) if state_path.is_file() else state
-        finished.update({"status": "exited", "returncode": returncode, "finished_at": now_utc()})
-        write_json(state_path, finished)
+    child_env = dict(os.environ)
+    if env is not None:
+        child_env.update(env)
 
-    threading.Thread(target=reap, name=f"marimo-reaper-{proc.pid}", daemon=True).start()
+    # Fork before Popen so the supervisor remains the training process's parent
+    # after the CLI exits. This keeps clean returncode evidence durable for
+    # launch commands invoked from a transient notebook subprocess.
+    read_fd, write_fd = os.pipe()
+    supervisor_pid = os.fork() if hasattr(os, "fork") else None
+    if supervisor_pid == 0:  # pragma: no cover - exercised by CLI integration
+        os.close(read_fd)
+        try:
+            log_file = open(log_path, "ab", buffering=0)
+            proc = subprocess.Popen(
+                list(command), cwd=cwd, env=child_env,
+                stdin=subprocess.DEVNULL, stdout=log_file,
+                stderr=subprocess.STDOUT, start_new_session=True, close_fds=True,
+            )
+            log_file.close()
+            state = {"status": "running", "pid": proc.pid, **state_base}
+            pid_path.write_text(f"{proc.pid}\n")
+            write_json(state_path, state)
+            with os.fdopen(write_fd, "w", encoding="utf-8") as pipe:
+                pipe.write(json.dumps({"pid": proc.pid, "state": state}))
+            returncode = proc.wait()
+            finished = read_json(state_path) if state_path.is_file() else state
+            finished.update({"status": "exited", "returncode": returncode, "finished_at": now_utc()})
+            write_json(state_path, finished)
+        except Exception as exc:
+            with os.fdopen(write_fd, "w", encoding="utf-8") as pipe:
+                pipe.write(json.dumps({"error": repr(exc)}))
+        finally:
+            os._exit(0)
+    if supervisor_pid is None:  # pragma: no cover - non-POSIX fallback
+        os.close(read_fd)
+        log_file = open(log_path, "ab", buffering=0)
+        proc = subprocess.Popen(
+            list(command), cwd=cwd, env=child_env,
+            stdin=subprocess.DEVNULL, stdout=log_file,
+            stderr=subprocess.STDOUT, start_new_session=True, close_fds=True,
+        )
+        log_file.close()
+        state = {"status": "running", "pid": proc.pid, **state_base}
+        pid_path.write_text(f"{proc.pid}\n")
+        write_json(state_path, state)
+        threading.Thread(
+            target=lambda: write_json(
+                state_path,
+                {**read_json(state_path), "status": "exited", "returncode": proc.wait(), "finished_at": now_utc()},
+            ), daemon=True,
+        ).start()
+        payload = {"pid": proc.pid, "state": state}
+    else:
+        os.close(write_fd)
+        with os.fdopen(read_fd, "r", encoding="utf-8") as pipe:
+            payload = json.loads(pipe.read())
+        if "error" in payload:
+            raise MarimoOpsError(f"Detached supervisor failed: {payload['error']}")
+        state = payload["state"]
     print(json.dumps(state, indent=2, sort_keys=True))
     return LaunchResult(
-        pid=proc.pid,
+        pid=int(payload["pid"]),
         command=list(command),
         cwd=str(cwd),
         log_path=str(log_path),
