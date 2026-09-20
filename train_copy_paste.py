@@ -221,7 +221,7 @@ def _evaluate_run(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> d
     for split in ("val", "test"):
         result = model.val(
             data=str(data_yaml), split=split, imgsz=args.imgsz, batch=args.batch_size,
-            device=args.device, workers=args.workers, plots=False, iou=0.5,
+            device=args.device, workers=args.workers, plots=False, iou=args.nms_iou,
             project=str(run_dir / "evaluation"), name=split, exist_ok=True,
         )
         metrics.update(_split_metrics(result, split))
@@ -277,9 +277,9 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         model = YOLO(args.model)
         model.train(
             data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch_size,
-            device=args.device, workers=args.workers, patience=0, seed=seed,
+            device=args.device, workers=args.workers, patience=args.patience, seed=seed,
             deterministic=True, amp=True, plots=False, project=str(run_dir.parent),
-            name=run_dir.name, exist_ok=True, val=True, iou=0.5, **settings,
+            name=run_dir.name, exist_ok=True, val=True, iou=args.nms_iou, **settings,
         )
         cp_diagnostics = _find_copy_paste_diagnostics(
             getattr(getattr(model, "trainer", None), "train_loader", None)
@@ -296,9 +296,9 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
     )
     manifest = effective_settings(
         args.dataset, variant, seed, args.split_seed, commit_sha=_git_sha(),
-        model=args.model, data_yaml=str(data_yaml), epochs=args.epochs, patience=0, imgsz=args.imgsz,
+        model=args.model, data_yaml=str(data_yaml), epochs=args.epochs, patience=args.patience, imgsz=args.imgsz,
         batch_size=args.batch_size, device=args.device, workers=args.workers,
-        hf_repo_id=args.hf_repo_id, upload_required=True,
+        nms_iou=args.nms_iou, hf_repo_id=args.hf_repo_id, upload_required=True,
         augmentation=settings,
         mosaic_interaction=args.mosaic_interaction,
         oacp_variant=args.oacp_variant,
@@ -316,13 +316,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--model", default="yolov8n.pt")
+    parser.add_argument(
+        "--model-yaml", dest="model", default=argparse.SUPPRESS,
+        help="Explicit detector YAML or checkpoint path",
+    )
     parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
+    parser.add_argument("--seed", type=int, dest="single_seed", default=None)
     parser.add_argument("--split-seed", type=int, default=42)
+    parser.add_argument("--nms-iou", type=float, default=0.5)
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS))
     parser.add_argument("--hf-repo-id", required=True)
     parser.add_argument("--mosaic-interaction", action="store_true",
@@ -349,6 +356,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if args.single_seed is not None:
+        args.seeds = [args.single_seed]
+    if args.patience != 0:
+        raise ValueError("negative-canvas full runs require patience=0")
     if args.scene_compatible_mosaic and not args.mosaic_interaction:
         raise ValueError("--scene-compatible-mosaic requires --mosaic-interaction")
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
