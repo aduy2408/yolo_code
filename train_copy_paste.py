@@ -85,8 +85,16 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
     missing_remote = [f"{remote_prefix}/{path}" for path in required if f"{remote_prefix}/{path}" not in remote_files]
     if missing_remote:
         raise RuntimeError(f"Hugging Face upload verification failed: {missing_remote}")
+    verified = [*required, "upload_complete.json"]
     (run_dir / "upload_complete.json").write_text(
-        json.dumps({"repo_id": repo_id, "dataset": dataset, "variant": variant, "seed": seed}, indent=2) + "\n",
+        json.dumps({
+            "repo_id": repo_id,
+            "remote_prefix": remote_prefix,
+            "dataset": dataset,
+            "variant": variant,
+            "seed": seed,
+            "verified": verified,
+        }, indent=2) + "\n",
         encoding="utf-8",
     )
     _retry_hf(lambda: api.upload_file(
@@ -95,6 +103,10 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
         repo_id=repo_id,
         repo_type="dataset",
     ))
+    remote_files = set(_retry_hf(lambda: api.list_repo_files(repo_id=repo_id, repo_type="dataset")))
+    missing_marker = [f"{remote_prefix}/{path}" for path in verified if f"{remote_prefix}/{path}" not in remote_files]
+    if missing_marker:
+        raise RuntimeError(f"Hugging Face upload verification failed after marker upload: {missing_marker}")
 
 
 def _train_images_and_labels(data_yaml: Path) -> tuple[list[Path], list[Path]]:
