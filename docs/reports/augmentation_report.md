@@ -57,12 +57,12 @@ The first four rows are the conventional post-hoc CP0-CP3 family. The remaining
 rows are the newer adaptive Copy-Paste matrix, all no-Mosaic LEVIR controls with
 the same seed/split provenance and MuSGD optimizer.
 
-| Method | Description | Optimizer | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 |
+| Method | Description | Optimizer / provenance | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 |
 |---|---|---|---:|---:|---:|---:|
-| CP0 | No Copy-Paste control | source-family | 0.8297 | 0.3278 | 0.8203 | 0.3147 |
-| CP1 | One single-object hard paste | source-family | 0.8262 | 0.3264 | 0.7974 | 0.3109 |
-| CP2 | Two single-object hard pastes | source-family | 0.8233 | 0.3322 | 0.8046 | 0.3167 |
-| CP3 | One natural clustered hard paste | source-family | 0.8281 | 0.3324 | 0.7985 | 0.3046 |
+| CP0 | No Copy-Paste control | Post-hoc CP family; optimizer not recorded | 0.8297 | 0.3278 | 0.8203 | 0.3147 |
+| CP1 | One single-object hard paste | Post-hoc CP family; optimizer not recorded | 0.8262 | 0.3264 | 0.7974 | 0.3109 |
+| CP2 | Two single-object hard pastes | Post-hoc CP family; optimizer not recorded | 0.8233 | 0.3322 | 0.8046 | 0.3167 |
+| CP3 | One natural clustered hard paste | Post-hoc CP family; optimizer not recorded | 0.8281 | 0.3324 | 0.7985 | 0.3046 |
 | Adaptive scale-conditioned | Budgeted positive paste conditioned on destination/source object scale; shrink-only factor max 1.0 | MuSGD | 0.8248 | 0.3076 | 0.7960 | 0.2856 |
 | Adaptive scale-deficit | Paste budget driven by the positive object-count deficit, with scale conditioning | MuSGD | 0.8068 | 0.3242 | 0.7691 | 0.3035 |
 | Adaptive cluster | Budgeted positive paste using natural object clusters | MuSGD | 0.8105 | 0.3205 | 0.7940 | 0.2972 |
