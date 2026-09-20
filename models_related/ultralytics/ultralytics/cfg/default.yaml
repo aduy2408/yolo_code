@@ -374,6 +374,7 @@ scale_cp_factor_max: 0.90 # (float) maximum downsample factor
 scale_cp_max_overlap: 0.0 # (float) collision-free placement threshold
 scale_cp_trials: 30 # (int) scale-matched placement attempts
 negative_cp_target_policy: empirical # (str) empirical or deficit
+negative_cp_p: 0.30 # (float) probability conditional on an original negative image
 negative_cp_donor_policy: matched # (str) matched or larger
 negative_cp_target_max_size: 20.0 # (float) maximum target sqrt-area used by the study
 negative_cp_deficit_gamma: 0.5 # (float) inverse-frequency exponent for deficit sampling

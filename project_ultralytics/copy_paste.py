@@ -789,7 +789,7 @@ def build_small_object_copy_paste(dataset, hyp):
 
         return NegativeCanvasCopyPaste(
             dataset=dataset,
-            p=float(getattr(hyp, "copy_paste_p", 0.30)),
+            p=float(getattr(hyp, "negative_cp_p", 0.30)),
             target_policy=str(getattr(hyp, "negative_cp_target_policy", "empirical")),
             donor_policy=str(getattr(hyp, "negative_cp_donor_policy", "matched")),
             target_max_size=float(getattr(hyp, "negative_cp_target_max_size", 20.0)),
@@ -925,6 +925,7 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "scale_cp_factor_min": float(getattr(hyp, "scale_cp_factor_min", 0.50)),
         "scale_cp_factor_max": float(getattr(hyp, "scale_cp_factor_max", 0.90)),
         "negative_cp_target_policy": str(getattr(hyp, "negative_cp_target_policy", "empirical")),
+        "negative_cp_p": float(getattr(hyp, "negative_cp_p", 0.30)),
         "negative_cp_donor_policy": str(getattr(hyp, "negative_cp_donor_policy", "matched")),
         "negative_cp_target_max_size": float(getattr(hyp, "negative_cp_target_max_size", 20.0)),
         "negative_cp_deficit_gamma": float(getattr(hyp, "negative_cp_deficit_gamma", 0.5)),

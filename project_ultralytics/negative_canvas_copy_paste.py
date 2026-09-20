@@ -15,7 +15,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from .copy_paste import SmallObjectCopyPaste, _box_area
+from .copy_paste import ObjectRecord, SmallObjectCopyPaste, _box_area
 
 
 class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
@@ -90,20 +90,32 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         self.target_sizes: list[float] = []
         self.scale_bins: Counter[int] = Counter()
         self.scale_bin_values: dict[int, list[float]] = {}
-        self.stats = {
+        self._original_negative_indices: set[int] = set()
+        self._original_negative_paths: set[str] = set()
+        self.stats = self._study_stats()
+        self._study_pool_built = False
+
+    @staticmethod
+    def _study_stats() -> dict[str, float]:
+        stats = SmallObjectCopyPaste._new_stats()
+        stats.update({
             "negative_seen": 0,
             "negative_selected": 0,
             "applied_images": 0,
             "pasted_instances": 0,
             "target_size_sum": 0.0,
             "source_size_sum": 0.0,
+            "source_target_ratio_sum": 0.0,
             "resize_factor_sum": 0.0,
             "donor_failed": 0,
             "placement_failed": 0,
             "degradation_applied": 0,
             "debug_dump_count": 0,
-        }
-        self._study_pool_built = False
+        })
+        return stats
+
+    def reset_stats(self) -> None:
+        self.stats = self._study_stats()
 
     @staticmethod
     def _bin(size: float) -> int:
@@ -113,6 +125,12 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         if self._study_pool_built:
             return
         super()._build_pool()
+        for image_index, label in enumerate(getattr(self.dataset, "labels", ())):
+            if len(label.get("bboxes", ())) == 0:
+                self._original_negative_indices.add(image_index)
+                paths = getattr(self.dataset, "im_files", ())
+                if image_index < len(paths):
+                    self._original_negative_paths.add(str(Path(paths[image_index]).resolve()))
         for record in self.object_pool:
             size = math.sqrt(max(_box_area(np.asarray(record.bbox_xyxy)), 1e-8))
             if size <= self.target_max_size:
@@ -121,6 +139,19 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
                 self.scale_bins[bin_id] += 1
                 self.scale_bin_values.setdefault(bin_id, []).append(size)
         self._study_pool_built = True
+
+    def _is_original_negative(self, labels: dict[str, Any]) -> bool:
+        image_index = labels.get("image_index")
+        if image_index is not None:
+            try:
+                if int(image_index) in self._original_negative_indices:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        image_path = labels.get("im_file")
+        if image_path is None:
+            return False
+        return str(Path(image_path).resolve()) in self._original_negative_paths
 
     def _sample_target_size(self) -> float:
         if not self.scale_bins or not self.target_sizes:
@@ -143,10 +174,17 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
             return self.large_ratio_min <= ratio <= self.large_ratio_max
         raise ValueError(f"unknown donor policy: {self.donor_policy}")
 
+    @staticmethod
+    def _effective_source_size(record: ObjectRecord) -> float:
+        x1, y1, x2, y2 = map(round, record.bbox_xyxy)
+        width = max(x2 - x1, 0)
+        height = max(y2 - y1, 0)
+        return math.sqrt(max(width * height, 1e-8))
+
     def _choose_donor(self, target_size: float):
         candidates = []
         for record in self.object_pool:
-            source_size = math.sqrt(max(_box_area(np.asarray(record.bbox_xyxy)), 1e-8))
+            source_size = self._effective_source_size(record)
             if self._donor_valid(source_size, target_size):
                 candidates.append((record, source_size))
         return self.rng.choice(candidates) if candidates else None
@@ -171,6 +209,8 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         self._build_pool()
+        if not self._is_original_negative(labels):
+            return labels
         existing = self._target_boxes(labels)
         if len(existing) != 0:
             return labels
@@ -216,6 +256,7 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         self.stats["pasted_instances"] += 1
         self.stats["target_size_sum"] += target_size
         self.stats["source_size_sum"] += source_size
+        self.stats["source_target_ratio_sum"] += source_size / max(target_size, 1e-8)
         self.stats["resize_factor_sum"] += factor
         if self.degradation == "weak_blur":
             self.stats["degradation_applied"] += 1
@@ -240,7 +281,7 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         out["mean_target_size"] = out["target_size_sum"] / applied
         out["mean_source_size"] = out["source_size_sum"] / applied
         out["mean_resize_factor"] = out["resize_factor_sum"] / applied
-        out["mean_source_target_ratio"] = out["mean_source_size"] / max(out["mean_target_size"], 1e-8)
+        out["mean_source_target_ratio"] = out["source_target_ratio_sum"] / applied
         return {f"negcanvas/{key}": value for key, value in out.items()}
 
 
