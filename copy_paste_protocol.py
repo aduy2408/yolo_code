@@ -59,6 +59,51 @@ VARIANTS = {
         "negcp_scale": 1.0,
         "negcp_max_gt_ioa": 0.05,
     },
+    "negative_canvas_r1": {
+        "copy_paste_enabled": True,
+        "copy_paste_unit": "single",
+        "copy_paste_copies": 1,
+        "copy_paste_mode": "negative_canvas",
+        "negative_cp_p": 0.30,
+        "negative_cp_target_policy": "empirical",
+        "negative_cp_donor_policy": "matched",
+        "negative_cp_target_max_size": 20.0,
+        "negative_cp_degradation": "none",
+    },
+    "negative_canvas_r2": {
+        "copy_paste_enabled": True,
+        "copy_paste_unit": "single",
+        "copy_paste_copies": 1,
+        "copy_paste_mode": "negative_canvas",
+        "negative_cp_p": 0.30,
+        "negative_cp_target_policy": "deficit",
+        "negative_cp_donor_policy": "matched",
+        "negative_cp_target_max_size": 20.0,
+        "negative_cp_degradation": "none",
+    },
+    "negative_canvas_r3": {
+        "copy_paste_enabled": True,
+        "copy_paste_unit": "single",
+        "copy_paste_copies": 1,
+        "copy_paste_mode": "negative_canvas",
+        "negative_cp_p": 0.30,
+        "negative_cp_target_policy": "deficit",
+        "negative_cp_donor_policy": "larger",
+        "negative_cp_target_max_size": 20.0,
+        "negative_cp_degradation": "none",
+    },
+    "negative_canvas_r4": {
+        "copy_paste_enabled": True,
+        "copy_paste_unit": "single",
+        "copy_paste_copies": 1,
+        "copy_paste_mode": "negative_canvas",
+        "negative_cp_p": 0.30,
+        "negative_cp_target_policy": "deficit",
+        "negative_cp_donor_policy": "larger",
+        "negative_cp_target_max_size": 20.0,
+        "negative_cp_degradation": "weak_blur",
+        "negative_cp_blur_sigma": 0.5,
+    },
     "crowd_mild": {
         "copy_paste_enabled": True,
         "copy_paste_unit": "single",
@@ -119,7 +164,7 @@ def validate_settings(settings: dict) -> None:
     }
     for key, expected in required.items():
         if key == "copy_paste_p" and settings.get("copy_paste_mode") in {
-            "negative", "crowded", "scale_matched",
+            "negative", "crowded", "scale_matched", "negative_canvas",
         }:
             continue
         if settings.get(key) != expected:
