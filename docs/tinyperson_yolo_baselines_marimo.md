@@ -5,12 +5,12 @@ Runner: `train_all_tinyperson_yolo_baselines.py`
 ## Required settings review before training
 
 For the YOLOv8n TinyPerson P2/P3/P4 strict baseline, use
-`train_all_tinyperson.py`. It now fails closed until the complete effective
+`train_scripts/train_all_tinyperson.py`. It now fails closed until the complete effective
 configuration is printed and explicitly reviewed. The strict baseline has no
 OACP/context augmentation and no Mosaic:
 
 ```bash
-/tmp/uv-venv/bin/python train_all_tinyperson.py \
+/tmp/uv-venv/bin/python train_scripts/train_all_tinyperson.py \
   --data-root /marimo/TinyPerson \
   --dataset-root /marimo/yolo_code/datasets \
   --project /marimo/yolo_code/runs/tinyperson_yolov8n_p2p4_nomosaic \
@@ -28,7 +28,7 @@ command be rerun with `--confirm-settings` instead of
 `--print-effective-config`. OACP variants are rejected by this strict gate.
 
 This matrix uses the existing TinyPerson preprocessing and evaluation code in
-`train_all_tinyperson.py`. Each run uses the official corner windows, a
+`train_scripts/train_all_tinyperson.py`. Each run uses the official corner windows, a
 source-image-grouped 90/10 split, validation plus corner-window merged test,
 and explicit NMS IoU `0.5`.
 
@@ -80,7 +80,7 @@ Dataset preparation is bounded and can be checked first:
 To rerun evaluation without retraining, use:
 
 ```bash
-/marimo/mmdet-venv/bin/python evaluate_all_tinyperson_yolo_baselines.py \
+/marimo/mmdet-venv/bin/python evaluate_test/evaluate_all_tinyperson_yolo_baselines.py \
   --data-root /marimo/TinyPersonData \
   --dataset-root /marimo/yolo_code/datasets \
   --project /marimo/yolo_code/runs/tinyperson_yolo_baselines \

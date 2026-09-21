@@ -7,7 +7,7 @@ Report này ghi lại run DRENet seed 42 trên fixed LEVIR split seed 42. Khác 
 | Mục | Giá trị |
 | :--- | :--- |
 | Model | DRENet |
-| Config | `/marimo/yolo_code/DRENet/models/DRENet.yaml` |
+| Config | `/marimo/yolo_code/other_repo/DRENet/models/DRENet.yaml` |
 | Dataset | `/marimo/yolo_code/datasets_drenet/levir_ship_yolo_seed42/levir_ship.yaml` |
 | Split | train/val/test = 2320/788/788 |
 | Classes | 1 (`ship`) |

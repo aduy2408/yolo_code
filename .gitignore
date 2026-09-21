@@ -242,4 +242,4 @@ scratch/
 
 # Local experiment helpers and benchmark artifacts
 /.jcode_*.py
-/TinyBenchmark/
+/other_repo/
