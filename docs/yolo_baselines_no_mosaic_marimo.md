@@ -1,6 +1,6 @@
 # YOLO baseline matrix without Mosaic
 
-Runner: `train_all_yolo_baselines_no_mosaic.py`
+Runner: `train_scripts/train_all_yolo_baselines_no_mosaic.py`
 
 The matrix contains 45 jobs:
 
@@ -23,7 +23,7 @@ on both Marimo servers. Change only `--machine-index`:
   --cwd /marimo/yolo_code \
   --run-dir /marimo/yolo_code/runs/yolo_baselines_no_mosaic_server0 \
   -- \
-  /marimo/<python> train_all_yolo_baselines_no_mosaic.py \
+  /marimo/<python> train_scripts/train_all_yolo_baselines_no_mosaic.py \
   --data-root varroa=/marimo/Varroa \
   --data-root tinyperson=/marimo/TinyPersonData \
   --data-root levirship=/marimo/LevirShip/LevirShipData \

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import train_all_tinyperson_yolo_baselines as runner
+from train_scripts import train_all_tinyperson_yolo_baselines as runner
 
 
 def test_models_are_five_requested_baselines() -> None:

@@ -1,6 +1,6 @@
 # TinyPerson YOLO baselines via Marimo
 
-Runner: `train_all_tinyperson_yolo_baselines.py`
+Runner: `train_scripts/train_all_tinyperson_yolo_baselines.py`
 
 ## Required settings review before training
 
@@ -51,7 +51,7 @@ Run the same command on both machines, changing only the index:
   --cwd /marimo/yolo_code \
   --run-dir /marimo/yolo_code/runs/tinyperson_yolo_baselines_machine0 \
   -- \
-  /marimo/mmdet-venv/bin/python train_all_tinyperson_yolo_baselines.py \
+  /marimo/mmdet-venv/bin/python train_scripts/train_all_tinyperson_yolo_baselines.py \
   --data-root /marimo/TinyPersonData \
   --dataset-root /marimo/yolo_code/datasets \
   --project /marimo/yolo_code/runs/tinyperson_yolo_baselines \
@@ -72,7 +72,7 @@ model/seed before advancing to the next job.
 Dataset preparation is bounded and can be checked first:
 
 ```bash
-/marimo/mmdet-venv/bin/python train_all_tinyperson_yolo_baselines.py \
+/marimo/mmdet-venv/bin/python train_scripts/train_all_tinyperson_yolo_baselines.py \
   --data-root /marimo/TinyPersonData --prepare-only \
   --seeds 42 43 44
 ```

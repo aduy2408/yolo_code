@@ -1,6 +1,6 @@
 # TinyPerson YOLOv9/YOLOv10 legacy OACP + Mosaic via Marimo
 
-Runner: `train_all_tinyperson_yolov9_yolov10_legacy_oacp_mosaic.py`
+Runner: `train_scripts/train_all_tinyperson_yolov9_yolov10_legacy_oacp_mosaic.py`
 
 This setup runs both `yolov9t.pt` and `yolov10n.pt` on the fixed TinyPerson
 split seed `42`, with the historical two-call OACP path and standard Mosaic.
@@ -14,7 +14,7 @@ duyle2408/tinyperson-yolov9-yolov10-legacy-oacp-mosaic
 The runner is fail-closed. First print and review the complete settings:
 
 ```bash
-/tmp/uv-venv/bin/python train_all_tinyperson_yolov9_yolov10_legacy_oacp_mosaic.py \
+/tmp/uv-venv/bin/python train_scripts/train_all_tinyperson_yolov9_yolov10_legacy_oacp_mosaic.py \
   --data-root /marimo/TinyPerson \
   --dataset-root /marimo/yolo_code/datasets \
   --project /marimo/yolo_code/runs/tinyperson_yolov9_yolov10_legacy_oacp_mosaic \

@@ -232,7 +232,7 @@ The upload-gated TinyPerson runner accepts the three matched training variants
 without changing the historical default matrix:
 
 ```bash
-python train_all_tinyperson_yolo11_oacp_mosaic_matrix.py \
+python train_scripts/train_all_tinyperson_yolo11_oacp_mosaic_matrix.py \
   --variants current_oacp_mosaic budget_oacp_mosaic density_oacp_mosaic \
   --print-effective-config
 ```

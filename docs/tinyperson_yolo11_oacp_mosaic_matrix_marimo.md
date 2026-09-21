@@ -1,6 +1,6 @@
 # TinyPerson YOLO11 OACP/Mosaic matrix via Marimo
 
-Runner: `train_all_tinyperson_yolo11_oacp_mosaic_matrix.py`
+Runner: `train_scripts/train_all_tinyperson_yolo11_oacp_mosaic_matrix.py`
 
 The matrix uses the fixed TinyPerson `split_seed=42`, training seed `42`,
 YOLO11n (`yolo11n.pt`), and four isolated remote prefixes:
@@ -20,7 +20,7 @@ and remotely verified before the next variant starts. Remote paths are
 Example settings preview:
 
 ```bash
-/tmp/uv-venv/bin/python train_all_tinyperson_yolo11_oacp_mosaic_matrix.py \
+/tmp/uv-venv/bin/python train_scripts/train_all_tinyperson_yolo11_oacp_mosaic_matrix.py \
   --data-root /marimo/TinyPerson \
   --dataset-root /marimo/yolo_code/datasets \
   --project /marimo/yolo_code/runs/tinyperson_yolo11_oacp_mosaic_matrix \

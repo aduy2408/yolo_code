@@ -67,7 +67,7 @@ def job_specs(root: Path, repos: dict[str, str]) -> list[dict[str, object]]:
             "env": {"OACP_VARIANT": variant, "YOLO_CONTEXT_AUG": "oacp"},
             "command": [
                 os.environ.get("MARIMO_PYTHON", "/tmp/uv-venv/bin/python"),
-                "train_all_tinyperson_yolo11_oacp_mosaic_matrix.py", *tiny_common,
+                "train_scripts/train_all_tinyperson_yolo11_oacp_mosaic_matrix.py", *tiny_common,
                 "--model", "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3p4_plain.yaml",
                 "--project", str(project), "--hf-repo-id", repos["tinyperson_v8"],
                 "--variants", f"{variant}_oacp_mosaic",
@@ -97,7 +97,7 @@ def job_specs(root: Path, repos: dict[str, str]) -> list[dict[str, object]]:
             "env": {"OACP_VARIANT": variant, "YOLO_CONTEXT_AUG": "oacp"},
             "command": [
                 os.environ.get("MARIMO_PYTHON", "/tmp/uv-venv/bin/python"),
-                "train_all_tinyperson_yolo11_oacp_mosaic_matrix.py", *tiny_common,
+                "train_scripts/train_all_tinyperson_yolo11_oacp_mosaic_matrix.py", *tiny_common,
                 "--model", "models_related/models_config/yolov9/tinyperson/yolov9t_tinyperson_p2p3p4_plain.yaml",
                 "--project", str(project), "--hf-repo-id", repos["tinyperson_v9"],
                 "--variants", f"{variant}_oacp_mosaic",

@@ -53,7 +53,7 @@ def _job(
         project = root / "runs" / f"tinyperson_adaptive_oacp_{variant}_seed42"
         run_dir = project / f"{variant}_oacp_mosaic" / "seed_42_corner_sw640_sh512"
         command = [
-            PYTHON, "train_all_tinyperson_yolo11_oacp_mosaic_matrix.py",
+            PYTHON, "train_scripts/train_all_tinyperson_yolo11_oacp_mosaic_matrix.py",
             "--data-root", "/marimo/TinyPerson",
             "--dataset-root", str(root / "datasets/tinyperson_seed42"),
             "--project", str(project), "--hf-repo-id", repo,

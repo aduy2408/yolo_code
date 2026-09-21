@@ -1,6 +1,6 @@
 # VisDrone YOLO baseline matrix
 
-Runner: `train_all_visdrone_yolo_baselines.py`
+Runner: `train_scripts/train_all_visdrone_yolo_baselines.py`
 
 The setup covers **30 runs**:
 
@@ -41,7 +41,7 @@ confirmed by preflight:
   --cwd /marimo/yolo_code \
   --run-dir /marimo/yolo_code/runs/visdrone_yolo_baselines \
   -- \
-  /marimo/<python> train_all_visdrone_yolo_baselines.py \
+  /marimo/<python> train_scripts/train_all_visdrone_yolo_baselines.py \
   --data-root <exact-visdrone-data-root> \
   --dataset-root /marimo/yolo_code/datasets/visdrone_baselines \
   --project /marimo/yolo_code/runs/visdrone_yolo_baselines \

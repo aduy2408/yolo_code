@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PIL import Image
 
-import train_all_tinyperson as tiny
+from train_scripts import train_all_tinyperson as tiny
 
 
 def _write_corner_json(path: Path, image_records: list[dict], annotations: list[dict], old_images: list[dict] | None = None) -> None:
@@ -111,7 +111,7 @@ def test_prepare_seed_dataset_splits_by_original_file(tmp_path: Path) -> None:
     test_out = tmp_path / "test"
     (test_out / "images").mkdir(parents=True)
     (test_out / "labels").mkdir()
-    seed_dir = tiny.prepare_seed_dataset(data_root, tmp_path / "datasets", test_out, seed=1)
+    seed_dir = tiny.prepare_seed_dataset(data_root, tmp_path / "datasets", test_out, split_seed=1)
 
     manifest = json.loads((seed_dir / "corner_manifest.json").read_text(encoding="utf-8"))
     train_names = {item["file_name"] for item in manifest["train"]}

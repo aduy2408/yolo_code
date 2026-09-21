@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
 
 MODULE_PATH = ROOT / "utils/evaluate_levir_yolo_baselines_coco.py"
 SPEC = importlib.util.spec_from_file_location("evaluate_levir_yolo_baselines_coco", MODULE_PATH)

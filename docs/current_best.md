@@ -109,13 +109,13 @@ This is distinct from the matched augmentation-control experiments, which explic
 The exact runner is:
 
 ```text
-train_all_levir_yolov8n_p2_gap_factorized_tal.py
+train_scripts/train_all_levir_yolov8n_p2_gap_factorized_tal.py
 ```
 
 A seed-42 reproduction command is:
 
 ```bash
-python train_all_levir_yolov8n_p2_gap_factorized_tal.py \\
+python train_scripts/train_all_levir_yolov8n_p2_gap_factorized_tal.py \\
   --variants gap_factorized_k15 \\
   --seeds 42 \\
   --epochs 100 \\

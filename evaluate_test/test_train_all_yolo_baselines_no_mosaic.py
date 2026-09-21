@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-import train_all_yolo_baselines_no_mosaic as runner
-from size_bucket_evaluator import AREA_LABELS, AREA_RANGES, BUCKET_LABELS, IOU_THRESHOLDS
+from pathlib import Path
+
+from train_scripts import train_all_yolo_baselines_no_mosaic as runner
+from evaluate_test.size_bucket_evaluator import AREA_LABELS, AREA_RANGES, BUCKET_LABELS, IOU_THRESHOLDS
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_requested_models_datasets_and_seeds() -> None:
@@ -17,7 +21,7 @@ def test_default_training_settings_disable_mosaic() -> None:
     assert args.datasets == list(runner.DATASETS)
     assert args.models == list(runner.MODELS)
     assert runner.SPLIT_SEED == 42
-    source = open("train_all_yolo_baselines_no_mosaic.py", encoding="utf-8").read()
+    source = (ROOT / "train_scripts/train_all_yolo_baselines_no_mosaic.py").read_text(encoding="utf-8")
     assert "mosaic=0.0" in source
     assert "close_mosaic=0" in source
     assert "model_from_baseline_yaml" in source
@@ -28,7 +32,7 @@ def test_default_training_settings_disable_mosaic() -> None:
 
 
 def test_all_standard_metrics_are_split_qualified() -> None:
-    source = open("train_all_yolo_baselines_no_mosaic.py", encoding="utf-8").read()
+    source = (ROOT / "train_scripts/train_all_yolo_baselines_no_mosaic.py").read_text(encoding="utf-8")
     for key in ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95"):
         assert key in source
 
@@ -50,8 +54,8 @@ def test_size_bucket_protocol_matches_tinyperson_ranges() -> None:
 
 
 def test_non_tinyperson_protocol_is_explicitly_size_bucketed() -> None:
-    source = open("train_all_yolo_baselines_no_mosaic.py", encoding="utf-8").read()
-    size_source = open("size_bucket_evaluator.py", encoding="utf-8").read()
+    source = (ROOT / "train_scripts/train_all_yolo_baselines_no_mosaic.py").read_text(encoding="utf-8")
+    size_source = (ROOT / "evaluate_test/size_bucket_evaluator.py").read_text(encoding="utf-8")
     assert '"test_size/AP50-{' in size_source
     assert '"test_size/AP-{' in size_source
     assert "Ultralytics native test split plus TinyBenchmark area buckets" in source

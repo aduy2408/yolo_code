@@ -9,9 +9,13 @@ import shutil
 import sys
 from pathlib import Path
 
-from utils.marimo_ops import require_training_context
-
+# Make direct execution from the repository root and from this directory use
+# the same project import path.
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from utils.marimo_ops import require_training_context
 
 
 def split_metrics(result, split: str) -> dict[str, float]:

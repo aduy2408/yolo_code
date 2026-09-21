@@ -1,6 +1,6 @@
 from argparse import Namespace
 
-import train_all_tinyperson_yolo11_oacp_mosaic_matrix as runner
+from train_scripts import train_all_tinyperson_yolo11_oacp_mosaic_matrix as runner
 
 
 def _args():

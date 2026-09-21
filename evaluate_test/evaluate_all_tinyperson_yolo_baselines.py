@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
-import train_all_tinyperson as workflow
-from train_scripts.train_all_tinyperson_yolo_baselines import MODELS, SEEDS, selected_jobs, standard_ultralytics
-
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from train_scripts import train_all_tinyperson as workflow
+from train_scripts.train_all_tinyperson_yolo_baselines import MODELS, SEEDS, selected_jobs, standard_ultralytics
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

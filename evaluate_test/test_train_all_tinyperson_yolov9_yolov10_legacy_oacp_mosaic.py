@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import train_all_tinyperson_yolov9_yolov10_legacy_oacp_mosaic as runner
+from train_scripts import train_all_tinyperson_yolov9_yolov10_legacy_oacp_mosaic as runner
 
 
 def test_defaults_cover_both_models_and_legacy_oacp_mosaic() -> None:

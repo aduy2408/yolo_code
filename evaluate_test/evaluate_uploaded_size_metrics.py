@@ -7,11 +7,17 @@ import argparse
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
+
+# Support the documented direct invocation: ``python evaluate_test/<script>``.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from huggingface_hub import CommitOperationAdd, HfApi, snapshot_download
 
-from size_bucket_evaluator import evaluate_native_test_size_buckets
+from evaluate_test.size_bucket_evaluator import evaluate_native_test_size_buckets
 from train_scripts.train_all_yolo_baselines_no_mosaic import IMAGE_SIZES, local_ultralytics, prepare_dataset
 
 MODELS = ("yolov5", "yolov8", "yolov9", "yolov10", "yolov11")
