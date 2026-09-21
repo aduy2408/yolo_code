@@ -1,6 +1,6 @@
 # Thống kê dữ liệu VisDrone2019 và TinyPerson
 
-Tài liệu này ghi lại thống kê dữ liệu dùng trong repository cho hai bộ dữ liệu **VisDrone2019-DET** và **TinyPerson**. Các con số hình học được tính trực tiếp từ annotation cục bộ. Các chỉ số ảnh, background và contrast được tính trên mẫu ngẫu nhiên cố định `seed=42`, `60 ảnh mỗi split`, vì đọc toàn bộ ảnh độ phân giải cao không cần thiết cho việc mô tả phân phối và tốn nhiều thời gian.
+Tài liệu này ghi lại thống kê dữ liệu dùng trong repository cho hai bộ dữ liệu **VisDrone2019-DET** và **TinyPerson**. Các con số hình học được tính trực tiếp từ toàn bộ annotation cục bộ. Background, entropy và contrast của **TinyPerson** đã được tính exhaustive trên toàn bộ 746 ảnh train và 786 ảnh test bằng server Marimo; các chỉ số ảnh của VisDrone trong README hiện vẫn là mẫu 60 ảnh mỗi split vì server Marimo chưa có mount VisDrone2019.
 
 > **Phạm vi:** đây là thống kê ground-truth, không phải kết quả dự đoán, AP hay mAP. Không được dùng các số contrast/background bên dưới như metric đánh giá model.
 
@@ -137,20 +137,23 @@ abs(mean(object) - mean(ring)) / (abs(mean(ring)) + 1e-6)
 
 Giá trị càng thấp nghĩa là object khó tách khỏi vùng xung quanh theo grayscale đơn giản. Giá trị lớn hơn `1` có thể xảy ra và không phải xác suất.
 
-Kết quả dưới đây là thống kê mẫu `60 ảnh/split`, `seed=42`, không phải toàn bộ pixel của dataset.
+Kết quả dưới đây phân biệt rõ:
 
-| Dataset / split | Gray mean | Gray std | Ring gray mean | Object-ring contrast mean | Contrast median | Contrast P95 |
-|---|---:|---:|---:|---:|---:|---:|
-| VisDrone train | 99.82 ± 35.85 | 45.34 ± 10.53 | 111.71 ± 36.78 | 0.160 ± 0.129 | 0.136 | 0.406 |
-| VisDrone val | 111.98 ± 22.65 | 47.82 ± 10.76 | 110.30 ± 31.11 | 0.151 ± 0.115 | 0.127 | 0.369 |
-| VisDrone test-dev | 82.33 ± 35.60 | 43.17 ± 9.80 | 95.67 ± 37.30 | 0.187 ± 0.158 | 0.153 | 0.483 |
-| TinyPerson train | 117.66 ± 24.79 | 48.00 ± 13.83 | 130.58 ± 38.42 | 0.137 ± 0.123 | 0.106 | 0.362 |
-| TinyPerson test | 125.40 ± 22.02 | 47.53 ± 12.14 | 134.87 ± 32.60 | 0.136 ± 0.117 | 0.108 | 0.358 |
+- **VisDrone:** thống kê background/contrast dùng mẫu cố định `seed=42`, `60 ảnh mỗi split`, vì server Marimo được cung cấp không có dataset VisDrone2019.
+- **TinyPerson:** thống kê background/contrast/entropy chạy exhaustive trên toàn bộ ảnh có annotation bằng server Marimo. Ảnh được resize tối đa cạnh dài `1536 px` trước khi tính pixel statistics, nhưng không bỏ ảnh nào: train `746/746`, test `786/786`. Geometry và nearest-center luôn dùng toàn bộ annotation.
+
+| Dataset / split | Gray mean | Gray std | Entropy32 | Ring gray mean | Object-ring contrast mean | Contrast median | Contrast P95 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| VisDrone train, mẫu 60 | 99.82 ± 35.85 | 45.34 ± 10.53 | chưa tính | 111.71 ± 36.78 | 0.160 ± 0.129 | 0.136 | 0.406 |
+| VisDrone val, mẫu 60 | 111.98 ± 22.65 | 47.82 ± 10.76 | chưa tính | 110.30 ± 31.11 | 0.151 ± 0.115 | 0.127 | 0.369 |
+| VisDrone test-dev, mẫu 60 | 82.33 ± 35.60 | 43.17 ± 9.80 | chưa tính | 95.67 ± 37.30 | 0.187 ± 0.158 | 0.153 | 0.483 |
+| TinyPerson train, **toàn bộ 746 ảnh** | 119.96 ± 28.31 | 48.71 ± 13.43 | 4.152 ± 0.445 | 134.09 ± 42.24 | 0.181 ± 0.142 | 0.156 | 0.422 |
+| TinyPerson test, **toàn bộ 786 ảnh** | 125.34 ± 20.92 | 47.22 ± 13.08 | 4.070 ± 0.477 | 139.30 ± 37.29 | 0.167 ± 0.119 | 0.147 | 0.388 |
 
 ### Diễn giải background
 
-- VisDrone có độ biến thiên background lớn hơn giữa các scene, thể hiện qua gray mean và ring mean có std khoảng `31–38` trong mẫu.
-- TinyPerson có background sáng hơn trong mẫu này, với ring gray mean khoảng `131–135`, nhưng độ tương phản object-ring thấp hơn VisDrone, khoảng `0.136–0.137`.
+- VisDrone có độ biến thiên background lớn giữa các scene, nhưng các chỉ số image-level hiện chỉ là mẫu 60 ảnh do dataset chưa có trên server Marimo.
+- TinyPerson đã được đo trên toàn bộ ảnh. Train có ring gray mean khoảng `134.09`, test khoảng `139.30`; contrast trung bình lần lượt `0.181` và `0.167`.
 - Không nên kết luận TinyPerson luôn sáng hơn hoặc luôn khó hơn chỉ từ mean. Cần giữ nguyên preprocessing, độ phân giải và protocol khi so sánh.
 - Contrast grayscale không phản ánh texture, màu, bóng, vật cản, blur, JPEG artifact hoặc độ tương phản trên feature map của model.
 
@@ -178,4 +181,10 @@ Kích thước ảnh không đồng nhất, đặc biệt ở TinyPerson. Một 
 
 ## 8. Tái lập thống kê
 
-Các con số trong README được sinh từ một lượt phân tích cục bộ với các quy ước ở trên. JSON trung gian không commit cùng repository. Nếu cần tái lập đầy đủ, runner nên ghi lại dataset root, annotation version, sampling seed, image resize và công thức contrast trong manifest.
+Các con số được sinh từ các lượt phân tích cục bộ và remote sau:
+
+- Annotation geometry: toàn bộ annotation của 5 split.
+- TinyPerson image/background/contrast: server Marimo `sb-9e3c1ab80319a9e9.sb.molab.run`, file kết quả `/marimo/tinyperson_full_stats.json`, toàn bộ ảnh, resize tối đa `1536 px`.
+- VisDrone image/background/contrast: mẫu `60 ảnh/split`, `seed=42`, vì remote server không có thư mục/mount VisDrone2019. Cần mount hoặc upload dataset trước khi chạy exhaustive VisDrone.
+
+JSON remote là artifact trung gian, không commit vào repository.
