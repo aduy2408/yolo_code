@@ -4,6 +4,8 @@ Tài liệu này tổng hợp toàn bộ thông tin về mục tiêu, kiến tr�
 
 ---
 
+> Thống kê đầy đủ cho VisDrone2019 và TinyPerson, gồm số ảnh/object, kích thước bbox, mật độ, khoảng cách, class, contrast và background: [README_DATASET_STATISTICS.md](README_DATASET_STATISTICS.md).
+
 ## 1. Tổng Quan Dự Án & Mục Tiêu
 
 Đối với ảnh chụp từ thiết bị bay không người lái (UAV/drone), các đối tượng mục tiêu (như người đi bộ, ô tô, xe máy) thường có kích thước rất nhỏ và xuất hiện với mật độ cực kỳ dày đặc. Mô hình YOLOv8 tiêu chuẩn gặp nhiều khó khăn trong việc phát hiện các vật thể này do giảm cỡ mẫu không gian quá nhanh ở các tầng sâu.
