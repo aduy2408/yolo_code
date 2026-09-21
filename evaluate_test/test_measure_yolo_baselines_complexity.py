@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
 
 MODULE_PATH = ROOT / "utils/measure_yolo_baselines_complexity.py"
 SPEC = importlib.util.spec_from_file_location("measure_yolo_baselines_complexity", MODULE_PATH)

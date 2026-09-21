@@ -16,6 +16,13 @@ import random
 import sys
 from pathlib import Path
 
+# Keep direct execution compatible with the repository-root imports.
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 ROOT = Path(__file__).resolve().parents[1]
 ULTRALYTICS = ROOT / "models_related/ultralytics"
 MODELS = {"yolov9": "yolov9t.pt", "yolov10": "yolov10n.pt"}

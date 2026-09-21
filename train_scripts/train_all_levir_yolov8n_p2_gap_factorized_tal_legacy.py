@@ -6,6 +6,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+# Keep direct execution compatible with the repository-root imports.
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import train_all_levir_yolov8n_p2_gap_factorized_tal as gap
 
 

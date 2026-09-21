@@ -12,6 +12,13 @@ import argparse
 import json
 import os
 from pathlib import Path
+
+# Keep direct execution compatible with the repository-root imports.
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
