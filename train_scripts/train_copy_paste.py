@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the matched CP0-CP3 screening matrix on LEVIR-Ship or TinyPerson.
+"""Run the matched Copy-Paste screening matrix on supported datasets.
 
 This runner intentionally defaults to printing the effective protocol. Full
 training requires the Marimo workflow marker and HF authentication so every
@@ -63,6 +63,13 @@ def _prepare(dataset: str, data_root: Path, dataset_root: Path, split_seed: int)
         test_dir = workflow.prepare_test_set(data_root, dataset_root)
         seed_dir = workflow.prepare_seed_dataset(data_root, dataset_root, test_dir, split_seed)
         return seed_dir / "tinyperson.yaml"
+    if dataset == "visdrone":
+        # VisDrone uses the official train/val/test-dev split.  The baseline
+        # converter validates all three split counts before producing one
+        # reusable YOLO-format dataset for the matrix.
+        from train_all_visdrone_yolo_baselines import prepare_dataset
+
+        return prepare_dataset(data_root, dataset_root)
     raise ValueError(f"unsupported dataset: {dataset}")
 
 
@@ -83,7 +90,11 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
     missing_metrics = [key for key in required_metrics if key not in metrics]
     if missing_metrics:
         raise RuntimeError(f"Refusing upload without split-qualified metrics for {run_dir}: {missing_metrics}")
-    remote_prefix = f"copy_paste/{dataset}/{variant}/seed_{seed}"
+    if dataset == "visdrone":
+        mosaic_name = "mosaic" if os.environ.get("COPY_PASTE_MOSAIC", "0") == "1" else "no_mosaic"
+        remote_prefix = f"copy_paste/{dataset}/{variant}/{mosaic_name}/seed_{seed}"
+    else:
+        remote_prefix = f"copy_paste/{dataset}/{variant}/seed_{seed}"
     _retry_hf(lambda: api.upload_folder(
         folder_path=str(run_dir), repo_id=repo_id, repo_type="dataset",
         path_in_repo=remote_prefix,
@@ -270,7 +281,11 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         sys.path.insert(0, str(ultralytics_path))
     from ultralytics import YOLO
 
-    run_dir = args.project / args.dataset / variant / f"seed_{seed}"
+    if args.dataset == "visdrone":
+        mosaic_name = "mosaic" if args.mosaic_interaction else "no_mosaic"
+        run_dir = args.project / args.dataset / variant / mosaic_name / f"seed_{seed}"
+    else:
+        run_dir = args.project / args.dataset / variant / f"seed_{seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
     training_artifacts = [run_dir / "weights/best.pt", run_dir / "weights/last.pt", run_dir / "results.csv"]
     training_complete = all(path.is_file() for path in training_artifacts)
@@ -332,7 +347,7 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", choices=("levir", "tinyperson"), required=True)
+    parser.add_argument("--dataset", choices=("levir", "tinyperson", "visdrone"), required=True)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--project", type=Path, required=True)
@@ -380,35 +395,41 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if args.single_seed is not None:
         args.seeds = [args.single_seed]
+    if args.dataset == "visdrone" and set(args.seeds) != {42, 43, 44}:
+        raise ValueError("The VisDrone R1/R4 matrix requires exactly training seeds 42, 43, and 44")
     if args.patience != 0:
         raise ValueError("negative-canvas full runs require patience=0")
     if args.scene_compatible_mosaic and not args.mosaic_interaction:
         raise ValueError("--scene-compatible-mosaic requires --mosaic-interaction")
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
-    configs = [effective_settings(args.dataset, variant, seed, args.split_seed, epochs=args.epochs, patience=args.patience,
-                                  imgsz=args.imgsz, batch_size=args.batch_size, device=args.device,
-                                  workers=args.workers, model=args.model, model_yaml=args.model_yaml,
-                                  pretrained=args.model, nms_iou=args.nms_iou, hf_repo_id=args.hf_repo_id,
-                                  augmentation={**variant_overrides(variant),
-                                                **({"mosaic": args.mosaic, "close_mosaic": args.close_mosaic}
-                                                   if args.mosaic_interaction else {}),
-                                                **({"scene_compatible_mosaic": True}
-                                                   if args.scene_compatible_mosaic else {}),
-                                                **({"mosaic_scale_quantile": args.mosaic_scale_quantile,
-                                                    "mosaic_scale_modes": [4, 2]}
-                                                   if args.mosaic_policy == "scale_adaptive" else {}),
-                                                **({"mosaic_policy": args.mosaic_policy,
-                                                    "mosaic_policy_candidates": 16,
-                                                    "mosaic_policy_topk": 4,
-                                                    "mosaic_visibility_thresh": 0.7,
-                                                    "mosaic_visibility_lambda": 1.0}
-                                                   if args.mosaic_interaction else {}),
-                                                "copy_paste_policy": args.copy_paste_policy,
-                                                "copy_paste_stats_path": str(args.copy_paste_stats_path or "")},
-                                  mosaic_interaction=args.mosaic_interaction,
-                                  oacp_variant=args.oacp_variant,
-                                  oacp_legacy_double=False)
-               for seed in args.seeds for variant in args.variants]
+    mosaic_modes = [(False, 0.0, 0)]
+    if args.dataset == "visdrone":
+        # The requested VisDrone experiment is exactly two augmentation
+        # policies: standard Copy-Paste on the canonical YOLOv8 detector with
+        # Mosaic off and with standard Mosaic on.
+        mosaic_modes = [(False, 0.0, 0), (True, 1.0, 10)]
+    configs = [
+        effective_settings(
+            args.dataset, variant, seed, args.split_seed,
+            epochs=args.epochs, patience=args.patience, imgsz=args.imgsz,
+            batch_size=args.batch_size, device=args.device, workers=args.workers,
+            model=args.model, model_yaml=args.model_yaml, pretrained=args.model,
+            nms_iou=args.nms_iou, hf_repo_id=args.hf_repo_id,
+            augmentation={
+                **variant_overrides(variant),
+                "mosaic": mosaic,
+                "close_mosaic": close_mosaic,
+                "copy_paste_policy": args.copy_paste_policy,
+                "copy_paste_stats_path": str(args.copy_paste_stats_path or ""),
+            },
+            mosaic_interaction=mosaic_enabled,
+            oacp_variant=args.oacp_variant,
+            oacp_legacy_double=False,
+        )
+        for mosaic_enabled, mosaic, close_mosaic in mosaic_modes
+        for seed in args.seeds
+        for variant in args.variants
+    ]
     if args.print_effective_config:
         print(json.dumps({"runs": configs}, indent=2, sort_keys=True))
         return
@@ -421,24 +442,33 @@ def main(argv: list[str] | None = None) -> None:
     if args.smoke and (len(args.seeds) != 1 or len(args.variants) != 1):
         raise ValueError("--smoke requires exactly one seed and one variant")
     require_training_context(hf_repo_id=args.hf_repo_id)
+    from utils.marimo_ops import ensure_hf_repo
+
+    ensure_hf_repo(args.hf_repo_id)
     if "negcp_offline" in args.variants and not args.negcp_bank_path and "cp0" not in args.variants:
         raise ValueError("negcp_offline without --negcp-bank-path requires cp0 in --variants for bank mining")
     ordered_variants = ["cp0"] + [variant for variant in args.variants if variant != "cp0"] if "cp0" in args.variants else list(args.variants)
     configured_bank_path = args.negcp_bank_path
-    for seed in args.seeds:
-        args.negcp_bank_path = configured_bank_path
-        for variant in ordered_variants:
-            if variant == "negcp_offline" and not configured_bank_path:
-                mine_args = argparse.Namespace(**vars(args))
-                mine_args.device = args.negcp_mine_device
-                args.negcp_bank_path = _mine_negcp_bank(
-                    mine_args,
-                    data_yaml,
-                    args.project / args.dataset / "cp0" / f"seed_{seed}" / "weights" / "best.pt",
-                    args.project / args.dataset / "negcp_banks" / f"split_{args.split_seed}_seed_{seed}.json",
-                )
-            run_dir = _run_one(args, data_yaml, variant, seed)
-            _upload(run_dir, args.hf_repo_id, args.dataset, variant, seed)
+    for mosaic_interaction, mosaic, close_mosaic in mosaic_modes:
+        run_args = argparse.Namespace(**vars(args))
+        run_args.mosaic_interaction = mosaic_interaction
+        run_args.mosaic = mosaic
+        run_args.close_mosaic = close_mosaic
+        os.environ["COPY_PASTE_MOSAIC"] = "1" if mosaic_interaction else "0"
+        for seed in args.seeds:
+            run_args.negcp_bank_path = configured_bank_path
+            for variant in ordered_variants:
+                if variant == "negcp_offline" and not configured_bank_path:
+                    mine_args = argparse.Namespace(**vars(run_args))
+                    mine_args.device = args.negcp_mine_device
+                    run_args.negcp_bank_path = _mine_negcp_bank(
+                        mine_args,
+                        data_yaml,
+                        args.project / args.dataset / "cp0" / ("mosaic" if mosaic_interaction else "no_mosaic") / f"seed_{seed}" / "weights" / "best.pt",
+                        args.project / args.dataset / "negcp_banks" / f"split_{args.split_seed}_seed_{seed}.json",
+                    )
+                run_dir = _run_one(run_args, data_yaml, variant, seed)
+                _upload(run_dir, args.hf_repo_id, args.dataset, variant, seed)
 
 
 if __name__ == "__main__":
