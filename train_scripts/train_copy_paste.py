@@ -67,7 +67,7 @@ def _prepare(dataset: str, data_root: Path, dataset_root: Path, split_seed: int)
         # VisDrone uses the official train/val/test-dev split.  The baseline
         # converter validates all three split counts before producing one
         # reusable YOLO-format dataset for the matrix.
-        from train_all_visdrone_yolo_baselines import prepare_dataset
+        from train_scripts.train_all_visdrone_yolo_baselines import prepare_dataset
 
         return prepare_dataset(data_root, dataset_root)
     raise ValueError(f"unsupported dataset: {dataset}")
