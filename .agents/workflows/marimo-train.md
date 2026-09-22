@@ -326,9 +326,11 @@ After launch, check briefly. Do not repeatedly stream long logs:
 ```
 
 Run this command through the live Marimo runtime using the configured Marimo
-connection. Do not run it through SSH or replace it with `ps`, `/proc`, `tail`,
-`nvidia-smi`, or a host-level network probe. Use `utils.marimo_ops status` for
-process, log, artifact, and continuation evidence. Use
+connection. Do not run it through SSH or replace it with host-level `ps`,
+`/proc`, `tail`, or network probes. When GPU state is relevant, `nvidia-smi` is
+allowed only when executed inside the authenticated live Marimo runtime through
+the approved connection. Use `utils.marimo_ops status` for process, log,
+artifact, and continuation evidence. Use
 `utils.marimo_ops artifacts` and `complete_verified` for artifact and upload
 gates. The `marimo-pair` skill's `discover-servers.sh` and
 `execute-code.sh --url ...` are the approved live-runtime connection path when
