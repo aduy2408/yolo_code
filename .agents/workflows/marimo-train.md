@@ -55,6 +55,11 @@ substituting validation metrics.
 - Use the workflow when the task involves a long-running remote experiment.
 - Use the `marimo-pair` skill only for live-kernel interaction. Keep orchestration
   logic in repository code, not in ad-hoc scratchpad snippets.
+- **Never use SSH, SCP, SFTP, or direct shell probing against a Marimo host for
+  training, monitoring, recovery, artifact inspection, or upload verification.**
+  An SSH timeout is not evidence that the Marimo runtime or detached training
+  process is unavailable. Use the live Marimo connection and the repository
+  helpers instead.
 - Connect to the live Marimo runtime through the repository command-line helper
   (`utils/marimo_run.py`) and its configured API credentials. Do not open or
   probe the Marimo URL through a browser as a substitute for that connection.
@@ -319,6 +324,15 @@ After launch, check briefly. Do not repeatedly stream long logs:
 /marimo/mmdet-venv/bin/python -m utils.marimo_ops status \
   --run-dir /marimo/yolo_code/runs/<experiment>
 ```
+
+Run this command through the live Marimo runtime using the configured Marimo
+connection. Do not run it through SSH or replace it with `ps`, `/proc`, `tail`,
+`nvidia-smi`, or a host-level network probe. Use `utils.marimo_ops status` for
+process, log, artifact, and continuation evidence. Use
+`utils.marimo_ops artifacts` and `complete_verified` for artifact and upload
+gates. The `marimo-pair` skill's `discover-servers.sh` and
+`execute-code.sh --url ...` are the approved live-runtime connection path when
+the repository's configured helper is not being used.
 
 A useful status report distinguishes:
 
