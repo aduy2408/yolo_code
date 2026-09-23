@@ -163,7 +163,7 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
     def _on_selected_canvas(self, labels: dict[str, Any], existing: list[Any]) -> None:
         self.stats["negative_selected"] += 1
 
-    def _sample_target_size(self) -> float:
+    def _sample_target_size(self, labels: dict[str, Any] | None = None) -> float:
         if not self.scale_bins or not self.target_sizes:
             raise ValueError("negative-canvas study requires at least one small target object")
         if self.target_policy == "empirical":
@@ -191,13 +191,18 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         height = max(y2 - y1, 0)
         return math.sqrt(max(width * height, 1e-8))
 
-    def _choose_donor(self, target_size: float):
+    def _choose_donor(self, target_size: float, labels: dict[str, Any] | None = None):
         candidates = []
         for record in self.object_pool:
             source_size = self._effective_source_size(record)
             if self._donor_valid(source_size, target_size):
                 candidates.append((record, source_size))
         return self.rng.choice(candidates) if candidates else None
+
+    def _source_target_ratio(
+        self, source_size: float, target_size: float, record: ObjectRecord, labels: dict[str, Any]
+    ) -> float:
+        return source_size / max(target_size, 1e-8)
 
     def _apply_degradation(self, crop: np.ndarray) -> np.ndarray:
         if self.degradation == "none":
@@ -234,8 +239,8 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
             self.stats["donor_failed"] += 1
             return labels
 
-        target_size = self._sample_target_size()
-        selected = self._choose_donor(target_size)
+        target_size = self._sample_target_size(labels)
+        selected = self._choose_donor(target_size, labels)
         if selected is None:
             self.stats["donor_failed"] += 1
             return labels
@@ -266,7 +271,9 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         self.stats["pasted_instances"] += 1
         self.stats["target_size_sum"] += target_size
         self.stats["source_size_sum"] += source_size
-        self.stats["source_target_ratio_sum"] += source_size / max(target_size, 1e-8)
+        self.stats["source_target_ratio_sum"] += self._source_target_ratio(
+            source_size, target_size, record, labels
+        )
         self.stats["resize_factor_sum"] += factor
         if self.degradation == "weak_blur":
             self.stats["degradation_applied"] += 1
@@ -315,6 +322,7 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
         sparse_object_quantile: float = 0.20,
         sparse_max_objects: int | None = None,
         max_new_objects: int = 1,
+        stats_path: str | Path | None = None,
         **kwargs,
     ) -> None:
         if not 0.0 <= sparse_object_quantile <= 1.0:
@@ -328,6 +336,12 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
         self.sparse_object_quantile = float(sparse_object_quantile)
         self.sparse_max_objects = sparse_max_objects
         self.max_new_objects = int(max_new_objects)
+        self.normalized_target_sizes: list[float] = []
+        self.normalized_scale_bins: Counter[int] = Counter()
+        self.normalized_scale_bin_values: dict[int, list[float]] = {}
+        self.sparse_positive_scene_count = 0
+        self._last_target_normalized = None
+        self.stats_path = Path(stats_path) if stats_path else None
         self.stats.update({
             "sparse_seen": 0,
             "sparse_selected": 0,
@@ -340,12 +354,95 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
     def _build_pool(self) -> None:
         super()._build_pool()
         if self.sparse_max_objects is None:
-            counts = [len(label.get("bboxes", ())) for label in getattr(self.dataset, "labels", ())]
+            counts = [
+                len(label.get("bboxes", ()))
+                for label in getattr(self.dataset, "labels", ())
+                if len(label.get("bboxes", ())) > 0
+            ]
             if not counts:
                 raise ValueError("sparse canvas requires dataset labels")
             self.sparse_max_objects = max(
                 1, int(math.floor(float(np.quantile(counts, self.sparse_object_quantile))))
             )
+        self.sparse_positive_scene_count = sum(
+            len(label.get("bboxes", ())) > 0
+            for label in getattr(self.dataset, "labels", ())
+        )
+        for record in self.object_pool:
+            raw_size = self._effective_source_size(record)
+            height, width = self._source_shape(record.image_index)
+            normalized = raw_size / max(math.sqrt(height * width), 1e-8)
+            self.normalized_target_sizes.append(normalized)
+            bin_id = self._bin(normalized * 1000.0)
+            self.normalized_scale_bins[bin_id] += 1
+            self.normalized_scale_bin_values.setdefault(bin_id, []).append(normalized)
+
+    def _source_shape(self, image_index: int) -> tuple[int, int]:
+        labels = getattr(self.dataset, "labels", ())
+        if 0 <= int(image_index) < len(labels):
+            shape = labels[int(image_index)].get("shape")
+            if shape is not None:
+                return int(shape[0]), int(shape[1])
+        paths = getattr(self.dataset, "im_files", ())
+        image = cv2.imread(str(paths[int(image_index)]), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError(f"unable to determine source image shape for index {image_index}")
+        return int(image.shape[0]), int(image.shape[1])
+
+    def _final_scale(self, labels: dict[str, Any]) -> float:
+        height, width = labels["img"].shape[:2]
+        return math.sqrt(height * width)
+
+    def _sample_target_size(self, labels: dict[str, Any] | None = None) -> float:
+        if labels is None:
+            return super()._sample_target_size(labels)
+        final_scale = self._final_scale(labels)
+        candidates = [
+            value for value in self.normalized_target_sizes
+            if value * final_scale <= self.target_max_size
+        ]
+        if not candidates:
+            raise ValueError("sparse canvas has no target size valid for the final canvas")
+        if self.target_policy == "empirical":
+            normalized = float(self.rng.choice(candidates))
+        else:
+            bins = sorted(self.normalized_scale_bins)
+            bins = [
+                bin_id for bin_id in bins
+                if any(value * final_scale <= self.target_max_size for value in self.normalized_scale_bin_values[bin_id])
+            ]
+            counts = np.asarray([
+                sum(value * final_scale <= self.target_max_size for value in self.normalized_scale_bin_values[bin_id])
+                for bin_id in bins
+            ], dtype=np.float64)
+            weights = np.power(counts + 1e-6, -self.deficit_gamma)
+            weights = np.maximum(weights, weights.max() / self.max_weight_ratio)
+            weights /= weights.sum()
+            selected_bin = self.rng.choices(bins, weights=weights.tolist(), k=1)[0]
+            values = [
+                value for value in self.normalized_scale_bin_values[selected_bin]
+                if value * final_scale <= self.target_max_size
+            ]
+            normalized = float(self.rng.choice(values))
+        self._last_target_normalized = normalized
+        return normalized * final_scale
+
+    def _choose_donor(self, target_size: float, labels: dict[str, Any] | None = None):
+        if labels is None or self._last_target_normalized is None:
+            return super()._choose_donor(target_size, labels)
+        candidates = []
+        for record in self.object_pool:
+            raw_size = self._effective_source_size(record)
+            height, width = self._source_shape(record.image_index)
+            normalized = raw_size / max(math.sqrt(height * width), 1e-8)
+            if self._donor_valid(normalized, self._last_target_normalized):
+                candidates.append((record, raw_size))
+        return self.rng.choice(candidates) if candidates else None
+
+    def _source_target_ratio(self, source_size, target_size, record, labels):
+        height, width = self._source_shape(record.image_index)
+        source_normalized = source_size / max(math.sqrt(height * width), 1e-8)
+        return source_normalized / max(self._last_target_normalized or 1e-8, 1e-8)
 
     def reset_stats(self) -> None:
         super().reset_stats()
@@ -376,13 +473,33 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
 
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         before = len(self._target_boxes(labels))
+        selected_before = int(self.stats["sparse_selected"])
+        applied_before = int(self.stats["applied_images"])
+        donor_failed_before = int(self.stats["donor_failed"])
+        placement_failed_before = int(self.stats["placement_failed"])
         out = super().__call__(labels)
         after = len(self._target_boxes(out))
         if after > before + self.max_new_objects:
             self.stats["density_budget_rejected"] += 1
-            return labels
-        if after > before:
+            out = labels
+        elif after > before:
             self.stats["objects_after_sum"] += after
+        self._append_event({
+            "eligible": int(0 < before <= int(self.sparse_max_objects)),
+            "selected": int(self.stats["sparse_selected"] > selected_before),
+            "applied": int(self.stats["applied_images"] > applied_before),
+            "donor_failed": int(self.stats["donor_failed"] > donor_failed_before),
+            "placement_failed": int(self.stats["placement_failed"] > placement_failed_before),
+            "objects_before": before,
+            "objects_after": after,
+        })
         return out
+
+    def _append_event(self, event: dict[str, Any]) -> None:
+        if self.stats_path is None:
+            return
+        self.stats_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.stats_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, sort_keys=True) + "\n")
 
 __all__ = ["NegativeCanvasCopyPaste", "SparseCanvasCopyPaste"]

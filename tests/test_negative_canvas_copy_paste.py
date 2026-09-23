@@ -117,6 +117,24 @@ def test_sparse_r1_skips_dense_positive_scene(tmp_path):
     assert transform.stats["sparse_skipped_dense"] == 1
 
 
+def test_sparse_r1_normalizes_target_size_to_final_canvas(tmp_path):
+    dataset = _dataset(tmp_path)
+    for label in dataset.labels:
+        label["shape"] = (1920, 1080)
+    transform = SparseCanvasCopyPaste(
+        dataset, p=1.0, sparse_max_objects=3,
+        target_policy="empirical", donor_policy="matched",
+        target_max_size=8.0, rng=random.Random(4), max_trials=100,
+    )
+    labels = _labels(
+        np.zeros((64, 64, 3), np.uint8),
+        [[1, 1, 5, 5], [10, 10, 14, 14], [20, 20, 24, 24]],
+        im_file=dataset.im_files[0],
+    )
+    transform(labels)
+    assert 0.0 < transform.stats["target_size_sum"] < 2.0
+
+
 def test_donor_policy_ranges_are_disjoint(tmp_path):
     transform = NegativeCanvasCopyPaste(_dataset(tmp_path), target_max_size=8.0)
     assert transform._donor_valid(8.0, 8.0)

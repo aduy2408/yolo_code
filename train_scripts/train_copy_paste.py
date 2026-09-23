@@ -227,18 +227,54 @@ def _mine_negcp_bank(args: argparse.Namespace, data_yaml: Path, checkpoint: Path
     return output
 
 
-def _find_copy_paste_diagnostics(obj):
-    """Find the configured small-object transform in a nested Compose tree."""
+def _find_copy_paste_diagnostics(obj, _seen=None):
+    """Find the configured small-object transform through Compose wrappers."""
     if obj is None:
         return None
+    if _seen is None:
+        _seen = set()
+    marker = id(obj)
+    if marker in _seen:
+        return None
+    _seen.add(marker)
     diagnostics = getattr(obj, "diagnostics", None)
     if callable(diagnostics):
         return diagnostics()
-    for child in getattr(obj, "transforms", []) or []:
-        found = _find_copy_paste_diagnostics(child)
+    children = list(getattr(obj, "transforms", []) or [])
+    for attribute in ("normal_pipeline", "clean_pipeline", "pipeline", "transform"):
+        child = getattr(obj, attribute, None)
+        if child is not None:
+            children.append(child)
+    for child in children:
+        found = _find_copy_paste_diagnostics(child, _seen)
         if found is not None:
             return found
     return None
+
+
+def _aggregate_sparse_events(path: Path):
+    if not path.is_file():
+        return None
+    events = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            events.append(json.loads(line))
+    if not events:
+        return None
+    count = len(events)
+    total = lambda key: sum(int(event.get(key, 0)) for event in events)
+    before = [int(event.get("objects_before", 0)) for event in events]
+    after = [int(event.get("objects_after", 0)) for event in events]
+    return {
+        "sparse/events": count,
+        "sparse/eligible_images": total("eligible"),
+        "sparse/selected_images": total("selected"),
+        "sparse/applied_images": total("applied"),
+        "sparse/donor_failed": total("donor_failed"),
+        "sparse/placement_failed": total("placement_failed"),
+        "sparse/mean_objects_before": sum(before) / count,
+        "sparse/mean_objects_after": sum(after) / count,
+    }
 
 
 def _split_metrics(result, split: str) -> dict[str, float]:
@@ -307,6 +343,10 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
     settings = variant_overrides(variant)
     settings["copy_paste_policy"] = args.copy_paste_policy
     settings["copy_paste_stats_path"] = str(args.copy_paste_stats_path or "")
+    sparse_event_path = None
+    if variant == "visdrone_sparse_r1":
+        sparse_event_path = run_dir / "sparse_copy_paste_events.jsonl"
+        settings["copy_paste_stats_path"] = str(sparse_event_path)
     if variant == "negcp_offline":
         if not args.negcp_bank_path:
             raise RuntimeError("negcp_offline requires --negcp-bank-path or an auto-mined CP0 bank")
@@ -331,10 +371,12 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
             deterministic=True, amp=True, plots=False, project=str(run_dir.parent),
             name=run_dir.name, exist_ok=True, val=True, iou=args.nms_iou, **settings,
         )
-        cp_diagnostics = _find_copy_paste_diagnostics(
-            getattr(getattr(model, "trainer", None), "train_loader", None)
-            and model.trainer.train_loader.dataset.transforms
-        )
+        cp_diagnostics = _aggregate_sparse_events(sparse_event_path) if sparse_event_path else None
+        if cp_diagnostics is None:
+            cp_diagnostics = _find_copy_paste_diagnostics(
+                getattr(getattr(model, "trainer", None), "train_loader", None)
+                and model.trainer.train_loader.dataset.transforms
+            )
         if cp_diagnostics is not None:
             (run_dir / "copy_paste_diagnostics.json").write_text(
                 json.dumps(cp_diagnostics, indent=2, sort_keys=True) + "\n", encoding="utf-8"

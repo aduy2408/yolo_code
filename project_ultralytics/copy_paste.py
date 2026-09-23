@@ -794,6 +794,7 @@ def build_small_object_copy_paste(dataset, hyp):
                 "sparse_object_quantile": float(getattr(hyp, "sparse_object_quantile", 0.20)),
                 "sparse_max_objects": getattr(hyp, "sparse_max_objects", None),
                 "max_new_objects": int(getattr(hyp, "sparse_max_new_objects", 1)),
+                "stats_path": getattr(hyp, "copy_paste_stats_path", "") or "",
             }
         return transform_cls(
             dataset=dataset,
