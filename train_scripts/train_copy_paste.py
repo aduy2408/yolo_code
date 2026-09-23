@@ -452,7 +452,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if args.single_seed is not None:
         args.seeds = [args.single_seed]
-    if args.dataset == "visdrone" and not args.smoke and set(args.seeds) != {42, 43, 44}:
+    sparse_single_seed_trial = set(args.variants) == {"visdrone_sparse_r1"} and set(args.seeds) == {42}
+    if args.dataset == "visdrone" and not args.smoke and not sparse_single_seed_trial and set(args.seeds) != {42, 43, 44}:
         raise ValueError("The VisDrone R1/R4 matrix requires exactly training seeds 42, 43, and 44")
     if args.patience != 0:
         raise ValueError("negative-canvas full runs require patience=0")
