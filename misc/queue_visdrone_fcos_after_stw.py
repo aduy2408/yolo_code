@@ -72,6 +72,7 @@ def main() -> None:
     parser.add_argument("--model-yaml", default="/marimo/STW-YOLO/Lib/p2_rp5_yolo12s.yaml")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--hf-repo-id", default="duyle2408/visdrone-fcos-set-runs")
