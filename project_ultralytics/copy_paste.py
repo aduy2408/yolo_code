@@ -784,10 +784,18 @@ def build_small_object_copy_paste(dataset, hyp):
             debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
             rng=getattr(hyp, "copy_paste_rng", None),
         )
-    if mode == "negative_canvas":
-        from .negative_canvas_copy_paste import NegativeCanvasCopyPaste
+    if mode in {"negative_canvas", "sparse_canvas"}:
+        from .negative_canvas_copy_paste import NegativeCanvasCopyPaste, SparseCanvasCopyPaste
 
-        return NegativeCanvasCopyPaste(
+        transform_cls = SparseCanvasCopyPaste if mode == "sparse_canvas" else NegativeCanvasCopyPaste
+        sparse_kwargs = {}
+        if mode == "sparse_canvas":
+            sparse_kwargs = {
+                "sparse_object_quantile": float(getattr(hyp, "sparse_object_quantile", 0.20)),
+                "sparse_max_objects": getattr(hyp, "sparse_max_objects", None),
+                "max_new_objects": int(getattr(hyp, "sparse_max_new_objects", 1)),
+            }
+        return transform_cls(
             dataset=dataset,
             p=float(getattr(hyp, "negative_cp_p", 0.30)),
             target_policy=str(getattr(hyp, "negative_cp_target_policy", "empirical")),
@@ -803,6 +811,7 @@ def build_small_object_copy_paste(dataset, hyp):
             max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
             debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
             rng=getattr(hyp, "copy_paste_rng", None),
+            **sparse_kwargs,
         )
     if mode in {"online_negative", "online_negative_scale_matched"}:
         from .online_negative_bank import OnlineHardNegativeBank, OnlineNegativeCopyPaste
@@ -926,6 +935,9 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "scale_cp_factor_max": float(getattr(hyp, "scale_cp_factor_max", 0.90)),
         "negative_cp_target_policy": str(getattr(hyp, "negative_cp_target_policy", "empirical")),
         "negative_cp_p": float(getattr(hyp, "negative_cp_p", 0.30)),
+        "sparse_object_quantile": float(getattr(hyp, "sparse_object_quantile", 0.20)),
+        "sparse_max_objects": getattr(hyp, "sparse_max_objects", None),
+        "sparse_max_new_objects": int(getattr(hyp, "sparse_max_new_objects", 1)),
         "negative_cp_donor_policy": str(getattr(hyp, "negative_cp_donor_policy", "matched")),
         "negative_cp_target_max_size": float(getattr(hyp, "negative_cp_target_max_size", 20.0)),
         "negative_cp_deficit_gamma": float(getattr(hyp, "negative_cp_deficit_gamma", 0.5)),

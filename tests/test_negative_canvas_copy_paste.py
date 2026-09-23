@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 from project_ultralytics.copy_paste import build_small_object_copy_paste, copy_paste_config
-from project_ultralytics.negative_canvas_copy_paste import NegativeCanvasCopyPaste
+from project_ultralytics.negative_canvas_copy_paste import NegativeCanvasCopyPaste, SparseCanvasCopyPaste
 from ultralytics.utils.instance import Instances
 
 
@@ -81,6 +81,42 @@ def test_r1_matches_donor_and_adds_one_target_sized_instance(tmp_path):
     assert result_size == 8.0
 
 
+def test_sparse_r1_adds_one_object_to_low_occupancy_positive_scene(tmp_path):
+    transform = SparseCanvasCopyPaste(
+        _dataset(tmp_path), p=1.0, sparse_max_objects=3,
+        target_policy="empirical", donor_policy="matched",
+        target_max_size=8.0, rng=random.Random(4), max_trials=100,
+    )
+    labels = _labels(
+        np.zeros((64, 64, 3), np.uint8),
+        [[1, 1, 5, 5], [10, 10, 14, 14], [20, 20, 24, 24]],
+        im_file=_dataset(tmp_path).im_files[0],
+    )
+    out = transform(labels)
+    assert len(out["instances"]) == 4
+    assert transform.stats["sparse_seen"] == 1
+    assert transform.stats["sparse_selected"] == 1
+    assert transform.stats["applied_images"] == 1
+    assert transform.stats["objects_before_sum"] == 3
+    assert transform.stats["objects_after_sum"] == 4
+
+
+def test_sparse_r1_skips_dense_positive_scene(tmp_path):
+    transform = SparseCanvasCopyPaste(
+        _dataset(tmp_path), p=1.0, sparse_max_objects=2,
+        target_max_size=8.0, rng=random.Random(4), max_trials=100,
+    )
+    labels = _labels(
+        np.zeros((64, 64, 3), np.uint8),
+        [[1, 1, 5, 5], [10, 10, 14, 14], [20, 20, 24, 24]],
+        im_file=_dataset(tmp_path).im_files[0],
+    )
+    out = transform(labels)
+    assert len(out["instances"]) == 3
+    assert transform.stats["sparse_seen"] == 0
+    assert transform.stats["sparse_skipped_dense"] == 1
+
+
 def test_donor_policy_ranges_are_disjoint(tmp_path):
     transform = NegativeCanvasCopyPaste(_dataset(tmp_path), target_max_size=8.0)
     assert transform._donor_valid(8.0, 8.0)
@@ -140,6 +176,27 @@ def test_builder_and_manifest_record_all_negative_canvas_fields(tmp_path):
     assert config["negative_cp_donor_policy"] == "larger"
     assert config["negative_cp_degradation"] == "weak_blur"
     assert config["negative_cp_large_ratio_max"] == 2.5
+
+
+def test_builder_registers_sparse_canvas_fields(tmp_path):
+    hyp = SimpleNamespace(
+        copy_paste_enabled=True,
+        copy_paste_mode="sparse_canvas",
+        negative_cp_p=0.20,
+        negative_cp_target_policy="empirical",
+        negative_cp_donor_policy="matched",
+        negative_cp_target_max_size=32.0,
+        sparse_object_quantile=0.20,
+        sparse_max_objects=None,
+        sparse_max_new_objects=1,
+        copy_paste_max_trials=30,
+    )
+    transform = build_small_object_copy_paste(_dataset(tmp_path), hyp)
+    assert isinstance(transform, SparseCanvasCopyPaste)
+    config = copy_paste_config(hyp)
+    assert config["mode"] == "sparse_canvas"
+    assert config["sparse_object_quantile"] == 0.20
+    assert config["sparse_max_new_objects"] == 1
 
 
 def test_original_positive_with_dropped_current_boxes_is_not_negative(tmp_path):
