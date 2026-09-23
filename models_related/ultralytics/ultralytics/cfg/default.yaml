@@ -387,6 +387,7 @@ negative_cp_blur_sigma: 0.5 # (float) fixed weak-blur sigma
 sparse_object_quantile: 0.20 # (float) positive-scene object-count quantile for sparse R1
 sparse_max_objects: null # (int, optional) explicit sparse-scene object-count cap
 sparse_max_new_objects: 1 # (int) sparse R1 object budget per canvas
+sparse_target_increment: 0.0 # (float) adaptive sparse target increase as a fraction of current objects
 auto_augment: randaugment # (str) classification auto augmentation policy: randaugment, autoaugment, augmix
 erasing: 0.4 # (float) random erasing probability for classification (0.0–1.0)
 

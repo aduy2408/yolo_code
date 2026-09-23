@@ -794,6 +794,7 @@ def build_small_object_copy_paste(dataset, hyp):
                 "sparse_object_quantile": float(getattr(hyp, "sparse_object_quantile", 0.20)),
                 "sparse_max_objects": getattr(hyp, "sparse_max_objects", None),
                 "max_new_objects": int(getattr(hyp, "sparse_max_new_objects", 1)),
+                "target_increment": float(getattr(hyp, "sparse_target_increment", 0.0)),
                 "stats_path": getattr(hyp, "copy_paste_stats_path", "") or "",
             }
         return transform_cls(
@@ -939,6 +940,7 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "sparse_object_quantile": float(getattr(hyp, "sparse_object_quantile", 0.20)),
         "sparse_max_objects": getattr(hyp, "sparse_max_objects", None),
         "sparse_max_new_objects": int(getattr(hyp, "sparse_max_new_objects", 1)),
+        "sparse_target_increment": float(getattr(hyp, "sparse_target_increment", 0.0)),
         "negative_cp_donor_policy": str(getattr(hyp, "negative_cp_donor_policy", "matched")),
         "negative_cp_target_max_size": float(getattr(hyp, "negative_cp_target_max_size", 20.0)),
         "negative_cp_deficit_gamma": float(getattr(hyp, "negative_cp_deficit_gamma", 0.5)),

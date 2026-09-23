@@ -222,34 +222,23 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         image_path.with_suffix(".json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         self.stats["debug_dump_count"] += 1
 
-    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
-        self._build_pool()
-        if not self._eligible_canvas(labels):
-            return labels
-        existing = self._target_boxes(labels)
-        if len(existing) != 0 and not self.allow_existing_instances:
-            return labels
-
-        self._on_eligible_canvas(labels, existing)
-        if self.p <= 0 or self.rng.random() >= self.p:
-            return labels
-        self._on_selected_canvas(labels, existing)
-
+    def _paste_one(self, labels: dict[str, Any], existing: list[Any]) -> bool:
+        """Paste one donor object onto an already selected canvas."""
         if not self.target_sizes:
             self.stats["donor_failed"] += 1
-            return labels
+            return False
 
         target_size = self._sample_target_size(labels)
         selected = self._choose_donor(target_size, labels)
         if selected is None:
             self.stats["donor_failed"] += 1
-            return labels
+            return False
         record, source_size = selected
         source_image = self._load_raw(record.image_index)
         prepared = self._crop_single(record, source_image) if source_image is not None else None
         if prepared is None:
             self.stats["donor_failed"] += 1
-            return labels
+            return False
         crop, source_box = prepared
         source_size = math.sqrt(max(_box_area(source_box), 1e-8))
         factor = target_size / max(source_size, 1e-8)
@@ -258,7 +247,7 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         destination = self._choose_destination(crop.shape[:2], labels["img"].shape[:2], existing)
         if destination is None:
             self.stats["placement_failed"] += 1
-            return labels
+            return False
 
         x, y, box = destination
         labels["img"][y:y + crop.shape[0], x:x + crop.shape[1]] = crop
@@ -267,7 +256,6 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
             [box.reshape(1, 4)],
             [np.array([record.class_id], dtype=np.int64)],
         )
-        self.stats["applied_images"] += 1
         self.stats["pasted_instances"] += 1
         self.stats["target_size_sum"] += target_size
         self.stats["source_size_sum"] += source_size
@@ -287,6 +275,24 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
             "degradation": self.degradation,
             "blur_sigma": self.blur_sigma,
         })
+        return True
+
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
+        self._build_pool()
+        if not self._eligible_canvas(labels):
+            return labels
+        existing = self._target_boxes(labels)
+        if len(existing) != 0 and not self.allow_existing_instances:
+            return labels
+
+        self._on_eligible_canvas(labels, existing)
+        if self.p <= 0 or self.rng.random() >= self.p:
+            return labels
+        self._on_selected_canvas(labels, existing)
+
+        if not self._paste_one(labels, existing):
+            return labels
+        self.stats["applied_images"] += 1
         return labels
 
     def diagnostics(self) -> dict[str, float]:
@@ -311,7 +317,7 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
 
     VisDrone has no naturally empty images, so the original negative-canvas
     gate would be a no-op. This variant selects scenes at or below an object
-    count quantile, permits one additional object, and records sparse-scene
+    count quantile, permits a bounded adaptive number of additional objects, and records sparse-scene
     eligibility separately from the legacy negative-canvas counters.
     """
 
@@ -322,6 +328,7 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
         sparse_object_quantile: float = 0.20,
         sparse_max_objects: int | None = None,
         max_new_objects: int = 1,
+        target_increment: float = 0.0,
         stats_path: str | Path | None = None,
         **kwargs,
     ) -> None:
@@ -329,13 +336,16 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
             raise ValueError("sparse_object_quantile must be in [0, 1]")
         if sparse_max_objects is not None and sparse_max_objects < 1:
             raise ValueError("sparse_max_objects must be positive when provided")
-        if max_new_objects != 1:
-            raise ValueError("sparse R1 is fixed to one new object")
+        if max_new_objects < 1:
+            raise ValueError("max_new_objects must be positive")
+        if target_increment < 0.0:
+            raise ValueError("target_increment must be non-negative")
         super().__init__(dataset=dataset, p=p, **kwargs)
         self.allow_existing_instances = True
         self.sparse_object_quantile = float(sparse_object_quantile)
         self.sparse_max_objects = sparse_max_objects
         self.max_new_objects = int(max_new_objects)
+        self.target_increment = float(target_increment)
         self.normalized_target_sizes: list[float] = []
         self.normalized_scale_bins: Counter[int] = Counter()
         self.normalized_scale_bin_values: dict[int, list[float]] = {}
@@ -350,6 +360,7 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
             "objects_before_sum": 0,
             "objects_after_sum": 0,
             "density_budget_rejected": 0,
+            "requested_instances": 0,
         })
 
     def _build_pool(self) -> None:
@@ -457,6 +468,7 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
             "objects_before_sum": 0,
             "objects_after_sum": 0,
             "density_budget_rejected": 0,
+            "requested_instances": 0,
         })
 
     def _eligible_canvas(self, labels: dict[str, Any]) -> bool:
@@ -475,15 +487,51 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
     def _on_selected_canvas(self, labels: dict[str, Any], existing: list[Any]) -> None:
         self.stats["sparse_selected"] += 1
 
+    def _requested_instances(self, objects_before: int) -> int:
+        if self.target_increment <= 0.0:
+            return self.max_new_objects
+        requested = max(1, int(math.ceil(self.target_increment * max(objects_before, 1))))
+        return min(self.max_new_objects, requested)
+
     def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
         before = len(self._target_boxes(labels))
         selected_before = int(self.stats["sparse_selected"])
         applied_before = int(self.stats["applied_images"])
         donor_failed_before = int(self.stats["donor_failed"])
         placement_failed_before = int(self.stats["placement_failed"])
-        out = super().__call__(labels)
+        self._build_pool()
+        if not self._eligible_canvas(labels):
+            self._append_event({
+                "eligible": 0,
+                "selected": 0,
+                "applied": 0,
+                "donor_failed": 0,
+                "placement_failed": 0,
+                "requested_instances": 0,
+                "applied_instances": 0,
+                "objects_before": before,
+                "objects_after": before,
+            })
+            return labels
+        existing = self._target_boxes(labels)
+        self._on_eligible_canvas(labels, existing)
+        requested = 0
+        if self.p > 0 and self.rng.random() < self.p:
+            self._on_selected_canvas(labels, existing)
+            requested = self._requested_instances(before)
+            self.stats["requested_instances"] += requested
+            applied_instances = 0
+            for _ in range(requested):
+                if not self._paste_one(labels, existing):
+                    break
+                applied_instances += 1
+                existing = self._target_boxes(labels)
+            if applied_instances:
+                self.stats["applied_images"] += 1
+        out = labels
         after = len(self._target_boxes(out))
-        if after > before + self.max_new_objects:
+        applied_instances = after - before
+        if applied_instances > self.max_new_objects:
             self.stats["density_budget_rejected"] += 1
             out = labels
         elif after > before:
@@ -494,6 +542,8 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
             "applied": int(self.stats["applied_images"] > applied_before),
             "donor_failed": int(self.stats["donor_failed"] > donor_failed_before),
             "placement_failed": int(self.stats["placement_failed"] > placement_failed_before),
+            "requested_instances": requested,
+            "applied_instances": max(0, applied_instances),
             "objects_before": before,
             "objects_after": after,
         })

@@ -151,6 +151,18 @@ def test_sparse_r1_normalized_pool_is_built_once_and_survives_stat_reset(tmp_pat
     assert transform.normalized_target_sizes == first_sizes
 
 
+def test_sparse_adaptive_target_increment_is_capped(tmp_path):
+    transform = SparseCanvasCopyPaste(
+        _dataset(tmp_path), p=1.0, sparse_max_objects=100,
+        max_new_objects=4, target_increment=0.05,
+        target_max_size=8.0, rng=random.Random(4), max_trials=100,
+    )
+    assert transform._requested_instances(1) == 1
+    assert transform._requested_instances(48) == 3
+    assert transform._requested_instances(77) == 4
+    assert transform._requested_instances(200) == 4
+
+
 def test_donor_policy_ranges_are_disjoint(tmp_path):
     transform = NegativeCanvasCopyPaste(_dataset(tmp_path), target_max_size=8.0)
     assert transform._donor_valid(8.0, 8.0)
@@ -223,6 +235,7 @@ def test_builder_registers_sparse_canvas_fields(tmp_path):
         sparse_object_quantile=0.20,
         sparse_max_objects=None,
         sparse_max_new_objects=1,
+        sparse_target_increment=0.0,
         copy_paste_max_trials=30,
     )
     transform = build_small_object_copy_paste(_dataset(tmp_path), hyp)
@@ -231,6 +244,7 @@ def test_builder_registers_sparse_canvas_fields(tmp_path):
     assert config["mode"] == "sparse_canvas"
     assert config["sparse_object_quantile"] == 0.20
     assert config["sparse_max_new_objects"] == 1
+    assert config["sparse_target_increment"] == 0.0
 
 
 def test_original_positive_with_dropped_current_boxes_is_not_negative(tmp_path):
