@@ -91,6 +91,9 @@ def main() -> None:
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--device", default="cuda")
     p.add_argument("--hf-repo-id", required=True)
+    p.add_argument("--seed", type=int, default=SEED)
+    p.add_argument("--split-seed", type=int, default=SEED)
+    p.add_argument("--model-yaml", type=Path, default=None)
     args = p.parse_args()
     from utils.marimo_ops import require_training_context
     require_training_context(hf_repo_id=args.hf_repo_id)
@@ -101,9 +104,9 @@ def main() -> None:
     data_yaml = convert(args.data_root.resolve(), args.dataset_root.resolve())
     run_dir = args.project.resolve() / "stw_yolo" / "mosaic" / f"seed_{SEED}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    model_yaml = STW_ROOT / "Lib/p2_rp5_yolo12s.yaml"
+    model_yaml = (args.model_yaml or (STW_ROOT / "Lib/p2_rp5_yolo12s.yaml")).resolve()
     model = YOLO("yolo12s.pt")
-    model.train(data=str(data_yaml), model=str(model_yaml), epochs=args.epochs, imgsz=640, batch=args.batch_size, device=args.device, workers=args.workers, patience=args.patience, seed=SEED, deterministic=True, mosaic=1.0, close_mosaic=10, project=str(run_dir.parent), name=run_dir.name, exist_ok=True)
+    model.train(data=str(data_yaml), model=str(model_yaml), epochs=args.epochs, imgsz=640, batch=args.batch_size, device=args.device, workers=args.workers, patience=args.patience, seed=args.seed, deterministic=True, mosaic=1.0, close_mosaic=10, project=str(run_dir.parent), name=run_dir.name, exist_ok=True)
     best = run_dir / "weights/best.pt"
     if not best.is_file():
         raise RuntimeError(f"Missing checkpoint: {best}")
