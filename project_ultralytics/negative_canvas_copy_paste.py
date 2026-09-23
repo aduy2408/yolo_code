@@ -341,6 +341,7 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
         self.normalized_scale_bin_values: dict[int, list[float]] = {}
         self.sparse_positive_scene_count = 0
         self._last_target_normalized = None
+        self._normalized_pool_built = False
         self.stats_path = Path(stats_path) if stats_path else None
         self.stats.update({
             "sparse_seen": 0,
@@ -352,6 +353,8 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
         })
 
     def _build_pool(self) -> None:
+        if self._normalized_pool_built:
+            return
         super()._build_pool()
         if self.sparse_max_objects is None:
             counts = [
@@ -376,6 +379,7 @@ class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
             bin_id = self._bin(normalized * 1000.0)
             self.normalized_scale_bins[bin_id] += 1
             self.normalized_scale_bin_values.setdefault(bin_id, []).append(normalized)
+        self._normalized_pool_built = True
 
     def _source_shape(self, image_index: int) -> tuple[int, int]:
         labels = getattr(self.dataset, "labels", ())

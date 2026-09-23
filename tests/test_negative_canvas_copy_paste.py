@@ -135,6 +135,22 @@ def test_sparse_r1_normalizes_target_size_to_final_canvas(tmp_path):
     assert 0.0 < transform.stats["target_size_sum"] < 2.0
 
 
+def test_sparse_r1_normalized_pool_is_built_once_and_survives_stat_reset(tmp_path):
+    transform = SparseCanvasCopyPaste(
+        _dataset(tmp_path), p=0.0, sparse_max_objects=3,
+        target_max_size=8.0, rng=random.Random(4), max_trials=100,
+    )
+    transform._build_pool()
+    first_sizes = list(transform.normalized_target_sizes)
+    first_bins = dict(transform.normalized_scale_bins)
+    transform._build_pool()
+    assert transform.normalized_target_sizes == first_sizes
+    assert dict(transform.normalized_scale_bins) == first_bins
+    transform.reset_stats()
+    transform._build_pool()
+    assert transform.normalized_target_sizes == first_sizes
+
+
 def test_donor_policy_ranges_are_disjoint(tmp_path):
     transform = NegativeCanvasCopyPaste(_dataset(tmp_path), target_max_size=8.0)
     assert transform._donor_valid(8.0, 8.0)
