@@ -76,7 +76,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--hf-repo-id", default="duyle2408/visdrone-fcos-set-runs")
-    parser.parse_args()
+    parser.parse_known_args()
     while True:
         status = read_status(STW_RUN)
         if status.get("upload_verified") and status.get("required_artifacts", {}).get("results.csv"):
