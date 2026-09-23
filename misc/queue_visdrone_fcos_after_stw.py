@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +67,15 @@ def launch_job(name: str, repo: str, model_yaml: str) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-root", default="/marimo/VisDrone2019")
+    parser.add_argument("--model-yaml", default="/marimo/STW-YOLO/Lib/p2_rp5_yolo12s.yaml")
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--patience", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split-seed", type=int, default=42)
+    parser.add_argument("--hf-repo-id", default="duyle2408/visdrone-fcos-set-runs")
+    parser.parse_args()
     while True:
         status = read_status(STW_RUN)
         if status.get("upload_verified") and status.get("required_artifacts", {}).get("results.csv"):
