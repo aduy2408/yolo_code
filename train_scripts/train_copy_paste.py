@@ -127,6 +127,21 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
         raise RuntimeError(f"Hugging Face upload verification failed after marker upload: {missing_marker}")
 
 
+def _remote_prefix(dataset: str, variant: str, seed: int) -> str:
+    if dataset == "visdrone":
+        mosaic_name = "mosaic" if os.environ.get("COPY_PASTE_MOSAIC", "0") == "1" else "no_mosaic"
+        return f"copy_paste/{dataset}/{variant}/{mosaic_name}/seed_{seed}"
+    return f"copy_paste/{dataset}/{variant}/seed_{seed}"
+
+
+def _remote_complete(files: set[str], prefix: str) -> bool:
+    required = (
+        "weights/best.pt", "weights/last.pt", "results.csv",
+        "evaluation_metrics.json", "experiment_manifest.json", "upload_complete.json",
+    )
+    return all(f"{prefix}/{path}" in files for path in required)
+
+
 def _train_images_and_labels(data_yaml: Path) -> tuple[list[Path], list[Path]]:
     config = yaml.safe_load(data_yaml.read_text(encoding="utf-8"))
     root = Path(config.get("path", data_yaml.parent))
@@ -444,7 +459,11 @@ def main(argv: list[str] | None = None) -> None:
     require_training_context(hf_repo_id=args.hf_repo_id)
     from utils.marimo_ops import ensure_hf_repo
 
-    ensure_hf_repo(args.hf_repo_id)
+    repo_id = ensure_hf_repo(args.hf_repo_id)
+    from huggingface_hub import HfApi
+
+    api = HfApi(token=os.environ["HF_TOKEN"])
+    remote_files = set(_retry_hf(lambda: api.list_repo_files(repo_id=repo_id, repo_type="dataset")))
     if "negcp_offline" in args.variants and not args.negcp_bank_path and "cp0" not in args.variants:
         raise ValueError("negcp_offline without --negcp-bank-path requires cp0 in --variants for bank mining")
     ordered_variants = ["cp0"] + [variant for variant in args.variants if variant != "cp0"] if "cp0" in args.variants else list(args.variants)
@@ -467,8 +486,12 @@ def main(argv: list[str] | None = None) -> None:
                         args.project / args.dataset / "cp0" / ("mosaic" if mosaic_interaction else "no_mosaic") / f"seed_{seed}" / "weights" / "best.pt",
                         args.project / args.dataset / "negcp_banks" / f"split_{args.split_seed}_seed_{seed}.json",
                     )
+                if _remote_complete(remote_files, _remote_prefix(args.dataset, variant, seed)):
+                    print(f"SKIP_VERIFIED {_remote_prefix(args.dataset, variant, seed)}", flush=True)
+                    continue
                 run_dir = _run_one(run_args, data_yaml, variant, seed)
                 _upload(run_dir, args.hf_repo_id, args.dataset, variant, seed)
+                remote_files = set(_retry_hf(lambda: api.list_repo_files(repo_id=repo_id, repo_type="dataset")))
 
 
 if __name__ == "__main__":
