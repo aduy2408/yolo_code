@@ -136,7 +136,6 @@ def train_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int
         workers=args.workers,
         device=args.device,
         seed=seed,
-        split_seed=args.split_seed,
         deterministic=True,
         amp=True,
         plots=False,
