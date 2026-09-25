@@ -185,7 +185,8 @@ def upload_and_verify(api: object, repo_id: str, run_dir: Path, remote: str) -> 
     if not expected.issubset(files):
         raise RuntimeError(f"Upload verification failed: {sorted(expected - files)}")
     marker = run_dir / "upload_complete.json"
-    marker.write_text(json.dumps({"repo_id": repo_id, "remote_prefix": remote, "verified": sorted(expected)}, indent=2) + "\n")
+    verified = sorted(expected | {f"{remote}/upload_complete.json"})
+    marker.write_text(json.dumps({"repo_id": repo_id, "remote_prefix": remote, "verified": verified}, indent=2) + "\n")
     api.upload_file(path_or_fileobj=str(marker), path_in_repo=f"{remote}/upload_complete.json", repo_id=repo_id, repo_type="dataset")
 
 
