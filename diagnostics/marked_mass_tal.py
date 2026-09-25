@@ -29,19 +29,42 @@ def local_ultralytics() -> None:
         sys.path.insert(0, str(package))
 
 
-def read_boxes(path: Path, width: int, height: int) -> np.ndarray:
+def read_boxes(path: Path, width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
     rows = []
+    classes = []
     if path.is_file():
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             values = line.split()
             if len(values) < 5:
                 raise ValueError(f"{path}:{line_number}: expected class + xywh")
             cls, xc, yc, bw, bh = map(float, values[:5])
-            if int(cls) != 0:
-                raise ValueError(f"{path}:{line_number}: expected single class 0")
+            if int(cls) < 0:
+                raise ValueError(f"{path}:{line_number}: invalid class id")
+            classes.append(int(cls))
             rows.append(((xc - bw / 2) * width, (yc - bh / 2) * height,
                          (xc + bw / 2) * width, (yc + bh / 2) * height))
-    return np.asarray(rows, dtype=np.float32).reshape(-1, 4)
+    return np.asarray(rows, dtype=np.float32).reshape(-1, 4), np.asarray(classes, dtype=np.int64)
+
+
+def letterbox(image: np.ndarray, size: int) -> tuple[np.ndarray, float, float, float]:
+    height, width = image.shape[:2]
+    ratio = min(size / height, size / width)
+    new_width, new_height = round(width * ratio), round(height * ratio)
+    resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+    pad_x, pad_y = (size - new_width) / 2, (size - new_height) / 2
+    canvas = np.full((size, size, 3), 114, dtype=np.uint8)
+    left, top = round(pad_x - 0.1), round(pad_y - 0.1)
+    canvas[top:top + new_height, left:left + new_width] = resized
+    return canvas, ratio, float(left), float(top)
+
+
+def transform_boxes(boxes: np.ndarray, ratio: float, pad_x: float, pad_y: float) -> np.ndarray:
+    if len(boxes) == 0:
+        return boxes
+    transformed = boxes.copy()
+    transformed[:, [0, 2]] = transformed[:, [0, 2]] * ratio + pad_x
+    transformed[:, [1, 3]] = transformed[:, [1, 3]] * ratio + pad_y
+    return transformed
 
 
 def image_for(path: Path, source_images: Path) -> tuple[Path, np.ndarray]:
@@ -158,8 +181,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         label_path = args.labels / f"{image_path.stem}.txt"
         if not label_path.is_file():
             label_path = args.source_labels / f"{image_path.stem}.txt"
-        gt = read_boxes(label_path, width, height)
-        tensor = torch.from_numpy(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).unsqueeze(0).to(device).float() / 255.0
+        gt, gt_classes = read_boxes(label_path, width, height)
+        model_image, ratio, pad_x, pad_y = letterbox(bgr, args.imgsz)
+        gt = transform_boxes(gt, ratio, pad_x, pad_y)
+        tensor = torch.from_numpy(cv2.cvtColor(model_image, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).unsqueeze(0).to(device).float() / 255.0
         with torch.inference_mode():
             inference, raw = net(tensor)
             if isinstance(raw, tuple):
@@ -172,6 +197,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             labels = torch.zeros((1, max(len(gt), 1), 1), dtype=torch.long, device=device)
             gt_xyxy = torch.zeros((1, max(len(gt), 1), 4), dtype=torch.float32, device=device)
             if len(gt):
+                labels[0, :len(gt), 0] = torch.from_numpy(gt_classes).to(device)
                 gt_xyxy[0, :len(gt)] = torch.from_numpy(gt).to(device)
             mask_gt = gt_xyxy.sum(2, keepdim=True).gt_(0.0)
             target_labels, target_boxes, target_scores, fg_mask, target_gt_idx = assigner(
@@ -182,11 +208,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             det_scores = detections[:, 4].detach().cpu().numpy() if len(detections) else np.empty(0, dtype=np.float32)
             assigned_idx = target_gt_idx[0].detach().cpu().numpy()
             foreground = fg_mask[0].bool().detach().cpu().numpy()
-            target_weight = target_scores[0, :, 0].detach().cpu().numpy()
+            target_weight = target_scores[0].detach().cpu().numpy()
         centers = (gt[:, :2] + gt[:, 2:]) / 2 if len(gt) else np.empty((0, 2))
         for gt_id, box in enumerate(gt):
             positive = foreground & (assigned_idx == gt_id)
-            weights = target_weight[positive]
+            weights = target_weight[positive, int(gt_classes[gt_id])]
             distances = np.linalg.norm(centers - centers[gt_id], axis=1) if len(gt) else np.empty(0)
             nearby = int(((distances <= args.density_radius) & (distances > 0)).sum())
             overlaps = iou_one(box, det_boxes)
@@ -196,6 +222,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 "image_id": image_path.stem,
                 "image_path": str(actual_path),
                 "gt_id": gt_id,
+                "class_id": int(gt_classes[gt_id]),
                 "bbox_w": float(box[2] - box[0]),
                 "bbox_h": float(box[3] - box[1]),
                 "bbox_area": float(max(box[2] - box[0], 0) * max(box[3] - box[1], 0)),
