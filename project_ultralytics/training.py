@@ -12,6 +12,7 @@ from typing import Any
 
 from ultralytics.utils.loss import v8DetectionLoss
 from ultralytics.models.yolo.detect.train import DetectionTrainer
+from ultralytics.nn.tasks import DetectionModel
 
 from .detection_loss_adapter import FactorizedTALDetectionLoss, P2SlotsDetectionLoss
 from .parser import project_parser, project_runtime
@@ -27,15 +28,24 @@ LOSS_ADAPTERS: dict[str, type] = {
 
 
 class ProjectDetectionTrainer(DetectionTrainer):
-    """DetectionTrainer that reinstalls a project loss on reconstructed models."""
+    """DetectionTrainer that reconstructs a model with a project criterion."""
 
     def __init__(self, *args, loss_adapter: str = "ftal", **kwargs):
         self.project_loss_adapter = loss_adapter
         super().__init__(*args, **kwargs)
 
     def get_model(self, cfg=None, weights=None, verbose=True):
-        model = super().get_model(cfg=cfg, weights=weights, verbose=verbose)
-        install_loss_adapter(model, self.project_loss_adapter)
+        model = self.set_model_names_for_load(
+            ProjectDetectionModel(
+                cfg,
+                nc=self.data["nc"],
+                ch=self.data["channels"],
+                verbose=verbose,
+                loss_adapter=self.project_loss_adapter,
+            )
+        )
+        if weights:
+            model.load(weights)
         return model
 
 
@@ -47,6 +57,25 @@ def get_loss_adapter(name: str) -> type:
     except KeyError as exc:
         known = ", ".join(sorted(LOSS_ADAPTERS))
         raise ValueError(f"Unknown loss adapter {name!r}. Choose from: {known}") from exc
+
+
+class ProjectDetectionModel(DetectionModel):
+    """Pickle-safe DetectionModel carrying its project loss selection."""
+
+    def __init__(self, cfg, ch=3, nc=None, verbose=True, loss_adapter: str = "ftal"):
+        self.project_loss_adapter = str(loss_adapter)
+        super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
+
+    def init_criterion(self):
+        return get_loss_adapter(self.project_loss_adapter)(self)
+
+
+def _project_init_criterion(self):
+    """Importable instance hook retained for explicit non-trainer use."""
+    adapter = getattr(self, "_project_loss_adapter_type", None)
+    if adapter is None:
+        return DetectionModel.init_criterion(self)
+    return adapter(self)
 
 
 def _unwrap_detection_model(model: Any) -> Any:
@@ -69,15 +98,11 @@ def install_loss_adapter(model: Any, name: str = "ftal") -> Any:
     if adapter is FactorizedTALDetectionLoss and bool(getattr(detection_model, "end2end", False)):
         raise ValueError("The FTAL adapter currently supports standard v8 detection, not end2end loss")
 
-    original = getattr(detection_model, "_project_original_init_criterion", None)
-    if original is None:
-        original = detection_model.init_criterion
-        detection_model._project_original_init_criterion = original
-
     if adapter is v8DetectionLoss:
-        detection_model.init_criterion = original
+        detection_model._project_loss_adapter_type = None
     else:
-        detection_model.init_criterion = MethodType(lambda self: adapter(self), detection_model)
+        detection_model._project_loss_adapter_type = adapter
+        detection_model.init_criterion = MethodType(_project_init_criterion, detection_model)
     detection_model._project_loss_adapter = adapter.__name__
     return model
 
