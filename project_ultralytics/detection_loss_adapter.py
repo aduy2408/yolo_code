@@ -217,7 +217,7 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
         return (
             (fg_mask, target_gt_idx, target_bboxes, anchor_points, stride_tensor),
             loss,
-            {**dict(zip(self.loss_names, loss.detach())), **self.custom_detection_metrics},
+            loss.detach(),
         )
 
 
