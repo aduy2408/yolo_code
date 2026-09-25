@@ -182,13 +182,18 @@ def evaluate_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: 
     output = run_dir / "evaluation_metrics.json"
     if output.is_file():
         cached = json.loads(output.read_text())
-        if all(key in cached for key in ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95")):
+        if all(key in cached for key in ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95")) and cached.get("commit_sha") == git_sha() and cached.get("amp") is False:
             return cached
 
     model = load_model(CONFIGS[variant])
     model.load(run_dir / "weights/best.pt")
     metrics: dict[str, float | str] = {
         "checkpoint": "best.pt",
+        "commit_sha": git_sha(),
+        "amp": False,
+        "variant": variant,
+        "seed": seed,
+        "split_seed": args.split_seed,
         "nms_iou": 0.5,
         "test_protocol": "TinyPerson prepared test split from official corner-window annotations",
         "test_source_artifact": str(data_yaml),
