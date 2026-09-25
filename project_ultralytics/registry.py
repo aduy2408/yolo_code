@@ -17,7 +17,7 @@ from .detection_loss import (
     positive_confidence_rescue_loss,
     scale_tempered_cls_targets,
 )
-from .detection_loss_adapter import FactorizedTALDetectionLoss
+from .detection_loss_adapter import FactorizedTALDetectionLoss, P2SlotsDetectionLoss
 from .losses import BoundaryContrastiveLoss, LocalizationQualityLoss, WiseIouLoss
 from .modules import (
     AmplitudePerturbation,
@@ -34,6 +34,7 @@ from .modules import (
     DedicatedCueSlots,
     DetachedResidualFusion,
     DetectClsAttention,
+    P2SlotsDetect,
     P2NUDFLDetect,
     DualChannelFormationBackbone,
     DualCollapse,
@@ -108,6 +109,7 @@ CUSTOM_MODULES = {
         DedicatedCueSlots,
         DetachedResidualFusion,
         DetectClsAttention,
+        P2SlotsDetect,
         P2NUDFLDetect,
         DualChannelFormationBackbone,
         DualCollapse,
@@ -158,6 +160,7 @@ CUSTOM_LOSSES = {
 
 CUSTOM_DETECTION_LOSS = {
     "FactorizedTALDetectionLoss": FactorizedTALDetectionLoss,
+    "P2SlotsDetectionLoss": P2SlotsDetectionLoss,
     "factorized_tal_cls_targets": factorized_tal_cls_targets,
     "factorize_tal_targets": factorize_tal_targets,
     "positive_confidence_rescue_loss": positive_confidence_rescue_loss,

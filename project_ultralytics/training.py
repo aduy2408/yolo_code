@@ -11,7 +11,7 @@ from typing import Any
 
 from ultralytics.utils.loss import v8DetectionLoss
 
-from .detection_loss_adapter import FactorizedTALDetectionLoss
+from .detection_loss_adapter import FactorizedTALDetectionLoss, P2SlotsDetectionLoss
 from .parser import project_parser, project_runtime
 
 LOSS_ADAPTERS: dict[str, type] = {
@@ -19,6 +19,8 @@ LOSS_ADAPTERS: dict[str, type] = {
     "default": v8DetectionLoss,
     "ftal": FactorizedTALDetectionLoss,
     "factorized_tal": FactorizedTALDetectionLoss,
+    "p2_slots": P2SlotsDetectionLoss,
+    "p2slots": P2SlotsDetectionLoss,
 }
 
 

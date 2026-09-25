@@ -27,7 +27,7 @@ from .feature_calibration import (
 )
 from .dual_stream import DualChannelFormationBackbone, DualCollapse, DualDownsample
 from .dmm import DMMGatedRefine, DMMRefine
-from .detection_heads import DetectClsAttention, P2NUDFLDetect
+from .detection_heads import DetectClsAttention, LocalInstanceDemixer, P2NUDFLDetect, P2SlotsDetect
 from .gt_cue_loss import (
     DedicatedCueSlots,
     DetachedResidualFusion,
@@ -71,7 +71,9 @@ __all__ = (
     "C2fNAT",
     "DedicatedCueSlots",
     "DetectClsAttention",
+    "LocalInstanceDemixer",
     "P2NUDFLDetect",
+    "P2SlotsDetect",
     "DualChannelFormationBackbone",
     "DualCollapse",
     "DualDownsample",

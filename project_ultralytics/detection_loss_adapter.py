@@ -69,7 +69,13 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
             preds["boxes"].permute(0, 2, 1).contiguous(),
             preds["scores"].permute(0, 2, 1).contiguous(),
         )
-        anchor_points, stride_tensor = make_anchors(preds["feats"], self.stride, 0.5)
+        p2_slot_count = int(preds.get("p2_slot_count", 1))
+        p2_base_count = int(preds.get("p2_base_count", 0))
+        if "anchor_points" in preds and "stride_tensor" in preds:
+            anchor_points = preds["anchor_points"]
+            stride_tensor = preds["stride_tensor"]
+        else:
+            anchor_points, stride_tensor = make_anchors(preds["feats"], self.stride, 0.5)
         dtype = pred_scores.dtype
         batch_size = pred_scores.shape[0]
         imgsz = torch.tensor(preds["feats"][0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
@@ -90,6 +96,32 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
         )
 
         self.custom_detection_metrics = {}
+        if p2_slot_count > 1:
+            p2_fg = fg_mask[:, : p2_slot_count * p2_base_count].view(
+                fg_mask.shape[0], p2_slot_count, p2_base_count
+            )
+            positive_locations = p2_fg.any(dim=1)
+            dual_locations = p2_fg.sum(dim=1) >= 2
+            dual_denominator = positive_locations.sum().clamp_min(1)
+            dual_numerator = dual_locations.sum()
+            different_gt = torch.zeros((), device=fg_mask.device, dtype=torch.float32)
+            different_count = torch.zeros((), device=fg_mask.device, dtype=torch.float32)
+            slot_gt = target_gt_idx[:, : p2_slot_count * p2_base_count].view(
+                target_gt_idx.shape[0], p2_slot_count, p2_base_count
+            )
+            for batch_index in range(fg_mask.shape[0]):
+                for location in torch.where(dual_locations[batch_index])[0]:
+                    assigned = slot_gt[batch_index, :, location][p2_fg[batch_index, :, location]]
+                    different_gt += float(assigned.unique().numel() > 1)
+                    different_count += 1.0
+            self.custom_detection_metrics.update(
+                {
+                    "p2_dual_occupancy": float((dual_numerator / dual_denominator).detach()),
+                    "p2_different_gt_occupancy": float(
+                        (different_gt / different_count.clamp_min(1)).detach()
+                    ),
+                }
+            )
         if self.factorized_tal_enabled:
             target_scores, metrics = factorized_tal_cls_targets(
                 target_scores,
@@ -116,6 +148,17 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
 
         target_scores_sum = max(target_scores.sum(), 1)
         bce_loss = self.bce(pred_scores, target_scores.to(dtype))
+        if p2_slot_count > 1:
+            candidate_weight = torch.ones(
+                pred_scores.shape[:2], device=pred_scores.device, dtype=pred_scores.dtype
+            )
+            p2_negative = ~fg_mask[:, : p2_slot_count * p2_base_count]
+            candidate_weight[:, : p2_slot_count * p2_base_count] = torch.where(
+                p2_negative,
+                torch.full_like(candidate_weight[:, : p2_slot_count * p2_base_count], 1.0 / p2_slot_count),
+                torch.ones_like(candidate_weight[:, : p2_slot_count * p2_base_count]),
+            )
+            bce_loss = bce_loss * candidate_weight.unsqueeze(-1)
         if self.class_weights is not None:
             bce_loss *= self.class_weights
         loss[1] = bce_loss.sum() / target_scores_sum
@@ -175,3 +218,7 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
             loss,
             {**dict(zip(self.loss_names, loss.detach())), **self.custom_detection_metrics},
         )
+
+
+class P2SlotsDetectionLoss(FactorizedTALDetectionLoss):
+    """Project loss adapter for P2SlotsDetect with matched negative weighting."""

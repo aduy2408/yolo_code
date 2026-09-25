@@ -138,6 +138,9 @@ def _project_parse_model(upstream_tasks: ModuleType):
         elif m is P2NUDFLDetect:
             c2 = ch[f[0]] if isinstance(f, list) else ch[f]
             args = [*args, reg_max, end2end, [ch[x] for x in f]]
+        elif m is P2SlotsDetect:
+            c2 = ch[f[0]] if isinstance(f, list) else ch[f]
+            args = [*args, reg_max, end2end, [ch[x] for x in f]]
 """
     if marker not in source:
         raise RuntimeError("Unsupported upstream parse_model layout: WeightedAdd insertion point not found")
