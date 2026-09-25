@@ -104,6 +104,9 @@ def train_one(optimizer: str, data_yaml: Path, args: argparse.Namespace) -> Path
         patch_musgd_noncontiguous()
     seed_everything(args.seed)
     run_dir = args.project / optimizer.lower() / "mosaic" / f"seed_{args.seed}"
+    training_artifacts = ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml")
+    if all((run_dir / item).is_file() for item in training_artifacts):
+        return run_dir
     model, _ = model_from_yolov8s(args.model_yaml)
     model.train(
         data=str(data_yaml),
@@ -132,7 +135,7 @@ def train_one(optimizer: str, data_yaml: Path, args: argparse.Namespace) -> Path
 def evaluate(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> dict[str, object]:
     local_ultralytics()
     from ultralytics import YOLO
-    from size_bucket_evaluator import evaluate_native_test_size_buckets
+    from evaluate_test.size_bucket_evaluator import evaluate_native_test_size_buckets
     from train_scripts.train_all_visdrone_yolo_baselines import metric_value
 
     model = YOLO(run_dir / "weights/best.pt")
