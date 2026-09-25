@@ -68,6 +68,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--lr0", type=float, default=None)
+    parser.add_argument("--lrf", type=float, default=None)
+    parser.add_argument("--momentum", type=float, default=None)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--hf-repo-id", required=True)
@@ -118,6 +121,11 @@ def train_one(optimizer: str, data_yaml: Path, args: argparse.Namespace) -> Path
         deterministic=True,
         amp=True,
         optimizer=optimizer,
+        **({key: value for key, value in {
+            "lr0": args.lr0,
+            "lrf": args.lrf,
+            "momentum": args.momentum,
+        }.items() if value is not None}),
         mosaic=MOSAIC,
         close_mosaic=CLOSE_MOSAIC,
         plots=False,
@@ -229,6 +237,9 @@ def main(argv: list[str] | None = None) -> None:
             "patience": args.patience,
             "imgsz": IMAGE_SIZE,
             "batch_size": args.batch_size,
+            "lr0": args.lr0,
+            "lrf": args.lrf,
+            "momentum": args.momentum,
             "workers": args.workers,
             "nms_iou": 0.5,
             "git_sha": git_sha(),
