@@ -49,28 +49,64 @@ class CollisionPreservingTaskAlignedAssigner(TaskAlignedAssigner):
             )
             mask_pos[:, :, slots * p2_count :] = non_p2_topk
 
-        for batch_index in range(batch):
-            for location in range(p2_count):
-                candidates = torch.where(p2_selected[batch_index, :, location])[0].tolist()
-                if not candidates:
-                    continue
-                if len(candidates) > slots:
-                    candidates = sorted(
-                        candidates,
-                        key=lambda gt: float(p2_location_metric[batch_index, gt, location]),
-                        reverse=True,
-                    )[:slots]
-                best_score = None
-                best_perm = None
-                for perm in permutations(range(slots), len(candidates)):
-                    score = sum(
-                        p2_align[batch_index, gt, location, slot] for gt, slot in zip(candidates, perm)
-                    )
-                    if best_score is None or score > best_score:
-                        best_score = score
-                        best_perm = perm
-                for gt, slot in zip(candidates, best_perm or ()):
-                    mask_pos[batch_index, gt, location + slot * p2_count] = True
+        if slots == 2:
+            # The experiment uses K=2. Select at most two GT identities per
+            # location, then compare the two possible slot permutations in a
+            # single tensor operation. This avoids synchronizing Python once
+            # for each of the 25,600 P2 locations.
+            candidate_scores = p2_location_metric.masked_fill(~p2_selected, float("-inf"))
+            candidate_scores, candidate_gt = torch.topk(candidate_scores, 2, dim=1)
+            candidate_scores = candidate_scores.permute(0, 2, 1)
+            candidate_gt = candidate_gt.permute(0, 2, 1)
+            candidate_valid = torch.isfinite(candidate_scores)
+
+            candidate_align = p2_align.permute(0, 2, 1, 3).gather(
+                2, candidate_gt.unsqueeze(-1).expand(-1, -1, -1, slots)
+            )
+            first_valid = candidate_valid[:, :, 0]
+            second_valid = candidate_valid[:, :, 1]
+            both_valid = first_valid & second_valid
+
+            first_align = candidate_align[:, :, 0]
+            second_align = candidate_align[:, :, 1]
+            keep_score = first_align[..., 0] + second_align[..., 1]
+            swap_score = first_align[..., 1] + second_align[..., 0]
+            swap = both_valid & (swap_score > keep_score)
+
+            first_slot = torch.where(
+                both_valid,
+                swap.long(),
+                first_align.argmax(dim=-1),
+            )
+            second_slot = torch.where(swap, torch.zeros_like(first_slot), torch.ones_like(first_slot))
+
+            batch_index = torch.arange(batch, device=align_metric.device)[:, None].expand(batch, p2_count)
+            location = torch.arange(p2_count, device=align_metric.device)[None, :].expand(batch, p2_count)
+            mask_pos[batch_index[first_valid], candidate_gt[:, :, 0][first_valid], location[first_valid] + first_slot[first_valid] * p2_count] = 1
+            mask_pos[batch_index[second_valid], candidate_gt[:, :, 1][second_valid], location[second_valid] + second_slot[second_valid] * p2_count] = 1
+        else:
+            for batch_index in range(batch):
+                for location in range(p2_count):
+                    candidates = torch.where(p2_selected[batch_index, :, location])[0].tolist()
+                    if not candidates:
+                        continue
+                    if len(candidates) > slots:
+                        candidates = sorted(
+                            candidates,
+                            key=lambda gt: float(p2_location_metric[batch_index, gt, location]),
+                            reverse=True,
+                        )[:slots]
+                    best_score = None
+                    best_perm = None
+                    for perm in permutations(range(slots), len(candidates)):
+                        score = sum(
+                            p2_align[batch_index, gt, location, slot] for gt, slot in zip(candidates, perm)
+                        )
+                        if best_score is None or score > best_score:
+                            best_score = score
+                            best_perm = perm
+                    for gt, slot in zip(candidates, best_perm or ()):
+                        mask_pos[batch_index, gt, location + slot * p2_count] = True
 
         mask_pos = mask_pos * mask_in_gts * mask_gt
         target_gt_idx, fg_mask, mask_pos = self.select_highest_overlaps(
