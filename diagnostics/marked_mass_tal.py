@@ -159,6 +159,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     net = model.model
     net.eval()
     head = net.model[-1]
+    if not hasattr(head, "box_detail"):
+        head.box_detail = torch.nn.ModuleList([torch.nn.Identity() for _ in range(head.nl)])
     device = torch.device(args.device if args.device != "cuda" or torch.cuda.is_available() else "cpu")
     net.to(device)
     strides = head.stride.detach().float().tolist()
