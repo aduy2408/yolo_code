@@ -117,10 +117,10 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
                     different_count += 1.0
             self.custom_detection_metrics.update(
                 {
-                    "p2_dual_occupancy": float((dual_numerator / dual_denominator).detach()),
-                    "p2_different_gt_occupancy": float(
-                        (different_gt / different_count.clamp_min(1)).detach()
-                    ),
+                    "p2_dual_occupancy": (dual_numerator / dual_denominator).detach(),
+                    "p2_different_gt_occupancy": (
+                        different_gt / different_count.clamp_min(1)
+                    ).detach(),
                 }
             )
         if self.factorized_tal_enabled:
