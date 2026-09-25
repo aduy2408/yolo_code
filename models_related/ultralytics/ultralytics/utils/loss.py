@@ -1396,7 +1396,6 @@ class v8DetectionLoss:
         fg_mask: torch.Tensor,
     ) -> torch.Tensor:
         """Optionally remove each GT's absolute TAL ceiling from regression only."""
-        import os
 
         if os.environ.get("REG_WEIGHT_MODE", "q") != "qmax_gt":
             return target_scores
@@ -2402,7 +2401,6 @@ class v8DetectionLoss:
             ).squeeze(-1).clamp(0)
         # Compute size-aware classification weights
         cls_weights = torch.ones_like(cls_target_scores)
-        import os
         variant = os.environ.get("YOLO_VARIANT", "")
         if "small_weight" in variant and fg_mask.sum():
             if "preclip_area" in batch:
