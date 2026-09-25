@@ -146,7 +146,7 @@ def _evaluate_coco(gt_path: Path, prediction_path: Path) -> dict[str, float]:
     import numpy as np
     from pycocotools.coco import COCO
 
-    evaluator_path = Path(__file__).resolve().parent / "vendor" / "tinyperson_cocoeval.py"
+    evaluator_path = Path(__file__).resolve().parents[1] / "vendor" / "tinyperson_cocoeval.py"
     spec = importlib.util.spec_from_file_location("tinyperson_cocoeval_native", evaluator_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Unable to load evaluator from {evaluator_path}")
