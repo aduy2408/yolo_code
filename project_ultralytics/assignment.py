@@ -27,7 +27,12 @@ class CollisionPreservingTaskAlignedAssigner(TaskAlignedAssigner):
         p2_count = self.p2_base_count
         slots = self.p2_slot_count
         p2_align = align_metric[:, :, : slots * p2_count].view(batch, n_gt, slots, p2_count).permute(0, 1, 3, 2)
-        p2_inside = mask_in_gts[:, :, : slots * p2_count].view(batch, n_gt, slots, p2_count).permute(0, 1, 3, 2)
+        p2_inside = (
+            mask_in_gts[:, :, : slots * p2_count]
+            .view(batch, n_gt, slots, p2_count)
+            .permute(0, 1, 3, 2)
+            .bool()
+        )
         p2_location_metric = p2_align.masked_fill(~p2_inside, 0).amax(dim=-1)
         p2_topk = min(self.topk, p2_count)
         _, p2_indices = torch.topk(p2_location_metric, p2_topk, dim=-1, largest=True)
