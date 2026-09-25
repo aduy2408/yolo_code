@@ -75,7 +75,7 @@ def prepare_dataset(args: argparse.Namespace) -> tuple[Path, Path]:
 
     test_root = prepare_test_set(args.data_root, args.dataset_root)
     data_yaml = prepare_seed_dataset(args.data_root, args.dataset_root, test_root, args.split_seed)
-    return data_yaml.resolve(), test_root.resolve()
+    return (data_yaml / "tinyperson.yaml").resolve(), test_root.resolve()
 
 
 def load_model(config: Path):
