@@ -35,14 +35,12 @@ class ProjectDetectionTrainer(DetectionTrainer):
         super().__init__(*args, **kwargs)
 
     def get_model(self, cfg=None, weights=None, verbose=True):
-        model = self.set_model_names_for_load(
-            ProjectDetectionModel(
-                cfg,
-                nc=self.data["nc"],
-                ch=self.data["channels"],
-                verbose=verbose,
-                loss_adapter=self.project_loss_adapter,
-            )
+        model = ProjectDetectionModel(
+            cfg,
+            nc=self.data["nc"],
+            ch=self.data["channels"],
+            verbose=verbose,
+            loss_adapter=self.project_loss_adapter,
         )
         if weights:
             model.load(weights)
