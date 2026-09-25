@@ -7,8 +7,10 @@ The runner is upload-required and intended to be launched only through
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
+import math
 import os
 import random
 import subprocess
@@ -85,7 +87,29 @@ def load_model(config: Path):
 
 
 def training_complete(run_dir: Path) -> bool:
-    return all((run_dir / item).is_file() for item in REQUIRED if item != "evaluation_metrics.json") and (run_dir / "results.csv").stat().st_size > 0
+    if not all((run_dir / item).is_file() for item in REQUIRED if item != "evaluation_metrics.json"):
+        return False
+    manifest_path = run_dir / "experiment_manifest.json"
+    results_path = run_dir / "results.csv"
+    if not manifest_path.is_file() or results_path.stat().st_size == 0:
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        if manifest.get("amp") is not False:
+            return False
+        with results_path.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows or int(float(rows[-1]["epoch"])) < int(manifest["epochs"]):
+            return False
+        for row in rows:
+            for value in row.values():
+                if value is None or value.strip().lower() in {"nan", "inf", "-inf"}:
+                    return False
+                if value.strip() and not math.isfinite(float(value)):
+                    return False
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+        return False
+    return True
 
 
 def train_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int) -> Path:
