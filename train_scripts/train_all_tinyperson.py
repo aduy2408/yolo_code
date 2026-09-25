@@ -699,6 +699,7 @@ def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dic
         "nms_iou": 0.5,
         "context_augmentation": "oacp" if variant.endswith("_oacp") else "none",
         "factorized_tal": VARIANTS[variant],
+        "marked_mass_mode": args.marked_mass_mode,
         "augmentation": dict(TRAIN_AUGMENTATION),
         "schedule": dict(TRAIN_SCHEDULE),
         "upload_required": not args.skip_upload,
@@ -759,6 +760,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=[STRICT_BASELINE_VARIANT])
+    parser.add_argument(
+        "--marked-mass-mode",
+        choices=("off", "cls", "all"),
+        default="off",
+        help="Per-GT TAL target normalization: off, classification-only, or all positive supervision",
+    )
     return parser.parse_args(argv)
 
 
@@ -769,6 +776,7 @@ def main() -> None:
         args.dataset_root.resolve(),
         args.project.resolve(),
     )
+    os.environ["MARKED_MASS_MODE"] = args.marked_mass_mode
 
     if args.print_effective_config:
         print_effective_settings(args)
