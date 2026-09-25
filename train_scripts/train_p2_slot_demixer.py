@@ -121,7 +121,7 @@ def train_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int
 
     seed_everything(seed)
     model = load_model(config)
-    model.load(args.pretrained, smart_transfer=True)
+    model.load(args.pretrained)
     from project_ultralytics.training import train_with_loss_adapter
 
     loss_adapter = "upstream" if variant == "B0" else "p2_slots"
@@ -162,7 +162,7 @@ def evaluate_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: 
             return cached
 
     model = load_model(CONFIGS[variant])
-    model.load(run_dir / "weights/best.pt", smart_transfer=True)
+    model.load(run_dir / "weights/best.pt")
     metrics: dict[str, float | str] = {
         "checkpoint": "best.pt",
         "nms_iou": 0.5,

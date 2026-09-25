@@ -22,6 +22,7 @@ from .detection_loss import (
     positive_confidence_rescue_loss,
     scale_tempered_cls_targets,
 )
+from .assignment import CollisionPreservingTaskAlignedAssigner
 from .hardness import foreground_assignment_hardness
 from .online_negative_bank import deduplicate_candidate_indices
 
@@ -222,3 +223,19 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
 
 class P2SlotsDetectionLoss(FactorizedTALDetectionLoss):
     """Project loss adapter for P2SlotsDetect with matched negative weighting."""
+
+    def __init__(self, model: torch.nn.Module, tal_topk: int = 10, tal_topk2: int | None = None):
+        super().__init__(model, tal_topk, tal_topk2)
+        self.assigner = CollisionPreservingTaskAlignedAssigner(
+            topk=int(getattr(self.hyp, "tal_topk", tal_topk)),
+            num_classes=self.nc,
+            alpha=float(getattr(self.hyp, "tal_alpha", 0.5)),
+            beta=float(getattr(self.hyp, "tal_beta", 6.0)),
+            stride=self.stride.tolist(),
+            topk2=tal_topk2,
+        )
+
+    def get_assigned_targets_and_loss(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> tuple:
+        self.assigner.p2_base_count = int(preds.get("p2_base_count", 0))
+        self.assigner.p2_slot_count = int(preds.get("p2_slot_count", 1))
+        return super().get_assigned_targets_and_loss(preds, batch)

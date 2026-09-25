@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from copy import deepcopy
 
 from ultralytics.nn.modules.head import Detect
 from ultralytics.nn.modules.conv import DWConv
@@ -130,11 +131,29 @@ class LocalInstanceDemixer(nn.Module):
                 mass = mass + weight
                 query += 1
         demixed = mixed / (mass + 1e-6)
+        mass_gate = mass / self.query_count
         return (
             feature.unsqueeze(1)
             + self.slot_embed.unsqueeze(0)
-            + self.gamma * (demixed - feature.unsqueeze(1))
+            + self.gamma * mass_gate * (demixed - feature.unsqueeze(1))
         )
+
+
+class SharedSlotPredictor(nn.Module):
+    """Shared predictor stem with independent final 1x1 slot predictors."""
+
+    def __init__(self, stem: nn.Module, predictor: nn.Module, slots: int = 2) -> None:
+        super().__init__()
+        self.stem = stem
+        self.predictors = nn.ModuleList(deepcopy(predictor) for _ in range(slots))
+
+    def forward(self, feature: torch.Tensor, slot: int = 0) -> torch.Tensor:
+        return self.predictors[slot](self.stem(feature))
+
+    def __getitem__(self, index: int):
+        if index == -1:
+            return self.predictors[0]
+        return self.predictors[index]
 
 
 class P2SlotsDetect(Detect):
@@ -167,6 +186,11 @@ class P2SlotsDetect(Detect):
             raise ValueError("variant must be 'capacity' or 'demix'")
         self.p2_slot_embed = nn.Parameter(torch.zeros(self.p2_slot_count, ch[0], 1, 1))
         self.p2_demixer = LocalInstanceDemixer(ch[0], self.p2_slot_count) if self.p2_variant == "demix" else None
+        self.cv2[0] = SharedSlotPredictor(self.cv2[0][:-1], self.cv2[0][-1], self.p2_slot_count)
+        self.cv3[0] = SharedSlotPredictor(self.cv3[0][:-1], self.cv3[0][-1], self.p2_slot_count)
+        if self.p2_demixer is not None:
+            self.gamma_init = 1e-3
+            self.p2_demixer.gamma.data.fill_(self.gamma_init)
 
     def _p2_slots(self, feature: torch.Tensor) -> torch.Tensor:
         if self.p2_demixer is not None:
@@ -177,11 +201,11 @@ class P2SlotsDetect(Detect):
         batch = feature.shape[0]
         slots = self._p2_slots(feature)
         boxes = torch.cat(
-            [self.cv2[0](slots[:, index]).view(batch, 4 * self.reg_max, -1) for index in range(self.p2_slot_count)],
+            [self.cv2[0](slots[:, index], index).view(batch, 4 * self.reg_max, -1) for index in range(self.p2_slot_count)],
             dim=-1,
         )
         scores = torch.cat(
-            [self.cv3[0](slots[:, index]).view(batch, self.nc, -1) for index in range(self.p2_slot_count)],
+            [self.cv3[0](slots[:, index], index).view(batch, self.nc, -1) for index in range(self.p2_slot_count)],
             dim=-1,
         )
         return boxes, scores

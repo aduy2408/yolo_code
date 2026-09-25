@@ -7,9 +7,11 @@ Ultralytics source files and keeps the default upstream criterion available.
 from __future__ import annotations
 
 from types import MethodType
+from functools import partial
 from typing import Any
 
 from ultralytics.utils.loss import v8DetectionLoss
+from ultralytics.models.yolo.detect.train import DetectionTrainer
 
 from .detection_loss_adapter import FactorizedTALDetectionLoss, P2SlotsDetectionLoss
 from .parser import project_parser, project_runtime
@@ -22,6 +24,19 @@ LOSS_ADAPTERS: dict[str, type] = {
     "p2_slots": P2SlotsDetectionLoss,
     "p2slots": P2SlotsDetectionLoss,
 }
+
+
+class ProjectDetectionTrainer(DetectionTrainer):
+    """DetectionTrainer that reinstalls a project loss on reconstructed models."""
+
+    def __init__(self, *args, loss_adapter: str = "ftal", **kwargs):
+        self.project_loss_adapter = loss_adapter
+        super().__init__(*args, **kwargs)
+
+    def get_model(self, cfg=None, weights=None, verbose=True):
+        model = super().get_model(cfg=cfg, weights=weights, verbose=verbose)
+        install_loss_adapter(model, self.project_loss_adapter)
+        return model
 
 
 def get_loss_adapter(name: str) -> type:
@@ -78,4 +93,7 @@ def train_with_loss_adapter(model: Any, *, loss_adapter: str = "ftal", **train_k
     # Ultralytics' trainer reconstructs DetectionModel from the YAML. Keep the
     # project parser active for that second construction as well.
     with project_parser(tasks), project_runtime():
-        return train(**train_kwargs)
+        if loss_adapter in {"upstream", "default"}:
+            return train(**train_kwargs)
+        trainer = partial(ProjectDetectionTrainer, loss_adapter=loss_adapter)
+        return train(trainer=trainer, **train_kwargs)
