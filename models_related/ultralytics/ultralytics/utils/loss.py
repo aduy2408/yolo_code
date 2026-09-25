@@ -25,6 +25,37 @@ from .metrics import bbox_iou, probiou
 from .tal import bbox2dist, rbox2dist
 
 
+def normalize_tal_target_scores_per_gt(
+    target_scores: torch.Tensor,
+    target_gt_idx: torch.Tensor,
+    fg_mask: torch.Tensor,
+    mask_gt: torch.Tensor,
+    budget: float = 1.0,
+) -> torch.Tensor:
+    """Give each assigned GT the same target-score budget while preserving rank.
+
+    Only assigned positive locations are changed. GT instances with no positive
+    locations, or with zero current mass, are left unchanged because there is
+    no responsibility to redistribute. The helper is intentionally opt-in and
+    detached from architecture changes for the marked-mass ablation.
+    """
+    normalized = target_scores.clone()
+    budget = float(budget)
+    if budget <= 0:
+        raise ValueError("marked-mass budget must be positive")
+    for batch_index in range(target_scores.shape[0]):
+        valid_gt = mask_gt[batch_index, :, 0].bool()
+        for gt_index in valid_gt.nonzero(as_tuple=False).flatten().tolist():
+            positions = fg_mask[batch_index] & (target_gt_idx[batch_index] == gt_index)
+            if not positions.any():
+                continue
+            current = target_scores[batch_index, positions]
+            mass = current.sum()
+            if mass > 0:
+                normalized[batch_index, positions] = current * (budget / mass)
+    return normalized
+
+
 @dataclass(frozen=True)
 class BoundaryContrastiveLossConfig:
     """YOLO.train kwargs for the boundary-aware contrastive localization loss."""
@@ -2311,9 +2342,26 @@ class v8DetectionLoss:
                         aux_fg_mask[b, topk_indices] = True
                         total_alt_supports_found += topk_num
 
+        marked_mass_mode = os.environ.get("MARKED_MASS_MODE", "off").lower()
+        if marked_mass_mode not in {"off", "cls", "all"}:
+            raise ValueError("MARKED_MASS_MODE must be one of: off, cls, all")
+        marked_mass_budget = float(os.environ.get("MARKED_MASS_BUDGET", "1.0"))
+        marked_mass_scores = (
+            normalize_tal_target_scores_per_gt(
+                target_scores,
+                target_gt_idx,
+                fg_mask,
+                mask_gt,
+                budget=marked_mass_budget,
+            )
+            if marked_mass_mode != "off"
+            else target_scores
+        )
+        if marked_mass_mode == "all":
+            target_scores = marked_mass_scores
         target_scores_sum = max(target_scores.sum(), 1)
-        cls_target_scores = target_scores
-        cls_target_scores_sum = target_scores_sum
+        cls_target_scores = marked_mass_scores if marked_mass_mode == "cls" else target_scores
+        cls_target_scores_sum = max(cls_target_scores.sum(), 1)
         if self.scale_temper_target:
             cls_target_scores = self.scale_tempered_cls_targets(target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2)
         elif self.factorized_tal_target:
