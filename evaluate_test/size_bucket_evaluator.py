@@ -103,27 +103,34 @@ def _coco_ground_truth(image_paths: list[Path]) -> dict[str, Any]:
 
 def _predictions(model: Any, image_paths: list[Path], *, imgsz: int, batch: int, device: str, workers: int) -> list[dict[str, Any]]:
     detections: list[dict[str, Any]] = []
-    results = model.predict(
-        source=[str(path) for path in image_paths],
-        imgsz=imgsz,
-        batch=batch,
-        device=device,
-        workers=workers,
-        iou=0.5,
-        verbose=False,
-        stream=True,
-    )
-    for image_id, result in enumerate(results, 1):
-        boxes = result.boxes
-        xyxy = boxes.xyxy.detach().cpu().tolist() if boxes is not None else []
-        scores = boxes.conf.detach().cpu().tolist() if boxes is not None else []
-        for (x1, y1, x2, y2), score in zip(xyxy, scores):
-            detections.append({
-                "image_id": image_id,
-                "category_id": 1,
-                "bbox": [x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)],
-                "score": float(score),
-            })
+    # Do not hand all TinyPerson windows to the predictor at once. Ultralytics
+    # retains the source list for streamed inference, which can exhaust GPU
+    # memory even when ``batch`` is small.
+    chunk_size = max(batch * 16, batch)
+    for start in range(0, len(image_paths), chunk_size):
+        chunk = image_paths[start : start + chunk_size]
+        results = model.predict(
+            source=[str(path) for path in chunk],
+            imgsz=imgsz,
+            batch=batch,
+            device=device,
+            workers=workers,
+            iou=0.5,
+            verbose=False,
+            stream=True,
+        )
+        for offset, result in enumerate(results):
+            boxes = result.boxes
+            xyxy = boxes.xyxy.detach().cpu().tolist() if boxes is not None else []
+            scores = boxes.conf.detach().cpu().tolist() if boxes is not None else []
+            image_id = start + offset + 1
+            for (x1, y1, x2, y2), score in zip(xyxy, scores):
+                detections.append({
+                    "image_id": image_id,
+                    "category_id": 1,
+                    "bbox": [x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)],
+                    "score": float(score),
+                })
     return detections
 
 
