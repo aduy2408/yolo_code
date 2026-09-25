@@ -153,7 +153,7 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
             candidate_weight = torch.ones(
                 pred_scores.shape[:2], device=pred_scores.device, dtype=pred_scores.dtype
             )
-            p2_negative = ~fg_mask[:, : p2_slot_count * p2_base_count]
+            p2_negative = ~fg_mask[:, : p2_slot_count * p2_base_count].bool()
             candidate_weight[:, : p2_slot_count * p2_base_count] = torch.where(
                 p2_negative,
                 torch.full_like(candidate_weight[:, : p2_slot_count * p2_base_count], 1.0 / p2_slot_count),
