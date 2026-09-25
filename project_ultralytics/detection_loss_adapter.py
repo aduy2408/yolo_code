@@ -203,7 +203,7 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
                     self.last_hard_negative_candidates.append([])
                     continue
                 indices = deduplicate_candidate_indices(
-                    boxes[batch_idx], scores[batch_idx], (~fg_mask[batch_idx]) & (scores[batch_idx] >= threshold), limit
+                    boxes[batch_idx], scores[batch_idx], (~fg_mask[batch_idx].bool()) & (scores[batch_idx] >= threshold), limit
                 )
                 rows = []
                 for index in indices:
