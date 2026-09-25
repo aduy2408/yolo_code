@@ -30,8 +30,6 @@ REQUIRED = (
     "args.yaml",
     "evaluation_metrics.json",
     "experiment_manifest.json",
-    "evaluation/test_size_ground_truth.json",
-    "evaluation/test_size_predictions.json",
 )
 
 
@@ -156,17 +154,24 @@ def evaluate(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> dict[s
         )
         metrics[f"{split}/AP50"] = metric_value(result, "metrics/mAP50(B)")
         metrics[f"{split}/mAP50-95"] = metric_value(result, "metrics/mAP50-95(B)")
-    metrics.update(
-        evaluate_native_test_size_buckets(
-            run_dir,
-            data_yaml,
-            imgsz=IMAGE_SIZE,
-            batch=args.batch_size,
-            device=args.device,
-            workers=args.workers,
+    try:
+        from evaluate_test.size_bucket_evaluator import evaluate_native_test_size_buckets
+
+        metrics.update(
+            evaluate_native_test_size_buckets(
+                run_dir,
+                data_yaml,
+                imgsz=IMAGE_SIZE,
+                batch=args.batch_size,
+                device=args.device,
+                workers=args.workers,
+            )
         )
-    )
-    metrics["test_size/dataset"] = "visdrone"
+        metrics["test_size/dataset"] = "visdrone"
+    except ModuleNotFoundError as exc:
+        if exc.name != "pycocotools":
+            raise
+        metrics["test_size/protocol"] = "not_run: pycocotools unavailable"
     return metrics
 
 
@@ -228,7 +233,7 @@ def main(argv: list[str] | None = None) -> None:
             "git_sha": git_sha(),
             "hf_repo_id": repo_id,
             "test_protocol": "Ultralytics native VisDrone2019-DET-test-dev split",
-            "test_size_source_artifacts": ["evaluation/test_size_ground_truth.json", "evaluation/test_size_predictions.json"],
+            "test_size_protocol": metrics.get("test_size/protocol", "native size-bucket evaluator"),
             **metrics,
         }
         (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
