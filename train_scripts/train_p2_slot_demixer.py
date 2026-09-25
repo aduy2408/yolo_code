@@ -54,6 +54,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--variants", nargs="+", choices=sorted(CONFIGS), default=["B0", "B1", "B2"])
     parser.add_argument("--hf-repo-id", required=True)
     parser.add_argument("--pretrained", default="yolov8n.pt")
+    parser.add_argument(
+        "--evaluate-only",
+        action="store_true",
+        help="Evaluate existing variant/seed checkpoints without training.",
+    )
     return parser.parse_args()
 
 
@@ -251,11 +256,18 @@ def main() -> None:
     data_yaml, _ = prepare_dataset(args)
     for variant in args.variants:
         for seed in args.seeds:
-            run_dir = train_one(args, data_yaml, variant, seed)
+            run_dir = args.project / variant / f"seed_{seed}"
+            if args.evaluate_only:
+                checkpoint = run_dir / "weights/best.pt"
+                if not checkpoint.is_file():
+                    raise RuntimeError(f"Missing checkpoint for evaluation: {checkpoint}")
+            else:
+                run_dir = train_one(args, data_yaml, variant, seed)
             metrics = evaluate_one(args, data_yaml, variant, seed, run_dir)
             if not all(key in metrics for key in ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95")):
                 raise RuntimeError(f"Missing split-qualified metrics for {variant} seed {seed}")
-            upload_and_verify(args, variant, seed, run_dir)
+            if not args.evaluate_only:
+                upload_and_verify(args, variant, seed, run_dir)
             print(f"completed variant={variant} seed={seed} val/AP50={metrics['val/AP50']:.6f} test/AP50={metrics['test/AP50']:.6f}", flush=True)
 
 
