@@ -24,7 +24,11 @@ When a user asks to train, evaluate, or upload through Marimo, the agent MUST:
 5. Stop at the first failed gate. Never add `--no-upload`, change the dataset
    root, or substitute a repository to make a run proceed.
 6. After each run, verify local artifacts and the remote upload before starting
-   the next variant.
+   the next variant. If the user requests multiple variants/runs, treat them as
+   one sequential queue: preflight the entire queue once, launch the first run,
+   and automatically start each next run after verification without waiting for
+   another user confirmation. Persist queue progress and stop only at the first
+   failed or ambiguous gate.
 
 Progress and continuation checks must use the run's `state.json`, PID, command,
 log/artifact timestamps, and `run_contract.json`. A checkpoint without test

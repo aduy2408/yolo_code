@@ -219,7 +219,31 @@ from the live kernel, pass it explicitly to preflight and launch, and do not
 silently substitute another interpreter after preflight. Also inspect CUDA,
 dataset, checkpoint, and dependencies.
 
-## 5. Runner contract
+## 5.1 Multi-run queue execution
+
+When the user requests multiple matched runs, treat the request as one queue and
+execute it end-to-end without asking for confirmation between runs. The agent
+must:
+
+1. Build one immutable queue manifest containing every run, its mode/variant,
+   seed, command, contract path, artifact root, and HF remote prefix.
+2. Run preflight for the full queue before launching the first process. This
+   includes checking authentication, task-specific HF repository, exact commit,
+   dataset, and all requested run settings.
+3. Launch the first item through `utils.marimo_ops launch`, then automatically
+   monitor its `state.json`, PID, logs, local artifacts, and upload marker.
+4. Start the next item only after the previous item has completed evaluation and
+   its remote files have been listed and verified. No user confirmation is
+   needed between queue items.
+5. Stop the queue automatically at the first failed or ambiguous gate. Do not
+   continue past a dead PID with incomplete artifacts, missing test metrics, or
+   an unverified upload. Record the failure in the queue state and report it.
+6. Persist queue progress in a durable `queue_state.json` so a reconnect can
+   resume from the first unverified item without retraining verified runs.
+
+A multi-run request therefore means **preflight once, then sequentially execute
+and verify all requested items**, not "run one item and wait for the user".
+
 
 Every multi-run runner must:
 
@@ -229,7 +253,12 @@ Every multi-run runner must:
 - fail closed if upload is required but auth/repository is absent;
 - write a manifest containing commit SHA, command, seed, split, and NMS IoU;
 - be restart-safe and skip only after verifying artifacts and remote paths;
-- upload and verify each completed run before starting the next run.
+- For a multi-run request, create one queue manifest and run the requested
+  variants sequentially without waiting for user confirmation between them.
+  Preflight the whole queue first, then automatically launch the next variant
+  only after the previous variant's local artifacts, split-qualified metrics,
+  and remote upload have been verified. Stop at the first failed gate and
+  preserve queue state for recovery.
 
 Minimum local run contract:
 
