@@ -88,7 +88,7 @@ TRAIN_SCHEDULE = {
     "cos_lr": False,
 }
 
-STRICT_BASELINE_VARIANT = "yolov8n_p2p3p4_plain"
+STRICT_BASELINE_VARIANT = "yolov8n_base"
 
 REQUIRED = (
     "weights/best.pt",
