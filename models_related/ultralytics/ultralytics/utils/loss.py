@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -2368,7 +2369,6 @@ class v8DetectionLoss:
             cls_target_scores = self.factorized_tal_cls_targets(
                 target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2, assign_bboxes, stride_tensor
             )
-        import os
         if os.environ.get("FTAL_NORM_MODE", "oldnorm") == "newnorm":
             cls_target_scores_sum = max(cls_target_scores.sum(), 1)
         assigned_iou = None
