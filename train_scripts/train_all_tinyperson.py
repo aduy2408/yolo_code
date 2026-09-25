@@ -389,7 +389,10 @@ def predict_merged_test(run_dir: Path, test_out_dir: Path, data_root: Path, args
     from ultralytics import YOLO
 
     manifest = json.loads((test_out_dir / "corner_manifest.json").read_text(encoding="utf-8"))
-    corner_data, _ = load_corner_annotations(data_root / TEST_CORNER_JSON)
+    corner_annotation_path = Path(manifest["corner_annotations"])
+    if not corner_annotation_path.is_file():
+        corner_annotation_path = data_root / TEST_CORNER_JSON
+    corner_data, _ = load_corner_annotations(corner_annotation_path)
     original_id_by_name = {image["file_name"]: image["id"] for image in corner_data.get("old_images", [])}
     if not original_id_by_name:
         merged_data = json.loads((data_root / TEST_MERGED_JSON).read_text(encoding="utf-8"))
@@ -522,6 +525,10 @@ def evaluate_merged_test(run_dir: Path, test_out_dir: Path, data_root: Path, arg
     """Evaluate merged detections with TinyBenchmark when its optional stack is available."""
     prediction_path = predict_merged_test(run_dir, test_out_dir, data_root, args)
     merged_gt_path = data_root / TEST_MERGED_JSON
+    if not merged_gt_path.is_file():
+        manifest = json.loads((test_out_dir / "corner_manifest.json").read_text(encoding="utf-8"))
+        corner_annotation_path = Path(manifest["corner_annotations"])
+        merged_gt_path = corner_annotation_path.parents[3] / TEST_MERGED_JSON
     metrics: dict[str, float] = {"test_merged/available": 0.0}
     benchmark_root = ROOT / "vendor"
     if not (benchmark_root / "tinyperson_cocoeval.py").is_file() or not merged_gt_path.is_file():
