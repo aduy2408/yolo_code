@@ -179,6 +179,17 @@ def main() -> None:
             for other in vectors[index + 1:]:
                 pair_cosines.append(float(np.dot(vector, other) / max(np.linalg.norm(vector) * np.linalg.norm(other), 1e-12)))
         mean_vector = np.mean(vectors, axis=0) if vectors else None
+        raw_top1_energy = None
+        centered_top1_energy = None
+        if len(vectors) >= 2:
+            matrix = np.asarray(vectors, dtype=np.float64)
+            singular_values = np.linalg.svd(matrix, compute_uv=False)
+            raw_energy = singular_values**2
+            raw_top1_energy = float(raw_energy[0] / max(raw_energy.sum(), 1e-12))
+            centered = matrix - matrix.mean(axis=0, keepdims=True)
+            centered_values = np.linalg.svd(centered, compute_uv=False)
+            centered_energy = centered_values**2
+            centered_top1_energy = float(centered_energy[0] / max(centered_energy.sum(), 1e-12))
         summary["buckets"][bucket] = {
             "n": len(values),
             "grad_norm_mean": float(np.mean(norms)) if len(values) else None,
@@ -192,6 +203,8 @@ def main() -> None:
             "pair_cosine_q75": float(np.quantile(pair_cosines, 0.75)) if pair_cosines else None,
             "negative_pair_rate": float(np.mean(np.asarray(pair_cosines) < 0)) if pair_cosines else None,
             "aggregation_ratio_raw": float(np.linalg.norm(mean_vector) / max(float(np.mean(norms)), 1e-12)) if values else None,
+            "svd_top1_energy_raw": raw_top1_energy,
+            "svd_top1_energy_centered": centered_top1_energy,
         }
     for row in rows:
         del row["grad_vector"]
