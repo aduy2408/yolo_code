@@ -566,6 +566,7 @@ def train(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace) ->
         device=args.device,
         workers=args.workers,
         patience=args.patience,
+        save_period=10,
         seed=seed,
         deterministic=True,
         amp=True,
