@@ -25,7 +25,7 @@ python train_scripts/train_all_visdrone_yolo_baselines.py \
   --allow-subset \
   --augmentations mosaic \
   --imgsz 1536 \
-  --batch-size 4 \
+  --batch-size 8 \
   --epochs 100 \
   --patience 0 \
   --workers 8 \
@@ -36,3 +36,13 @@ python train_scripts/train_all_visdrone_yolo_baselines.py \
 Training remains upload-required and must be launched through the Marimo
 workflow. Dataset root, Python executable, source commit, and HF repository are
 therefore resolved during preflight and recorded in each run manifest.
+
+For a mixed model/seed queue, repeat `--job` in the desired order. The runner
+trains, evaluates both splits, uploads, and verifies each job before moving to
+the next one:
+
+```bash
+--job yolov5n:43,44 \
+--job yolov8n:42,43,44 \
+--batch-size 8
+```

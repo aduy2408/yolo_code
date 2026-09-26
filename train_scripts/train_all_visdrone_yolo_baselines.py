@@ -229,6 +229,21 @@ def selected_jobs(models: list[str], seeds: list[int], augmentations: list[str],
     return [job for i, job in enumerate(jobs) if i % count == index]
 
 
+def explicit_jobs(specs: list[str], augmentations: list[str]) -> list[tuple[str, int, str]]:
+    jobs: list[tuple[str, int, str]] = []
+    for spec in specs:
+        try:
+            model_name, seed_text = spec.split(":", 1)
+            seeds = [int(value) for value in seed_text.split(",") if value]
+        except ValueError as exc:
+            raise ValueError(f"Invalid --job {spec!r}; expected model:seed[,seed...]") from exc
+        if model_name not in MODELS or not seeds:
+            raise ValueError(f"Invalid --job {spec!r}; model must be one of {sorted(MODELS)}")
+        for augmentation in augmentations:
+            jobs.extend((model_name, seed, augmentation) for seed in seeds)
+    return jobs
+
+
 def train_one(model_name: str, seed: int, augmentation: str, data_yaml: Path, args: argparse.Namespace) -> Path:
     run_dir = args.project / model_name / augmentation / f"seed_{seed}"
     if training_complete(run_dir):
@@ -332,6 +347,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--models", nargs="+", choices=list(MODELS), default=list(MODELS))
     parser.add_argument("--seeds", nargs="+", type=int, default=list(SEEDS))
+    parser.add_argument("--job", action="append", default=[], help="explicit queue item, model:seed[,seed...]; repeat to define queue order")
     parser.add_argument("--augmentations", nargs="+", choices=list(AUGMENTATIONS), default=list(AUGMENTATIONS))
     parser.add_argument("--dataset-root", type=Path, default=ROOT / "datasets/visdrone_baselines")
     parser.add_argument("--project", type=Path, default=ROOT / "runs/visdrone_yolo_baselines")
@@ -369,7 +385,9 @@ def main(argv: list[str] | None = None) -> None:
 
     api = HfApi(token=os.environ["HF_TOKEN"])
     data_yaml = prepare_dataset(args.data_root, args.dataset_root)
-    jobs = selected_jobs(args.models, args.seeds, args.augmentations, args.machine_index, args.machine_count)
+    jobs = explicit_jobs(args.job, args.augmentations) if args.job else selected_jobs(
+        args.models, args.seeds, args.augmentations, args.machine_index, args.machine_count
+    )
     verified = verified_remote_prefixes(api, repo_id)
     print(json.dumps({"jobs": len(jobs), "repo_id": repo_id, "data_yaml": str(data_yaml)}, sort_keys=True), flush=True)
 

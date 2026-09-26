@@ -15,7 +15,7 @@ training_seeds: [42]
 model: yolov5n
 pretrained_source: yolov5nu.pt
 image_size: 1536
-batch_size: 4
+batch_size: 8
 epochs: 100
 patience: 0
 amp: true
