@@ -147,7 +147,10 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
                     allow_unused=True,
                 )[0]
                 if object_grad is not None and torch.isfinite(object_grad).all():
-                    tiny_grads.append(object_grad.detach())
+                    # The loss belongs to one GT in one image. Reduce the
+                    # batch-shaped autograd result to that owning image
+                    # before comparing gradient directions across objects.
+                    tiny_grads.append(object_grad[batch_index].detach())
 
         self.custom_detection_metrics["gradient_mode_tiny_objects"] = float(tiny_count)
         if len(tiny_grads) < max(self.gradient_mode_min_objects, 1):
@@ -159,12 +162,21 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
             n_modes=self.gradient_mode_count,
             iterations=self.gradient_mode_iterations,
         )
-        ordinary_tiny = raw_tiny.sum(dim=0)
+        # Compare like with like: both ordinary and mode-balanced paths are
+        # object-level means. Using a sum here would confound mode balancing
+        # with an N-object gradient-magnitude reduction.
+        ordinary_tiny = raw_tiny.mean(dim=0)
         delta = balanced - ordinary_tiny
         surrogate = (p2 * delta).sum()
         # Zero forward value, prescribed backward gradient.
         loss[0] = loss[0] + surrogate - surrogate.detach()
         self.custom_detection_metrics["gradient_mode_count"] = float(assignments.unique().numel())
+        ordinary_norm = ordinary_tiny.float().norm().clamp_min(1e-12)
+        balanced_norm = balanced.float().norm().clamp_min(1e-12)
+        cosine = (ordinary_tiny.float() * balanced.float()).sum() / (ordinary_norm * balanced_norm)
+        self.custom_detection_metrics["gradient_mode_ordinary_norm"] = float(ordinary_norm.item())
+        self.custom_detection_metrics["gradient_mode_balanced_norm"] = float(balanced_norm.item())
+        self.custom_detection_metrics["gradient_mode_ordinary_balanced_cosine"] = float(cosine.clamp(-1, 1).item())
         self.custom_detection_metrics["gradient_mode_applied"] = 1.0
 
     def get_assigned_targets_and_loss(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> tuple:
