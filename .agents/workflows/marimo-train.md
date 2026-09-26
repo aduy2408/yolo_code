@@ -61,9 +61,20 @@ substituting validation metrics.
   process is unavailable. Use the live Marimo connection and the repository
   helpers instead.
 - Connect to the live Marimo runtime through the repository command-line helper
-  (`utils/marimo_run.py`) and its configured API credentials. Do not open or
-  probe the Marimo URL through a browser as a substitute for that connection.
-  Browser interaction is out of scope unless the user explicitly requests it.
+  (`utils/marimo_run.py`) and its configured API credentials. `marimo_run.py` is
+  only the compatibility CLI. Reuse `utils.marimo_client.MarimoClient` for
+  session discovery, authenticated kernel execution, timeouts, stale-session
+  retry, and SSE parsing. Reuse `utils.marimo_ops` for preflight, detached
+  launch, status, artifacts, and completion evidence.
+- Do not recreate Marimo HTTP clients, PID/state launchers, or monitor loops in
+  `.jcode_*.py`, notebook scratch cells, or experiment runners. If a reusable
+  behavior is missing, add it under `utils/`, add a regression test, and update
+  this workflow before using it in a new experiment.
+- Prefer environment credentials (`MARIMO_URL` plus `MARIMO_TOKEN` or
+  `MARIMO_ACCESS_TOKEN`) so tokens are not placed in command history. The
+  ignored `utils/marimo_config.json` is a local fallback only and must remain
+  owner-readable (`0600`).
+- Do not open or probe the Marimo URL through a browser as a substitute for that connection.
 - Prefer Git synchronization over direct file patching on `/marimo`.
 - If the expected checkout is absent on Marimo, clone the repository into the
   expected path, fetch the requested commit, and check out that exact SHA before
