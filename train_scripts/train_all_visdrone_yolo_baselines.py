@@ -267,7 +267,10 @@ def train_one(model_name: str, seed: int, augmentation: str, data_yaml: Path, ar
 def evaluate(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> dict[str, float | str]:
     local_ultralytics()
     from ultralytics import YOLO
-    from size_bucket_evaluator import evaluate_native_test_size_buckets
+    try:
+        from evaluate_test.size_bucket_evaluator import evaluate_native_test_size_buckets
+    except ModuleNotFoundError:
+        from size_bucket_evaluator import evaluate_native_test_size_buckets
 
     model = YOLO(run_dir / "weights/best.pt")
     metrics: dict[str, float | str] = {"nms_iou": 0.5}
