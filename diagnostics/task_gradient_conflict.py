@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-training cls-vs-reg gradient conflict probe on shared detector features."""
+"""No-training per-GT localization-gradient probe on shared detector features."""
 from __future__ import annotations
 
 import argparse
@@ -105,27 +105,22 @@ def probe_one(net, criterion, tensor, batch, bucket: str) -> list[dict]:
         features = preds["feats"][0]
         features.retain_grad()
         _, losses, _ = criterion.get_assigned_targets_and_loss(preds, work)
-        cls_loss = losses[1]
         reg_loss = losses[0] + losses[2]
-        g_cls = torch.autograd.grad(cls_loss, features, retain_graph=True, allow_unused=True)[0]
         g_reg = torch.autograd.grad(reg_loss, features, retain_graph=False, allow_unused=True)[0]
-        if g_cls is None or g_reg is None:
+        if g_reg is None:
             continue
-        a = g_cls.detach().float().reshape(-1)
-        b = g_reg.detach().float().reshape(-1)
-        cosine = torch.dot(a, b) / (a.norm() * b.norm()).clamp_min(1e-12)
+        vector = g_reg.detach().float().mean(dim=(2, 3)).flatten()
+        norm = vector.norm()
+        if not torch.isfinite(norm) or norm.item() <= 1e-12:
+            continue
         results.append({
             "bucket": bucket,
             "gt_index": selected_index,
             "num_gt": 1,
             "sqrt_area": batch["_rows"][selected_index]["sqrt_area"],
-            "cls_loss": float(cls_loss.detach().item()),
             "reg_loss": float(reg_loss.detach().item()),
-            "cls_norm": float(a.norm().item()),
-            "reg_norm": float(b.norm().item()),
-            "dot": float(torch.dot(a, b).item()),
-            "cosine": float(cosine.item()),
-            "conflict": bool(cosine.item() < 0.0),
+            "grad_norm": float(norm.item()),
+            "grad_vector": vector.cpu().numpy(),
         })
     return results
 
@@ -166,18 +161,40 @@ def main() -> None:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]) if rows else ["image", "bucket"])
         writer.writeheader()
         writer.writerows(rows)
-    summary = {"weights": str(args.weights), "images": str(args.images), "limit": args.limit, "rows": len(rows), "buckets": {}}
+    summary = {
+        "weights": str(args.weights),
+        "images": str(args.images),
+        "limit": args.limit,
+        "loss": "box + DFL",
+        "vector": "mean over P2 spatial dimensions, raw norm preserved",
+        "rows": len(rows),
+        "buckets": {},
+    }
     for bucket, _, _ in BUCKETS:
         values = [row for row in rows if row["bucket"] == bucket]
-        cosines = np.asarray([row["cosine"] for row in values], dtype=np.float64)
+        vectors = [row["grad_vector"] for row in values]
+        norms = np.asarray([row["grad_norm"] for row in values], dtype=np.float64)
+        pair_cosines = []
+        for index, vector in enumerate(vectors):
+            for other in vectors[index + 1:]:
+                pair_cosines.append(float(np.dot(vector, other) / max(np.linalg.norm(vector) * np.linalg.norm(other), 1e-12)))
+        mean_vector = np.mean(vectors, axis=0) if vectors else None
         summary["buckets"][bucket] = {
             "n": len(values),
-            "conflict_rate": float(np.mean(cosines < 0)) if len(values) else None,
-            "cosine_mean": float(np.mean(cosines)) if len(values) else None,
-            "cosine_median": float(np.median(cosines)) if len(values) else None,
-            "cosine_q25": float(np.quantile(cosines, 0.25)) if len(values) else None,
-            "cosine_q75": float(np.quantile(cosines, 0.75)) if len(values) else None,
+            "grad_norm_mean": float(np.mean(norms)) if len(values) else None,
+            "grad_norm_median": float(np.median(norms)) if len(values) else None,
+            "grad_norm_q25": float(np.quantile(norms, 0.25)) if len(values) else None,
+            "grad_norm_q75": float(np.quantile(norms, 0.75)) if len(values) else None,
+            "pair_count": len(pair_cosines),
+            "pair_cosine_mean": float(np.mean(pair_cosines)) if pair_cosines else None,
+            "pair_cosine_median": float(np.median(pair_cosines)) if pair_cosines else None,
+            "pair_cosine_q25": float(np.quantile(pair_cosines, 0.25)) if pair_cosines else None,
+            "pair_cosine_q75": float(np.quantile(pair_cosines, 0.75)) if pair_cosines else None,
+            "negative_pair_rate": float(np.mean(np.asarray(pair_cosines) < 0)) if pair_cosines else None,
+            "aggregation_ratio_raw": float(np.linalg.norm(mean_vector) / max(float(np.mean(norms)), 1e-12)) if values else None,
         }
+    for row in rows:
+        del row["grad_vector"]
     args.output.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print(json.dumps(summary, indent=2, sort_keys=True))
 
