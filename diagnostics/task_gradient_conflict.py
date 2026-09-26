@@ -105,7 +105,7 @@ def bucket_for(area: float) -> str:
     raise AssertionError(area)
 
 
-def probe_one(net, criterion, tensor, batch, bucket: str) -> list[dict]:
+def probe_one(net, criterion, tensor, batch, bucket: str, loss_component: str) -> list[dict]:
     selected = [i for i, row in enumerate(batch["_rows"]) if bucket_for(row["sqrt_area"]) == bucket]
     if not selected:
         return []
@@ -131,7 +131,7 @@ def probe_one(net, criterion, tensor, batch, bucket: str) -> list[dict]:
             "dfl": losses[2],
             "reg": losses[0] + losses[2],
         }
-        component_loss = loss_terms[args.loss_component]
+        component_loss = loss_terms[loss_component]
         g_reg = torch.autograd.grad(component_loss, features, retain_graph=False, allow_unused=True)[0]
         if g_reg is None:
             continue
@@ -190,7 +190,7 @@ def main() -> None:
             tensor, batch, objects = read_sample(image_path, args.labels / f"{image_path.stem}.txt", device)
             batch["_rows"] = objects
             for bucket, _, _ in BUCKETS:
-                results = probe_one(net, criterion, tensor, batch, bucket)
+                results = probe_one(net, criterion, tensor, batch, bucket, args.loss_component)
                 for result in results:
                     result["image"] = image_path.name
                     rows.append(result)
