@@ -341,6 +341,11 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
             continue
         values = command_option_values(command, option)
         if not values:
+            # TinyPerson selects its model YAML from the named variant and does
+            # not expose a --model-yaml CLI flag. Its manifest records the
+            # concrete CONFIGS entry, so the contract still retains provenance.
+            if key == "model_yaml" and any("train_all_tinyperson.py" in item for item in command):
+                continue
             mismatches.append(f"{option}: missing (contract={contract[key]!r})")
         elif not all(_same_contract_value(key, contract[key], value) for value in values):
             mismatches.append(f"{option}: contract={contract[key]!r}, command={values!r}")
