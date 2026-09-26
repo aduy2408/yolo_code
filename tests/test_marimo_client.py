@@ -56,6 +56,32 @@ class MarimoClientTests(unittest.TestCase):
         events = client.execute("print('hello')")
         self.assertEqual(events, [("stdout", {"data": "hello"}), ("done", {"success": True})])
         self.assertEqual(session.post.call_count, 2)
+        stale_response.close.assert_called_once()
+        active_response.close.assert_called_once()
+
+    def test_execute_skips_malformed_sse_and_raises_after_http_failures(self) -> None:
+        session = Mock()
+        sessions_response = Mock(status_code=200)
+        sessions_response.json.return_value = {"only": {}}
+        sessions_response.raise_for_status.return_value = None
+        response = Mock(status_code=200)
+        response.iter_lines.return_value = iter([
+            "event: stdout",
+            "data: not-json",
+            "event: done",
+            'data: {"success": true}',
+        ])
+        session.get.return_value = sessions_response
+        session.post.return_value = response
+        client = MarimoClient(MarimoConfig("https://server", "token"), session=session)
+        self.assertEqual(client.execute("print('ok')"), [("done", {"success": True})])
+        response.close.assert_called_once()
+
+        response.status_code = 503
+        response.close.reset_mock()
+        with self.assertRaises(MarimoClientError):
+            client.execute("print('retry')")
+        response.close.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -117,19 +117,22 @@ class MarimoClient:
                     response.close()
                     continue
                 event_name = ""
-                for raw_line in response.iter_lines(decode_unicode=True):
-                    if not raw_line:
-                        continue
-                    line = raw_line.strip()
-                    if line.startswith("event:"):
-                        event_name = line[6:].strip()
-                    elif line.startswith("data:"):
-                        try:
-                            payload = json.loads(line[5:].strip())
-                        except json.JSONDecodeError:
+                try:
+                    for raw_line in response.iter_lines(decode_unicode=True):
+                        if not raw_line:
                             continue
-                        if isinstance(payload, dict):
-                            yield event_name, payload
+                        line = raw_line.strip()
+                        if line.startswith("event:"):
+                            event_name = line[6:].strip()
+                        elif line.startswith("data:"):
+                            try:
+                                payload = json.loads(line[5:].strip())
+                            except json.JSONDecodeError:
+                                continue
+                            if isinstance(payload, dict):
+                                yield event_name, payload
+                finally:
+                    response.close()
                 return
             except requests.RequestException as exc:
                 last_error = str(exc)
