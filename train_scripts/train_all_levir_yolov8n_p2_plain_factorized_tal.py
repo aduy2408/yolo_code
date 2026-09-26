@@ -62,7 +62,7 @@ def prepare_split(args: argparse.Namespace) -> Path:
     split_args = argparse.Namespace(
         data_root=args.data_root,
         dataset_root=args.dataset_root,
-        split_seed=42,
+        split_seed=args.split_seed,
     )
     data_yaml = workflow.prepare_fixed_split(split_args)
     workflow.validate_split(data_yaml)
@@ -87,7 +87,7 @@ def train(variant: str, data_yaml: Path, seed: int, args: argparse.Namespace) ->
         batch=args.batch_size,
         device=args.device,
         workers=args.workers,
-        patience=0,
+        patience=args.patience,
         seed=seed,
         deterministic=True,
         amp=True,
@@ -119,12 +119,13 @@ def write_metadata(variant: str, run_dir: Path, seed: int, args: argparse.Namesp
     manifest = {
         "variant": variant,
         "seed": seed,
-        "split_seed": 42,
+        "split_seed": args.split_seed,
         "config": CONFIG.name,
         "topology": "Plain P2 -> Detect",
         "detect_from": head.f,
         "detect_stride": head.stride.tolist(),
         "epochs": args.epochs,
+        "patience": args.patience,
         "imgsz": args.imgsz,
         "batch_size": args.batch_size,
         "nms_iou": 0.5,
@@ -155,10 +156,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--project", type=Path, default=ROOT / "runs/levir_yolov8n_p2_gradient_mode_balance")
     parser.add_argument("--pretrained", default="yolov8n.pt")
     parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--imgsz", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--split-seed", type=int, default=42)
+    parser.add_argument("--model-yaml", default=str(CONFIG))
     parser.add_argument("--hf-repo-id", default="duyle2408/levir-yolov8n-p2-gradient-mode-balance-runs")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
     parser.add_argument("--variants", nargs="+", choices=[VARIANT], default=[VARIANT])
@@ -168,6 +173,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.seed is not None:
+        args.seeds = [args.seed]
+    if Path(args.model_yaml).resolve() != CONFIG.resolve():
+        raise ValueError(f"Unexpected model YAML: {args.model_yaml}")
     require_training_context(hf_repo_id=args.hf_repo_id)
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
     uploader = Uploader(args.hf_repo_id)
