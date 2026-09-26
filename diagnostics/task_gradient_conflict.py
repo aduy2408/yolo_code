@@ -13,6 +13,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -206,6 +208,18 @@ def main() -> None:
             "svd_top1_energy_raw": raw_top1_energy,
             "svd_top1_energy_centered": centered_top1_energy,
         }
+        if bucket == "tiny" and len(vectors) >= 8:
+            matrix = np.asarray(vectors, dtype=np.float64)
+            normalized = matrix / np.maximum(np.linalg.norm(matrix, axis=1, keepdims=True), 1e-12)
+            summary["gradient_clusters"] = {}
+            for cluster_count in (2, 3, 4, 8):
+                model = KMeans(n_clusters=cluster_count, random_state=args.seed, n_init=20)
+                labels = model.fit_predict(normalized)
+                summary["gradient_clusters"][f"k{cluster_count}"] = {
+                    "n": len(vectors),
+                    "silhouette_cosine": float(silhouette_score(normalized, labels, metric="cosine")),
+                    "cluster_sizes": [int(size) for size in np.bincount(labels, minlength=cluster_count)],
+                }
     for row in rows:
         del row["grad_vector"]
     args.output.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
