@@ -62,11 +62,12 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
         )
         self.positive_rescue_gain = float(_arg(h, "positive_confidence_rescue_gain", 0.0))
         self.positive_rescue_gamma = float(_arg(h, "positive_confidence_rescue_gamma", 1.0))
-        self.gradient_mode_balance = bool(_arg(h, "gradient_mode_balance", False))
-        self.gradient_mode_count = int(_arg(h, "gradient_mode_count", 2))
-        self.gradient_mode_iterations = int(_arg(h, "gradient_mode_iterations", 8))
-        self.gradient_mode_tiny_size = float(_arg(h, "gradient_mode_tiny_size", 32.0))
-        self.gradient_mode_min_objects = int(_arg(h, "gradient_mode_min_objects", 2))
+        project_args = getattr(model, "project_model_args", {})
+        self.gradient_mode_balance = bool(_arg(project_args, "gradient_mode_balance", _arg(h, "gradient_mode_balance", False)))
+        self.gradient_mode_count = int(_arg(project_args, "gradient_mode_count", _arg(h, "gradient_mode_count", 2)))
+        self.gradient_mode_iterations = int(_arg(project_args, "gradient_mode_iterations", _arg(h, "gradient_mode_iterations", 8)))
+        self.gradient_mode_tiny_size = float(_arg(project_args, "gradient_mode_tiny_size", _arg(h, "gradient_mode_tiny_size", 32.0)))
+        self.gradient_mode_min_objects = int(_arg(project_args, "gradient_mode_min_objects", _arg(h, "gradient_mode_min_objects", 2)))
         self.custom_detection_metrics: dict[str, float] = {}
 
     def _inject_tiny_mode_balanced_gradient(
