@@ -54,20 +54,24 @@ Công cụ phân tích chẩn đoán chi tiết các ca dự đoán sai (Failure
   python3 utils/diagnose_test_fails.py
   ```
 
-### 6. `marimo_run.py`
-Công cụ điều khiển remote Marimo Server từ terminal local vô cùng nhanh chóng.
-* **Cấu hình session mới**:
-  ```bash
-  python3 utils/marimo_run.py --set-config <SERVER_URL> <TOKEN>
-  ```
-* **Chạy trực tiếp đoạn mã Python**:
-  ```bash
-  python3 utils/marimo_run.py -c "import torch; print(torch.cuda.is_available())"
-  ```
-* **Chạy một file Python nội bộ của local lên server**:
+### 6. `marimo_client.py` và `marimo_run.py`
+`marimo_client.py` là lớp dùng chung cho kết nối Marimo từ local: đọc credential theo thứ tự environment → config local, đặt timeout, retry qua các session stale và parse SSE. `marimo_run.py` chỉ còn là compatibility CLI mỏng.
+
+Ưu tiên dùng environment để không ghi token vào command history:
+
 ```bash
-python3 utils/marimo_run.py -f train_levir_scripts/get_model_stats.py
+export MARIMO_URL="https://..."
+export MARIMO_TOKEN="..."
+python3 utils/marimo_run.py -c "print('ready')"
 ```
+
+Nếu cần giữ cấu hình local cho máy cá nhân, file `utils/marimo_config.json` đã bị ignore và được ghi permission `0600`:
+
+```bash
+python3 utils/marimo_run.py --set-config <SERVER_URL> <TOKEN>
+```
+
+Không tạo thêm `.jcode_*.py` để giữ logic kết nối, launch hoặc monitor. Nếu cần thao tác mới, thêm vào `utils.marimo_client` hoặc `utils.marimo_ops`, rồi thêm regression test.
 
 ### 7. `marimo_ops.py`
 Các thao tác deterministic cho runner chạy trên Marimo. Đây là helper opt-in
