@@ -30,8 +30,9 @@ LOSS_ADAPTERS: dict[str, type] = {
 class ProjectDetectionTrainer(DetectionTrainer):
     """DetectionTrainer that reconstructs a model with a project criterion."""
 
-    def __init__(self, *args, loss_adapter: str = "ftal", **kwargs):
+    def __init__(self, *args, loss_adapter: str = "ftal", project_model_args: dict[str, Any] | None = None, **kwargs):
         self.project_loss_adapter = loss_adapter
+        self.project_model_args = dict(project_model_args or {})
         super().__init__(*args, **kwargs)
 
     def get_model(self, cfg=None, weights=None, verbose=True):
@@ -42,6 +43,11 @@ class ProjectDetectionTrainer(DetectionTrainer):
             verbose=verbose,
             loss_adapter=self.project_loss_adapter,
         )
+        for name, value in self.project_model_args.items():
+            if isinstance(model.args, dict):
+                model.args[name] = value
+            else:
+                setattr(model.args, name, value)
         if weights:
             model.load(weights)
         return model
@@ -118,5 +124,21 @@ def train_with_loss_adapter(model: Any, *, loss_adapter: str = "ftal", **train_k
     with project_parser(tasks), project_runtime():
         if loss_adapter in {"upstream", "default"}:
             return train(**train_kwargs)
-        trainer = partial(ProjectDetectionTrainer, loss_adapter=loss_adapter)
+        project_names = (
+            "gradient_mode_balance",
+            "gradient_mode_count",
+            "gradient_mode_iterations",
+            "gradient_mode_tiny_size",
+            "gradient_mode_min_objects",
+        )
+        project_model_args = {
+            name: train_kwargs.pop(name)
+            for name in project_names
+            if name in train_kwargs
+        }
+        trainer = partial(
+            ProjectDetectionTrainer,
+            loss_adapter=loss_adapter,
+            project_model_args=project_model_args,
+        )
         return train(trainer=trainer, **train_kwargs)
