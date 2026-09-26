@@ -11,7 +11,7 @@ runner: train_scripts/train_all_visdrone_yolo_baselines.py
 python_executable: unknown_until_marimo_preflight
 dataset_root: unknown_until_marimo_preflight
 split_seed: null
-training_seeds: [42, 43, 44]
+training_seeds: [42]
 model: yolov5n
 pretrained_source: yolov5nu.pt
 image_size: 1536

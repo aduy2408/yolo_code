@@ -21,7 +21,8 @@ After Marimo preflight, the equivalent runner selection is:
 python train_scripts/train_all_visdrone_yolo_baselines.py \
   --data-root <exact-visdrone-data-root> \
   --models yolov5n \
-  --seeds 42 43 44 \
+  --seeds 42 \
+  --allow-subset \
   --augmentations mosaic \
   --imgsz 1536 \
   --batch-size 4 \

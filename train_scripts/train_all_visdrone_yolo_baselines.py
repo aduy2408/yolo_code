@@ -344,6 +344,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hf-repo-id", required=True)
     parser.add_argument("--machine-index", type=int, default=0)
     parser.add_argument("--machine-count", type=int, default=1)
+    parser.add_argument("--allow-subset", action="store_true", help="allow a selected subset of the baseline seeds")
     return parser.parse_args(argv)
 
 
@@ -353,7 +354,7 @@ def git_sha() -> str:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-    if set(args.seeds) != set(SEEDS):
+    if not args.allow_subset and set(args.seeds) != set(SEEDS):
         raise ValueError("This baseline matrix requires exactly training seeds 42, 43, and 44")
     if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
         raise RuntimeError("Use python -m utils.marimo_ops launch for upload-required training")
