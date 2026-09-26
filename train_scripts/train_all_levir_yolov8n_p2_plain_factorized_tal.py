@@ -79,6 +79,7 @@ def train(variant: str, data_yaml: Path, seed: int, args: argparse.Namespace) ->
     if base.training_complete(run_dir, args.epochs):
         return run_dir
     base.seed_everything(seed)
+    base.local_ultralytics()
     from project_ultralytics.training import train_with_loss_adapter
 
     train_with_loss_adapter(
