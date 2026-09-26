@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train/evaluate/upload seed-42 plain P2 with Factorized TAL k=1.5."""
+"""Train/evaluate/upload plain P2 MBGA experiments with configurable mode count."""
 
 from __future__ import annotations
 
@@ -25,18 +25,23 @@ from utils.marimo_ops import require_training_context
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_plain.yaml"
-VARIANT = "plain_p2_gradient_mode_balance"
-SETTINGS = {
+VARIANTS = {2: "mbga_k2", 4: "mbga_k4"}
+BASE_SETTINGS = {
     "factorized_tal_target": True,
     "factorized_tal_tau": 0.75,
     "factorized_tal_kappa": 1.5,
     "factorized_tal_lambda": 0.5,
     "gradient_mode_balance": True,
-    "gradient_mode_count": 2,
     "gradient_mode_iterations": 8,
     "gradient_mode_tiny_size": 32.0,
     "gradient_mode_min_objects": 2,
 }
+
+
+def settings_for(mode_count: int) -> dict[str, object]:
+    if mode_count not in VARIANTS:
+        raise ValueError(f"unsupported MBGA mode count: {mode_count}")
+    return {**BASE_SETTINGS, "gradient_mode_count": mode_count}
 
 
 def model_for(pretrained: str):
@@ -73,8 +78,9 @@ def prepare_split(args: argparse.Namespace) -> Path:
 
 
 def train(variant: str, data_yaml: Path, seed: int, args: argparse.Namespace) -> Path:
-    if variant != VARIANT:
+    if variant not in VARIANTS.values():
         raise ValueError(f"unknown variant: {variant}")
+    settings = settings_for(args.gradient_mode_count)
     run_dir = args.project / variant / f"seed_{seed}"
     if base.training_complete(run_dir, args.epochs):
         return run_dir
@@ -103,7 +109,7 @@ def train(variant: str, data_yaml: Path, seed: int, args: argparse.Namespace) ->
         factorized_tal_warmup_start=5,
         factorized_tal_warmup_end=15,
         factorized_tal_p2_only=True,
-        **SETTINGS,
+        **settings,
     )
     if not base.training_complete(run_dir, args.epochs):
         raise RuntimeError(f"{variant}: required training artifacts are incomplete")
@@ -120,7 +126,9 @@ def write_metadata(variant: str, run_dir: Path, seed: int, args: argparse.Namesp
     shutil.copy2(CONFIG, run_dir / "config.yaml")
     model = YOLO(run_dir / "weights/best.pt")
     head = model.model.model[-1]
+    settings = settings_for(args.gradient_mode_count)
     manifest = {
+        "experiment": f"MBGA-K{args.gradient_mode_count}",
         "variant": variant,
         "seed": seed,
         "split_seed": args.split_seed,
@@ -133,13 +141,13 @@ def write_metadata(variant: str, run_dir: Path, seed: int, args: argparse.Namesp
         "imgsz": args.imgsz,
         "batch_size": args.batch_size,
         "nms_iou": 0.5,
-        "factorized_tal": SETTINGS,
+        "factorized_tal": settings,
         "factorized_tal_s_max": 32.0,
         "factorized_tal_warmup_start": 5,
         "factorized_tal_warmup_end": 15,
         "factorized_tal_p2_only": True,
         "gradient_mode_balance": True,
-        "gradient_mode_count": 2,
+        "gradient_mode_count": args.gradient_mode_count,
         "gradient_mode_iterations": 8,
         "gradient_mode_tiny_size": 32.0,
         "gradient_mode_min_objects": 2,
@@ -170,7 +178,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model-yaml", default=str(CONFIG))
     parser.add_argument("--hf-repo-id", default="duyle2408/levir-yolov8n-p2-gradient-mode-balance-runs")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
-    parser.add_argument("--variants", nargs="+", choices=[VARIANT], default=[VARIANT])
+    parser.add_argument("--gradient-mode-count", type=int, choices=sorted(VARIANTS), default=2)
     parser.add_argument("--ranking-limit", type=int, help="Debug only; full test split when omitted")
     return parser.parse_args(argv)
 
@@ -185,41 +193,44 @@ def main() -> None:
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
     uploader = Uploader(args.hf_repo_id)
     data_yaml = prepare_split(args)
+    variant = VARIANTS[args.gradient_mode_count]
     for seed in args.seeds:
-        for variant in args.variants:
-            run_dir = train(variant, data_yaml, seed, args)
-            base.evaluate(run_dir, data_yaml, args)
-            (run_dir / "factorized_tal_diagnostic.json").write_text(
-                json.dumps(
-                    {
-                        "protocol": "gradient_mode_balance training intervention",
-                        "split_seed": 42,
-                        "training_seed": seed,
-                        "nms_iou": 0.5,
-                        "source": "gradient_mode diagnostics are recorded in the training log/runner metrics",
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
+        run_dir = train(variant, data_yaml, seed, args)
+        base.evaluate(run_dir, data_yaml, args)
+        (run_dir / "factorized_tal_diagnostic.json").write_text(
+            json.dumps(
+                {
+                    "protocol": "gradient_mode_balance training intervention",
+                    "experiment": f"MBGA-K{args.gradient_mode_count}",
+                    "gradient_mode_count": args.gradient_mode_count,
+                    "split_seed": 42,
+                    "training_seed": seed,
+                    "nms_iou": 0.5,
+                    "source": "gradient_mode diagnostics are recorded in the training log/runner metrics",
+                },
+                indent=2,
+                sort_keys=True,
             )
-            (run_dir / "ranking_summary.json").write_text(
-                json.dumps(
-                    {
-                        "protocol": {"split": "test", "split_seed": 42, "nms_iou": 0.5},
-                        "method": "tiny-object mode-balanced P2 localization gradient",
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
+            + "\n",
+            encoding="utf-8",
+        )
+        (run_dir / "ranking_summary.json").write_text(
+            json.dumps(
+                {
+                    "protocol": {"split": "test", "split_seed": 42, "nms_iou": 0.5},
+                    "method": "tiny-object mode-balanced P2 localization gradient",
+                    "experiment": f"MBGA-K{args.gradient_mode_count}",
+                },
+                indent=2,
+                sort_keys=True,
             )
-            write_metadata(variant, run_dir, seed, args)
-            if not gap.complete(run_dir, args.epochs):
-                raise RuntimeError(f"{variant}: required post-evaluation artifacts are incomplete")
-            uploader.upload_run(variant, seed, run_dir)
+            + "\n",
+            encoding="utf-8",
+        )
+        write_metadata(variant, run_dir, seed, args)
+        if not gap.complete(run_dir, args.epochs):
+            raise RuntimeError(f"{variant}: required post-evaluation artifacts are incomplete")
+        uploader.upload_run(variant, seed, run_dir)
 
 
 if __name__ == "__main__":
