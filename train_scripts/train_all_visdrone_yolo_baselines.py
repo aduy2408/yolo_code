@@ -243,7 +243,7 @@ def train_one(model_name: str, seed: int, augmentation: str, data_yaml: Path, ar
     model.train(
         data=str(data_yaml),
         epochs=args.epochs,
-        imgsz=IMAGE_SIZE,
+        imgsz=args.imgsz,
         batch=args.batch_size,
         device=args.device,
         workers=args.workers,
@@ -275,7 +275,7 @@ def evaluate(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> dict[s
         result = model.val(
             data=str(data_yaml),
             split=split,
-            imgsz=IMAGE_SIZE,
+            imgsz=args.imgsz,
             batch=args.batch_size,
             device=args.device,
             workers=args.workers,
@@ -295,7 +295,7 @@ def evaluate(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> dict[s
         evaluate_native_test_size_buckets(
             run_dir,
             data_yaml,
-            imgsz=IMAGE_SIZE,
+            imgsz=args.imgsz,
             batch=args.batch_size,
             device=args.device,
             workers=args.workers,
@@ -334,6 +334,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--project", type=Path, default=ROOT / "runs/visdrone_yolo_baselines")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
+    parser.add_argument("--imgsz", type=int, default=IMAGE_SIZE)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--device", default="cuda")
@@ -391,7 +392,7 @@ def main(argv: list[str] | None = None) -> None:
             "close_mosaic": 10 if augmentation == "mosaic" else 0,
             "epochs": args.epochs,
             "patience": args.patience,
-            "imgsz": IMAGE_SIZE,
+            "imgsz": args.imgsz,
             "optimizer": OPTIMIZER,
             "optimizer_expected": "MuSGD when Ultralytics auto exceeds its iteration threshold",
             "batch_size": args.batch_size,

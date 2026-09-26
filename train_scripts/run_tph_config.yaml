@@ -1,0 +1,45 @@
+# TPH-YOLOv5-derived settings for the canonical YOLOv5 baseline.
+#
+# This is a control run, not the TPH architecture. The model remains the
+# project's canonical YOLOv5n baseline. Only imgsz and batch are inherited from
+# the official TPH-YOLOv5 training command.
+experiment_id: visdrone_yolov5n_baseline_tph_config
+control_config_or_baseline_config: vendor/ultralytics_upstream/ultralytics/cfg/models/v5/yolov5.yaml
+variant_config_or_explicit_change: "TPH-YOLOv5 upstream training profile: imgsz=1536, batch=4"
+source_commit: record_at_launch
+runner: train_scripts/train_all_visdrone_yolo_baselines.py
+python_executable: unknown_until_marimo_preflight
+dataset_root: unknown_until_marimo_preflight
+split_seed: null
+training_seeds: [42, 43, 44]
+model: yolov5n
+pretrained_source: yolov5nu.pt
+image_size: 1536
+batch_size: 4
+epochs: 100
+patience: 0
+amp: true
+nms_iou: 0.5
+optimizer: auto
+learning_rate: default_project
+augmentation_pipeline: default_project
+augmentation_policy: mosaic
+close_mosaic: 10
+hf_repo: unknown_until_marimo_preflight
+remote_prefix: runs/yolov5n/mosaic/seed_<seed>
+required_artifacts:
+  - weights/best.pt
+  - weights/last.pt
+  - results.csv
+  - args.yaml
+  - evaluation_metrics.json
+  - experiment_manifest.json
+  - evaluation/test_size_ground_truth.json
+  - evaluation/test_size_predictions.json
+upload_required: true
+provenance:
+  tph_upstream_repo: tph-yolov5-upstream
+  tph_upstream_readme: ../tph-yolov5-upstream/README.md
+  tph_upstream_train_command: "python train.py --img 1536 --adam --batch 4 --epochs 80 --data ./data/VisDrone.yaml --weights yolov5l.pt --hy data/hyps/hyp.VisDrone.yaml --cfg models/yolov5l-xs-tph.yaml"
+  inherited_fields: [image_size, batch_size]
+  intentionally_not_inherited: [learning_rate, optimizer, augmentation_pipeline, model_architecture]
