@@ -65,8 +65,21 @@ def read_sample(image_path: Path, label_path: Path, device: torch.device) -> tup
                 "cy": cy * height / padded_height,
                 "w": bw * width / padded_width,
                 "h": bh * height / padded_height,
+                "bbox_w_px": bw * width,
+                "bbox_h_px": bh * height,
+                "aspect_ratio": float((bw * width) / max(bh * height, 1e-12)),
                 "sqrt_area": float(np.sqrt(bw * width * bh * height)),
             })
+    for row in rows:
+        row["cx_px"] = row["cx"] * padded_width
+        row["cy_px"] = row["cy"] * padded_height
+        row["image_gt_count"] = len(rows)
+    for row in rows:
+        row["local_gt_count_r64"] = sum(
+            (other["cx_px"] - row["cx_px"]) ** 2 + (other["cy_px"] - row["cy_px"]) ** 2 <= 64.0**2
+            for other in rows
+            if other is not row
+        )
     if rows:
         bboxes = torch.tensor([[r["cx"], r["cy"], r["w"], r["h"]] for r in rows], device=device, dtype=torch.float32)
         classes = torch.tensor([[r["cls"]] for r in rows], device=device, dtype=torch.float32)
@@ -115,14 +128,26 @@ def probe_one(net, criterion, tensor, batch, bucket: str) -> list[dict]:
         norm = vector.norm()
         if not torch.isfinite(norm) or norm.item() <= 1e-12:
             continue
+        row = batch["_rows"][selected_index]
+        feature_map = features.detach().float()[0]
+        feature_x = min(max(int(row["cx"] * feature_map.shape[-1]), 0), feature_map.shape[-1] - 1)
+        feature_y = min(max(int(row["cy"] * feature_map.shape[-2]), 0), feature_map.shape[-2] - 1)
         results.append({
             "bucket": bucket,
             "gt_index": selected_index,
             "num_gt": 1,
             "sqrt_area": batch["_rows"][selected_index]["sqrt_area"],
+            "bbox_w_px": row["bbox_w_px"],
+            "bbox_h_px": row["bbox_h_px"],
+            "aspect_ratio": row["aspect_ratio"],
+            "cx_norm": row["cx"],
+            "cy_norm": row["cy"],
+            "local_gt_count_r64": row["local_gt_count_r64"],
+            "image_gt_count": row["image_gt_count"],
             "reg_loss": float(reg_loss.detach().item()),
             "grad_norm": float(norm.item()),
             "grad_vector": vector.cpu().numpy(),
+            "feature_vector": feature_map[:, feature_y, feature_x].cpu().numpy(),
         })
     return results
 
@@ -158,17 +183,16 @@ def main() -> None:
                 for result in results:
                     result["image"] = image_path.name
                     rows.append(result)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.with_suffix(".csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]) if rows else ["image", "bucket"])
-        writer.writeheader()
-        writer.writerows(rows)
     summary = {
         "weights": str(args.weights),
         "images": str(args.images),
         "limit": args.limit,
         "loss": "box + DFL",
         "vector": "mean over P2 spatial dimensions, raw norm preserved",
+        "cluster_metadata": {
+            "local_gt_count_r64": "number of other GT centers within 64 input pixels",
+            "feature_vector": "P2 feature at the GT center cell",
+        },
         "rows": len(rows),
         "buckets": {},
     }
@@ -231,8 +255,35 @@ def main() -> None:
                     "random_label_silhouette_max": float(np.max(null_scores)),
                     "random_label_p_ge_real": float(np.mean(np.asarray(null_scores) >= real_score)),
                 }
+            cluster_labels = KMeans(n_clusters=2, random_state=args.seed, n_init=20).fit_predict(normalized)
+            cluster_metadata = {}
+            feature_centroids = []
+            for cluster_id in range(2):
+                members = [value for value, label in zip(values, cluster_labels) if label == cluster_id]
+                feature_matrix = np.asarray([member["feature_vector"] for member in members], dtype=np.float64)
+                feature_centroid = feature_matrix.mean(axis=0)
+                feature_centroids.append(feature_centroid / max(np.linalg.norm(feature_centroid), 1e-12))
+                cluster_metadata[f"cluster_{cluster_id}"] = {
+                    "n": len(members),
+                    "sqrt_area_mean": float(np.mean([member["sqrt_area"] for member in members])),
+                    "bbox_w_px_mean": float(np.mean([member["bbox_w_px"] for member in members])),
+                    "bbox_h_px_mean": float(np.mean([member["bbox_h_px"] for member in members])),
+                    "aspect_ratio_mean": float(np.mean([member["aspect_ratio"] for member in members])),
+                    "local_gt_count_r64_mean": float(np.mean([member["local_gt_count_r64"] for member in members])),
+                    "image_gt_count_mean": float(np.mean([member["image_gt_count"] for member in members])),
+                    "cx_norm_mean": float(np.mean([member["cx_norm"] for member in members])),
+                    "cy_norm_mean": float(np.mean([member["cy_norm"] for member in members])),
+                }
+            summary["tiny_cluster_metadata_k2"] = cluster_metadata
+            summary["tiny_cluster_feature_centroid_cosine_k2"] = float(np.dot(feature_centroids[0], feature_centroids[1]))
     for row in rows:
         del row["grad_vector"]
+        del row["feature_vector"]
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.with_suffix(".csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]) if rows else ["image", "bucket"])
+        writer.writeheader()
+        writer.writerows(rows)
     args.output.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print(json.dumps(summary, indent=2, sort_keys=True))
 
