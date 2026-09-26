@@ -43,11 +43,13 @@ class ProjectDetectionTrainer(DetectionTrainer):
             verbose=verbose,
             loss_adapter=self.project_loss_adapter,
         )
+        model_args = getattr(model, "args", self.args)
+        model.args = model_args
         for name, value in self.project_model_args.items():
-            if isinstance(model.args, dict):
-                model.args[name] = value
+            if isinstance(model_args, dict):
+                model_args[name] = value
             else:
-                setattr(model.args, name, value)
+                setattr(model_args, name, value)
         if weights:
             model.load(weights)
         return model
