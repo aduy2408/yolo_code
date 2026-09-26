@@ -23,6 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 from PIL import Image
+from utils.marimo_ops import require_training_context
 
 ROOT = Path(__file__).resolve().parents[1]
 ULTRALYTICS = ROOT / "models_related/ultralytics"
@@ -758,7 +759,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--hf-repo-id", default="duyle2408/tinyperson-yolov8n-baselines")
     parser.add_argument("--skip-upload", action="store_true", help="Do not upload runs to Hugging Face")
@@ -766,6 +767,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--print-effective-config", action="store_true", help="Print every effective run setting and exit")
     parser.add_argument("--confirm-settings", action="store_true", help="Confirm the printed settings and allow training")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
+    parser.add_argument("--seed", type=int)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=[STRICT_BASELINE_VARIANT])
     parser.add_argument(
@@ -779,6 +781,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.seed is not None:
+        args.seeds = [args.seed]
+    require_training_context(hf_repo_id=args.hf_repo_id)
     args.data_root, args.dataset_root, args.project = (
         args.data_root.resolve(),
         args.dataset_root.resolve(),
