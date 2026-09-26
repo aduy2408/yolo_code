@@ -23,6 +23,7 @@ from .detection_loss import (
     scale_tempered_cls_targets,
 )
 from .assignment import CollisionPreservingTaskAlignedAssigner
+from .gradient_aggregation import mode_balanced_gradient
 from .hardness import foreground_assignment_hardness
 from .online_negative_bank import deduplicate_candidate_indices
 
@@ -61,7 +62,110 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
         )
         self.positive_rescue_gain = float(_arg(h, "positive_confidence_rescue_gain", 0.0))
         self.positive_rescue_gamma = float(_arg(h, "positive_confidence_rescue_gamma", 1.0))
+        self.gradient_mode_balance = bool(_arg(h, "gradient_mode_balance", False))
+        self.gradient_mode_count = int(_arg(h, "gradient_mode_count", 2))
+        self.gradient_mode_iterations = int(_arg(h, "gradient_mode_iterations", 8))
+        self.gradient_mode_tiny_size = float(_arg(h, "gradient_mode_tiny_size", 32.0))
+        self.gradient_mode_min_objects = int(_arg(h, "gradient_mode_min_objects", 2))
         self.custom_detection_metrics: dict[str, float] = {}
+
+    def _inject_tiny_mode_balanced_gradient(
+        self,
+        preds: dict[str, torch.Tensor],
+        loss: torch.Tensor,
+        *,
+        gt_bboxes: torch.Tensor,
+        mask_gt: torch.Tensor,
+        target_bboxes: torch.Tensor,
+        target_scores: torch.Tensor,
+        target_scores_sum: torch.Tensor,
+        target_gt_idx: torch.Tensor,
+        anchor_points: torch.Tensor,
+        stride_tensor: torch.Tensor,
+        pred_distri: torch.Tensor,
+        pred_bboxes: torch.Tensor,
+        fg_mask: torch.Tensor,
+        imgsz: torch.Tensor,
+    ) -> None:
+        """Replace only tiny-object P2 localization gradients by mode means.
+
+        The forward loss remains unchanged. A zero-valued straight-through
+        surrogate adds the difference between the balanced tiny gradient and
+        the ordinary tiny gradient, so classification and medium/large-object
+        gradients keep the upstream path.
+        """
+        if not self.gradient_mode_balance or self.gradient_mode_count < 1:
+            return
+        feats = preds.get("feats")
+        if not feats or not isinstance(feats[0], torch.Tensor):
+            return
+        p2 = feats[0]
+        if not p2.requires_grad:
+            return
+
+        p2_base_count = p2.shape[-2] * p2.shape[-1]
+        p2_span = p2_base_count * max(int(preds.get("p2_slot_count", 1)), 1)
+        p2_span = min(p2_span, fg_mask.shape[1])
+        if p2_span <= 0:
+            return
+
+        box_gain = float(_arg(self.hyp, "box", 1.0))
+        dfl_gain = float(_arg(self.hyp, "dfl", 1.0))
+        tiny_grads: list[torch.Tensor] = []
+        tiny_count = 0
+
+        for batch_index in range(gt_bboxes.shape[0]):
+            for gt_index in torch.where(mask_gt[batch_index, :, 0])[0].tolist():
+                box = gt_bboxes[batch_index, gt_index]
+                size = (box[2:] - box[:2]).clamp_min(1e-6).prod().sqrt()
+                if float(size.detach()) >= self.gradient_mode_tiny_size:
+                    continue
+                group = torch.zeros_like(fg_mask)
+                group[batch_index, :p2_span] = (
+                    fg_mask[batch_index, :p2_span]
+                    & (target_gt_idx[batch_index, :p2_span] == gt_index)
+                )
+                if not group.any():
+                    continue
+                tiny_count += 1
+                box_loss, dfl_loss = self.bbox_loss(
+                    pred_distri,
+                    pred_bboxes,
+                    anchor_points,
+                    target_bboxes / stride_tensor,
+                    target_scores,
+                    target_scores_sum,
+                    group,
+                    imgsz,
+                    stride_tensor,
+                )
+                object_loss = box_gain * box_loss + dfl_gain * dfl_loss
+                object_grad = torch.autograd.grad(
+                    object_loss,
+                    p2,
+                    retain_graph=True,
+                    allow_unused=True,
+                )[0]
+                if object_grad is not None and torch.isfinite(object_grad).all():
+                    tiny_grads.append(object_grad.detach())
+
+        self.custom_detection_metrics["gradient_mode_tiny_objects"] = float(tiny_count)
+        if len(tiny_grads) < max(self.gradient_mode_min_objects, 1):
+            return
+
+        raw_tiny = torch.stack(tiny_grads)
+        balanced, assignments = mode_balanced_gradient(
+            raw_tiny,
+            n_modes=self.gradient_mode_count,
+            iterations=self.gradient_mode_iterations,
+        )
+        ordinary_tiny = raw_tiny.sum(dim=0)
+        delta = balanced - ordinary_tiny
+        surrogate = (p2 * delta).sum()
+        # Zero forward value, prescribed backward gradient.
+        loss[0] = loss[0] + surrogate - surrogate.detach()
+        self.custom_detection_metrics["gradient_mode_count"] = float(assignments.unique().numel())
+        self.custom_detection_metrics["gradient_mode_applied"] = 1.0
 
     def get_assigned_targets_and_loss(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> tuple:
         """Run upstream assignment/loss with project target shaping inserted."""
@@ -186,6 +290,22 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
         loss[0] *= _arg(self.hyp, "box", 1.0)
         loss[1] *= _arg(self.hyp, "cls", 1.0)
         loss[2] *= _arg(self.hyp, "dfl", 1.0)
+        self._inject_tiny_mode_balanced_gradient(
+            preds,
+            loss,
+            gt_bboxes=gt_bboxes,
+            mask_gt=mask_gt,
+            target_bboxes=target_bboxes,
+            target_scores=target_scores,
+            target_scores_sum=target_scores_sum,
+            target_gt_idx=target_gt_idx,
+            anchor_points=anchor_points,
+            stride_tensor=stride_tensor,
+            pred_distri=pred_distri,
+            pred_bboxes=pred_bboxes,
+            fg_mask=fg_mask,
+            imgsz=imgsz,
+        )
         # Keep the optional OACP feedback path available when FTAL overrides
         # the upstream assignment/loss seam. This statistic is detached and
         # never contributes to the training objective.
