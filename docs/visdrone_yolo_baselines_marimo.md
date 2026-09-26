@@ -2,6 +2,10 @@
 
 Runner: `train_scripts/train_all_visdrone_yolo_baselines.py`
 
+The runner is ready for the full **30-run** matrix and supports explicit
+sub-queues, so a future model family can be launched without changing the
+runner or the baseline registry.
+
 The setup covers **30 runs**:
 
 | Detector | Smallest scale | Training seeds | Augmentation policies |
@@ -51,3 +55,47 @@ confirmed by preflight:
 
 Do not substitute a dataset path or launch this upload-required runner
 directly. Run the complete Marimo preflight first.
+
+## Prepared queue for YOLOv9, YOLOv10, and YOLO11
+
+The model registry already pins the upstream detector YAML and pretrained
+checkpoint for each future family:
+
+| Queue name | Checkpoint | Canonical YAML |
+|---|---|---|
+| `yolov9t` | `yolov9t.pt` | `vendor/ultralytics_upstream/ultralytics/cfg/models/v9/yolov9t.yaml` |
+| `yolov10n` | `yolov10n.pt` | `vendor/ultralytics_upstream/ultralytics/cfg/models/v10/yolov10n.yaml` |
+| `yolo11n` | `yolo11n.pt` | `vendor/ultralytics_upstream/ultralytics/cfg/models/11/yolo11.yaml` |
+
+After the new Marimo server has passed the exact checkout, dataset, Python,
+CUDA, and HF preflight, launch the future matrix with one sequential queue:
+
+```bash
+/marimo/<python> -m utils.marimo_ops launch \
+  --cwd /marimo/yolo_code \
+  --run-dir /marimo/yolo_code/runs/visdrone_yolo_v9_v10_v11 \
+  --artifact-root /marimo/yolo_code/runs/visdrone_yolo_v9_v10_v11/artifacts \
+  -- \
+  /marimo/<python> train_scripts/train_all_visdrone_yolo_baselines.py \
+  --data-root <exact-visdrone-data-root> \
+  --dataset-root /marimo/yolo_code/datasets/visdrone_baselines \
+  --project /marimo/yolo_code/runs/visdrone_yolo_v9_v10_v11/artifacts \
+  --epochs 100 --patience 0 --imgsz 640 --batch-size 8 --workers 8 \
+  --device cuda \
+  --hf-repo-id <hf-user>/visdrone-yolov9-yolov10-yolo11-runs \
+  --augmentations mosaic no_mosaic \
+  --job yolov9t:42,43,44 \
+  --job yolov10n:42,43,44 \
+  --job yolo11n:42,43,44
+```
+
+For a smaller smoke or recovery queue, keep the same contract and reduce only
+the explicit jobs, for example:
+
+```bash
+--augmentations mosaic --job yolov9t:42,43,44 --job yolov10n:42,43,44 --job yolo11n:42,43,44
+```
+
+The runner skips a job only when its remote `upload_complete.json` prefix is
+already verified. A checkpoint without split-qualified validation and test
+metrics is not considered resumable completion evidence.
