@@ -16,16 +16,22 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import train_all_levir_yolov8n_p2_gap_factorized_tal as gap
 import train_all_levir_yolov8n_p2_gap_scale_temper as base
+from utils.marimo_ops import require_training_context
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_plain.yaml"
-VARIANT = "plain_p2_factorized_k15"
+VARIANT = "plain_p2_gradient_mode_balance"
 SETTINGS = {
     "factorized_tal_target": True,
     "factorized_tal_tau": 0.75,
     "factorized_tal_kappa": 1.5,
     "factorized_tal_lambda": 0.5,
+    "gradient_mode_balance": True,
+    "gradient_mode_count": 2,
+    "gradient_mode_iterations": 8,
+    "gradient_mode_tiny_size": 32.0,
+    "gradient_mode_min_objects": 2,
 }
 
 
@@ -51,7 +57,11 @@ def train(variant: str, data_yaml: Path, seed: int, args: argparse.Namespace) ->
     if base.training_complete(run_dir, args.epochs):
         return run_dir
     base.seed_everything(seed)
-    model_for(args.pretrained).train(
+    from project_ultralytics.training import train_with_loss_adapter
+
+    train_with_loss_adapter(
+        model_for(args.pretrained),
+        loss_adapter="ftal",
         data=str(data_yaml),
         epochs=args.epochs,
         imgsz=args.imgsz,
@@ -104,6 +114,11 @@ def write_metadata(variant: str, run_dir: Path, seed: int, args: argparse.Namesp
         "factorized_tal_warmup_start": 5,
         "factorized_tal_warmup_end": 15,
         "factorized_tal_p2_only": True,
+        "gradient_mode_balance": True,
+        "gradient_mode_count": 2,
+        "gradient_mode_iterations": 8,
+        "gradient_mode_tiny_size": 32.0,
+        "gradient_mode_min_objects": 2,
         "params": sum(parameter.numel() for parameter in model.model.parameters()),
         "model_gflops_thop": get_flops(model.model, imgsz=args.imgsz),
     }
@@ -118,15 +133,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=ROOT / "LevirShipData")
     parser.add_argument("--dataset-root", type=Path, default=ROOT / "datasets")
-    parser.add_argument("--project", type=Path, default=ROOT / "runs/levir_yolov8n_p2_plain_factorized_tal")
+    parser.add_argument("--project", type=Path, default=ROOT / "runs/levir_yolov8n_p2_gradient_mode_balance")
     parser.add_argument("--pretrained", default="yolov8n.pt")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--imgsz", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="0")
-    parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--hf-repo-id", default="duyle2408/levir-yolov8n-p2-plain-factorized-tal-seed42")
-    parser.add_argument("--seeds", type=int, nargs="+", default=[42])
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--hf-repo-id", default="duyle2408/levir-yolov8n-p2-gradient-mode-balance-runs")
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
     parser.add_argument("--variants", nargs="+", choices=[VARIANT], default=[VARIANT])
     parser.add_argument("--ranking-limit", type=int, help="Debug only; full test split when omitted")
     return parser.parse_args(argv)
@@ -134,6 +149,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    require_training_context(hf_repo_id=args.hf_repo_id)
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
     uploader = Uploader(args.hf_repo_id)
     data_yaml = base.prepare_split(args)
