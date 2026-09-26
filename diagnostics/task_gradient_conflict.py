@@ -40,6 +40,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--limit", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--loss-component",
+        choices=("box", "dfl", "reg"),
+        default="reg",
+        help="Gradient loss component: box=CIoU, dfl=DFL, reg=box+DFL.",
+    )
     return parser.parse_args()
 
 
@@ -120,8 +126,13 @@ def probe_one(net, criterion, tensor, batch, bucket: str) -> list[dict]:
         features = preds["feats"][0]
         features.retain_grad()
         _, losses, _ = criterion.get_assigned_targets_and_loss(preds, work)
-        reg_loss = losses[0] + losses[2]
-        g_reg = torch.autograd.grad(reg_loss, features, retain_graph=False, allow_unused=True)[0]
+        loss_terms = {
+            "box": losses[0],
+            "dfl": losses[2],
+            "reg": losses[0] + losses[2],
+        }
+        component_loss = loss_terms[args.loss_component]
+        g_reg = torch.autograd.grad(component_loss, features, retain_graph=False, allow_unused=True)[0]
         if g_reg is None:
             continue
         vector = g_reg.detach().float().mean(dim=(2, 3)).flatten()
@@ -144,7 +155,7 @@ def probe_one(net, criterion, tensor, batch, bucket: str) -> list[dict]:
             "cy_norm": row["cy"],
             "local_gt_count_r64": row["local_gt_count_r64"],
             "image_gt_count": row["image_gt_count"],
-            "reg_loss": float(reg_loss.detach().item()),
+            "component_loss": float(component_loss.detach().item()),
             "grad_norm": float(norm.item()),
             "grad_vector": vector.cpu().numpy(),
             "feature_vector": feature_map[:, feature_y, feature_x].cpu().numpy(),
@@ -187,7 +198,8 @@ def main() -> None:
         "weights": str(args.weights),
         "images": str(args.images),
         "limit": args.limit,
-        "loss": "box + DFL",
+        "loss": {"box": "CIoU", "dfl": "DFL", "reg": "CIoU + DFL"}[args.loss_component],
+        "loss_component": args.loss_component,
         "vector": "mean over P2 spatial dimensions, raw norm preserved",
         "cluster_metadata": {
             "local_gt_count_r64": "number of other GT centers within 64 input pixels",
