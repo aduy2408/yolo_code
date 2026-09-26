@@ -215,10 +215,21 @@ def main() -> None:
             for cluster_count in (2, 3, 4, 8):
                 model = KMeans(n_clusters=cluster_count, random_state=args.seed, n_init=20)
                 labels = model.fit_predict(normalized)
+                rng = np.random.default_rng(args.seed + cluster_count)
+                null_scores = []
+                for _ in range(200):
+                    shuffled_labels = labels.copy()
+                    rng.shuffle(shuffled_labels)
+                    null_scores.append(float(silhouette_score(normalized, shuffled_labels, metric="cosine")))
+                real_score = float(silhouette_score(normalized, labels, metric="cosine"))
                 summary["gradient_clusters"][f"k{cluster_count}"] = {
                     "n": len(vectors),
-                    "silhouette_cosine": float(silhouette_score(normalized, labels, metric="cosine")),
+                    "silhouette_cosine": real_score,
                     "cluster_sizes": [int(size) for size in np.bincount(labels, minlength=cluster_count)],
+                    "random_label_silhouette_mean": float(np.mean(null_scores)),
+                    "random_label_silhouette_q95": float(np.quantile(null_scores, 0.95)),
+                    "random_label_silhouette_max": float(np.max(null_scores)),
+                    "random_label_p_ge_real": float(np.mean(np.asarray(null_scores) >= real_score)),
                 }
     for row in rows:
         del row["grad_vector"]
