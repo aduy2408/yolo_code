@@ -41,7 +41,8 @@ REQUIRED = (
 
 
 def run(command: list[str], *, cwd: Path | None = None, capture: bool = False) -> str:
-    result = subprocess.run(command, cwd=cwd, text=True, check=True, capture_output=capture)
+    env = {**os.environ, "WANDB_MODE": "disabled"}
+    result = subprocess.run(command, cwd=cwd, env=env, text=True, check=True, capture_output=capture)
     return (result.stdout + result.stderr) if capture else ""
 
 
