@@ -66,7 +66,7 @@ def ensure_tph_repo(path: Path) -> None:
     train = path / "train.py"
     text = train.read_text(encoding="utf-8")
     allowed = {"M train.py", "M models/experimental.py", "M utils/general.py"}
-    dirty_lines = [line for line in dirty.splitlines() if "__pycache__/" not in line and not line.rstrip().endswith(".pyc")]
+    dirty_lines = [line for line in dirty.splitlines() if "__pycache__/" not in line and not line.rstrip().endswith(".pyc") and line.strip() != "?? yolov5l.pt"]
     if dirty_lines and not (all(line.strip() in allowed for line in dirty_lines) and "getattr(opt, 'seed', 42)" in text):
         raise RuntimeError(f"TPH checkout is dirty: {path}")
     if "getattr(opt, 'seed', 42)" not in text:
