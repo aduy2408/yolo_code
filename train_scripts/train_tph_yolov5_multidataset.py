@@ -180,6 +180,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS))
     parser.add_argument("--seeds", nargs="+", type=int, default=[42, 43, 44])
+    parser.add_argument("--split-seed", type=int, default=SPLIT_SEED)
     parser.add_argument("--data-root", action="append", metavar="DATASET=PATH")
     parser.add_argument("--dataset-root", type=Path, default=ROOT / "datasets/tph_yolov5")
     parser.add_argument("--project", type=Path, default=ROOT / "runs/tph_yolov5_multidataset")
@@ -192,6 +193,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hf-repo-id", required=True)
     parser.add_argument("--source-commit", required=True)
     args = parser.parse_args()
+    if args.split_seed != SPLIT_SEED:
+        raise ValueError(f"This TPH matrix requires split-seed={SPLIT_SEED}")
     roots = dict(DEFAULT_ROOTS)
     for item in args.data_root or []:
         dataset, sep, path = item.partition("=")
