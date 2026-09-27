@@ -63,7 +63,7 @@ def ensure_tph_repo(path: Path) -> None:
     dirty = run(["git", "status", "--porcelain"], cwd=path, capture=True).strip()
     train = path / "train.py"
     text = train.read_text(encoding="utf-8")
-    if dirty and not (dirty == " M train.py" and "getattr(opt, 'seed', 42)" in text):
+    if dirty and not (dirty.strip() == "M train.py" and "getattr(opt, 'seed', 42)" in text):
         raise RuntimeError(f"TPH checkout is dirty: {path}")
     if "getattr(opt, 'seed', 42)" not in text:
         text = text.replace("init_seeds(1 + RANK)", "init_seeds(getattr(opt, 'seed', 42) + 1 + RANK)")
