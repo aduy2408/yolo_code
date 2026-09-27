@@ -169,6 +169,22 @@ VARIANTS = {
         "scale_cp_factor_max": 0.90,
         "scale_cp_max_overlap": 0.0,
     },
+    "stcp": {
+        "copy_paste_enabled": True,
+        "copy_paste_unit": "single",
+        "copy_paste_copies": 1,
+        "copy_paste_mode": "stcp",
+        "stcp_p": 0.30,
+        "stcp_min_pastes": 1,
+        "stcp_max_pastes": 2,
+        "stcp_target_max_scale": 20.0,
+        "stcp_ratio_min": 1.5,
+        "stcp_ratio_max": 2.5,
+        "stcp_blur_sigma": 0.5,
+        "stcp_blur_min_side": 5,
+        "stcp_max_ioa": 0.10,
+        "stcp_max_trials": 30,
+    },
 }
 
 

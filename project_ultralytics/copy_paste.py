@@ -815,6 +815,27 @@ def build_small_object_copy_paste(dataset, hyp):
             rng=getattr(hyp, "copy_paste_rng", None),
             **sparse_kwargs,
         )
+    if mode in {"stcp", "scale_transfer"}:
+        from .stcp_copy_paste import ScaleTransferCopyPaste
+
+        return ScaleTransferCopyPaste(
+            dataset=dataset,
+            p=float(getattr(hyp, "stcp_p", 0.30)),
+            min_pastes=int(getattr(hyp, "stcp_min_pastes", 1)),
+            max_pastes=int(getattr(hyp, "stcp_max_pastes", 2)),
+            target_max_scale=float(getattr(hyp, "stcp_target_max_scale", 20.0)),
+            ratio_min=float(getattr(hyp, "stcp_ratio_min", 1.5)),
+            ratio_max=float(getattr(hyp, "stcp_ratio_max", 2.5)),
+            interpolation=cv2.INTER_AREA,
+            blur_sigma=float(getattr(hyp, "stcp_blur_sigma", 0.5)),
+            blur_min_side=int(getattr(hyp, "stcp_blur_min_side", 5)),
+            max_trials=int(getattr(hyp, "stcp_max_trials", 30)),
+            max_ioa=float(getattr(hyp, "stcp_max_ioa", 0.10)),
+            min_donor_w=int(getattr(hyp, "stcp_min_donor_w", 1)),
+            min_donor_h=int(getattr(hyp, "stcp_min_donor_h", 1)),
+            debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
+            rng=getattr(hyp, "copy_paste_rng", None),
+        )
     if mode in {"online_negative", "online_negative_scale_matched"}:
         from .online_negative_bank import OnlineHardNegativeBank, OnlineNegativeCopyPaste
         from .adaptive_copy_paste import AdaptivePasteBudget
@@ -950,4 +971,16 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "negative_cp_large_ratio_max": float(getattr(hyp, "negative_cp_large_ratio_max", 2.5)),
         "negative_cp_degradation": str(getattr(hyp, "negative_cp_degradation", "none")),
         "negative_cp_blur_sigma": float(getattr(hyp, "negative_cp_blur_sigma", 0.5)),
+        "stcp_p": float(getattr(hyp, "stcp_p", 0.30)),
+        "stcp_min_pastes": int(getattr(hyp, "stcp_min_pastes", 1)),
+        "stcp_max_pastes": int(getattr(hyp, "stcp_max_pastes", 2)),
+        "stcp_target_max_scale": float(getattr(hyp, "stcp_target_max_scale", 20.0)),
+        "stcp_ratio_min": float(getattr(hyp, "stcp_ratio_min", 1.5)),
+        "stcp_ratio_max": float(getattr(hyp, "stcp_ratio_max", 2.5)),
+        "stcp_interpolation": "area",
+        "stcp_blur_sigma": float(getattr(hyp, "stcp_blur_sigma", 0.5)),
+        "stcp_blur_min_side": int(getattr(hyp, "stcp_blur_min_side", 5)),
+        "stcp_max_ioa": float(getattr(hyp, "stcp_max_ioa", 0.10)),
+        "stcp_max_trials": int(getattr(hyp, "stcp_max_trials", 30)),
+        "stcp_position": "post_geometry",
     }
