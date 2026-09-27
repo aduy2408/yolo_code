@@ -60,10 +60,11 @@ def ensure_tph_repo(path: Path) -> None:
         run(["git", "clone", TPH_URL, str(path)])
     run(["git", "fetch", "--depth", "1", "origin", TPH_COMMIT], cwd=path)
     run(["git", "checkout", "--detach", TPH_COMMIT], cwd=path)
-    if run(["git", "status", "--porcelain"], cwd=path, capture=True).strip():
-        raise RuntimeError(f"TPH checkout is dirty: {path}")
+    dirty = run(["git", "status", "--porcelain"], cwd=path, capture=True).strip()
     train = path / "train.py"
     text = train.read_text(encoding="utf-8")
+    if dirty and not (dirty == " M train.py" and "getattr(opt, 'seed', 42)" in text):
+        raise RuntimeError(f"TPH checkout is dirty: {path}")
     if "getattr(opt, 'seed', 42)" not in text:
         text = text.replace("init_seeds(1 + RANK)", "init_seeds(getattr(opt, 'seed', 42) + 1 + RANK)")
         marker = "parser.add_argument('--adam', action='store_true', help='use torch.optim.Adam() optimizer')"
