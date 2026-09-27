@@ -65,7 +65,7 @@ def ensure_tph_repo(path: Path) -> None:
     dirty = run(["git", "status", "--porcelain"], cwd=path, capture=True).strip()
     train = path / "train.py"
     text = train.read_text(encoding="utf-8")
-    allowed = {"M train.py", "M models/experimental.py", "M utils/general.py", "M utils/datasets.py"}
+    allowed = {"M train.py", "M models/experimental.py", "M utils/general.py", "M utils/datasets.py", "M utils/loss.py"}
     dirty_lines = [line for line in dirty.splitlines() if "__pycache__/" not in line and not line.rstrip().endswith(".pyc") and line.strip() != "?? yolov5l.pt"]
     if dirty_lines and not (all(line.strip() in allowed for line in dirty_lines) and "getattr(opt, 'seed', 42)" in text):
         raise RuntimeError(f"TPH checkout is dirty: {path}")
@@ -79,6 +79,7 @@ def ensure_tph_repo(path: Path) -> None:
     compatibility = {
         path / "models/experimental.py": [("torch.load(attempt_download(w), map_location=map_location)", "torch.load(attempt_download(w), map_location=map_location, weights_only=False)")],
         path / "utils/datasets.py": [("np.int", "int")],
+        path / "utils/loss.py": [("gj.clamp_(0, gain[3] - 1)", "gj.clamp_(0, gain[3].long() - 1)"), ("gi.clamp_(0, gain[2] - 1)", "gi.clamp_(0, gain[2].long() - 1)")],
         path / "utils/general.py": [("torch.load(f, map_location=torch.device('cpu'))", "torch.load(f, map_location=torch.device('cpu'), weights_only=False)"), ("np.int", "int")],
         train: [("torch.load(weights, map_location=device)", "torch.load(weights, map_location=device, weights_only=False)")],
     }
