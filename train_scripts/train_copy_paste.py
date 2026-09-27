@@ -90,11 +90,7 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
     missing_metrics = [key for key in required_metrics if key not in metrics]
     if missing_metrics:
         raise RuntimeError(f"Refusing upload without split-qualified metrics for {run_dir}: {missing_metrics}")
-    if dataset == "visdrone":
-        mosaic_name = "mosaic" if os.environ.get("COPY_PASTE_MOSAIC", "0") == "1" else "no_mosaic"
-        remote_prefix = f"copy_paste/{dataset}/{variant}/{mosaic_name}/seed_{seed}"
-    else:
-        remote_prefix = f"copy_paste/{dataset}/{variant}/seed_{seed}"
+    remote_prefix = _remote_prefix(dataset, variant, seed)
     _retry_hf(lambda: api.upload_folder(
         folder_path=str(run_dir), repo_id=repo_id, repo_type="dataset",
         path_in_repo=remote_prefix,
