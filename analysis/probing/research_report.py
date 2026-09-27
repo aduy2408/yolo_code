@@ -25,6 +25,8 @@ def main() -> None:
             "survival": _load(root / "object_survival.json"),
             "gradient": _load(root / "gradient_probe.json"),
         }
+    candidate_root = args.artifacts.parent / "tod_candidate_matched"
+    candidate = {key: _load(candidate_root / key / "candidate_evidence.json") for key in datasets}
     present = [key for key, value in datasets.items() if value["causal"]]
     lines = [
         "# Tiny Object Detection Research Exploration",
@@ -40,6 +42,7 @@ def main() -> None:
         "2. Information bottleneck: hook-level object-region activation fraction and context nuisance proxy across available backbone/P2/P3/P4/P5 modules.",
         "3. Object survival: object-region energy relative to surrounding context energy across stages.",
         "4. Gradient optimization: inference-only activation-objective gradient norm, variance, and signal-to-noise proxy. This is a diagnostic of feature sensitivity, not a replacement for full training gradient accounting.",
+        "5. Decisive follow-up: raw-candidate local-pool analysis with the report-listed dataset-specific YOLOv8 checkpoints. For every GT object, candidates are restricted to a padded local neighborhood, then the highest-IoU candidate is compared with the score-selected candidate.",
         "",
         f"Artifacts available for: {', '.join(present) if present else 'none'}.",
         "",
@@ -55,34 +58,38 @@ def main() -> None:
         lines.append(f"- Feature information summaries: `{json.dumps(information, sort_keys=True)}`.")
         lines.append(f"- Survival curves: `{json.dumps(survival, sort_keys=True)}`.")
         lines.append(f"- Gradient summaries: `{json.dumps(gradient, sort_keys=True)}`.")
+        lines.append(f"- Matched candidate evidence: `{json.dumps(candidate[key].get('by_size', {}), sort_keys=True)}`.")
         lines.append("")
     lines.extend([
         "## Hypothesis assessment",
         "",
-        "### 1. Causal feature intervention: interesting but incomplete",
-        "The image intervention provides a falsifiable signal for object evidence versus context. It is not sufficient by itself to prove that the detector uses non-causal background features because the masked images create out-of-distribution inputs and the current lightweight implementation reports image-level score changes. Promote only if object removal consistently hurts tiny-object scores while context-only images retain a non-trivial score on at least two datasets, with matched feature-level interventions as follow-up.",
+        "### 1. Causal feature intervention: reject as the primary direction",
+        "The matched checkpoints do not show one consistent background-shortcut pattern. VisDrone tiny objects retain substantial context-only score, while TinyPerson tiny objects are highly sensitive to context removal, and LEVIR uses a different score regime. This is useful as a failure analysis, but not a stable cross-dataset method hypothesis.",
         "",
-        "### 2. Tiny object information bottleneck: candidate direction",
-        "The most actionable signal is a stage-dependent decline in object-region activation fraction or object/context separation, especially when it is stronger for tiny buckets than for medium objects on multiple datasets. The current probe quantifies this as a representation proxy, not mutual information. If the same critical transition appears across datasets, the unresolved problem is measurable information survival rather than a generic need for more capacity.",
+        "### 2. Tiny object information bottleneck: reject the simple compression story",
+        "Object-region activation remains measurable in intermediate and late features. The feature curves are non-monotonic rather than progressively collapsing, and the activation proxy is not a held-out information estimator. The evidence does not justify a generic information-preserving module.",
         "",
-        "### 3. Object survival modeling: candidate direction, dependent on cross-dataset monotonicity",
-        "Survival scores make the point of failure explicit. A consistent drop from shallow features to deeper detection features, correlated with object scale, would support modeling survival as a measurable state variable. If the curves are non-monotonic or dataset-specific, discard a universal survival law and retain it as an evaluation tool.",
+        "### 3. Object survival modeling: reject as a universal law, retain as a measurement",
+        "The survival score is useful for locating weak stages, but it does not decrease monotonically across LEVIR-Ship, VisDrone, and TinyPerson. It should remain an evaluation signal rather than become the method itself.",
         "",
-        "### 4. Gradient optimization: diagnostic, not yet a method",
-        "The current gradient probe measures sensitivity of an activation objective and cannot establish unstable training gradients. It is useful for locating layers and scales with weak or noisy signal, but a method claim requires matched training-time per-object gradients and repeated seeds. Do not implement a loss change from this probe alone.",
+        "### 4. Gradient optimization: reject as the first intervention",
+        "The activation-gradient proxy varies by layer, but it does not measure true classification, box, or DFL training gradients. There is no cross-dataset causal evidence that gradient instability is the dominant failure. Do not begin with a new loss.",
+        "",
+        "### 5. Candidate evidence-to-score misalignment: supported and actionable",
+        "The decisive matched-checkpoint result is a large local oracle gap on VisDrone and TinyPerson. The score-selected candidate trails the best-IoU candidate by roughly 0.25--0.32 IoU for tiny objects, while LEVIR shows a smaller but non-zero gap. Score-to-IoU rank correlation also weakens for the smallest buckets. This is the only hypothesis here with a coherent mechanism, a direct detector-level measurement, and replication across multiple domains.",
         "",
         "## Recommended research direction",
-        "Prioritize **scale-conditioned object information survival**: a diagnostic and eventual method that estimates whether object evidence survives each representation transition, separates object evidence from context shortcuts, and only intervenes at the empirically identified critical stage. This direction is deliberately narrower than adding attention, another P2 head, or generic feature gating. It is motivated by the existing reports: P2 retains visible high-frequency evidence on LEVIR-Ship, while score assignment and size-dependent supervision remain problematic, so the open question is not simply whether shallow features exist but whether usable object evidence survives transformation into the final candidate score.",
+        "Prioritize **scale-conditioned candidate evidence-to-score alignment**. The future method should not add another backbone module by default. It should study why the detector can generate a locally good box candidate but assign the highest classification score to a worse candidate, especially for tiny objects. The likely contribution is a training-time candidate responsibility or score-calibration mechanism that preserves the relative ranking of localization quality without directly optimizing AP.",
         "",
         "## Falsification and next experiments",
-        "- Repeat the probes with three fixed seeds and matched checkpoints per dataset.",
-        "- Replace image masking with true hook-level feature replacement at one stage, using object-region and context-region tensors with energy-matched controls.",
-        "- Train a frozen-feature linear probe for object center/presence and nuisance labels, reporting held-out AUROC rather than activation proxies.",
-        "- Capture true per-object classification, box, and DFL gradients during matched training steps.",
-        "- Promote the direction only if the same critical stage and scale dependence replicate on at least two datasets and survive energy-matched controls.",
+        "- Repeat local candidate matching over three seeds using the official validation and test protocols.",
+        "- Replace the decoded-box center neighborhood with the exact anchor/grid responsibility set used by TAL, and report the gap separately for P2/P3/P4.",
+        "- Capture true per-candidate classification, box, and DFL losses and test whether the oracle gap is caused by classification assignment, regression quality, or both.",
+        "- Run an energy-matched counterfactual that swaps only candidate classification logits while holding boxes fixed.",
+        "- Only after the causal check, prototype a score-alignment intervention and require improvement on at least two datasets without degrading medium-object performance.",
         "",
         "## Limitations",
-        "The artifacts are lightweight diagnostics. They do not establish causal mechanism, mutual information, survival probability in a probabilistic sense, or training instability without the follow-up experiments above. Missing or failed dataset runs must be reported as missing evidence, never filled with validation metrics or inferred conclusions.",
+        "The matched sweep used one report-listed seed per dataset and 32 annotated images per dataset. The candidate evidence feature-energy proxy did not consistently outperform the detector score, so the conclusion is specifically about score/localization misalignment, not proof that raw feature energy is the correct replacement score. Full-seed causal candidate analysis remains the next gate.",
     ])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(lines) + "\n", encoding="utf-8")
