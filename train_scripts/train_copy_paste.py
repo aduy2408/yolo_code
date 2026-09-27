@@ -128,10 +128,8 @@ def _upload(run_dir: Path, repo_id: str, dataset: str, variant: str, seed: int) 
 
 
 def _remote_prefix(dataset: str, variant: str, seed: int) -> str:
-    if dataset == "visdrone":
-        mosaic_name = "mosaic" if os.environ.get("COPY_PASTE_MOSAIC", "0") == "1" else "no_mosaic"
-        return f"copy_paste/{dataset}/{variant}/{mosaic_name}/seed_{seed}"
-    return f"copy_paste/{dataset}/{variant}/seed_{seed}"
+    mosaic_name = "mosaic" if os.environ.get("COPY_PASTE_MOSAIC", "0") == "1" else "no_mosaic"
+    return f"copy_paste/{dataset}/{variant}/{mosaic_name}/seed_{seed}"
 
 
 def _remote_complete(files: set[str], prefix: str) -> bool:
@@ -332,11 +330,8 @@ def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int)
         sys.path.insert(0, str(ultralytics_path))
     from ultralytics import YOLO
 
-    if args.dataset == "visdrone":
-        mosaic_name = "mosaic" if args.mosaic_interaction else "no_mosaic"
-        run_dir = args.project / args.dataset / variant / mosaic_name / f"seed_{seed}"
-    else:
-        run_dir = args.project / args.dataset / variant / f"seed_{seed}"
+    mosaic_name = "mosaic" if args.mosaic_interaction else "no_mosaic"
+    run_dir = args.project / args.dataset / variant / mosaic_name / f"seed_{seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
     training_artifacts = [run_dir / "weights/best.pt", run_dir / "weights/last.pt", run_dir / "results.csv"]
     training_complete = all(path.is_file() for path in training_artifacts)
@@ -448,6 +443,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _mosaic_modes(dataset: str, mosaic_interaction: bool, mosaic: float, close_mosaic: int):
+    if mosaic_interaction:
+        return [(True, mosaic, close_mosaic)]
+    if dataset == "visdrone":
+        return [(False, 0.0, 0), (True, 1.0, 10)]
+    return [(False, 0.0, 0)]
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if args.single_seed is not None:
@@ -463,12 +466,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.scene_compatible_mosaic and not args.mosaic_interaction:
         raise ValueError("--scene-compatible-mosaic requires --mosaic-interaction")
     args.data_root, args.dataset_root, args.project = (path.resolve() for path in (args.data_root, args.dataset_root, args.project))
-    mosaic_modes = [(False, 0.0, 0)]
-    if args.dataset == "visdrone":
-        # The requested VisDrone experiment is exactly two augmentation
-        # policies: standard Copy-Paste on the canonical YOLOv8 detector with
-        # Mosaic off and with standard Mosaic on.
-        mosaic_modes = [(False, 0.0, 0), (True, 1.0, 10)]
+    mosaic_modes = _mosaic_modes(args.dataset, args.mosaic_interaction, args.mosaic, args.close_mosaic)
     configs = [
         effective_settings(
             args.dataset, variant, seed, args.split_seed,

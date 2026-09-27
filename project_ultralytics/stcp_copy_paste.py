@@ -87,6 +87,7 @@ class ScaleTransferCopyPaste(SmallObjectCopyPaste):
         self.min_donor_h = int(min_donor_h)
         self.stcp_records: list[STCPDonorRecord] = []
         self.records_by_class: dict[int, list[STCPDonorRecord]] = defaultdict(list)
+        self.scales_by_class: dict[int, np.ndarray] = {}
         self.target_scale_pool: dict[int, list[float]] = defaultdict(list)
         self.class_weights: list[tuple[int, float]] = []
         self.class_histogram: Counter[int] = Counter()
@@ -175,11 +176,32 @@ class ScaleTransferCopyPaste(SmallObjectCopyPaste):
                 target_scale = record.final_scale
                 if target_scale <= self.target_max_scale:
                     self.target_scale_pool[record.class_id].append(target_scale)
-        counts = Counter(record.class_id for record in self.stcp_records)
+        for class_id, records in self.records_by_class.items():
+            records.sort(key=lambda record: record.final_scale)
+            self.scales_by_class[class_id] = np.asarray(
+                [record.final_scale for record in records], dtype=np.float32
+            )
+        feasible_classes = {
+            class_id for class_id, targets in self.target_scale_pool.items()
+            if targets and any(self._has_donor(class_id, target) for target in targets)
+        }
+        counts = Counter(
+            record.class_id for record in self.stcp_records if record.class_id in feasible_classes
+        )
         total = sum(counts.values())
         if total:
             self.class_weights = [(cls, count / total) for cls, count in sorted(counts.items())]
         self._stcp_pool_built = True
+
+    def _has_donor(self, class_id: int, target_scale: float) -> bool:
+        scales = self.scales_by_class.get(class_id)
+        if scales is None or not len(scales):
+            return False
+        lo = self.ratio_min * target_scale
+        hi = self.ratio_max * target_scale
+        left = int(np.searchsorted(scales, lo, side="left"))
+        right = int(np.searchsorted(scales, hi, side="right"))
+        return left < right
 
     def _sample_class(self) -> int | None:
         if not self.class_weights:
@@ -193,11 +215,15 @@ class ScaleTransferCopyPaste(SmallObjectCopyPaste):
 
     def _sample_donor(self, class_id: int, target_scale: float) -> STCPDonorRecord | None:
         lo, hi = self.ratio_min * target_scale, self.ratio_max * target_scale
-        candidates = [
-            record for record in self.records_by_class.get(class_id, ())
-            if lo <= record.final_scale <= hi
-        ]
-        return self.rng.choice(candidates) if candidates else None
+        records = self.records_by_class.get(class_id, ())
+        scales = self.scales_by_class.get(class_id)
+        if not records or scales is None:
+            return None
+        left = int(np.searchsorted(scales, lo, side="left"))
+        right = int(np.searchsorted(scales, hi, side="right"))
+        if left >= right:
+            return None
+        return records[self.rng.randrange(left, right)]
 
     def _choose_position(self, patch_shape: tuple[int, int], labels: dict[str, Any], existing: np.ndarray):
         ph, pw = patch_shape
@@ -260,7 +286,8 @@ class ScaleTransferCopyPaste(SmallObjectCopyPaste):
                 continue
             crop, _source_box = prepared
             source_scale = donor.final_scale
-            factor = target_scale / max(source_scale, 1e-8)
+            source_raw_scale = math.sqrt(max(crop.shape[0] * crop.shape[1], 1e-8))
+            factor = target_scale / max(source_raw_scale, 1e-8)
             target_w = max(2, round(crop.shape[1] * factor))
             target_h = max(2, round(crop.shape[0] * factor))
             crop = cv2.resize(crop, (target_w, target_h), interpolation=self.interpolation)

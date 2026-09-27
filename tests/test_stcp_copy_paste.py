@@ -40,6 +40,23 @@ def _dataset(tmp_path):
     )
 
 
+def _mismatched_resolution_dataset(tmp_path):
+    image = np.zeros((128, 192, 3), dtype=np.uint8)
+    image[10:40, 10:40] = (20, 30, 40)
+    image[50:110, 60:120] = (100, 110, 120)
+    path = Path(tmp_path) / "mismatched.png"
+    assert cv2.imwrite(str(path), image)
+    return SimpleNamespace(
+        imgsz=64,
+        labels=[{
+            "bboxes": np.array([[10, 10, 40, 40], [60, 50, 120, 110]], np.float32),
+            "cls": np.array([[0], [0]], np.float32),
+            "bbox_format": "xyxy", "normalized": False, "shape": image.shape[:2],
+        }],
+        im_files=[str(path)],
+    )
+
+
 def test_stcp_retrieves_same_class_large_donor_and_uses_target_scale(tmp_path):
     dataset = _dataset(tmp_path)
     transform = ScaleTransferCopyPaste(
@@ -56,6 +73,21 @@ def test_stcp_retrieves_same_class_large_donor_and_uses_target_scale(tmp_path):
     assert 1.5 <= transform.stats["source_target_ratio_sum"] <= 2.5
     box = out["instances"].bboxes[0]
     assert np.sqrt(np.prod(box[2:] - box[:2])) == 8.0
+
+
+def test_stcp_resizes_raw_crop_to_target_final_scale(tmp_path):
+    dataset = _mismatched_resolution_dataset(tmp_path)
+    transform = ScaleTransferCopyPaste(
+        dataset, p=1.0, min_pastes=1, max_pastes=1,
+        target_max_scale=20.0, ratio_min=1.5, ratio_max=2.5,
+        max_trials=100, rng=random.Random(2),
+    )
+    transform._build_pool()
+    transform.target_scale_pool[0] = [10.0]
+    out = transform(_labels(np.zeros((64, 64, 3), dtype=np.uint8)))
+    box = out["instances"].bboxes[0]
+    assert np.sqrt(np.prod(box[2:] - box[:2])) == 10.0
+    assert transform.stats["source_target_ratio_sum"] == 2.0
 
 
 def test_stcp_rejects_collision_and_does_not_fallback_to_random_donor(tmp_path):
