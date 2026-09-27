@@ -7,6 +7,7 @@ import numpy as np
 
 from project_ultralytics.copy_paste import build_small_object_copy_paste, copy_paste_config
 from project_ultralytics.stcp_copy_paste import ScaleTransferCopyPaste
+from ultralytics.cfg import get_cfg
 from ultralytics.utils.instance import Instances
 
 
@@ -121,3 +122,20 @@ def test_stcp_builder_and_manifest_are_explicit(tmp_path):
     assert config["stcp_position"] == "post_geometry"
     assert config["stcp_ratio_min"] == 1.5
     assert config["stcp_ratio_max"] == 2.5
+
+
+def test_stcp_defaults_are_accepted_by_real_ultralytics_config():
+    hyp = get_cfg(overrides={
+        "stcp_p": 0.30,
+        "stcp_min_pastes": 1,
+        "stcp_max_pastes": 2,
+        "stcp_target_max_scale": 20.0,
+        "stcp_ratio_min": 1.5,
+        "stcp_ratio_max": 2.5,
+        "stcp_blur_sigma": 0.5,
+        "stcp_blur_min_side": 5,
+        "stcp_max_ioa": 0.10,
+        "stcp_max_trials": 30,
+    })
+    assert hyp.stcp_ratio_min == 1.5
+    assert hyp.stcp_ratio_max == 2.5

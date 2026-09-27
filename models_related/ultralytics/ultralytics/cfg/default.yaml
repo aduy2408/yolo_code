@@ -384,6 +384,18 @@ negative_cp_large_ratio_min: 1.5 # (float) inclusive lower source/target ratio f
 negative_cp_large_ratio_max: 2.5 # (float) inclusive upper source/target ratio for larger donors
 negative_cp_degradation: none # (str) none or weak_blur
 negative_cp_blur_sigma: 0.5 # (float) fixed weak-blur sigma
+stcp_p: 0.30 # (float) Scale-Transfer Copy-Paste image probability
+stcp_min_pastes: 1 # (int) minimum STCP pastes per applied image
+stcp_max_pastes: 2 # (int) maximum STCP pastes per applied image
+stcp_target_max_scale: 20.0 # (float) maximum empirical final target sqrt-area
+stcp_ratio_min: 1.5 # (float) minimum donor final-natural/target scale ratio
+stcp_ratio_max: 2.5 # (float) maximum donor final-natural/target scale ratio
+stcp_blur_sigma: 0.5 # (float) weak post-resize blur sigma
+stcp_blur_min_side: 5 # (int) minimum resized side eligible for blur
+stcp_max_ioa: 0.10 # (float) maximum pasted-box IoA with existing/ignore boxes
+stcp_max_trials: 30 # (int) collision-safe placement attempts
+stcp_min_donor_w: 1 # (int) minimum raw donor width
+stcp_min_donor_h: 1 # (int) minimum raw donor height
 sparse_object_quantile: 0.20 # (float) positive-scene object-count quantile for sparse R1
 sparse_max_objects: null # (int, optional) explicit sparse-scene object-count cap
 sparse_max_new_objects: 1 # (int) sparse R1 object budget per canvas
