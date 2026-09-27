@@ -41,7 +41,8 @@ REQUIRED = (
 
 
 def run(command: list[str], *, cwd: Path | None = None, capture: bool = False) -> str:
-    env = {**os.environ, "WANDB_MODE": "disabled"}
+    env = {**os.environ, "WANDB_MODE": "disabled", "CUDA_VISIBLE_DEVICES": "0"}
+    env.pop("NVIDIA_VISIBLE_DEVICES", None)
     result = subprocess.run(command, cwd=cwd, env=env, text=True, check=True, capture_output=capture)
     return (result.stdout + result.stderr) if capture else ""
 
