@@ -58,7 +58,7 @@ def _prepare(dataset: str, data_root: Path, dataset_root: Path, split_seed: int)
 
         return prepare(data_root, dataset_root / f"levir_ship_copy_paste_split_{split_seed}", split_seed)
     if dataset == "tinyperson":
-        import train_all_tinyperson as workflow
+        from train_scripts import train_all_tinyperson as workflow
 
         test_dir = workflow.prepare_test_set(data_root, dataset_root)
         seed_dir = workflow.prepare_seed_dataset(data_root, dataset_root, test_dir, split_seed)
@@ -302,7 +302,7 @@ def _evaluate_run(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> d
         metrics.update(_split_metrics(result, split))
 
     if args.dataset == "tinyperson":
-        import train_all_tinyperson as workflow
+        from train_scripts import train_all_tinyperson as workflow
 
         test_out_dir = workflow.prepare_test_set(args.data_root, args.dataset_root)
         if not (test_out_dir / "corner_manifest.json").is_file():
