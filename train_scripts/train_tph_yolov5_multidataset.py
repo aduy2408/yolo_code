@@ -65,8 +65,9 @@ def ensure_tph_repo(path: Path) -> None:
     dirty = run(["git", "status", "--porcelain"], cwd=path, capture=True).strip()
     train = path / "train.py"
     text = train.read_text(encoding="utf-8")
+    allowed = {"M train.py", "M models/experimental.py", "M utils/general.py"}
     dirty_lines = [line for line in dirty.splitlines() if "__pycache__/" not in line and not line.rstrip().endswith(".pyc")]
-    if dirty_lines and not (all(line.strip() == "M train.py" for line in dirty_lines) and "getattr(opt, 'seed', 42)" in text):
+    if dirty_lines and not (all(line.strip() in allowed for line in dirty_lines) and "getattr(opt, 'seed', 42)" in text):
         raise RuntimeError(f"TPH checkout is dirty: {path}")
     if "getattr(opt, 'seed', 42)" not in text:
         text = text.replace("init_seeds(1 + RANK)", "init_seeds(getattr(opt, 'seed', 42) + 1 + RANK)")
@@ -75,6 +76,16 @@ def ensure_tph_repo(path: Path) -> None:
             raise RuntimeError("Unable to patch deterministic seed option in upstream train.py")
         text = text.replace(marker, marker + "\n    parser.add_argument('--seed', type=int, default=42, help='training seed')")
         train.write_text(text, encoding="utf-8")
+    compatibility = {
+        path / "models/experimental.py": [("torch.load(attempt_download(w), map_location=map_location)", "torch.load(attempt_download(w), map_location=map_location, weights_only=False)")],
+        path / "utils/general.py": [("torch.load(f, map_location=torch.device('cpu'))", "torch.load(f, map_location=torch.device('cpu'), weights_only=False)")],
+        train: [("torch.load(weights, map_location=device)", "torch.load(weights, map_location=device, weights_only=False)")],
+    }
+    for target, replacements in compatibility.items():
+        source = target.read_text(encoding="utf-8")
+        for old, new in replacements:
+            source = source.replace(old, new)
+        target.write_text(source, encoding="utf-8")
 
 
 def prepare_dataset(name: str, data_root: Path, dataset_root: Path) -> Path:
