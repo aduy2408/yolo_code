@@ -94,8 +94,9 @@ def ensure_tph_repo(path: Path) -> None:
 
 def _ensure_tph_dataset_schema(path: Path, dataset: str) -> Path:
     text = path.read_text(encoding="utf-8")
-    if "\nnc:" not in f"\n{text}" and dataset != "visdrone":
-        text = text.replace("names:\n", "nc: 1\nnames:\n", 1)
+    if "\nnc:" not in f"\n{text}":
+        nc = 10 if dataset == "visdrone" else 1
+        text = text.replace("names:\n", f"nc: {nc}\nnames:\n", 1)
         path.write_text(text, encoding="utf-8")
     return path
 
