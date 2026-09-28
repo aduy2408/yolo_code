@@ -620,6 +620,8 @@ def evaluate(run_dir: Path, data_yaml: Path, test_out_dir: Path, data_root: Path
         metrics.update({f"{split}/{key}": float(value) for key, value in result.results_dict.items()})
         metrics[f"{split}/metrics/mAP75(B)"] = float(result.box.map75)
         metrics[f"{split}/metrics/mAP50-75(B)"] = mean_ap50_75(result)
+        metrics[f"{split}/AP50"] = float(result.box.map50)
+        metrics[f"{split}/mAP50-95"] = float(result.box.map)
     metrics.update(evaluate_merged_test(run_dir, test_out_dir, data_root, args))
     output.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return metrics
@@ -650,6 +652,8 @@ def write_metadata(variant: str, run_dir: Path, seed: int, data_yaml: Path, args
         "deterministic": True,
         "nms_iou": 0.5,
         "factorized_tal": VARIANTS[variant],
+        "marked_mass_mode": args.marked_mass_mode,
+        "responsibility_mode": args.responsibility_mode,
         "context_augmentation": os.environ.get("YOLO_CONTEXT_AUG", "none"),
         "params": sum(parameter.numel() for parameter in model.model.parameters()),
         "model_gflops_thop": get_flops(model.model, imgsz=args.imgsz),
