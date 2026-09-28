@@ -100,6 +100,63 @@ def build_responsibility_target_scores(
     return result
 
 
+def build_bounded_responsibility_target_scores(
+    target_scores: torch.Tensor,
+    target_gt_idx: torch.Tensor,
+    fg_mask: torch.Tensor,
+    gt_labels: torch.Tensor,
+    gt_bboxes: torch.Tensor,
+    overlaps: torch.Tensor,
+    mode: str,
+    lambda_max: float = 0.25,
+    clip: float = 0.5,
+    consistency: torch.Tensor | None = None,
+    tiny_max_dim: float = 16.0,
+) -> torch.Tensor:
+    """Apply a bounded detached residual to existing TAL responsibility.
+
+    Unlike the exploratory IoU modes, this preserves each GT's original TAL
+    positive mass and only nudges relative weights inside the already assigned
+    local pool.  ``residual_tiny`` gates the correction by GT scale and
+    ``residual_consistent`` additionally gates it by a detached candidate
+    stability proxy.  ``residual_curriculum`` is the same target; its schedule
+    is applied by the caller through ``lambda_max``.
+    """
+    valid_modes = {"residual", "residual_tiny", "residual_consistent", "residual_curriculum"}
+    if mode not in valid_modes:
+        raise ValueError(f"RESPONSIBILITY_MODE must be one of: {', '.join(sorted(valid_modes))}")
+    if lambda_max <= 0 or clip <= 0:
+        return target_scores
+    result = target_scores.clone()
+    consistency = consistency if consistency is not None else torch.ones_like(overlaps)
+    for batch_index in range(target_scores.shape[0]):
+        for gt_index in range(gt_labels.shape[1]):
+            positions = fg_mask[batch_index] & (target_gt_idx[batch_index] == gt_index)
+            if not positions.any():
+                continue
+            base = target_scores[batch_index, positions].amax(dim=-1).detach()
+            utility = overlaps[batch_index, gt_index, positions].detach().clamp_min(0)
+            mean = utility.mean()
+            std = utility.std(unbiased=False).clamp_min(1e-4)
+            delta = ((utility - mean) / std).clamp(-float(clip), float(clip))
+            gate = torch.ones_like(delta)
+            if mode == "residual_tiny":
+                box = gt_bboxes[batch_index, gt_index]
+                max_dim = torch.maximum(box[2] - box[0], box[3] - box[1])
+                gate = (max_dim <= float(tiny_max_dim)).to(delta.dtype).expand_as(delta)
+            if mode in {"residual_consistent", "residual_curriculum"}:
+                gate = gate * consistency[batch_index, gt_index, positions].detach().clamp(0, 1)
+            weights = (base * (1.0 + float(lambda_max) * gate * delta)).clamp_min(0)
+            mass = base.sum()
+            new_mass = weights.sum()
+            if mass > 0 and new_mass > 0:
+                weights = weights * (mass / new_mass)
+            classes = target_scores[batch_index, positions].argmax(dim=-1)
+            result[batch_index, positions] = 0
+            result[batch_index, positions, classes] = weights.to(result.dtype)
+    return result
+
+
 @dataclass(frozen=True)
 class BoundaryContrastiveLossConfig:
     """YOLO.train kwargs for the boundary-aware contrastive localization loss."""
@@ -2217,8 +2274,12 @@ class v8DetectionLoss:
         )
         fg_mask = fg_mask.bool()
         responsibility_mode = os.environ.get("RESPONSIBILITY_MODE", "off").lower()
-        if responsibility_mode not in {"off", "iou", "iou_sqrt"}:
-            raise ValueError("RESPONSIBILITY_MODE must be one of: off, iou, iou_sqrt")
+        responsibility_modes = {
+            "off", "iou", "iou_sqrt", "residual", "residual_tiny",
+            "residual_consistent", "residual_curriculum",
+        }
+        if responsibility_mode not in responsibility_modes:
+            raise ValueError("RESPONSIBILITY_MODE contains an unsupported mode")
         responsibility_scores = target_scores
         if responsibility_mode != "off":
             assigned_overlaps = torch.zeros(
@@ -2235,15 +2296,64 @@ class v8DetectionLoss:
                         xywh=False,
                         CIoU=False,
                     ).squeeze(-1).clamp_min(0)
-            responsibility_scores = build_responsibility_target_scores(
-                target_scores,
-                target_gt_idx,
-                fg_mask,
-                gt_labels,
-                assigned_overlaps,
-                responsibility_mode,
-                budget=float(os.environ.get("RESPONSIBILITY_BUDGET", "1.0")),
-            )
+            if responsibility_mode in {"iou", "iou_sqrt"}:
+                responsibility_scores = build_responsibility_target_scores(
+                    target_scores,
+                    target_gt_idx,
+                    fg_mask,
+                    gt_labels,
+                    assigned_overlaps,
+                    responsibility_mode,
+                    budget=float(os.environ.get("RESPONSIBILITY_BUDGET", "1.0")),
+                )
+            else:
+                consistency = torch.ones_like(assigned_overlaps)
+                if responsibility_mode in {"residual_consistent", "residual_curriculum"}:
+                    tau = float(os.environ.get("RESPONSIBILITY_CONSISTENCY_TAU", "5.0"))
+                    for batch_index in range(batch_size):
+                        for gt_index in range(gt_bboxes.shape[1]):
+                            gt_scaled = gt_bboxes[batch_index, gt_index].view(1, 4) / stride_tensor
+                            base_boxes = pred_bboxes[batch_index]
+                            shift = (0.5 / stride_tensor.mean()).to(base_boxes.dtype)
+                            x_shift = base_boxes.new_tensor([1, 0, 1, 0]) * shift
+                            y_shift = base_boxes.new_tensor([0, 1, 0, 1]) * shift
+                            views = torch.stack(
+                                (
+                                    base_boxes,
+                                    base_boxes + x_shift,
+                                    base_boxes - x_shift,
+                                    base_boxes + y_shift,
+                                    base_boxes - y_shift,
+                                ),
+                                dim=0,
+                            )
+                            view_iou = torch.stack(
+                                [
+                                    bbox_iou(view, gt_scaled.expand_as(view), xywh=False, CIoU=False).squeeze(-1)
+                                    for view in views
+                                ],
+                                dim=0,
+                            )
+                            consistency[batch_index, gt_index] = torch.exp(-tau * view_iou.std(dim=0, unbiased=False))
+                lambda_max = float(os.environ.get("RESPONSIBILITY_LAMBDA_MAX", "0.25"))
+                if responsibility_mode == "residual_curriculum":
+                    epoch = int(getattr(getattr(self.model, "trainer", None), "epoch", 0))
+                    warmup = int(os.environ.get("RESPONSIBILITY_WARMUP_EPOCHS", "1"))
+                    ramp = max(int(os.environ.get("RESPONSIBILITY_RAMP_EPOCHS", "1")), 1)
+                    lambda_max *= min(max(epoch - warmup + 1, 0) / ramp, 1.0)
+                responsibility_scores = build_bounded_responsibility_target_scores(
+                    target_scores,
+                    target_gt_idx,
+                    fg_mask,
+                    gt_labels,
+                    gt_bboxes,
+                    assigned_overlaps,
+                    responsibility_mode,
+                    lambda_max=lambda_max,
+                    clip=float(os.environ.get("RESPONSIBILITY_DELTA_CLIP", "0.5")),
+                    consistency=consistency,
+                    tiny_max_dim=float(os.environ.get("RESPONSIBILITY_TINY_MAX_DIM", "16.0")),
+                )
         self.ggcf_tal_metrics = {}
         if self.ggcf_tal_diagnostics and self.ggcf_refine:
             with torch.no_grad():
