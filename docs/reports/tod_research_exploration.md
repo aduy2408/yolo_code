@@ -77,3 +77,37 @@ Prioritize **scale-conditioned local responsibility learning under stable candid
 
 ## Limitations
 The matched sweep used one report-listed seed per dataset and 32 annotated images per dataset. The feasibility gate is a frozen diagnostic, not a training result. It establishes that post-hoc reranking is not promising and that the next method must change training responsibility targets. Full-seed training validation remains required.
+
+## Decisive training-feasibility gate: TinyPerson
+
+The first opt-in training gate was run on the report-listed TinyPerson pipeline using the same YOLOv8n P3/P4/P5 baseline, `seed=42`, fixed `split_seed=42`, `workers=8`, 640px input, and three training epochs. Only the classification responsibility target changed:
+
+| Variant | Responsibility target | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 |
+|---|---|---:|---:|---:|---:|
+| B0 | standard TAL, `off` | 0.2666 | 0.0880 | 0.3123 | 0.0986 |
+| B1 | per-GT normalized predicted IoU, `iou` | 0.0964 | 0.0239 | 0.1059 | 0.0257 |
+| B2 | per-GT normalized sqrt-IoU, `iou_sqrt` | 0.1645 | 0.0432 | 0.1799 | 0.0482 |
+
+The exact test protocol was the generated TinyPerson corner-window split `sw640/sh512`, with `test` pointing to the 17,693-window evaluation set. The source artifacts are the split-qualified `evaluation_metrics.json` files and `experiment_manifest.json` files in the three task-specific uploaded repositories:
+
+- B0: `duyle2408/tinyperson-responsibility-off-smoke-v2-runs`
+- B1: `duyle2408/tinyperson-responsibility-iou-smoke-v3-runs`
+- B2: `duyle2408/tinyperson-responsibility-iou-sqrt-smoke-v3-runs`
+
+Both proposed targets substantially degraded validation and test performance relative to standard TAL. B1 retained only 34% of baseline test AP50 and 26% of baseline test mAP50-95. B2 was less destructive, but still retained only 58% and 49%, respectively. This is a decisive negative result for the naive formulation:
+
+> Replacing classification responsibility with the current predicted-IoU quality, even with a square-root softening, is not a viable first method.
+
+This does not falsify the broader candidate-responsibility hypothesis. It falsifies the assumption that a noisy, early predicted IoU is a safe positive-classification target. The next method must use a detached teacher or augmentation-aggregated utility, must preserve a minimum objectness/classification floor, and must be evaluated first by responsibility accuracy and oracle-gap reduction before any full AP campaign. Do not run a full multi-seed sweep of B1/B2 in their current form.
+
+## Updated decision
+
+The recommended direction remains **scale-conditioned local responsibility learning under stable candidate identity**, but the immediate implementation target is narrower:
+
+1. Keep standard TAL assignment and standard positive supervision as the safety path.
+2. Add only a bounded residual responsibility correction, not a replacement target.
+3. Construct the correction from detached, augmentation-consistent candidate utility rather than one-step predicted IoU.
+4. Gate the correction by object scale and uncertainty, with an explicit fallback to B0.
+5. Require no regression on medium objects, lower local oracle gap on at least two datasets, and stable val/test metrics before longer training.
+
+The evidence now supports a focused research direction, but not a claim that the first responsibility target works.
