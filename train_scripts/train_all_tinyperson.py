@@ -709,6 +709,7 @@ def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dic
         "context_augmentation": "oacp" if variant.endswith("_oacp") else "none",
         "factorized_tal": VARIANTS[variant],
         "marked_mass_mode": args.marked_mass_mode,
+        "responsibility_mode": args.responsibility_mode,
         "augmentation": dict(TRAIN_AUGMENTATION),
         "schedule": dict(TRAIN_SCHEDULE),
         "upload_required": not args.skip_upload,
@@ -776,6 +777,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="off",
         help="Per-GT TAL target normalization: off, classification-only, or all positive supervision",
     )
+    parser.add_argument(
+        "--responsibility-mode",
+        choices=("off", "iou", "iou_sqrt"),
+        default=os.environ.get("RESPONSIBILITY_MODE", "off"),
+        help="Opt-in positive classification responsibility target: off, normalized IoU, or sqrt IoU",
+    )
     return parser.parse_args(argv)
 
 
@@ -790,6 +797,7 @@ def main() -> None:
         args.project.resolve(),
     )
     os.environ["MARKED_MASS_MODE"] = args.marked_mass_mode
+    os.environ["RESPONSIBILITY_MODE"] = args.responsibility_mode
 
     if args.print_effective_config:
         print_effective_settings(args)
