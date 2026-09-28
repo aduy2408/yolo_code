@@ -27,6 +27,8 @@ def main() -> None:
         }
     candidate_root = args.artifacts.parent / "tod_candidate_matched"
     candidate = {key: _load(candidate_root / key / "candidate_evidence.json") for key in datasets}
+    feasibility_root = args.artifacts.parent / "tod_alignment_feasibility"
+    feasibility = {key: _load(feasibility_root / key / "alignment_feasibility.json") for key in datasets}
     present = [key for key, value in datasets.items() if value["causal"]]
     lines = [
         "# Tiny Object Detection Research Exploration",
@@ -43,6 +45,7 @@ def main() -> None:
         "3. Object survival: object-region energy relative to surrounding context energy across stages.",
         "4. Gradient optimization: inference-only activation-objective gradient norm, variance, and signal-to-noise proxy. This is a diagnostic of feature sensitivity, not a replacement for full training gradient accounting.",
         "5. Decisive follow-up: raw-candidate local-pool analysis with the report-listed dataset-specific YOLOv8 checkpoints. For every GT object, candidates are restricted to a padded local neighborhood, then the highest-IoU candidate is compared with the score-selected candidate.",
+        "6. Training-feasibility gate: brightness and blur perturbations test candidate identity stability, while a frozen train/test calibration tests whether score, feature energy, and box geometry can learn a better utility ranking without changing the detector.",
         "",
         f"Artifacts available for: {', '.join(present) if present else 'none'}.",
         "",
@@ -59,6 +62,7 @@ def main() -> None:
         lines.append(f"- Survival curves: `{json.dumps(survival, sort_keys=True)}`.")
         lines.append(f"- Gradient summaries: `{json.dumps(gradient, sort_keys=True)}`.")
         lines.append(f"- Matched candidate evidence: `{json.dumps(candidate[key].get('by_size', {}), sort_keys=True)}`.")
+        lines.append(f"- Alignment feasibility: `{json.dumps(feasibility[key].get('calibration', {}), sort_keys=True)}` and stability `{json.dumps(feasibility[key].get('by_size', {}), sort_keys=True)}`.")
         lines.append("")
     lines.extend([
         "## Hypothesis assessment",
@@ -78,18 +82,22 @@ def main() -> None:
         "### 5. Candidate evidence-to-score misalignment: supported and actionable",
         "The decisive matched-checkpoint result is a large local oracle gap on VisDrone and TinyPerson. The score-selected candidate trails the best-IoU candidate by roughly 0.25--0.32 IoU for tiny objects, while LEVIR shows a smaller but non-zero gap. Score-to-IoU rank correlation also weakens for the smallest buckets. This is the only hypothesis here with a coherent mechanism, a direct detector-level measurement, and replication across multiple domains.",
         "",
+        "### 6. Training-feasibility gate: post-hoc calibration fails, but candidate identity is stable",
+        "The locally best candidate is usually stable under brightness and blur perturbations, with tiny-object identity stability mostly around 0.85--0.93. Therefore the problem is not simply that candidate identity changes randomly. However, a held-out frozen calibration using score, feature energy, score-energy interaction, area, and aspect ratio does not improve top-candidate IoU: the changes are approximately -0.014 on LEVIR, -0.001 on VisDrone, and -0.016 on TinyPerson. This rejects inference-time reranking and simple score calibration as the solution. The useful remaining target is training-time responsibility assignment, where the score itself is learned from better scale-conditioned supervision.",
+        "",
         "## Recommended research direction",
-        "Prioritize **scale-conditioned candidate evidence-to-score alignment**. The future method should not add another backbone module by default. It should study why the detector can generate a locally good box candidate but assign the highest classification score to a worse candidate, especially for tiny objects. The likely contribution is a training-time candidate responsibility or score-calibration mechanism that preserves the relative ranking of localization quality without directly optimizing AP.",
+        "Prioritize **scale-conditioned local responsibility learning under stable candidate identity**. Do not build an inference reranker. Use the existing candidate set and make training assign soft responsibility according to localization utility plus augmentation consistency, with a separate tiny-object target rather than global TAL mass normalization. The method hypothesis is that candidate identity is available, but the current classification target does not teach the score to select the useful candidate. The first intervention should be a detached, uncertainty-aware responsibility target, not a new feature module.",
         "",
         "## Falsification and next experiments",
         "- Repeat local candidate matching over three seeds using the official validation and test protocols.",
         "- Replace the decoded-box center neighborhood with the exact anchor/grid responsibility set used by TAL, and report the gap separately for P2/P3/P4.",
         "- Capture true per-candidate classification, box, and DFL losses and test whether the oracle gap is caused by classification assignment, regression quality, or both.",
         "- Run an energy-matched counterfactual that swaps only candidate classification logits while holding boxes fixed.",
-        "- Only after the causal check, prototype a score-alignment intervention and require improvement on at least two datasets without degrading medium-object performance.",
+        "- Prototype only a training-time detached responsibility target, preserving the original detector and inference path.",
+        "- Compare the target against standard TAL and the already-tested marked-mass normalization. Require lower local oracle gap and no medium-object degradation on at least two datasets before any AP evaluation.",
         "",
         "## Limitations",
-        "The matched sweep used one report-listed seed per dataset and 32 annotated images per dataset. The candidate evidence feature-energy proxy did not consistently outperform the detector score, so the conclusion is specifically about score/localization misalignment, not proof that raw feature energy is the correct replacement score. Full-seed causal candidate analysis remains the next gate.",
+        "The matched sweep used one report-listed seed per dataset and 32 annotated images per dataset. The feasibility gate is a frozen diagnostic, not a training result. It establishes that post-hoc reranking is not promising and that the next method must change training responsibility targets. Full-seed training validation remains required.",
     ])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(lines) + "\n", encoding="utf-8")
