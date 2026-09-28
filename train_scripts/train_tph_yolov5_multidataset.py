@@ -82,6 +82,7 @@ def ensure_tph_repo(path: Path) -> None:
         path / "utils/loss.py": [("gj.clamp_(0, gain[3] - 1)", "gj.clamp_(0, gain[3].long() - 1)"), ("gi.clamp_(0, gain[2] - 1)", "gi.clamp_(0, gain[2].long() - 1)")],
         path / "utils/general.py": [("torch.load(f, map_location=torch.device('cpu'))", "torch.load(f, map_location=torch.device('cpu'), weights_only=False)"), ("np.int", "int")],
         path / "utils/metrics.py": [("np.trapz", "np.trapezoid")],
+        path / "utils/plots.py": [("self.font.getsize(text)", "self.font.getbbox(text)[2:4]")],
         train: [("torch.load(weights, map_location=device)", "torch.load(weights, map_location=device, weights_only=False)")],
     }
     for target, replacements in compatibility.items():
