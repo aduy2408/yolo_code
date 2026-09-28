@@ -78,7 +78,7 @@ def ensure_tph_repo(path: Path) -> None:
         train.write_text(text, encoding="utf-8")
     compatibility = {
         path / "models/experimental.py": [("torch.load(attempt_download(w), map_location=map_location)", "torch.load(attempt_download(w), map_location=map_location, weights_only=False)")],
-        path / "utils/datasets.py": [("np.int", "int")],
+        path / "utils/datasets.py": [("np.int", "int"), ("if segment:", "if segment is not None and len(segment):")],
         path / "utils/loss.py": [("gj.clamp_(0, gain[3] - 1)", "gj.clamp_(0, gain[3].long() - 1)"), ("gi.clamp_(0, gain[2] - 1)", "gi.clamp_(0, gain[2].long() - 1)")],
         path / "utils/general.py": [("torch.load(f, map_location=torch.device('cpu'))", "torch.load(f, map_location=torch.device('cpu'), weights_only=False)"), ("np.int", "int")],
         path / "utils/metrics.py": [("np.trapz", "np.trapezoid")],
