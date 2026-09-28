@@ -140,7 +140,7 @@ def build_bounded_responsibility_target_scores(
             std = utility.std(unbiased=False).clamp_min(1e-4)
             delta = ((utility - mean) / std).clamp(-float(clip), float(clip))
             gate = torch.ones_like(delta)
-            if mode == "residual_tiny":
+            if mode in {"residual_tiny", "residual_curriculum"}:
                 box = gt_bboxes[batch_index, gt_index]
                 max_dim = torch.maximum(box[2] - box[0], box[3] - box[1])
                 gate = (max_dim <= float(tiny_max_dim)).to(delta.dtype).expand_as(delta)

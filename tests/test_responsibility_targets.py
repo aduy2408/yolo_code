@@ -88,3 +88,27 @@ def test_tiny_gate_disables_residual_for_large_gt() -> None:
     )
 
     assert torch.allclose(result, target_scores)
+
+
+def test_curriculum_inherits_tiny_gate_for_large_gt() -> None:
+    target_scores = torch.zeros(1, 2, 1)
+    target_scores[0, :, 0] = torch.tensor([0.4, 0.6])
+    target_gt_idx = torch.tensor([[0, 0]])
+    fg_mask = torch.ones(1, 2, dtype=torch.bool)
+    gt_labels = torch.zeros(1, 1, 1)
+    gt_bboxes = torch.tensor([[[0.0, 0.0, 64.0, 64.0]]])
+    overlaps = torch.tensor([[[0.1, 0.9]]])
+
+    result = build_bounded_responsibility_target_scores(
+        target_scores,
+        target_gt_idx,
+        fg_mask,
+        gt_labels,
+        gt_bboxes,
+        overlaps,
+        "residual_curriculum",
+        lambda_max=0.25,
+        clip=0.5,
+    )
+
+    assert torch.allclose(result, target_scores)
