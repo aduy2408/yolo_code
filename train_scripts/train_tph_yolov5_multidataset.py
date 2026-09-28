@@ -82,7 +82,7 @@ def ensure_tph_repo(path: Path) -> None:
         path / "utils/loss.py": [("gj.clamp_(0, gain[3] - 1)", "gj.clamp_(0, gain[3].long() - 1)"), ("gi.clamp_(0, gain[2] - 1)", "gi.clamp_(0, gain[2].long() - 1)")],
         path / "utils/general.py": [("torch.load(f, map_location=torch.device('cpu'))", "torch.load(f, map_location=torch.device('cpu'), weights_only=False)"), ("np.int", "int")],
         path / "utils/metrics.py": [("np.trapz", "np.trapezoid")],
-        path / "utils/plots.py": [("self.font.getsize(text)", "self.font.getbbox(text)[2:4]")],
+        path / "utils/plots.py": [("self.font.getsize(text)", "self.font.getbbox(text)[2:4]"), ("self.font.getsize(label)", "self.font.getbbox(label)[2:4]")],
         train: [("torch.load(weights, map_location=device)", "torch.load(weights, map_location=device, weights_only=False)")],
     }
     for target, replacements in compatibility.items():
@@ -138,7 +138,7 @@ def parse_metrics(output: str) -> tuple[float, float]:
 def evaluate(tph_root: Path, run_dir: Path, data_yaml: Path, dataset: str, imgsz: int, batch: int, workers: int, device: str) -> dict[str, float | str]:
     metrics: dict[str, float | str] = {"nms_iou": 0.5}
     for split in ("val", "test"):
-        command = [sys.executable, "val.py", "--data", str(data_yaml), "--weights", str(run_dir / "weights/best.pt"), "--img", str(imgsz), "--batch-size", str(batch), "--workers", str(workers), "--device", device, "--task", split, "--iou-thres", "0.5", "--project", str(run_dir / "evaluation"), "--name", split, "--exist-ok", "--verbose"]
+        command = [sys.executable, "val.py", "--data", str(data_yaml), "--weights", str(run_dir / "weights/best.pt"), "--img", str(imgsz), "--batch-size", str(batch), "--device", device, "--task", split, "--iou-thres", "0.5", "--project", str(run_dir / "evaluation"), "--name", split, "--exist-ok", "--verbose"]
         output = run(command, cwd=tph_root, capture=True)
         ap50, map5095 = parse_metrics(output)
         metrics[f"{split}/AP50"] = ap50
