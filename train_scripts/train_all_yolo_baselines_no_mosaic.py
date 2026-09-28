@@ -26,6 +26,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM_ULTRALYTICS = ROOT / "vendor/ultralytics_upstream"
+PROJECT_ULTRALYTICS = ROOT / "models_related/ultralytics"
 MODELS = {
     "yolov5": ("yolov5nu.pt", "vendor/ultralytics_upstream/ultralytics/cfg/models/v5/yolov5.yaml"),
     "yolov8": ("yolov8n.pt", "vendor/ultralytics_upstream/ultralytics/cfg/models/v8/yolov8.yaml"),
@@ -64,7 +65,7 @@ def seed_everything(seed: int) -> None:
 
 def local_ultralytics() -> None:
     """Use the pinned upstream package shipped as the repository submodule."""
-    path = str(UPSTREAM_ULTRALYTICS)
+    path = str(PROJECT_ULTRALYTICS)
     if path not in sys.path:
         sys.path.insert(0, path)
 
@@ -231,7 +232,7 @@ def train_one(dataset: str, model_name: str, seed: int, data_yaml: Path, args: a
             # Pinned Ultralytics selects MuSGD for runs with >10,000 iterations.
             # Keep this shared across all datasets, including TinyPerson.
             optimizer=OPTIMIZER,
-            mosaic=0.0, close_mosaic=0, plots=False,
+            mosaic=0.0, close_mosaic=0, save_period=10, plots=False,
             project=str(args.project / dataset / model_name),
             name=f"seed_{seed}", exist_ok=True,
         )
@@ -286,11 +287,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hf-repo-id", required=True)
     parser.add_argument("--machine-index", type=int, default=0, help="Zero-based shard index")
     parser.add_argument("--machine-count", type=int, default=1, help="Total number of cooperating servers")
+    parser.add_argument("--responsibility-mode", choices=("off", "residual_tiny", "residual_curriculum"), default="off")
+    parser.add_argument("--responsibility-lambda-max", type=float, default=0.25)
+    parser.add_argument("--responsibility-delta-clip", type=float, default=0.5)
+    parser.add_argument("--responsibility-warmup-epochs", type=int, default=20)
+    parser.add_argument("--responsibility-ramp-epochs", type=int, default=20)
+    parser.add_argument("--responsibility-tiny-max-dim", type=float, default=16.0)
+    parser.add_argument("--responsibility-consistency-tau", type=float, default=5.0)
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    os.environ["RESPONSIBILITY_MODE"] = args.responsibility_mode
+    os.environ["RESPONSIBILITY_LAMBDA_MAX"] = str(args.responsibility_lambda_max)
+    os.environ["RESPONSIBILITY_DELTA_CLIP"] = str(args.responsibility_delta_clip)
+    os.environ["RESPONSIBILITY_WARMUP_EPOCHS"] = str(args.responsibility_warmup_epochs)
+    os.environ["RESPONSIBILITY_RAMP_EPOCHS"] = str(args.responsibility_ramp_epochs)
+    os.environ["RESPONSIBILITY_TINY_MAX_DIM"] = str(args.responsibility_tiny_max_dim)
+    os.environ["RESPONSIBILITY_CONSISTENCY_TAU"] = str(args.responsibility_consistency_tau)
     if args.split_seed != SPLIT_SEED:
         raise ValueError(f"This baseline matrix requires split-seed={SPLIT_SEED}, got {args.split_seed}")
     if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
@@ -331,6 +346,13 @@ def main(argv: list[str] | None = None) -> None:
             "batch_size": args.batch_size, "workers": args.workers, "nms_iou": 0.5,
             "data_yaml": str(data_yaml), "git_sha": git_sha(), "hf_repo_id": repo_id,
             "machine_index": args.machine_index, "machine_count": args.machine_count,
+            "responsibility_mode": args.responsibility_mode,
+            "responsibility_lambda_max": args.responsibility_lambda_max,
+            "responsibility_delta_clip": args.responsibility_delta_clip,
+            "responsibility_warmup_epochs": args.responsibility_warmup_epochs,
+            "responsibility_ramp_epochs": args.responsibility_ramp_epochs,
+            "responsibility_tiny_max_dim": args.responsibility_tiny_max_dim,
+            "responsibility_consistency_tau": args.responsibility_consistency_tau,
             "test_protocol": (
                 "TinyPerson official corner-window merged test"
                 if dataset == "tinyperson"
