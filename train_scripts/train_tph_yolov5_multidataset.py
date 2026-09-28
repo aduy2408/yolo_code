@@ -92,20 +92,30 @@ def ensure_tph_repo(path: Path) -> None:
         target.write_text(source, encoding="utf-8")
 
 
+def _ensure_tph_dataset_schema(path: Path, dataset: str) -> Path:
+    text = path.read_text(encoding="utf-8")
+    if "\nnc:" not in f"\n{text}" and dataset != "visdrone":
+        text = text.replace("names:\n", "nc: 1\nnames:\n", 1)
+        path.write_text(text, encoding="utf-8")
+    return path
+
+
 def prepare_dataset(name: str, data_root: Path, dataset_root: Path) -> Path:
     sys.path.insert(0, str(ROOT))
     if name == "varroa":
         from misc.prepare_dataset import prepare_dataset
-        return prepare_dataset(data_root, dataset_root / "varroa_split_42", gt_source="gt_one", only_positives=True, class_policy="map-3-to-1", seed=SPLIT_SEED).resolve()
-    if name == "levirship":
+        output = prepare_dataset(data_root, dataset_root / "varroa_split_42", gt_source="gt_one", only_positives=True, class_policy="map-3-to-1", seed=SPLIT_SEED).resolve()
+    elif name == "levirship":
         from misc.prepare_levir_ship import prepare
-        return prepare(data_root, dataset_root / "levirship_split_42", SPLIT_SEED).resolve()
-    if name == "visdrone":
+        output = prepare(data_root, dataset_root / "levirship_split_42", SPLIT_SEED).resolve()
+    elif name == "visdrone":
         from train_scripts.train_visdrone_scripts.train_all_visdrone_verifier import prepare_dataset
-        return prepare_dataset(data_root, dataset_root / "visdrone_split_42").resolve()
-    import train_scripts.train_all_tinyperson as tiny
-    test_dir = tiny.prepare_test_set(data_root, dataset_root)
-    return tiny.prepare_seed_dataset(data_root, dataset_root, test_dir, SPLIT_SEED).joinpath("tinyperson.yaml").resolve()
+        output = prepare_dataset(data_root, dataset_root / "visdrone_split_42").resolve()
+    else:
+        import train_scripts.train_all_tinyperson as tiny
+        test_dir = tiny.prepare_test_set(data_root, dataset_root)
+        output = tiny.prepare_seed_dataset(data_root, dataset_root, test_dir, SPLIT_SEED).joinpath("tinyperson.yaml").resolve()
+    return _ensure_tph_dataset_schema(output, name)
 
 
 def patch_model_yaml(tph_root: Path, dataset: str, output: Path) -> None:
