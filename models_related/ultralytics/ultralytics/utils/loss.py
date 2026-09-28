@@ -57,6 +57,49 @@ def normalize_tal_target_scores_per_gt(
     return normalized
 
 
+def build_responsibility_target_scores(
+    target_scores: torch.Tensor,
+    target_gt_idx: torch.Tensor,
+    fg_mask: torch.Tensor,
+    gt_labels: torch.Tensor,
+    overlaps: torch.Tensor,
+    mode: str,
+    budget: float = 1.0,
+) -> torch.Tensor:
+    """Build an opt-in detached per-GT responsibility target on TAL positives.
+
+    Candidate selection is intentionally unchanged. Only the classification
+    target weights among already assigned positives are replaced. ``iou`` uses
+    local IoU, while ``iou_sqrt`` reduces the dynamic range for tiny boxes.
+    This is a feasibility ablation, not an inference reranker.
+    """
+    if mode not in {"off", "iou", "iou_sqrt"}:
+        raise ValueError("RESPONSIBILITY_MODE must be one of: off, iou, iou_sqrt")
+    if mode == "off":
+        return target_scores
+    result = target_scores.clone()
+    budget = float(budget)
+    if budget <= 0:
+        raise ValueError("responsibility budget must be positive")
+    for batch_index in range(target_scores.shape[0]):
+        gt_count = gt_labels.shape[1]
+        for gt_index in range(gt_count):
+            positions = fg_mask[batch_index] & (target_gt_idx[batch_index] == gt_index)
+            if not positions.any():
+                continue
+            quality = overlaps[batch_index, gt_index, positions].detach().clamp_min(0)
+            if mode == "iou_sqrt":
+                quality = quality.sqrt()
+            mass = quality.sum()
+            if mass <= 0:
+                continue
+            weights = quality * (budget / mass)
+            classes = target_scores[batch_index, positions].argmax(dim=-1)
+            result[batch_index, positions] = 0
+            result[batch_index, positions, classes] = weights.to(result.dtype)
+    return result
+
+
 @dataclass(frozen=True)
 class BoundaryContrastiveLossConfig:
     """YOLO.train kwargs for the boundary-aware contrastive localization loss."""
@@ -2173,6 +2216,34 @@ class v8DetectionLoss:
             mask_gt,
         )
         fg_mask = fg_mask.bool()
+        responsibility_mode = os.environ.get("RESPONSIBILITY_MODE", "off").lower()
+        if responsibility_mode not in {"off", "iou", "iou_sqrt"}:
+            raise ValueError("RESPONSIBILITY_MODE must be one of: off, iou, iou_sqrt")
+        responsibility_scores = target_scores
+        if responsibility_mode != "off":
+            assigned_overlaps = torch.zeros(
+                (batch_size, gt_bboxes.shape[1], pred_bboxes.shape[1]),
+                dtype=pred_bboxes.dtype,
+                device=pred_bboxes.device,
+            )
+            for batch_index in range(batch_size):
+                for gt_index in range(gt_bboxes.shape[1]):
+                    gt_scaled = gt_bboxes[batch_index, gt_index].view(1, 4) / stride_tensor
+                    assigned_overlaps[batch_index, gt_index] = bbox_iou(
+                        pred_bboxes[batch_index],
+                        gt_scaled.expand_as(pred_bboxes[batch_index]),
+                        xywh=False,
+                        CIoU=False,
+                    ).squeeze(-1).clamp_min(0)
+            responsibility_scores = build_responsibility_target_scores(
+                target_scores,
+                target_gt_idx,
+                fg_mask,
+                gt_labels,
+                assigned_overlaps,
+                responsibility_mode,
+                budget=float(os.environ.get("RESPONSIBILITY_BUDGET", "1.0")),
+            )
         self.ggcf_tal_metrics = {}
         if self.ggcf_tal_diagnostics and self.ggcf_refine:
             with torch.no_grad():
@@ -2368,6 +2439,8 @@ class v8DetectionLoss:
             cls_target_scores = self.factorized_tal_cls_targets(
                 target_scores, gt_bboxes, target_gt_idx, fg_mask, n_p2, assign_bboxes, stride_tensor
             )
+        if responsibility_mode != "off":
+            cls_target_scores = responsibility_scores
         if os.environ.get("FTAL_NORM_MODE", "oldnorm") == "newnorm":
             cls_target_scores_sum = max(cls_target_scores.sum(), 1)
         assigned_iou = None
