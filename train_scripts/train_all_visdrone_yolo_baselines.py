@@ -36,6 +36,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = ROOT / "vendor/ultralytics_upstream"
+LEGACY_ULTRALYTICS = ROOT / "models_related/ultralytics"
 
 MODELS = {
     "yolov5n": (
@@ -101,8 +102,11 @@ BASELINE_FORBIDDEN_MARKERS = (
 
 
 def local_ultralytics() -> None:
-    if str(UPSTREAM) not in sys.path:
-        sys.path.insert(0, str(UPSTREAM))
+    # The responsibility experiment requires the project loss integration while
+    # retaining the canonical upstream YOLOv8 YAML and pretrained weights.
+    path = LEGACY_ULTRALYTICS
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 
 def seed_everything(seed: int) -> None:
@@ -269,7 +273,7 @@ def train_one(model_name: str, seed: int, augmentation: str, data_yaml: Path, ar
         optimizer=OPTIMIZER,
         mosaic=mosaic,
         close_mosaic=10 if mosaic else 0,
-        plots=False,
+        save_period=10,
         project=str(args.project / model_name / augmentation),
         name=f"seed_{seed}",
         exist_ok=True,
@@ -361,6 +365,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--machine-index", type=int, default=0)
     parser.add_argument("--machine-count", type=int, default=1)
     parser.add_argument("--allow-subset", action="store_true", help="allow a selected subset of the baseline seeds")
+    parser.add_argument(
+        "--responsibility-mode",
+        choices=("off", "residual_tiny", "residual_curriculum"),
+        default="off",
+    )
+    parser.add_argument("--responsibility-lambda-max", type=float, default=0.25)
+    parser.add_argument("--responsibility-delta-clip", type=float, default=0.5)
+    parser.add_argument("--responsibility-warmup-epochs", type=int, default=20)
+    parser.add_argument("--responsibility-ramp-epochs", type=int, default=20)
+    parser.add_argument("--responsibility-tiny-max-dim", type=float, default=16.0)
+    parser.add_argument("--responsibility-consistency-tau", type=float, default=5.0)
     return parser.parse_args(argv)
 
 
@@ -370,6 +385,13 @@ def git_sha() -> str:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    os.environ["RESPONSIBILITY_MODE"] = args.responsibility_mode
+    os.environ["RESPONSIBILITY_LAMBDA_MAX"] = str(args.responsibility_lambda_max)
+    os.environ["RESPONSIBILITY_DELTA_CLIP"] = str(args.responsibility_delta_clip)
+    os.environ["RESPONSIBILITY_WARMUP_EPOCHS"] = str(args.responsibility_warmup_epochs)
+    os.environ["RESPONSIBILITY_RAMP_EPOCHS"] = str(args.responsibility_ramp_epochs)
+    os.environ["RESPONSIBILITY_TINY_MAX_DIM"] = str(args.responsibility_tiny_max_dim)
+    os.environ["RESPONSIBILITY_CONSISTENCY_TAU"] = str(args.responsibility_consistency_tau)
     if not args.allow_subset and set(args.seeds) != set(SEEDS):
         raise ValueError("This baseline matrix requires exactly training seeds 42, 43, and 44")
     if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
@@ -411,6 +433,12 @@ def main(argv: list[str] | None = None) -> None:
             "split_provenance": "official VisDrone2019-DET split, no random reassignment",
             "augmentation": augmentation,
             "mosaic": 1.0 if augmentation == "mosaic" else 0.0,
+            "responsibility_mode": args.responsibility_mode,
+            "responsibility_lambda_max": args.responsibility_lambda_max,
+            "responsibility_delta_clip": args.responsibility_delta_clip,
+            "responsibility_warmup_epochs": args.responsibility_warmup_epochs,
+            "responsibility_ramp_epochs": args.responsibility_ramp_epochs,
+            "responsibility_tiny_max_dim": args.responsibility_tiny_max_dim,
             "close_mosaic": 10 if augmentation == "mosaic" else 0,
             "epochs": args.epochs,
             "patience": args.patience,

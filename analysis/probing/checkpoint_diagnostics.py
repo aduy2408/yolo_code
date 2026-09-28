@@ -34,7 +34,9 @@ def run_checkpoint(dataset: str, checkpoint: Path, output: Path, config: ProbeCo
     spec = DATASETS[dataset]
     model = load_yolo(checkpoint, config.device)
     rows: list[dict[str, Any]] = []
-    for image_path in image_paths(spec, config.max_images):
+    paths = image_paths(spec, config.max_images)
+    write_json(output / "fixed_subset.json", {"dataset": spec.name, "images": [str(path) for path in paths], "max_images": config.max_images})
+    for image_path in paths:
         image = cv2.imread(str(image_path))
         boxes = read_boxes(image_path, spec)
         if image is None or not boxes:
