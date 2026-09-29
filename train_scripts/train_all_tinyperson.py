@@ -221,7 +221,12 @@ class Uploader:
         missing = [path for path in REQUIRED if not (run_dir / path).is_file()]
         if missing:
             raise RuntimeError(f"{variant}: refusing incomplete upload: {missing}")
-        remote = f"runs/{variant}/seed_{seed}"
+        manifest_path = run_dir / "experiment_manifest.json"
+        responsibility_mode = "off"
+        if manifest_path.is_file():
+            responsibility_mode = json.loads(manifest_path.read_text()).get("responsibility_mode", "off")
+        prefix = f"runs/{responsibility_mode}" if responsibility_mode != "off" else "runs"
+        remote = f"{prefix}/{variant}/seed_{seed}"
         self.retry(lambda: self.api.upload_folder(folder_path=str(run_dir), path_in_repo=remote, repo_id=self.repo_id, repo_type="dataset"))
         expected = {f"{remote}/{path}" for path in REQUIRED}
         uploaded = set(self.retry(lambda: self.api.list_repo_files(self.repo_id, repo_type="dataset")))
