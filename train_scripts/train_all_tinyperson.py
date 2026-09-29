@@ -223,9 +223,13 @@ class Uploader:
             raise RuntimeError(f"{variant}: refusing incomplete upload: {missing}")
         manifest_path = run_dir / "experiment_manifest.json"
         responsibility_mode = "off"
+        ranking_mode = "off"
         if manifest_path.is_file():
-            responsibility_mode = json.loads(manifest_path.read_text()).get("responsibility_mode", "off")
-        prefix = f"runs/{responsibility_mode}" if responsibility_mode != "off" else "runs"
+            manifest = json.loads(manifest_path.read_text())
+            responsibility_mode = manifest.get("responsibility_mode", "off")
+            ranking_mode = manifest.get("ranking_mode", "off")
+        experiment_mode = ranking_mode if ranking_mode != "off" else responsibility_mode
+        prefix = f"runs/{experiment_mode}" if experiment_mode != "off" else "runs"
         remote = f"{prefix}/{variant}/seed_{seed}"
         self.retry(lambda: self.api.upload_folder(folder_path=str(run_dir), path_in_repo=remote, repo_id=self.repo_id, repo_type="dataset"))
         expected = {f"{remote}/{path}" for path in REQUIRED}
@@ -584,6 +588,14 @@ def train(variant: str, seed: int, data_yaml: Path, args: argparse.Namespace) ->
         **TRAIN_AUGMENTATION,
         **TRAIN_SCHEDULE,
         **VARIANTS[variant],
+        rank_loss=args.rank_loss if args.ranking_mode != "off" else 0.0,
+        rank_mode=args.ranking_mode,
+        rank_tau=args.rank_tau,
+        rank_iou_margin=args.rank_iou_margin,
+        rank_teacher_margin=args.rank_teacher_margin,
+        rank_lambda_loc=args.rank_lambda_loc,
+        rank_tiny_max_dim=args.rank_tiny_max_dim,
+        rank_topk=args.rank_topk,
     )
     if not training_complete(run_dir, args.epochs):
         raise RuntimeError(f"Incomplete training artifacts: {run_dir}")
@@ -671,6 +683,14 @@ def write_metadata(variant: str, run_dir: Path, seed: int, data_yaml: Path, args
         "responsibility_kl_ramp_epochs": args.responsibility_kl_ramp_epochs,
         "responsibility_tiny_max_dim": args.responsibility_tiny_max_dim,
         "responsibility_consistency_tau": args.responsibility_consistency_tau,
+        "ranking_mode": args.ranking_mode,
+        "rank_loss": args.rank_loss,
+        "rank_tau": args.rank_tau,
+        "rank_iou_margin": args.rank_iou_margin,
+        "rank_teacher_margin": args.rank_teacher_margin,
+        "rank_lambda_loc": args.rank_lambda_loc,
+        "rank_tiny_max_dim": args.rank_tiny_max_dim,
+        "rank_topk": args.rank_topk,
         "test_protocol": "official TinyPerson corner-window merged test",
         "test_source_artifact": str(args.dataset_root / "tinyperson_test_corner_sw640_sh512" / "corner_manifest.json"),
         "context_augmentation": os.environ.get("YOLO_CONTEXT_AUG", "none"),
@@ -742,6 +762,14 @@ def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dic
         "responsibility_kl_ramp_epochs": args.responsibility_kl_ramp_epochs,
         "responsibility_tiny_max_dim": args.responsibility_tiny_max_dim,
         "responsibility_consistency_tau": args.responsibility_consistency_tau,
+        "ranking_mode": args.ranking_mode,
+        "rank_loss": args.rank_loss,
+        "rank_tau": args.rank_tau,
+        "rank_iou_margin": args.rank_iou_margin,
+        "rank_teacher_margin": args.rank_teacher_margin,
+        "rank_lambda_loc": args.rank_lambda_loc,
+        "rank_tiny_max_dim": args.rank_tiny_max_dim,
+        "rank_topk": args.rank_topk,
         "augmentation": dict(TRAIN_AUGMENTATION),
         "schedule": dict(TRAIN_SCHEDULE),
         "upload_required": not args.skip_upload,
@@ -824,6 +852,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--responsibility-kl-ramp-epochs", type=int, default=20)
     parser.add_argument("--responsibility-tiny-max-dim", type=float, default=16.0)
     parser.add_argument("--responsibility-consistency-tau", type=float, default=5.0)
+    parser.add_argument("--ranking-mode", choices=("off", "localization", "joint"), default="off")
+    parser.add_argument("--rank-loss", type=float, default=0.05)
+    parser.add_argument("--rank-tau", type=float, default=0.25)
+    parser.add_argument("--rank-iou-margin", type=float, default=0.10)
+    parser.add_argument("--rank-teacher-margin", type=float, default=0.05)
+    parser.add_argument("--rank-lambda-loc", type=float, default=0.25)
+    parser.add_argument("--rank-tiny-max-dim", type=float, default=16.0)
+    parser.add_argument("--rank-topk", type=int, default=10)
     return parser.parse_args(argv)
 
 

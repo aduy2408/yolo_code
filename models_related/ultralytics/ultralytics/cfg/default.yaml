@@ -229,8 +229,12 @@ quality_debug_max_preds: 30000 # (int) EXPERIMENTAL max pre-NMS quality debug ca
 quality_probe_export: false # (bool) EXPERIMENTAL export box/DFL features for quality-head probing
 quality_probe_max_preds: 30000 # (int) EXPERIMENTAL max pre-NMS quality probe candidates to export
 rank_loss: 0.0 # (float) EXPERIMENTAL pairwise localization ranking loss gain
+rank_mode: off # (str) EXPERIMENTAL ranking teacher: off, localization, or joint
 rank_tau: 0.25 # (float) EXPERIMENTAL pairwise ranking temperature
 rank_iou_margin: 0.10 # (float) EXPERIMENTAL minimum IoU gap for ranking pairs
+rank_teacher_margin: 0.05 # (float) EXPERIMENTAL minimum teacher-score gap for joint ranking pairs
+rank_lambda_loc: 0.25 # (float) EXPERIMENTAL joint ranking localization advantage weight
+rank_tiny_max_dim: 16.0 # (float) EXPERIMENTAL maximum GT dimension eligible for ranking
 rank_topk: 10 # (int) EXPERIMENTAL foreground candidates per GT for ranking loss
 loc_assign: false # (bool) EXPERIMENTAL use localization-only positive mining for box/DFL loss
 loc_assign_topk: 3 # (int) EXPERIMENTAL extra local anchors per GT for box/DFL loss

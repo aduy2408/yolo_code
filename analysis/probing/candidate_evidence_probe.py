@@ -56,7 +56,14 @@ def _rank_corr(left: np.ndarray, right: np.ndarray) -> float:
     return float(np.corrcoef(left_rank, right_rank)[0, 1])
 
 
-def run(spec: DatasetSpec, checkpoint: Path, output: Path, config: ProbeConfig) -> dict[str, Any]:
+def run(
+    spec: DatasetSpec,
+    checkpoint: Path,
+    output: Path,
+    config: ProbeConfig,
+    joint_lambda: float = 0.25,
+    tiny_max_dim: float = 16.0,
+) -> dict[str, Any]:
     model = load_yolo(checkpoint, config.device)
     rows: list[dict[str, Any]] = []
     for image_path in image_paths(spec, config.max_images):
@@ -89,6 +96,17 @@ def run(spec: DatasetSpec, checkpoint: Path, output: Path, config: ProbeConfig) 
             score_local = local_scores.argmax()
             evidence_local = local_evidence.argmax()
             oracle_index = local[oracle_local]
+            gt_width = gt_scaled[2] - gt_scaled[0]
+            gt_height = gt_scaled[3] - gt_scaled[1]
+            if max(float(gt_width), float(gt_height)) <= tiny_max_dim and local.numel() >= 2:
+                score_logits = local_scores.clamp(1e-6, 1 - 1e-6).logit()
+                normalized_iou = (local_iou - local_iou.mean()) / (local_iou.std(unbiased=False) + 1e-6)
+                joint_scores = score_logits + joint_lambda * normalized_iou.clamp(-0.5, 0.5)
+                joint_local = joint_scores.argmax()
+                joint_iou = local_iou[joint_local]
+            else:
+                joint_iou = local_iou[score_local]
+                joint_local = score_local
             rows.append({
                 "dataset": spec.name,
                 "image": image_path.name,
@@ -97,6 +115,9 @@ def run(spec: DatasetSpec, checkpoint: Path, output: Path, config: ProbeConfig) 
                 "oracle_iou": float(best_iou.cpu()),
                 "score_iou": float(local_iou[score_local].cpu()),
                 "evidence_iou": float(local_iou[evidence_local].cpu()),
+                "joint_iou": float(joint_iou.cpu()),
+                "joint_delta_iou": float((joint_iou - local_iou[score_local]).cpu()),
+                "joint_oracle_hit": float(joint_local == oracle_local),
                 "oracle_gap": float((best_iou - local_iou[score_local]).cpu()),
                 "score_at_oracle": float(scores[oracle_index].cpu()),
                 "evidence_at_oracle": float(evidence[oracle_index].cpu()),
@@ -104,10 +125,22 @@ def run(spec: DatasetSpec, checkpoint: Path, output: Path, config: ProbeConfig) 
                 "evidence_rank_corr_iou": _rank_corr(local_evidence.cpu().numpy(), local_iou.cpu().numpy()),
             })
     write_rows(output / "candidate_evidence.csv", rows)
-    summary: dict[str, Any] = {"metadata": metadata(spec, config, checkpoint, "candidate_evidence"), "rows": len(rows), "by_size": {}}
+    summary: dict[str, Any] = {
+        "metadata": metadata(spec, config, checkpoint, "candidate_evidence"),
+        "rows": len(rows),
+        "joint_lambda": joint_lambda,
+        "joint_tiny_max_dim": tiny_max_dim,
+        "by_size": {},
+    }
     for bucket in sorted({row["size_bucket"] for row in rows}):
         subset = [row for row in rows if row["size_bucket"] == bucket]
-        summary["by_size"][bucket] = {key: float(np.nanmean([row[key] for row in subset])) for key in ("oracle_iou", "score_iou", "evidence_iou", "oracle_gap", "score_rank_corr_iou", "evidence_rank_corr_iou")}
+        summary["by_size"][bucket] = {
+            key: float(np.nanmean([row[key] for row in subset]))
+            for key in (
+                "oracle_iou", "score_iou", "evidence_iou", "joint_iou", "joint_delta_iou",
+                "joint_oracle_hit", "oracle_gap", "score_rank_corr_iou", "evidence_rank_corr_iou",
+            )
+        }
     write_json(output / "candidate_evidence.json", summary)
     return summary
 
@@ -119,9 +152,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-images", type=int, default=32)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--joint-lambda", type=float, default=0.25)
+    parser.add_argument("--tiny-max-dim", type=float, default=16.0)
     args = parser.parse_args()
     config = ProbeConfig(max_images=args.max_images, device=args.device)
-    run(DATASETS[args.dataset], args.checkpoint, args.output, config)
+    run(DATASETS[args.dataset], args.checkpoint, args.output, config, args.joint_lambda, args.tiny_max_dim)
 
 
 if __name__ == "__main__":

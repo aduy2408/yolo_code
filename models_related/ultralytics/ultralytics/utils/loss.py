@@ -1175,8 +1175,14 @@ class v8DetectionLoss:
         self.aug_state_gain = float(getattr(h, "aug_state_gain", 0.0))
         self.p2_detail_metrics = {}
         self.rank_gain = float(getattr(h, "rank_loss", 0.0))
+        self.rank_mode = str(getattr(h, "rank_mode", "off")).lower()
+        if self.rank_mode not in {"off", "localization", "joint"}:
+            raise ValueError("rank_mode must be 'off', 'localization', or 'joint'")
         self.rank_tau = float(getattr(h, "rank_tau", 0.25))
         self.rank_iou_margin = float(getattr(h, "rank_iou_margin", 0.10))
+        self.rank_teacher_margin = float(getattr(h, "rank_teacher_margin", 0.05))
+        self.rank_lambda_loc = float(getattr(h, "rank_lambda_loc", 0.25))
+        self.rank_tiny_max_dim = float(getattr(h, "rank_tiny_max_dim", 16.0))
         self.rank_topk = int(getattr(h, "rank_topk", 10))
         self.positive_confidence_rescue_gain = float(getattr(h, "positive_confidence_rescue_gain", 0.0))
         self.positive_confidence_rescue_gamma = float(getattr(h, "positive_confidence_rescue_gamma", 1.0))
@@ -1490,9 +1496,16 @@ class v8DetectionLoss:
         target_scores: torch.Tensor,
         target_gt_idx: torch.Tensor,
         fg_mask: torch.Tensor,
+        stride_tensor: torch.Tensor,
+        gt_bboxes: torch.Tensor,
     ) -> torch.Tensor:
-        """Rank TAL foreground candidates so higher-IoU boxes receive higher assigned-class logits."""
-        if not fg_mask.any() or self.rank_topk < 2:
+        """Rank tiny-object TAL candidates with localization or joint teachers.
+
+        R1 uses detached plain IoU as the teacher. J1 uses the detached
+        class logit plus a clipped, normalized localization advantage. TAL
+        assignment and all box/DFL targets remain untouched.
+        """
+        if self.rank_mode == "off" or not fg_mask.any() or self.rank_topk < 2:
             return pred_scores.sum() * 0.0
 
         fg_indices = fg_mask.nonzero(as_tuple=False)
@@ -1515,18 +1528,35 @@ class v8DetectionLoss:
 
             group_iou = rank_iou[group_mask]
             group_logits = assigned_logits[group_mask]
+            group_batch = batch_indices[group_mask][0]
+            group_gt = target_gt_idx[fg_mask][group_mask][0]
+            gt_box = gt_bboxes[group_batch, group_gt]
+            if torch.maximum(gt_box[2] - gt_box[0], gt_box[3] - gt_box[1]) > self.rank_tiny_max_dim:
+                continue
             topk = min(self.rank_topk, int(group_iou.numel()))
-            order = group_iou.argsort(descending=True)[:topk]
+            if self.rank_mode == "localization":
+                teacher = group_iou.detach()
+                pair_margin = self.rank_iou_margin
+            else:
+                centered = (group_iou - group_iou.mean()) / (group_iou.std(unbiased=False) + 1e-6)
+                advantage = centered.clamp(-0.5, 0.5)
+                teacher = (group_logits.detach() + self.rank_lambda_loc * advantage).detach()
+                pair_margin = self.rank_teacher_margin
+            order = teacher.argsort(descending=True)[:topk]
             group_iou = group_iou[order]
             group_logits = group_logits[order]
+            teacher = teacher[order]
 
-            iou_gap = group_iou[:, None] - group_iou[None, :]
-            pair_mask = iou_gap > self.rank_iou_margin
+            if self.rank_mode == "localization":
+                teacher_gap = group_iou[:, None] - group_iou[None, :]
+            else:
+                teacher_gap = teacher[:, None] - teacher[None, :]
+            pair_mask = teacher_gap > pair_margin
             if not pair_mask.any():
                 continue
 
             score_gap = group_logits[:, None] - group_logits[None, :]
-            weights = iou_gap[pair_mask].detach()
+            weights = teacher_gap[pair_mask].detach()
             rank_losses.append(F.softplus(-score_gap[pair_mask] / tau) * weights)
             rank_weights.append(weights)
 
@@ -3028,7 +3058,7 @@ class v8DetectionLoss:
                 )
                 LOGGER.info("quality_debug pred_bboxes_sample=%s", pred_sample)
                 LOGGER.info("quality_debug quality_target_sample=%s", target_sample)
-        if self.rank_gain > 0:
+        if self.rank_gain > 0 and self.rank_mode != "off":
             rank_idx = (
                 3 + int(self.boundary_loss is not None) + int(self.loc_quality_loss is not None) + int(self.quality_head)
             )
@@ -3040,6 +3070,8 @@ class v8DetectionLoss:
                     target_scores,
                     target_gt_idx,
                     fg_mask,
+                    stride_tensor,
+                    gt_bboxes,
                 )
                 * self.rank_gain
             )
