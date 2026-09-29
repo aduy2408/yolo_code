@@ -721,7 +721,12 @@ def write_summaries(args: argparse.Namespace) -> None:
             continue
         record = {"variant": variant, "runs": len(group)}
         for key in sorted(set.intersection(*(set(row) for row in group)) - {"variant", "seed", "checkpoint"}):
-            values = [float(row[key]) for row in group]
+            try:
+                values = [float(row[key]) for row in group]
+            except (TypeError, ValueError):
+                # Preserve descriptive fields such as the merged-test protocol
+                # in summary_runs.csv, but do not aggregate them as metrics.
+                continue
             record[f"{key}/mean"] = statistics.fmean(values)
             record[f"{key}/std"] = statistics.stdev(values) if len(values) > 1 else 0.0
         aggregate.append(record)
