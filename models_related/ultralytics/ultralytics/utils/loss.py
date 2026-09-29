@@ -157,6 +157,110 @@ def build_bounded_responsibility_target_scores(
     return result
 
 
+def build_kl_responsibility_target_scores(
+    target_scores: torch.Tensor,
+    target_gt_idx: torch.Tensor,
+    fg_mask: torch.Tensor,
+    gt_bboxes: torch.Tensor,
+    pred_bboxes: torch.Tensor,
+    stride_tensor: torch.Tensor,
+    eta_max: float,
+    tiny_max_dim: float,
+    curriculum: float = 1.0,
+    eps: float = 1e-12,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Exponentially tilt TAL responsibility by detached assigned-positive IoU.
+
+    The positive set and TAL mass are preserved exactly.  The KL-regularized
+    solution is ``q* ∝ q0 exp(eta * utility)`` on the non-zero TAL support,
+    where utility is plain IoU in each candidate's grid coordinates.  Only
+    tiny GTs are refined, and the returned diagnostics are detached scalars
+    suitable for logging or tests.
+    """
+    if eta_max < 0:
+        raise ValueError("eta_max must be non-negative")
+    if tiny_max_dim <= 0:
+        raise ValueError("tiny_max_dim must be positive")
+    if curriculum < 0:
+        raise ValueError("curriculum must be non-negative")
+    result = target_scores.clone()
+    diagnostics = {
+        "n_refined_gt": 0.0,
+        "mean_eta": 0.0,
+        "mean_kl": 0.0,
+        "mean_tv_shift": 0.0,
+        "mean_expected_utility_gain": 0.0,
+        "top1_change_rate": 0.0,
+        "max_mass_error": 0.0,
+    }
+    eta = float(eta_max) * float(curriculum)
+    if eta <= 0:
+        return result, diagnostics
+
+    refined = 0
+    top1_changed = 0
+    kl_total = target_scores.new_zeros(())
+    tv_total = target_scores.new_zeros(())
+    utility_gain_total = target_scores.new_zeros(())
+    max_mass_error = target_scores.new_zeros(())
+    with torch.no_grad():
+        for batch_index in range(target_scores.shape[0]):
+            positive = fg_mask[batch_index]
+            if not positive.any():
+                continue
+            for gt_index in target_gt_idx[batch_index, positive].unique().tolist():
+                positions = positive & (target_gt_idx[batch_index] == gt_index)
+                position_indices = positions.nonzero(as_tuple=False).flatten()
+                base = target_scores[batch_index, positions].amax(dim=-1)
+                support = base > eps
+                if int(support.sum()) <= 1:
+                    continue
+                box = gt_bboxes[batch_index, gt_index]
+                max_dim = torch.maximum(box[2] - box[0], box[3] - box[1])
+                if bool(max_dim > float(tiny_max_dim)):
+                    continue
+                position_indices = position_indices[support]
+                base = base[support]
+                mass = base.sum()
+                if bool(mass <= eps):
+                    continue
+                pos_stride = stride_tensor[position_indices]
+                gt_grid = box.view(1, 4) / pos_stride
+                utility = bbox_iou(
+                    pred_bboxes[batch_index, position_indices].detach(),
+                    gt_grid,
+                    xywh=False,
+                    CIoU=False,
+                ).squeeze(-1).clamp(0, 1)
+                q0 = base / mass
+                q_star = torch.softmax(torch.log(q0) + eta * utility, dim=0)
+                weights = mass * q_star
+                classes = target_scores[batch_index, position_indices].argmax(dim=-1)
+                result[batch_index, position_indices] = 0
+                result[batch_index, position_indices, classes] = weights.to(result.dtype)
+
+                kl_total = kl_total + (q_star * (torch.log(q_star) - torch.log(q0))).sum()
+                tv_total = tv_total + 0.5 * (q_star - q0).abs().sum()
+                utility_gain_total = utility_gain_total + ((q_star - q0) * utility).sum()
+                top1_changed += int(q_star.argmax() != q0.argmax())
+                refined += 1
+                max_mass_error = torch.maximum(max_mass_error, (weights.sum() - mass).abs())
+
+    if refined:
+        diagnostics.update(
+            {
+                "n_refined_gt": float(refined),
+                "mean_eta": eta,
+                "mean_kl": float((kl_total / refined).item()),
+                "mean_tv_shift": float((tv_total / refined).item()),
+                "mean_expected_utility_gain": float((utility_gain_total / refined).item()),
+                "top1_change_rate": float(top1_changed / refined),
+                "max_mass_error": float(max_mass_error.item()),
+            }
+        )
+    return result, diagnostics
+
+
 @dataclass(frozen=True)
 class BoundaryContrastiveLossConfig:
     """YOLO.train kwargs for the boundary-aware contrastive localization loss."""
@@ -2276,26 +2380,48 @@ class v8DetectionLoss:
         responsibility_mode = os.environ.get("RESPONSIBILITY_MODE", "off").lower()
         responsibility_modes = {
             "off", "iou", "iou_sqrt", "residual", "residual_tiny",
-            "residual_consistent", "residual_curriculum",
+            "residual_consistent", "residual_curriculum", "kl_tiny", "kl_curriculum",
         }
         if responsibility_mode not in responsibility_modes:
             raise ValueError("RESPONSIBILITY_MODE contains an unsupported mode")
         responsibility_scores = target_scores
+        self.responsibility_metrics = {}
         if responsibility_mode != "off":
-            assigned_overlaps = torch.zeros(
-                (batch_size, gt_bboxes.shape[1], pred_bboxes.shape[1]),
-                dtype=pred_bboxes.dtype,
-                device=pred_bboxes.device,
-            )
-            for batch_index in range(batch_size):
-                for gt_index in range(gt_bboxes.shape[1]):
-                    gt_scaled = gt_bboxes[batch_index, gt_index].view(1, 4) / stride_tensor
-                    assigned_overlaps[batch_index, gt_index] = bbox_iou(
-                        pred_bboxes[batch_index],
-                        gt_scaled.expand_as(pred_bboxes[batch_index]),
-                        xywh=False,
-                        CIoU=False,
-                    ).squeeze(-1).clamp_min(0)
+            if responsibility_mode in {"kl_tiny", "kl_curriculum"}:
+                curriculum = 1.0
+                if responsibility_mode == "kl_curriculum":
+                    warmup = int(os.environ.get("RESPONSIBILITY_WARMUP_EPOCHS", "20"))
+                    ramp = max(int(os.environ.get("RESPONSIBILITY_RAMP_EPOCHS", "20")), 1)
+                    curriculum = min(max(int(self.epoch) - warmup, 0) / ramp, 1.0)
+                responsibility_scores, self.responsibility_metrics = build_kl_responsibility_target_scores(
+                    target_scores,
+                    target_gt_idx,
+                    fg_mask,
+                    gt_bboxes,
+                    pred_bboxes,
+                    stride_tensor,
+                    eta_max=float(os.environ.get("RESPONSIBILITY_ETA_MAX", "0.25")),
+                    tiny_max_dim=float(os.environ.get("RESPONSIBILITY_TINY_MAX_DIM", "16.0")),
+                    curriculum=curriculum,
+                )
+            elif responsibility_mode in {
+                "iou", "iou_sqrt", "residual", "residual_tiny",
+                "residual_consistent", "residual_curriculum",
+            }:
+                assigned_overlaps = torch.zeros(
+                    (batch_size, gt_bboxes.shape[1], pred_bboxes.shape[1]),
+                    dtype=pred_bboxes.dtype,
+                    device=pred_bboxes.device,
+                )
+                for batch_index in range(batch_size):
+                    for gt_index in range(gt_bboxes.shape[1]):
+                        gt_scaled = gt_bboxes[batch_index, gt_index].view(1, 4) / stride_tensor
+                        assigned_overlaps[batch_index, gt_index] = bbox_iou(
+                            pred_bboxes[batch_index],
+                            gt_scaled.expand_as(pred_bboxes[batch_index]),
+                            xywh=False,
+                            CIoU=False,
+                        ).squeeze(-1).clamp_min(0)
             if responsibility_mode in {"iou", "iou_sqrt"}:
                 responsibility_scores = build_responsibility_target_scores(
                     target_scores,
@@ -2306,7 +2432,9 @@ class v8DetectionLoss:
                     responsibility_mode,
                     budget=float(os.environ.get("RESPONSIBILITY_BUDGET", "1.0")),
                 )
-            else:
+            elif responsibility_mode in {
+                "residual", "residual_tiny", "residual_consistent", "residual_curriculum"
+            }:
                 consistency = torch.ones_like(assigned_overlaps)
                 if responsibility_mode in {"residual_consistent", "residual_curriculum"}:
                     tau = float(os.environ.get("RESPONSIBILITY_CONSISTENCY_TAU", "5.0"))

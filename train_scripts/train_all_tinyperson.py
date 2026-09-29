@@ -655,6 +655,7 @@ def write_metadata(variant: str, run_dir: Path, seed: int, data_yaml: Path, args
         "marked_mass_mode": args.marked_mass_mode,
         "responsibility_mode": args.responsibility_mode,
         "responsibility_lambda_max": args.responsibility_lambda_max,
+        "responsibility_eta_max": args.responsibility_eta_max,
         "responsibility_delta_clip": args.responsibility_delta_clip,
         "responsibility_warmup_epochs": args.responsibility_warmup_epochs,
         "responsibility_ramp_epochs": args.responsibility_ramp_epochs,
@@ -721,6 +722,7 @@ def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dic
         "marked_mass_mode": args.marked_mass_mode,
         "responsibility_mode": args.responsibility_mode,
         "responsibility_lambda_max": args.responsibility_lambda_max,
+        "responsibility_eta_max": args.responsibility_eta_max,
         "responsibility_delta_clip": args.responsibility_delta_clip,
         "responsibility_warmup_epochs": args.responsibility_warmup_epochs,
         "responsibility_ramp_epochs": args.responsibility_ramp_epochs,
@@ -795,11 +797,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--responsibility-mode",
-        choices=("off", "iou", "iou_sqrt", "residual", "residual_tiny", "residual_consistent", "residual_curriculum"),
+        choices=("off", "iou", "iou_sqrt", "residual", "residual_tiny", "residual_consistent", "residual_curriculum", "kl_tiny", "kl_curriculum"),
         default=os.environ.get("RESPONSIBILITY_MODE", "off"),
         help="Opt-in classification responsibility target or bounded residual correction mode",
     )
     parser.add_argument("--responsibility-lambda-max", type=float, default=0.25)
+    parser.add_argument("--responsibility-eta-max", type=float, default=0.25)
     parser.add_argument("--responsibility-delta-clip", type=float, default=0.5)
     parser.add_argument("--responsibility-warmup-epochs", type=int, default=1)
     parser.add_argument("--responsibility-ramp-epochs", type=int, default=1)
@@ -821,6 +824,7 @@ def main() -> None:
     os.environ["MARKED_MASS_MODE"] = args.marked_mass_mode
     os.environ["RESPONSIBILITY_MODE"] = args.responsibility_mode
     os.environ["RESPONSIBILITY_LAMBDA_MAX"] = str(args.responsibility_lambda_max)
+    os.environ["RESPONSIBILITY_ETA_MAX"] = str(args.responsibility_eta_max)
     os.environ["RESPONSIBILITY_DELTA_CLIP"] = str(args.responsibility_delta_clip)
     os.environ["RESPONSIBILITY_WARMUP_EPOCHS"] = str(args.responsibility_warmup_epochs)
     os.environ["RESPONSIBILITY_RAMP_EPOCHS"] = str(args.responsibility_ramp_epochs)
