@@ -203,7 +203,6 @@ CFG_FLOAT_KEYS = frozenset(
         "quality_ramp_low",
         "quality_ramp_high",
         "rank_loss",
-        "rank_mode",
         "rank_tau",
         "rank_iou_margin",
         "rank_teacher_margin",
