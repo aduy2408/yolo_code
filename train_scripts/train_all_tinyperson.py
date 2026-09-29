@@ -229,7 +229,8 @@ class Uploader:
         if missing:
             raise RuntimeError(f"{variant}: Hugging Face verification failed: {missing}")
         marker = run_dir / "upload_complete.json"
-        marker.write_text(json.dumps({"repo_id": self.repo_id, "variant": variant, "seed": seed, "verified": sorted(expected)}, indent=2) + "\n", encoding="utf-8")
+        marker_verified = sorted(expected | {f"{remote}/{marker.name}"})
+        marker.write_text(json.dumps({"repo_id": self.repo_id, "variant": variant, "seed": seed, "remote_prefix": remote, "verified": marker_verified}, indent=2) + "\n", encoding="utf-8")
         self.retry(lambda: self.api.upload_file(path_or_fileobj=str(marker), path_in_repo=f"{remote}/{marker.name}", repo_id=self.repo_id, repo_type="dataset"))
 
 
@@ -623,6 +624,8 @@ def evaluate(run_dir: Path, data_yaml: Path, test_out_dir: Path, data_root: Path
         metrics[f"{split}/AP50"] = float(result.box.map50)
         metrics[f"{split}/mAP50-95"] = float(result.box.map)
     metrics.update(evaluate_merged_test(run_dir, test_out_dir, data_root, args))
+    metrics["test/protocol"] = "official TinyPerson corner-window merged test"
+    metrics["test/source_artifact"] = str(test_out_dir / "corner_manifest.json")
     output.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return metrics
 
@@ -663,6 +666,8 @@ def write_metadata(variant: str, run_dir: Path, seed: int, data_yaml: Path, args
         "responsibility_kl_ramp_epochs": args.responsibility_kl_ramp_epochs,
         "responsibility_tiny_max_dim": args.responsibility_tiny_max_dim,
         "responsibility_consistency_tau": args.responsibility_consistency_tau,
+        "test_protocol": "official TinyPerson corner-window merged test",
+        "test_source_artifact": str(args.dataset_root / "tinyperson_test_corner_sw640_sh512" / "corner_manifest.json"),
         "context_augmentation": os.environ.get("YOLO_CONTEXT_AUG", "none"),
         "params": sum(parameter.numel() for parameter in model.model.parameters()),
         "model_gflops_thop": get_flops(model.model, imgsz=args.imgsz),
