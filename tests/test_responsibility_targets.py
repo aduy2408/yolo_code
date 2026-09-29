@@ -166,3 +166,36 @@ def test_kl_large_gt_gate_is_exact_identity() -> None:
         *fixture, eta_max=1.0, tiny_max_dim=16.0
     )
     assert torch.equal(result, fixture[0])
+
+
+def test_kl_preserves_mass_independently_for_two_gt_instances() -> None:
+    target_scores = torch.zeros(1, 4, 1)
+    target_scores[0, :, 0] = torch.tensor([0.2, 0.5, 0.1, 0.4])
+    target_gt_idx = torch.tensor([[0, 0, 1, 1]])
+    fg_mask = torch.ones(1, 4, dtype=torch.bool)
+    gt_bboxes = torch.tensor([[[0.0, 0.0, 8.0, 8.0], [16.0, 16.0, 24.0, 24.0]]])
+    pred_bboxes = torch.tensor(
+        [[[0.0, 0.0, 8.0, 8.0], [0.0, 0.0, 4.0, 4.0], [16.0, 16.0, 24.0, 24.0], [16.0, 16.0, 20.0, 20.0]]]
+    )
+    result, _ = build_kl_responsibility_target_scores(
+        target_scores, target_gt_idx, fg_mask, gt_bboxes, pred_bboxes, torch.ones(4, 1), eta_max=1.0, tiny_max_dim=16.0
+    )
+    assert torch.allclose(result[0, :2].sum(), target_scores[0, :2].sum(), atol=1e-6)
+    assert torch.allclose(result[0, 2:].sum(), target_scores[0, 2:].sum(), atol=1e-6)
+
+
+def test_kl_matches_exact_odds_ratio_and_pairwise_stride_geometry() -> None:
+    target_scores = torch.zeros(1, 2, 1)
+    target_scores[0, :, 0] = torch.tensor([0.5, 0.5])
+    target_gt_idx = torch.tensor([[0, 0]])
+    fg_mask = torch.ones(1, 2, dtype=torch.bool)
+    gt_bboxes = torch.tensor([[[0.0, 0.0, 8.0, 8.0]]])
+    pred_bboxes = torch.tensor([[[0.0, 0.0, 1.0, 1.0], [0.0, 0.0, 0.25, 0.25]]])
+    strides = torch.tensor([[8.0], [16.0]])
+    eta = 1.0
+    result, _ = build_kl_responsibility_target_scores(
+        target_scores, target_gt_idx, fg_mask, gt_bboxes, pred_bboxes, strides, eta_max=eta, tiny_max_dim=16.0
+    )
+    q_star = result[0, :, 0] / result.sum()
+    expected_ratio = torch.exp(torch.tensor(eta * (1.0 - 0.25)))
+    assert torch.allclose(q_star[0] / q_star[1], expected_ratio, atol=1e-5)

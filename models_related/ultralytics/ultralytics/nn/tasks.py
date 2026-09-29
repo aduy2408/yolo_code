@@ -805,6 +805,10 @@ class BaseModel(torch.nn.Module):
         diagnostics.update(getattr(self.criterion, "psd_metrics", {}))
         diagnostics.update(getattr(self.criterion, "support_metrics", {}))
         diagnostics.update(getattr(self.criterion, "ggcf_tal_metrics", {}))
+        diagnostics.update({
+            f"resp_{name}": value
+            for name, value in getattr(self.criterion, "responsibility_metrics", {}).items()
+        })
         for module in self.modules():
             if isinstance(module, (ConflictFineReconstruction, DBSS, DualIrreducibilityHIT, GCTS, v10GCTSDetect, GTCuePreservationHead, DetachedResidualFusion, GTChannelSpecialization)):
                 auxiliary, values = (

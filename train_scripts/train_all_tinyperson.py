@@ -659,6 +659,8 @@ def write_metadata(variant: str, run_dir: Path, seed: int, data_yaml: Path, args
         "responsibility_delta_clip": args.responsibility_delta_clip,
         "responsibility_warmup_epochs": args.responsibility_warmup_epochs,
         "responsibility_ramp_epochs": args.responsibility_ramp_epochs,
+        "responsibility_kl_warmup_epochs": args.responsibility_kl_warmup_epochs,
+        "responsibility_kl_ramp_epochs": args.responsibility_kl_ramp_epochs,
         "responsibility_tiny_max_dim": args.responsibility_tiny_max_dim,
         "responsibility_consistency_tau": args.responsibility_consistency_tau,
         "context_augmentation": os.environ.get("YOLO_CONTEXT_AUG", "none"),
@@ -726,6 +728,8 @@ def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dic
         "responsibility_delta_clip": args.responsibility_delta_clip,
         "responsibility_warmup_epochs": args.responsibility_warmup_epochs,
         "responsibility_ramp_epochs": args.responsibility_ramp_epochs,
+        "responsibility_kl_warmup_epochs": args.responsibility_kl_warmup_epochs,
+        "responsibility_kl_ramp_epochs": args.responsibility_kl_ramp_epochs,
         "responsibility_tiny_max_dim": args.responsibility_tiny_max_dim,
         "responsibility_consistency_tau": args.responsibility_consistency_tau,
         "augmentation": dict(TRAIN_AUGMENTATION),
@@ -806,6 +810,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--responsibility-delta-clip", type=float, default=0.5)
     parser.add_argument("--responsibility-warmup-epochs", type=int, default=1)
     parser.add_argument("--responsibility-ramp-epochs", type=int, default=1)
+    parser.add_argument("--responsibility-kl-warmup-epochs", type=int, default=20)
+    parser.add_argument("--responsibility-kl-ramp-epochs", type=int, default=20)
     parser.add_argument("--responsibility-tiny-max-dim", type=float, default=16.0)
     parser.add_argument("--responsibility-consistency-tau", type=float, default=5.0)
     return parser.parse_args(argv)
@@ -828,6 +834,9 @@ def main() -> None:
     os.environ["RESPONSIBILITY_DELTA_CLIP"] = str(args.responsibility_delta_clip)
     os.environ["RESPONSIBILITY_WARMUP_EPOCHS"] = str(args.responsibility_warmup_epochs)
     os.environ["RESPONSIBILITY_RAMP_EPOCHS"] = str(args.responsibility_ramp_epochs)
+    if args.responsibility_mode == "kl_curriculum":
+        os.environ["RESPONSIBILITY_WARMUP_EPOCHS"] = str(args.responsibility_kl_warmup_epochs)
+        os.environ["RESPONSIBILITY_RAMP_EPOCHS"] = str(args.responsibility_kl_ramp_epochs)
     os.environ["RESPONSIBILITY_TINY_MAX_DIM"] = str(args.responsibility_tiny_max_dim)
     os.environ["RESPONSIBILITY_CONSISTENCY_TAU"] = str(args.responsibility_consistency_tau)
 

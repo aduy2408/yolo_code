@@ -231,20 +231,22 @@ def build_kl_responsibility_target_scores(
                     gt_grid,
                     xywh=False,
                     CIoU=False,
-                ).squeeze(-1).clamp(0, 1)
-                q0 = base / mass
+                ).squeeze(-1).clamp(0, 1).float()
+                base_f = base.float()
+                mass_f = base_f.sum()
+                q0 = base_f / mass_f
                 q_star = torch.softmax(torch.log(q0) + eta * utility, dim=0)
-                weights = mass * q_star
+                weights_f = mass_f * q_star
                 classes = target_scores[batch_index, position_indices].argmax(dim=-1)
                 result[batch_index, position_indices] = 0
-                result[batch_index, position_indices, classes] = weights.to(result.dtype)
+                result[batch_index, position_indices, classes] = weights_f.to(result.dtype)
 
                 kl_total = kl_total + (q_star * (torch.log(q_star) - torch.log(q0))).sum()
                 tv_total = tv_total + 0.5 * (q_star - q0).abs().sum()
                 utility_gain_total = utility_gain_total + ((q_star - q0) * utility).sum()
                 top1_changed += int(q_star.argmax() != q0.argmax())
                 refined += 1
-                max_mass_error = torch.maximum(max_mass_error, (weights.sum() - mass).abs())
+                max_mass_error = torch.maximum(max_mass_error, (weights_f.sum() - mass_f).abs())
 
     if refined:
         diagnostics.update(
@@ -2384,6 +2386,13 @@ class v8DetectionLoss:
         }
         if responsibility_mode not in responsibility_modes:
             raise ValueError("RESPONSIBILITY_MODE contains an unsupported mode")
+        if responsibility_mode in {"kl_tiny", "kl_curriculum"} and (
+            self.vfl is not None
+            or bool(getattr(self.hyp, "cls_iou_target", False))
+            or self.scale_temper_target
+            or self.factorized_tal_target
+        ):
+            raise ValueError("KL responsibility requires standard TAL-BCE classification")
         responsibility_scores = target_scores
         self.responsibility_metrics = {}
         if responsibility_mode != "off":
@@ -2398,7 +2407,7 @@ class v8DetectionLoss:
                     target_gt_idx,
                     fg_mask,
                     gt_bboxes,
-                    pred_bboxes,
+                    assign_bboxes,
                     stride_tensor,
                     eta_max=float(os.environ.get("RESPONSIBILITY_ETA_MAX", "0.25")),
                     tiny_max_dim=float(os.environ.get("RESPONSIBILITY_TINY_MAX_DIM", "16.0")),

@@ -38,8 +38,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split-seed", type=int, required=True)
     parser.add_argument("--nms-iou", type=float, default=0.5)
     parser.add_argument("--hf-repo-id", required=True)
-    parser.add_argument("--responsibility-mode", choices=("off", "residual_tiny", "residual_curriculum"), required=True)
+    parser.add_argument("--responsibility-mode", choices=("off", "residual_tiny", "residual_curriculum", "kl_tiny", "kl_curriculum"), required=True)
     parser.add_argument("--responsibility-lambda-max", type=float, default=0.25)
+    parser.add_argument("--responsibility-eta-max", type=float, default=0.25)
     parser.add_argument("--responsibility-delta-clip", type=float, default=0.5)
     parser.add_argument("--responsibility-warmup-epochs", type=int, default=20)
     parser.add_argument("--responsibility-ramp-epochs", type=int, default=20)
@@ -67,6 +68,7 @@ def main() -> None:
     for key, value in {
         "RESPONSIBILITY_MODE": args.responsibility_mode,
         "RESPONSIBILITY_LAMBDA_MAX": args.responsibility_lambda_max,
+        "RESPONSIBILITY_ETA_MAX": args.responsibility_eta_max,
         "RESPONSIBILITY_DELTA_CLIP": args.responsibility_delta_clip,
         "RESPONSIBILITY_WARMUP_EPOCHS": args.responsibility_warmup_epochs,
         "RESPONSIBILITY_RAMP_EPOCHS": args.responsibility_ramp_epochs,
@@ -108,6 +110,7 @@ def main() -> None:
         "imgsz": args.imgsz, "batch_size": args.batch_size, "workers": args.workers,
         "nms_iou": args.nms_iou, "responsibility_mode": args.responsibility_mode,
         "responsibility_lambda_max": args.responsibility_lambda_max,
+        "responsibility_eta_max": args.responsibility_eta_max,
         "responsibility_delta_clip": args.responsibility_delta_clip,
         "responsibility_warmup_epochs": args.responsibility_warmup_epochs,
         "responsibility_ramp_epochs": args.responsibility_ramp_epochs,
