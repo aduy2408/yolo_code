@@ -293,6 +293,7 @@ CFG_CHOICE_KEYS = {
     "dgfe_spatial_target_mode": {"iou", "edge_error"},
     "positive_support_mode": {"dominant", "random", "none"},
     "factorized_tal_mode": {"legacy"},
+    "rank_mode": {"off", "localization", "joint"},
     "verifier_mode": {"a1_box_fovea", "a3_semantic_structural", "a4_raw_adapted", "none"},
     "mosaic_postprocess_mode": {"random_perspective", "resize"},
 }
