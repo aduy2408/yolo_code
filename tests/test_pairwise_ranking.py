@@ -28,9 +28,8 @@ def _inputs(gt_size: float = 8.0):
     target_scores = torch.ones(1, 3, 1)
     target_gt_idx = torch.zeros(1, 3, dtype=torch.long)
     fg_mask = torch.ones(1, 3, dtype=torch.bool)
-    stride_tensor = torch.ones(3, 1)
     gt_bboxes = torch.tensor([[[0.0, 0.0, gt_size, gt_size]]])
-    return pred_scores, pred_bboxes, target_bboxes, target_scores, target_gt_idx, fg_mask, stride_tensor, gt_bboxes
+    return pred_scores, pred_bboxes, target_bboxes, target_scores, target_gt_idx, fg_mask, gt_bboxes
 
 
 def test_r1_localization_ranking_has_gradient_only_for_tiny_gt() -> None:
@@ -48,6 +47,39 @@ def test_j1_joint_ranking_is_finite_and_large_gt_is_identity() -> None:
     large = criterion.pairwise_ranking_loss(*_inputs(64.0))
     assert torch.isfinite(tiny)
     assert large.item() == 0.0
+
+
+def test_j1_corrects_a_weak_classification_preference() -> None:
+    criterion = _criterion("joint")
+    pred_scores, pred_bboxes, target_bboxes, target_scores, target_gt_idx, fg_mask, gt_bboxes = _inputs()
+    pred_scores = torch.tensor([[[0.40], [0.25]]], requires_grad=True)
+    pred_bboxes = torch.tensor([[[0.0, 0.0, 4.0, 4.0], [0.0, 0.0, 7.0, 7.0]]])
+    target_bboxes = torch.tensor([[[0.0, 0.0, 8.0, 8.0], [0.0, 0.0, 8.0, 8.0]]])
+    target_scores = torch.ones(1, 2, 1)
+    target_gt_idx = torch.zeros(1, 2, dtype=torch.long)
+    fg_mask = torch.ones(1, 2, dtype=torch.bool)
+    loss = criterion.pairwise_ranking_loss(
+        pred_scores, pred_bboxes, target_bboxes, target_scores, target_gt_idx, fg_mask, gt_bboxes
+    )
+    assert loss.item() > 0.0
+    loss.backward()
+    assert pred_scores.grad[0, 0, 0] > 0
+    assert pred_scores.grad[0, 1, 0] < 0
+
+
+def test_j1_does_not_self_sharpen_an_existing_consistent_order() -> None:
+    criterion = _criterion("joint")
+    pred_scores = torch.tensor([[[2.0], [0.5]]], requires_grad=True)
+    pred_bboxes = torch.tensor([[[0.0, 0.0, 7.0, 7.0], [0.0, 0.0, 4.0, 4.0]]])
+    target_bboxes = torch.tensor([[[0.0, 0.0, 8.0, 8.0], [0.0, 0.0, 8.0, 8.0]]])
+    target_scores = torch.ones(1, 2, 1)
+    target_gt_idx = torch.zeros(1, 2, dtype=torch.long)
+    fg_mask = torch.ones(1, 2, dtype=torch.bool)
+    gt_bboxes = torch.tensor([[[0.0, 0.0, 8.0, 8.0]]])
+    loss = criterion.pairwise_ranking_loss(
+        pred_scores, pred_bboxes, target_bboxes, target_scores, target_gt_idx, fg_mask, gt_bboxes
+    )
+    assert loss.item() == 0.0
 
 
 def test_ranking_mode_off_is_exact_zero() -> None:

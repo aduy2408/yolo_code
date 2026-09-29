@@ -1496,7 +1496,6 @@ class v8DetectionLoss:
         target_scores: torch.Tensor,
         target_gt_idx: torch.Tensor,
         fg_mask: torch.Tensor,
-        stride_tensor: torch.Tensor,
         gt_bboxes: torch.Tensor,
     ) -> torch.Tensor:
         """Rank tiny-object TAL candidates with localization or joint teachers.
@@ -1534,14 +1533,16 @@ class v8DetectionLoss:
             if torch.maximum(gt_box[2] - gt_box[0], gt_box[3] - gt_box[1]) > self.rank_tiny_max_dim:
                 continue
             topk = min(self.rank_topk, int(group_iou.numel()))
+            base_gap = None
             if self.rank_mode == "localization":
                 teacher = group_iou.detach()
                 pair_margin = self.rank_iou_margin
             else:
                 centered = (group_iou - group_iou.mean()) / (group_iou.std(unbiased=False) + 1e-6)
                 advantage = centered.clamp(-0.5, 0.5)
-                teacher = (group_logits.detach() + self.rank_lambda_loc * advantage).detach()
+                base_gap = group_logits.detach()[:, None] - group_logits.detach()[None, :]
                 pair_margin = self.rank_teacher_margin
+                teacher = (group_logits.detach() + self.rank_lambda_loc * advantage).detach()
             order = teacher.argsort(descending=True)[:topk]
             group_iou = group_iou[order]
             group_logits = group_logits[order]
@@ -1551,7 +1552,10 @@ class v8DetectionLoss:
                 teacher_gap = group_iou[:, None] - group_iou[None, :]
             else:
                 teacher_gap = teacher[:, None] - teacher[None, :]
+                base_gap = base_gap[order][:, order]
             pair_mask = teacher_gap > pair_margin
+            if self.rank_mode == "joint":
+                pair_mask &= base_gap <= 0
             if not pair_mask.any():
                 continue
 
@@ -3070,7 +3074,6 @@ class v8DetectionLoss:
                     target_scores,
                     target_gt_idx,
                     fg_mask,
-                    stride_tensor,
                     gt_bboxes,
                 )
                 * self.rank_gain

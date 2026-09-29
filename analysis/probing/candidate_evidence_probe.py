@@ -18,6 +18,7 @@ import numpy as np
 import torch
 
 from .common import DATASETS, DatasetSpec, ProbeConfig, image_paths, load_yolo, metadata, read_boxes, size_bucket, write_json, write_rows
+from ultralytics.utils.tal import TaskAlignedAssigner, make_anchors
 
 
 def box_iou(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
@@ -29,7 +30,9 @@ def box_iou(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
     return inter / (area_left + area_right - inter).clamp(min=1e-8)
 
 
-def _candidate_tensors(model: Any, tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def _candidate_tensors(
+    model: Any, tensor: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     output = model.model(tensor)
     if not isinstance(output, tuple) or len(output) < 2 or not isinstance(output[1], dict):
         raise RuntimeError("Checkpoint did not expose the project raw candidate dictionary")
@@ -37,7 +40,9 @@ def _candidate_tensors(model: Any, tensor: torch.Tensor) -> tuple[torch.Tensor, 
     head = model.model.model[-1]
     decoded = head._get_decode_boxes(raw)[0].T
     boxes = torch.cat((decoded[:, :2] - decoded[:, 2:] / 2, decoded[:, :2] + decoded[:, 2:] / 2), dim=1)
-    scores = raw["scores"][0].sigmoid().max(dim=0).values
+    class_scores = raw["scores"][0].sigmoid()
+    scores = class_scores.max(dim=0).values
+    anchor_points, stride_tensor = make_anchors(raw["feats"], head.stride, 0.5)
     evidence_parts = []
     for feature in raw.get("feats", []):
         energy = feature.detach().float().abs().mean(dim=1).flatten()
@@ -45,7 +50,7 @@ def _candidate_tensors(model: Any, tensor: torch.Tensor) -> tuple[torch.Tensor, 
     evidence = torch.cat(evidence_parts) if evidence_parts else torch.zeros_like(scores)
     if evidence.numel() != scores.numel():
         raise RuntimeError(f"Feature/candidate count mismatch: evidence={evidence.numel()} scores={scores.numel()}")
-    return boxes.detach(), scores.detach(), evidence
+    return boxes.detach(), class_scores.detach(), evidence, anchor_points.detach(), stride_tensor.detach()
 
 
 def _rank_corr(left: np.ndarray, right: np.ndarray) -> float:
@@ -74,10 +79,27 @@ def run(
         height, width = image.shape[:2]
         resized = cv2.resize(image, (config.imgsz, config.imgsz), interpolation=cv2.INTER_LINEAR)
         tensor = torch.from_numpy(resized[..., ::-1].copy()).to(config.device).permute(2, 0, 1).float()[None] / 255.0
-        candidate_boxes, scores, evidence = _candidate_tensors(model, tensor)
+        candidate_boxes, class_scores, evidence, anchor_points, stride_tensor = _candidate_tensors(model, tensor)
         scale = torch.tensor([config.imgsz / width, config.imgsz / height, config.imgsz / width, config.imgsz / height], device=config.device)
         gt = torch.tensor([[b["x1"], b["y1"], b["x2"], b["y2"]] for b in original_boxes], device=config.device) * scale
         ious = box_iou(gt, candidate_boxes)
+        gt_labels = torch.tensor(
+            [[int(b["class"]) for b in original_boxes]], device=config.device, dtype=torch.float32
+        ).unsqueeze(-1)
+        gt_bboxes = gt.unsqueeze(0)
+        mask_gt = torch.ones((1, len(original_boxes), 1), device=config.device, dtype=torch.bool)
+        head = model.model.model[-1]
+        assigner = TaskAlignedAssigner(
+            topk=10, num_classes=head.nc, alpha=0.5, beta=6.0, stride=head.stride.tolist()
+        )
+        _, _, _, tal_fg, tal_gt_idx = assigner(
+            class_scores.T.unsqueeze(0),
+            candidate_boxes.unsqueeze(0),
+            anchor_points * stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
+        )
         for object_id, ground_truth in enumerate(original_boxes):
             object_iou = ious[object_id]
             # Compare candidates responsible for this object, not the single
@@ -89,58 +111,78 @@ def run(
             pad = 8.0
             local = ((centers[:, 0] >= gt_scaled[0] - pad) & (centers[:, 0] <= gt_scaled[2] + pad) &
                      (centers[:, 1] >= gt_scaled[1] - pad) & (centers[:, 1] <= gt_scaled[3] + pad)).nonzero(as_tuple=False).flatten()
-            if local.numel() == 0:
-                continue
-            local_iou, local_scores, local_evidence = object_iou[local], scores[local], evidence[local]
-            best_iou, oracle_local = local_iou.max(dim=0)
-            score_local = local_scores.argmax()
-            evidence_local = local_evidence.argmax()
-            oracle_index = local[oracle_local]
             gt_width = gt_scaled[2] - gt_scaled[0]
             gt_height = gt_scaled[3] - gt_scaled[1]
-            if max(float(gt_width), float(gt_height)) <= tiny_max_dim and local.numel() >= 2:
-                score_logits = local_scores.clamp(1e-6, 1 - 1e-6).logit()
-                normalized_iou = (local_iou - local_iou.mean()) / (local_iou.std(unbiased=False) + 1e-6)
-                joint_scores = score_logits + joint_lambda * normalized_iou.clamp(-0.5, 0.5)
-                joint_local = joint_scores.argmax()
-                joint_iou = local_iou[joint_local]
-            else:
-                joint_iou = local_iou[score_local]
-                joint_local = score_local
-            rows.append({
-                "dataset": spec.name,
-                "image": image_path.name,
-                "object_id": object_id,
-                "size_bucket": size_bucket(ground_truth),
-                "oracle_iou": float(best_iou.cpu()),
-                "score_iou": float(local_iou[score_local].cpu()),
-                "evidence_iou": float(local_iou[evidence_local].cpu()),
-                "joint_iou": float(joint_iou.cpu()),
-                "joint_delta_iou": float((joint_iou - local_iou[score_local]).cpu()),
-                "joint_oracle_hit": float(joint_local == oracle_local),
-                "oracle_gap": float((best_iou - local_iou[score_local]).cpu()),
-                "score_at_oracle": float(scores[oracle_index].cpu()),
-                "evidence_at_oracle": float(evidence[oracle_index].cpu()),
-                "score_rank_corr_iou": _rank_corr(local_scores.cpu().numpy(), local_iou.cpu().numpy()),
-                "evidence_rank_corr_iou": _rank_corr(local_evidence.cpu().numpy(), local_iou.cpu().numpy()),
-            })
+            gt_class = int(ground_truth["class"])
+            score_values = class_scores[gt_class]
+            tal_local = (tal_fg[0] & (tal_gt_idx[0] == object_id)).nonzero(as_tuple=False).flatten()
+            pools = {"local_neighborhood": local}
+            if tal_local.numel() > 0:
+                pools["tal_positive"] = tal_local
+            for protocol, pool in pools.items():
+                if pool.numel() == 0:
+                    continue
+                local_iou = object_iou[pool]
+                local_scores = score_values[pool]
+                local_evidence = evidence[pool]
+                best_iou, oracle_local = local_iou.max(dim=0)
+                score_local = local_scores.argmax()
+                evidence_local = local_evidence.argmax()
+                oracle_index = pool[oracle_local]
+                if max(float(gt_width), float(gt_height)) <= tiny_max_dim and pool.numel() >= 2:
+                    score_logits = local_scores.clamp(1e-6, 1 - 1e-6).logit()
+                    normalized_iou = (local_iou - local_iou.mean()) / (local_iou.std(unbiased=False) + 1e-6)
+                    joint_scores = score_logits + joint_lambda * normalized_iou.clamp(-0.5, 0.5)
+                    joint_local = joint_scores.argmax()
+                    joint_iou = local_iou[joint_local]
+                else:
+                    joint_iou = local_iou[score_local]
+                    joint_local = score_local
+                score_iou = local_iou[score_local]
+                score_hit = float(score_local == oracle_local)
+                joint_hit = float(joint_local == oracle_local)
+                rows.append({
+                    "dataset": spec.name,
+                    "image": image_path.name,
+                    "object_id": object_id,
+                    "candidate_protocol": protocol,
+                    "size_bucket": size_bucket(ground_truth),
+                    "oracle_iou": float(best_iou.cpu()),
+                    "score_iou": float(score_iou.cpu()),
+                    "evidence_iou": float(local_iou[evidence_local].cpu()),
+                    "joint_iou": float(joint_iou.cpu()),
+                    "joint_delta_iou": float((joint_iou - score_iou).cpu()),
+                    "score_oracle_hit": score_hit,
+                    "joint_oracle_hit": joint_hit,
+                    "delta_oracle_hit": joint_hit - score_hit,
+                    "oracle_gap": float((best_iou - score_iou).cpu()),
+                    "joint_oracle_gap": float((best_iou - joint_iou).cpu()),
+                    "score_at_oracle": float(score_values[oracle_index].cpu()),
+                    "evidence_at_oracle": float(evidence[oracle_index].cpu()),
+                    "score_rank_corr_iou": _rank_corr(local_scores.cpu().numpy(), local_iou.cpu().numpy()),
+                    "evidence_rank_corr_iou": _rank_corr(local_evidence.cpu().numpy(), local_iou.cpu().numpy()),
+                })
     write_rows(output / "candidate_evidence.csv", rows)
     summary: dict[str, Any] = {
         "metadata": metadata(spec, config, checkpoint, "candidate_evidence"),
         "rows": len(rows),
         "joint_lambda": joint_lambda,
         "joint_tiny_max_dim": tiny_max_dim,
+        "protocols": sorted({row["candidate_protocol"] for row in rows}),
         "by_size": {},
     }
-    for bucket in sorted({row["size_bucket"] for row in rows}):
-        subset = [row for row in rows if row["size_bucket"] == bucket]
-        summary["by_size"][bucket] = {
-            key: float(np.nanmean([row[key] for row in subset]))
-            for key in (
-                "oracle_iou", "score_iou", "evidence_iou", "joint_iou", "joint_delta_iou",
-                "joint_oracle_hit", "oracle_gap", "score_rank_corr_iou", "evidence_rank_corr_iou",
-            )
-        }
+    for protocol in sorted({row["candidate_protocol"] for row in rows}):
+        summary["by_size"][protocol] = {}
+        for bucket in sorted({row["size_bucket"] for row in rows if row["candidate_protocol"] == protocol}):
+            subset = [row for row in rows if row["candidate_protocol"] == protocol and row["size_bucket"] == bucket]
+            summary["by_size"][protocol][bucket] = {
+                key: float(np.nanmean([row[key] for row in subset]))
+                for key in (
+                    "oracle_iou", "score_iou", "evidence_iou", "joint_iou", "joint_delta_iou",
+                    "score_oracle_hit", "joint_oracle_hit", "delta_oracle_hit", "oracle_gap",
+                    "joint_oracle_gap", "score_rank_corr_iou", "evidence_rank_corr_iou",
+                )
+            }
     write_json(output / "candidate_evidence.json", summary)
     return summary
 
