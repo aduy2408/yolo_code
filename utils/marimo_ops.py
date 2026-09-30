@@ -300,7 +300,7 @@ def _path_value(value: str) -> str:
 def _same_contract_value(key: str, expected: object, actual: str) -> bool:
     if key in {"data_root", "model_yaml"}:
         return os.path.normpath(_path_value(str(expected))) == os.path.normpath(_path_value(actual))
-    if key in {"epochs", "patience", "workers", "seed", "split_seed"}:
+    if key in {"epochs", "patience", "workers", "seed", "split_seed", "image_size"}:
         try:
             return int(expected) == int(actual)
         except (TypeError, ValueError):
@@ -328,6 +328,7 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
         "workers": "--workers",
         "seed": "--seed",
         "split_seed": "--split-seed",
+        "image_size": "--image-size",
         "hf_repo_id": "--hf-repo-id",
         "model_yaml": "--model-yaml",
         "data_root": "--data-root",

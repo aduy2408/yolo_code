@@ -188,9 +188,10 @@ def train_one(args: argparse.Namespace, tph_root: Path, dataset: str, seed: int,
         return
     config = args.model_yaml or (args.dataset_root / "tph_configs" / f"yolov5l-xs-tph_{dataset}.yaml")
     patch_model_yaml(tph_root, dataset, config)
+    image_size = args.image_size or IMAGE_SIZES[dataset]
     if not (run_dir / "weights/best.pt").is_file():
         seed_everything(seed)
-        command = [sys.executable, "train.py", "--img", str(IMAGE_SIZES[dataset]), "--adam", "--batch", str(args.batch_size), "--epochs", str(args.epochs), "--patience", str(args.patience), "--data", str(data_yaml), "--weights", "yolov5l.pt", "--hyp", "data/hyps/hyp.VisDrone.yaml", "--cfg", str(config), "--name", f"{dataset}_seed_{seed}", "--project", str(args.project), "--workers", str(args.workers), "--device", args.device, "--seed", str(seed), "--single-cls"]
+        command = [sys.executable, "train.py", "--img", str(image_size), "--adam", "--batch", str(args.batch_size), "--epochs", str(args.epochs), "--patience", str(args.patience), "--data", str(data_yaml), "--weights", "yolov5l.pt", "--hyp", "data/hyps/hyp.VisDrone.yaml", "--cfg", str(config), "--name", f"{dataset}_seed_{seed}", "--project", str(args.project), "--workers", str(args.workers), "--device", args.device, "--seed", str(seed), "--single-cls"]
         if dataset == "visdrone":
             command.remove("--single-cls")
         run(command, cwd=tph_root)
@@ -210,8 +211,8 @@ def train_one(args: argparse.Namespace, tph_root: Path, dataset: str, seed: int,
                     shutil.move(str(item), str(target))
                 produced.rmdir()
     write_results_csv(run_dir)
-    metrics = evaluate(tph_root, run_dir, data_yaml, dataset, IMAGE_SIZES[dataset], args.batch_size, args.workers, args.device)
-    manifest = {"experiment_id": "tph_yolov5_multidataset", "dataset": dataset, "baseline": "none", "variant": "upstream TPH-YOLOv5 yolov5l-xs-tph", "source_commit": args.source_commit, "tph_upstream_commit": TPH_COMMIT, "runner": "train_scripts/train_tph_yolov5_multidataset.py", "model_yaml": str(config), "pretrained_source": "yolov5l.pt", "data_yaml": str(data_yaml), "data_root": args.data_roots[dataset], "split_seed": SPLIT_SEED, "seed": seed, "image_size": IMAGE_SIZES[dataset], "batch_size": args.batch_size, "epochs": args.epochs, "patience": args.patience, "amp": True, "optimizer": "Adam", "nms_iou": 0.5, "hf_repo_id": args.hf_repo_id, "remote_prefix": remote, "test_protocol": metrics["test_protocol"], **metrics}
+    metrics = evaluate(tph_root, run_dir, data_yaml, dataset, image_size, args.batch_size, args.workers, args.device)
+    manifest = {"experiment_id": "tph_yolov5_multidataset", "dataset": dataset, "baseline": "none", "variant": "upstream TPH-YOLOv5 yolov5l-xs-tph", "source_commit": args.source_commit, "tph_upstream_commit": TPH_COMMIT, "runner": "train_scripts/train_tph_yolov5_multidataset.py", "model_yaml": str(config), "pretrained_source": "yolov5l.pt", "data_yaml": str(data_yaml), "data_root": args.data_roots[dataset], "split_seed": SPLIT_SEED, "seed": seed, "image_size": image_size, "batch_size": args.batch_size, "epochs": args.epochs, "patience": args.patience, "amp": True, "optimizer": "Adam", "nms_iou": 0.5, "hf_repo_id": args.hf_repo_id, "remote_prefix": remote, "test_protocol": metrics["test_protocol"], **metrics}
     (run_dir / "evaluation_metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     upload(args.hf_repo_id, remote, run_dir)
@@ -224,6 +225,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", nargs="+", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--model-yaml", type=Path, default=None)
+    parser.add_argument("--image-size", type=int, default=None)
     parser.add_argument("--split-seed", type=int, default=SPLIT_SEED)
     parser.add_argument("--data-root", action="append", metavar="DATASET=PATH")
     parser.add_argument("--dataset-root", type=Path, default=ROOT / "datasets/tph_yolov5")
