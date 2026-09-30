@@ -120,3 +120,50 @@ Ranking uses the mean `test/mAP50-95` across seeds 42-44. Mosaic and no-Mosaic a
 - The three seeds provide a small stability estimate, not a definitive uncertainty interval.
 - Comparisons should use the test metrics and preserve the matched detector/data/training contract.
 - The test-size fields are a secondary diagnostic protocol and should not replace the aggregate test metrics.
+
+## Verified 1536-pixel MMDetection baselines
+
+The previous MMDetection rerun is complete and was verified from the public Hugging Face dataset repository [duyle2408/visdrone2019-mmdet-baselines-1536-seeds](https://huggingface.co/datasets/duyle2408/visdrone2019-mmdet-baselines-1536-seeds). The requested matrix contains five detector families, two training seeds per model, and the official VisDrone2019-DET train/val/test-dev split.
+
+Protocol recorded in the uploaded manifests: 1536x1536 input, batch 8, 8 workers, 100 epochs, patience 15, AMP enabled, MuSGD with lr 0.01, fixed split seed 42, training seeds 42 and 43, and NMS IoU 0.5. Every listed run has uploaded checkpoints, a manifest, validation/test artifacts, and an upload marker.
+
+### Per-seed results
+
+| Model | Seed | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 | Remote prefix |
+|---|---:|---:|---:|---:|---:|---|
+| Faster R-CNN R50-FPN | 42 | 0.400 | 0.230 | 0.323 | 0.179 | `visdrone2019_mmdet_1536/faster_rcnn/seed42` |
+| Faster R-CNN R50-FPN | 43 | 0.408 | 0.232 | 0.333 | 0.183 | `visdrone2019_mmdet_1536/faster_rcnn/seed43` |
+| Cascade R-CNN R50-FPN | 42 | 0.414 | 0.257 | 0.338 | 0.199 | `visdrone2019_mmdet_1536_fp32_resume/cascade_rcnn/seed42` |
+| Cascade R-CNN R50-FPN | 43 | 0.421 | 0.261 | 0.332 | 0.197 | `visdrone2019_mmdet_1536_fp32_resume2/cascade_rcnn/seed43` |
+| RetinaNet R50-FPN | 42 | 0.376 | 0.224 | 0.309 | 0.175 | `visdrone2019_mmdet_final/retinanet/seed42` |
+| RetinaNet R50-FPN | 43 | 0.379 | 0.230 | 0.312 | 0.179 | `visdrone2019_mmdet_final/retinanet/seed43` |
+| RTMDet-S | 42 | 0.419 | 0.240 | 0.338 | 0.194 | `visdrone2019_mmdet_final/rtmdet/seed42` |
+| RTMDet-S | 43 | 0.414 | 0.236 | 0.331 | 0.189 | `visdrone2019_mmdet_final/rtmdet/seed43` |
+| FCOS R50-FPN-GN | 42 | 0.232 | 0.114 | 0.202 | 0.093 | `visdrone2019_mmdet_1536/fcos/seed42` |
+| FCOS R50-FPN-GN | 43 | 0.333 | 0.196 | 0.306 | 0.173 | `visdrone2019_mmdet_1536_fp32_resume2/fcos/seed43` |
+
+### Mean across seeds
+
+| Rank by mean test/mAP50-95 | Model | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 |
+|---:|---|---:|---:|---:|---:|
+| 1 | Cascade R-CNN R50-FPN | 0.418 ± 0.005 | 0.259 ± 0.003 | **0.335 ± 0.004** | **0.198 ± 0.001** |
+| 2 | RTMDet-S | 0.417 ± 0.004 | 0.238 ± 0.003 | 0.335 ± 0.005 | 0.192 ± 0.004 |
+| 3 | Faster R-CNN R50-FPN | 0.404 ± 0.006 | 0.231 ± 0.001 | 0.328 ± 0.007 | 0.181 ± 0.003 |
+| 4 | RetinaNet R50-FPN | 0.378 ± 0.002 | 0.227 ± 0.004 | 0.311 ± 0.002 | 0.177 ± 0.003 |
+| 5 | FCOS R50-FPN-GN | 0.283 ± 0.071 | 0.155 ± 0.058 | 0.254 ± 0.074 | 0.133 ± 0.057 |
+
+The FCOS seed spread is large because seed 42 is substantially weaker than seed 43. It should not be summarized by seed 43 alone.
+
+### 1536-pixel comparison against YOLO
+
+The existing YOLO report contains the 1536-pixel VisDrone baseline matrix with YOLOv5n, YOLOv8n, YOLOv9t, YOLOv10n, and YOLO11n, each evaluated with Mosaic and no-Mosaic policies over seeds 42-44. The strongest YOLO aggregate in that matrix is YOLOv9t with Mosaic: test/AP50 `0.2882` and test/mAP50-95 `0.1572`. The strongest requested MMDetection aggregate by test/mAP50-95 is Cascade R-CNN at `0.198`, followed closely by RTMDet-S at `0.192`.
+
+### MMDetection provenance
+
+- HF repository: `duyle2408/visdrone2019-mmdet-baselines-1536-seeds`
+- Source commit recorded by the MMDetection manifests: `3bb25c76577e0b4025a4f51ff46069c18c396057`
+- MMDetection executable: `/marimo/mmdet-venv/bin/python`
+- Runner: `train_visdrone_mmdet_baselines.py`
+- Canonical configs: Faster R-CNN R50-FPN, Cascade R-CNN R50-FPN, RetinaNet R50-FPN, RTMDet-S, and FCOS R50-FPN-GN
+- Remote completion evidence: per-run `experiment_manifest.json`, checkpoints, test-result JSON, and `upload_complete.json`; RetinaNet, RTMDet, and the recovered Cascade/FCOS runs also expose normalized `evaluation_metrics.json` artifacts where available.
+- The user-provided HF credential was used only as an authentication input and is not written into this report.
