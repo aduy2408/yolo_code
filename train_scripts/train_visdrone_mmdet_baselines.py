@@ -39,6 +39,7 @@ import json
 import os
 import random
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,10 @@ MODELS = {
     "retinanet": "/marimo/mmdet_code/mmdetection/configs/retinanet/retinanet_r50_fpn_1x_coco.py",
     "rtmdet": "/marimo/mmdet_code/mmdetection/configs/rtmdet/rtmdet_s_8xb32-300e_coco.py",
 }
+
+RUNNER_DIR = Path(__file__).resolve().parent
+if str(RUNNER_DIR) not in sys.path:
+    sys.path.insert(0, str(RUNNER_DIR))
 
 CLASSES = (
     "pedestrian",
