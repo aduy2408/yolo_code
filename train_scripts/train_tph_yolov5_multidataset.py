@@ -196,7 +196,19 @@ def train_one(args: argparse.Namespace, tph_root: Path, dataset: str, seed: int,
         run(command, cwd=tph_root)
         produced = args.project / f"{dataset}_seed_{seed}"
         if produced != run_dir and produced.is_dir():
-            shutil.move(str(produced), str(run_dir))
+            if run_dir.is_dir() and not any(run_dir.iterdir()):
+                run_dir.rmdir()
+                shutil.move(str(produced), str(run_dir))
+            else:
+                for item in produced.iterdir():
+                    target = run_dir / item.name
+                    if target.exists():
+                        if target.is_dir():
+                            shutil.rmtree(target)
+                        else:
+                            target.unlink()
+                    shutil.move(str(item), str(target))
+                produced.rmdir()
     write_results_csv(run_dir)
     metrics = evaluate(tph_root, run_dir, data_yaml, dataset, IMAGE_SIZES[dataset], args.batch_size, args.workers, args.device)
     manifest = {"experiment_id": "tph_yolov5_multidataset", "dataset": dataset, "baseline": "none", "variant": "upstream TPH-YOLOv5 yolov5l-xs-tph", "source_commit": args.source_commit, "tph_upstream_commit": TPH_COMMIT, "runner": "train_scripts/train_tph_yolov5_multidataset.py", "model_yaml": str(config), "pretrained_source": "yolov5l.pt", "data_yaml": str(data_yaml), "data_root": args.data_roots[dataset], "split_seed": SPLIT_SEED, "seed": seed, "image_size": IMAGE_SIZES[dataset], "batch_size": args.batch_size, "epochs": args.epochs, "patience": args.patience, "amp": True, "optimizer": "Adam", "nms_iou": 0.5, "hf_repo_id": args.hf_repo_id, "remote_prefix": remote, "test_protocol": metrics["test_protocol"], **metrics}
