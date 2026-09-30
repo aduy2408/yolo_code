@@ -222,6 +222,10 @@ def build_config(args: argparse.Namespace):
     train_cfg = copy.deepcopy(dict(cfg.train_cfg))
     train_cfg.update(type="EpochBasedTrainLoop", max_epochs=args.epochs, val_interval=1)
     cfg.train_cfg = train_cfg
+    if args.clip_grad_max_norm is not None:
+        optim_wrapper = copy.deepcopy(dict(cfg.optim_wrapper))
+        optim_wrapper["clip_grad"] = dict(max_norm=args.clip_grad_max_norm, norm_type=2)
+        cfg.optim_wrapper = optim_wrapper
     cfg.default_hooks = cfg.get("default_hooks", {})
     cfg.default_hooks.checkpoint = dict(
         type="CheckpointHook",
@@ -257,6 +261,7 @@ def write_manifest(args: argparse.Namespace, config_path: Path, pipeline: list[d
         "workers": args.workers,
         "epochs": args.epochs,
         "patience": args.patience,
+        "clip_grad_max_norm": args.clip_grad_max_norm,
         "seed": args.seed,
         "split_seed": args.split_seed,
         "split": "official VisDrone2019-DET train/val/test-dev",
@@ -294,6 +299,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
+    parser.add_argument("--clip-grad-max-norm", type=float)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument(
