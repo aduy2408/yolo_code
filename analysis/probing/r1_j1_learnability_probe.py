@@ -59,15 +59,22 @@ def rank_corr(left: np.ndarray, right: np.ndarray) -> float:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--dataset-yaml", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--checkpoint", action="append", required=True, help="NAME=PATH")
+    parser.add_argument("--epochs", default="100")
+    parser.add_argument("--patience", default="0")
+    parser.add_argument("--workers", default="8")
+    parser.add_argument("--seed", default="42")
+    parser.add_argument("--split-seed", default="42")
+    parser.add_argument("--hf-repo-id", default="")
     parser.add_argument("--max-images", type=int, default=808)
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    split = args.data_root / "images/val"
-    label_root = args.data_root / "labels/val"
-    images = sorted(split.glob("*.jpg"))[: args.max_images]
+    split = args.dataset_yaml.parent
+    label_root = split / "labels/val"
+    images = sorted((split / "images/val").glob("*.jpg"))[: args.max_images]
     checkpoints = dict(item.split("=", 1) for item in args.checkpoint)
     summary: dict[str, Any] = {"images": len(images), "models": {}}
     device = torch.device(args.device)
