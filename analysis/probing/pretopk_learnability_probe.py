@@ -130,8 +130,9 @@ def main() -> None:
         for row in test:
             row["prediction"] = float(predict(fit, np.asarray([row["features"]]))[0])
             groups.setdefault((row["image_index"], row["object_id"]), []).append(row)
-        metrics = {"tal_best_iou": [], "learned_best_iou": [], "tal_oracle_recall": [], "learned_oracle_recall": [], "tal_cls_mean": [], "learned_cls_mean": [], "topk_overlap": [], "tal_values": [], "learned_values": [], "utilities": []}
+        metrics = {"eligible_counts": [], "tal_best_iou": [], "learned_best_iou": [], "tal_oracle_recall": [], "learned_oracle_recall": [], "tal_cls_mean": [], "learned_cls_mean": [], "topk_overlap": [], "tal_values": [], "learned_values": [], "utilities": []}
         for group in groups.values():
+            metrics["eligible_counts"].append(len(group))
             k = min(args.topk, len(group))
             tal_group = sorted(group, key=lambda row: row["tal"], reverse=True)[:k]
             learned_group = sorted(group, key=lambda row: row["prediction"], reverse=True)[:k]
@@ -146,7 +147,7 @@ def main() -> None:
             metrics["tal_values"].extend(row["tal"] for row in group)
             metrics["learned_values"].extend(row["prediction"] for row in group)
             metrics["utilities"].extend(row["utility"] for row in group)
-        result["models"][name] = {"status": "ok", "train_candidates": len(train), "test_candidates": len(test), "test_groups": len(groups), "tal_best_iou": float(np.mean(metrics["tal_best_iou"])), "learned_best_iou": float(np.mean(metrics["learned_best_iou"])), "delta_best_iou": float(np.mean(metrics["learned_best_iou"]) - np.mean(metrics["tal_best_iou"])), "tal_oracle_recall": float(np.mean(metrics["tal_oracle_recall"])), "learned_oracle_recall": float(np.mean(metrics["learned_oracle_recall"])), "delta_oracle_recall": float(np.mean(metrics["learned_oracle_recall"]) - np.mean(metrics["tal_oracle_recall"])), "tal_cls_mean": float(np.mean(metrics["tal_cls_mean"])), "learned_cls_mean": float(np.mean(metrics["learned_cls_mean"])), "topk_overlap": float(np.mean(metrics["topk_overlap"])), "tal_rank_corr": rank_corr(np.asarray(metrics["tal_values"]), np.asarray(metrics["utilities"])), "learned_rank_corr": rank_corr(np.asarray(metrics["learned_values"]), np.asarray(metrics["utilities"]))}
+        result["models"][name] = {"status": "ok", "train_candidates": len(train), "test_candidates": len(test), "test_groups": len(groups), "eligible_mean": float(np.mean(metrics["eligible_counts"])), "eligible_max": int(max(metrics["eligible_counts"])), "eligible_lt_topk_rate": float(np.mean(np.asarray(metrics["eligible_counts"]) < args.topk)), "tal_best_iou": float(np.mean(metrics["tal_best_iou"])), "learned_best_iou": float(np.mean(metrics["learned_best_iou"])), "delta_best_iou": float(np.mean(metrics["learned_best_iou"]) - np.mean(metrics["tal_best_iou"])), "tal_oracle_recall": float(np.mean(metrics["tal_oracle_recall"])), "learned_oracle_recall": float(np.mean(metrics["learned_oracle_recall"])), "delta_oracle_recall": float(np.mean(metrics["learned_oracle_recall"]) - np.mean(metrics["tal_oracle_recall"])), "tal_cls_mean": float(np.mean(metrics["tal_cls_mean"])), "learned_cls_mean": float(np.mean(metrics["learned_cls_mean"])), "topk_overlap": float(np.mean(metrics["topk_overlap"])), "tal_rank_corr": rank_corr(np.asarray(metrics["tal_values"]), np.asarray(metrics["utilities"])), "learned_rank_corr": rank_corr(np.asarray(metrics["learned_values"]), np.asarray(metrics["utilities"]))}
         del model
     (args.output_dir / "probe_c2_summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, indent=2, sort_keys=True))
