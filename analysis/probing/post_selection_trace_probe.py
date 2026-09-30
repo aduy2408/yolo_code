@@ -130,7 +130,6 @@ def main() -> None:
         model = YOLO(checkpoint)
         model.model.to(device).eval()
         loaded_models[name] = model
-    model_data: dict[str, dict[int, dict[str, Any]]] = {name: {} for name in checkpoint_map}
     all_rows: list[dict[str, Any]] = []
 
     for image_index, image_path in enumerate(images):
@@ -151,6 +150,7 @@ def main() -> None:
         gt_labels = torch.tensor([[[x[0]] for x in gt_rows]], device=device, dtype=torch.long)
         mask = torch.ones((1, len(gt_rows), 1), device=device, dtype=torch.bool)
 
+        current_data: dict[str, dict[str, Any]] = {}
         for name, model in loaded_models.items():
             with torch.no_grad():
                 boxes, class_scores, _, anchors, strides = _candidate_tensors(model, tensor)
@@ -163,7 +163,7 @@ def main() -> None:
             with torch.no_grad():
                 eligible = assigner.select_candidates_in_gts(anchors * strides, gt.unsqueeze(0), mask)
             ious = box_iou(gt, boxes)
-            model_data[name][image_index] = {
+            current_data[name] = {
                 "model": model,
                 "boxes": boxes,
                 "class_scores": class_scores,
@@ -177,7 +177,7 @@ def main() -> None:
                 "mask": mask,
             }
 
-        reference = model_data[next(iter(checkpoint_map))][image_index]
+        reference = current_data[next(iter(checkpoint_map))]
         stride_values = reference["strides"][:, 0]
         p2 = stride_values <= 4.0 + 1e-6
         for gt_index, gt_row in enumerate(gt_rows):
@@ -186,8 +186,7 @@ def main() -> None:
             per_model_pools: dict[str, torch.Tensor] = {}
             best_p2: dict[str, tuple[int, float]] = {}
             best_other: dict[str, float] = {}
-            for name, per_image in model_data.items():
-                data = per_image[image_index]
+            for name, data in current_data.items():
                 pool = data["eligible"][0, gt_index].bool()
                 p2_pool = pool & p2
                 other_pool = pool & ~p2
@@ -203,10 +202,9 @@ def main() -> None:
                 per_model_pools[name] = pool.nonzero(as_tuple=False).flatten()
                 best_p2[name] = (best_index, best_value)
                 best_other[name] = other_value
-            for name, per_image in model_data.items():
+            for name, data in current_data.items():
                 if name not in best_p2 or best_p2[name][1] <= best_other[name] + 1e-7:
                     continue
-                data = per_image[image_index]
                 candidate = best_p2[name][0]
                 with torch.no_grad():
                     row = assign_trace(
@@ -234,9 +232,6 @@ def main() -> None:
                 else:
                     row["failure_bucket"] = "retained"
                 all_rows.append(row)
-            for data in model_data.values():
-                del data[image_index]
-
     summary: dict[str, Any] = {
         "images": len(images),
         "topk": args.topk,
