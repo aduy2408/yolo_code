@@ -43,6 +43,8 @@ from typing import Any
 
 
 MODELS = {
+    "faster_rcnn": "/marimo/mmdet_code/mmdetection/configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py",
+    "cascade_rcnn": "/marimo/mmdet_code/mmdetection/configs/cascade_rcnn/cascade-rcnn_r50_fpn_1x_coco.py",
     "fcos": "/marimo/mmdet_code/mmdetection/configs/fcos/fcos_r50-caffe_fpn_gn-head_1x_coco.py",
     "retinanet": "/marimo/mmdet_code/mmdetection/configs/retinanet/retinanet_r50_fpn_1x_coco.py",
     "rtmdet": "/marimo/mmdet_code/mmdetection/configs/rtmdet/rtmdet_s_8xb32-300e_coco.py",
