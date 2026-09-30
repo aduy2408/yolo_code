@@ -48,6 +48,10 @@ the evaluator and source artifact next to the test metrics. If a test metric
 cannot be produced, stop the workflow or mark the run incomplete rather than
 substituting validation metrics.
 
+For TinyPerson, before evaluation, verify that the active Marimo Python
+runtime can import `pycocotools`. If it is missing, install it in that runtime
+and run an import check before proceeding with merged corner-window evaluation.
+
 ## Agent decision rules
 
 - If the user asks for Marimo execution, do not train/evaluate/upload locally.
@@ -237,39 +241,55 @@ execute it end-to-end without asking for confirmation between runs. The agent
 must:
 
 1. Build one immutable queue manifest containing every run, its mode/variant,
-   seed, command, contract path, artifact root, and HF remote prefix.
+   seed, command, contract path, artifact root, HF remote prefix, and server
+   slot assignment when known.
 2. Run preflight for the full queue before launching the first process. This
-   includes checking authentication, task-specific HF repository, exact commit,
-   dataset, and all requested run settings.
-3. Launch the first item through `utils.marimo_ops launch`, then automatically
-   monitor its `state.json`, PID, logs, local artifacts, and upload marker.
-4. Start the next item only after the previous item has completed evaluation and
-   its remote files have been listed and verified. No user confirmation is
-   needed between queue items.
-5. Stop the queue automatically at the first failed or ambiguous gate. Do not
-   continue past a dead PID with incomplete artifacts, missing test metrics, or
-   an unverified upload. Record the failure in the queue state and report it.
-6. Persist queue progress in a durable `queue_state.json` so a reconnect can
-   resume from the first unverified item without retraining verified runs.
+   includes checking authentication, task-specific HF repositories, exact
+   commit, dataset, and all requested run settings.
+3. Discover or validate the usable live Marimo servers before scheduling. With
+   one usable server, execute the queue sequentially. With two or more usable
+   servers, launch independent items concurrently, one isolated run per server.
+4. Before every launch, inspect the target slot's `state.json`, PID, command,
+   `run_contract.json`, and artifact timestamps. Never duplicate an alive,
+   completed, or already verified run. If a queued run has not started and an
+   idle server exists, launch it immediately on that server through
+   `utils.marimo_ops launch` after its gates pass.
+5. Monitor each slot independently. When a slot becomes free, verify that run's
+   evaluation artifacts, split-qualified val/test metrics, and remote upload,
+   then backfill the slot with the next unstarted independent item. Do not wait
+   for other servers to finish before using an idle slot.
+6. Isolate concurrent runs with unique run directories, PID/state/log files,
+   artifact roots, immutable contracts, and task-specific HF repositories or
+   collision-free remote prefixes. A run must not write into another run's
+   mutable directory.
+7. Stop the affected slot at its first failed or ambiguous gate. Continue
+   independent slots. Stop the entire queue only for a shared global failure,
+   such as invalid authentication, dataset/provenance mismatch, dirty required
+   checkout, or unavailable task-specific repositories. Record all outcomes in
+   durable per-slot queue state so reconnects resume from the first unverified
+   item without retraining verified runs.
 
-A multi-run request therefore means **preflight once, then sequentially execute
-and verify all requested items**, not "run one item and wait for the user".
+A multi-run request therefore means **preflight once, then use every available
+server concurrently when at least two are usable, while keeping one-server
+execution sequential and preserving per-run verification gates**. It does not
+mean launching one item, waiting for it, or relaunching an item that is already
+running while another server is idle.
 
 
 Every multi-run runner must:
 
-- process one `variant/seed` at a time unless parallelism is explicitly tested;
+- process one `variant/seed` per server slot at a time unless higher parallelism
+  is explicitly tested;
 - use explicit `epochs` and `patience` values;
 - use explicit `iou=0.5` for validation, test, and inference;
 - fail closed if upload is required but auth/repository is absent;
-- write a manifest containing commit SHA, command, seed, split, and NMS IoU;
+- write a manifest containing commit SHA, command, seed, split, server slot, and
+  NMS IoU;
 - be restart-safe and skip only after verifying artifacts and remote paths;
-- For a multi-run request, create one queue manifest and run the requested
-  variants sequentially without waiting for user confirmation between them.
-  Preflight the whole queue first, then automatically launch the next variant
-  only after the previous variant's local artifacts, split-qualified metrics,
-  and remote upload have been verified. Stop at the first failed gate and
-  preserve queue state for recovery.
+- create one queue manifest and launch all independent variants concurrently
+  across usable servers, or sequentially when only one server is usable. Do not
+  wait for user confirmation between launches. Stop only the affected slot at a
+  per-run failure and preserve queue state for recovery.
 
 Minimum local run contract:
 

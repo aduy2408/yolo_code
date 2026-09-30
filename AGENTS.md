@@ -21,14 +21,37 @@ When a user asks to train, evaluate, or upload through Marimo, the agent MUST:
 4. Launch only through `python -m utils.marimo_ops launch`. Direct
    `subprocess.Popen`, `nohup`, or ad-hoc background launches are forbidden for
    training jobs.
-5. Stop at the first failed gate. Never add `--no-upload`, change the dataset
-   root, or substitute a repository to make a run proceed.
-6. After each run, verify local artifacts and the remote upload before starting
-   the next variant. If the user requests multiple variants/runs, treat them as
-   one sequential queue: preflight the entire queue once, launch the first run,
-   and automatically start each next run after verification without waiting for
-   another user confirmation. Persist queue progress and stop only at the first
-   failed or ambiguous gate.
+5. Stop at the first failed shared gate. For independent multi-server runs,
+   stop only the affected slot at a per-run failure and continue healthy slots.
+   Never add `--no-upload`, change the dataset root, or substitute a repository
+   to make a run proceed.
+6. After preflight, schedule runs according to the number of independent live
+   Marimo servers explicitly supplied or successfully discovered:
+   - With one usable server, keep the queue sequential. Verify local artifacts
+     and remote upload before starting the next variant.
+   - With two or more usable servers, launch independent queue items
+     concurrently, one isolated run per server. Do not hold a pending run behind
+     an unrelated run on another server merely because that run has not finished.
+   - Preflight the complete queue once before the first launch. All concurrent
+     runs must use the same immutable commit and declared dataset provenance
+     unless the experiment explicitly requests otherwise.
+   - Give every run its own run directory, PID/state/log files, artifact root,
+     contract, and task-specific HF repository or collision-free remote prefix.
+     Never let concurrent runs share mutable output or upload paths.
+   - Before assigning a slot, inspect its `state.json`, PID, command identity,
+     `run_contract.json`, and artifact timestamps. Do not relaunch a run that is
+     already alive or already verified. If a server is idle and a queued run has
+     not started, launch that pending run there immediately after its own gates
+     pass.
+   - When a slot becomes free, verify that slot's local artifacts,
+     split-qualified metrics, and remote upload, then backfill it with the next
+     unstarted run without waiting for other servers. A failed or ambiguous run
+     blocks only that slot and its dependent items, not independent runs on
+     healthy servers.
+   - Persist per-server slot ownership and queue progress. Stop only the
+     affected slot at the first failed or ambiguous gate, and stop the entire
+     queue only for a shared provenance, authentication, dataset, repository,
+     or other global gate failure.
 
 Progress and continuation checks must use the run's `state.json`, PID, command,
 log/artifact timestamps, and `run_contract.json`. A checkpoint without test
