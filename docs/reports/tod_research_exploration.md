@@ -111,3 +111,70 @@ The recommended direction remains **scale-conditioned local responsibility learn
 5. Require no regression on medium objects, lower local oracle gap on at least two datasets, and stable val/test metrics before longer training.
 
 The evidence now supports a focused research direction, but not a claim that the first responsibility target works.
+
+## B3-B6 bounded residual follow-up
+
+The requested follow-up kept the standard detector, optimizer, data split, seed, image size, batch size, workers, and NMS IoU fixed. It changed only the classification responsibility path. All runs used three remote training epochs on TinyPerson with the generated corner-window protocol `sw640/sh512`, where the test split contains 17,693 windows. The split-qualified metrics below are from each run's `evaluation_metrics.json`.
+
+| Variant | Responsibility mode | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 |
+|---|---|---:|---:|---:|---:|
+| B0 | standard TAL, `off` | 0.266618 | 0.087976 | 0.312338 | 0.098611 |
+| B3 | bounded detached residual | 0.217014 | 0.071044 | 0.219437 | 0.068131 |
+| B4 | residual plus tiny-only gate | 0.263660 | 0.081930 | 0.309724 | 0.097945 |
+| B5 | residual plus geometric consistency proxy | 0.237847 | 0.074394 | 0.284961 | 0.092150 |
+| B6 | curriculum warmup then residual-consistent mode | 0.266618 | 0.087976 | 0.312338 | 0.098611 |
+
+The uploaded source artifacts are task-specific repositories:
+
+- B3: `duyle2408/tinyperson-responsibility-b3-smoke-runs`
+- B4: `duyle2408/tinyperson-responsibility-b4-smoke-runs`
+- B5: `duyle2408/tinyperson-responsibility-b5-smoke-runs`
+- B6: `duyle2408/tinyperson-responsibility-b6-smoke-runs`
+
+Each repository upload marker lists `evaluation_metrics.json`, `experiment_manifest.json`, `results.csv`, and both checkpoints as remotely verified. The merged TinyBenchmark evaluator was unavailable because `pycocotools` was not installed. The regular split-qualified validation and corner-window test metrics are available and must not be confused with merged-test metrics.
+
+### Follow-up decision
+
+The smoke matrix gives a clear safety result, but not evidence of an AP improvement:
+
+- B3 is unsafe as configured. A bounded residual from the beginning still damages test AP50 by 29.7% relative to B0.
+- B4 is the safest non-control variant. It is within 0.0026 test AP50 and 0.0007 test mAP50-95 of B0, indicating that a tiny-only gate prevents broad-object damage. This is a stability signal, not a gain.
+- B5 is better than B3 but remains below B0. Its consistency term is a deterministic geometric perturbation proxy, not true paired-view augmentation. It should not be presented as validated augmentation consistency.
+- B6 exactly matches B0 in this three-epoch smoke. This means the warmup and ramp avoided the early-training collapse, but it also means the correction had no measurable effect at this schedule. B6 is a safe curriculum candidate, not a demonstrated improvement.
+
+The decision is therefore narrowed again: continue only with **B4/B6-style gated residual responsibility as a diagnostic**, and do not start a full method sweep or claim a new detector method yet. The next decisive experiment should use a longer matched schedule and log local oracle gap, responsibility entropy, positive mass per GT, and medium-object metrics by epoch. If those diagnostics do not improve while AP remains at control level, discard this direction. If the correction reduces the oracle gap without harming B0-level metrics on VisDrone and TinyPerson, then proceed to true paired augmentation views and multi-seed validation. LEVIR remains an important negative/control domain because its original oracle gap is small.
+
+## Long TinyPerson validation and architecture transfer
+
+The three-epoch smoke matrix above was followed by matched 100-epoch TinyPerson runs using the native corner-window protocol `sw640/sh512`, fixed `seed=42`, fixed `split_seed=42`, `batch=8`, `workers=8`, `imgsz=640`, and `NMS IoU=0.5`. The test split is the dataset YAML `test` path for the generated corner-window dataset. These values are not merged TinyBenchmark metrics.
+
+### Long YOLOv8 runs
+
+| Variant | Mode | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 |
+|---|---|---:|---:|---:|---:|
+| B0 | standard TAL | 0.443810 | 0.155491 | 0.460551 | 0.161225 |
+| B4 | tiny-only bounded residual | 0.505491 | 0.180482 | 0.501943 | 0.182564 |
+| B6 | warmup/ramp into residual curriculum | 0.508399 | 0.180783 | 0.500664 | 0.179607 |
+
+The long schedule changes the interpretation of the smoke result. B4 improves over the matched YOLOv8 B0 on both validation and test AP50, while B6 gives a similar validation result and slightly lower test mAP50-95 than B4. This supports keeping the gated residual mechanism as a serious diagnostic candidate on TinyPerson, but it is still one dataset and one seed. The improvement is not evidence that the mechanism is architecture-independent.
+
+### YOLOv9t and YOLOv10n transfer runs
+
+To test transfer beyond YOLOv8, B4 was run with `yolov9t.pt` and `yolov10n.pt` under the same TinyPerson data protocol and responsibility hyperparameters. The architecture-transfer runs used their own task-specific Hugging Face repositories and their upload markers were publicly verified. The corresponding YOLOv9/YOLOv10 B0 controls were not run, so comparisons against YOLOv8 B0 are exploratory and confounded by architecture.
+
+| Architecture | Variant | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 |
+|---|---|---:|---:|---:|---:|
+| YOLOv9t | B4 residual tiny | 0.510144 | 0.179763 | 0.501187 | 0.178271 |
+| YOLOv10n | B4 residual tiny | 0.459874 | 0.168860 | 0.434883 | 0.159999 |
+
+The YOLOv9t result is numerically close to the YOLOv8 B4 result, but without a YOLOv9t B0 it cannot establish a treatment effect. YOLOv10n B4 is weaker on test AP50 than both YOLOv8 B0 and YOLOv8 B4. Therefore the current evidence does **not** support calling B4 architecture-agnostic. It supports a narrower claim: the gated residual responsibility path is compatible with multiple detector implementations, while its benefit must be measured against an architecture-matched TAL control.
+
+Source artifacts:
+
+- YOLOv8 long B4/B6: `duyle2408/tod-responsibility-b4-b6-rerun-runs`, prefixes `runs/tinyperson/residual_tiny/seed_42` and `runs/tinyperson/residual_curriculum/seed_42`.
+- YOLOv9t B4: `duyle2408/tod-responsibility-yolov9-b4-rerun-runs`, prefix `runs/tinyperson/residual_tiny/seed_42`.
+- YOLOv10n B4: `duyle2408/tod-responsibility-yolov10-b4-runs`, prefix `runs/tinyperson/residual_tiny/seed_42`.
+
+### Updated transfer decision
+
+Keep the research direction, but do not broaden the claim yet. The strongest current result is the matched long YOLOv8 TinyPerson comparison, where B4/B6 improve validation and B4 improves test AP50. The YOLOv9 transfer is promising but lacks an architecture-matched B0. The YOLOv10 transfer is negative relative to the available YOLOv8 controls. The next required experiment is therefore not another variant: run **YOLOv9t B0 and YOLOv10n B0**, then compare each architecture's B4 against its own TAL baseline using local oracle-gap and responsibility-alignment diagnostics. If B4 fails to reduce the mechanism metrics against both matched controls, stop the transfer claim and retain B4 only as a YOLOv8/TinyPerson-specific lead.
