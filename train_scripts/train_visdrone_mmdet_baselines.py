@@ -259,6 +259,7 @@ def write_manifest(args: argparse.Namespace, config_path: Path, pipeline: list[d
         "epochs": args.epochs,
         "patience": args.patience,
         "seed": args.seed,
+        "split_seed": args.split_seed,
         "split": "official VisDrone2019-DET train/val/test-dev",
         "augmentation_policy": "shared_yolo_style_mosaic",
         "augmentation": pipeline,
@@ -280,7 +281,7 @@ def write_manifest(args: argparse.Namespace, config_path: Path, pipeline: list[d
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", choices=sorted(MODELS), required=True)
-    parser.add_argument("--config")
+    parser.add_argument("--config", "--model-yaml", dest="config")
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--train-ann", type=Path, default=Path("annotations/train.json"))
     parser.add_argument("--val-ann", type=Path, default=Path("annotations/val.json"))
@@ -289,12 +290,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-images", type=Path, default=Path("val"))
     parser.add_argument("--test-images", type=Path, default=Path("test"))
     parser.add_argument("--work-dir", type=Path, required=True)
-    parser.add_argument("--imgsz", type=int, default=1536)
+    parser.add_argument("--imgsz", "--image-size", dest="imgsz", type=int, default=1536)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument(
         "--hf-repo-id",
         default="duyle2408/visdrone2019-mmdet-yoloaug-1536-runs",
