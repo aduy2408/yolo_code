@@ -257,6 +257,7 @@ def write_manifest(args: argparse.Namespace, config_path: Path, pipeline: list[d
         "batch_size": args.batch_size,
         "workers": args.workers,
         "epochs": args.epochs,
+        "patience": args.patience,
         "seed": args.seed,
         "split": "official VisDrone2019-DET train/val/test-dev",
         "augmentation_policy": "shared_yolo_style_mosaic",
@@ -268,6 +269,8 @@ def write_manifest(args: argparse.Namespace, config_path: Path, pipeline: list[d
             "detector-specific multi-scale policy",
         ],
         "nms_iou": 0.5,
+        "hf_repo_id": args.hf_repo_id,
+        "remote_prefix": args.remote_prefix,
     }
     (args.work_dir / "experiment_manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -290,9 +293,115 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--hf-repo-id",
+        default="duyle2408/visdrone2019-mmdet-yoloaug-1536-runs",
+    )
+    parser.add_argument("--remote-prefix")
     parser.add_argument("--dry-run", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.remote_prefix:
+        args.remote_prefix = f"runs/{args.model}/seed_{args.seed}"
+    return args
+
+
+def metric_value(metrics: Any, *keys: str) -> float:
+    if isinstance(metrics, dict):
+        for key in keys:
+            if key in metrics:
+                return float(metrics[key])
+    raise RuntimeError(f"Missing metric; tried {keys}")
+
+
+def write_completion_artifacts(args: argparse.Namespace, val_metrics: Any, test_metrics: Any) -> list[str]:
+    """Normalize MMDetection output to the shared Marimo artifact contract."""
+
+    best = sorted(args.work_dir.glob("best_coco_bbox_mAP_epoch_*.pth"))
+    last = sorted(args.work_dir.glob("epoch_*.pth"))
+    if not best:
+        raise RuntimeError(f"MMDetection did not produce a best checkpoint in {args.work_dir}")
+    if not last:
+        raise RuntimeError(f"MMDetection did not produce an epoch checkpoint in {args.work_dir}")
+
+    weights = args.work_dir / "weights"
+    weights.mkdir(parents=True, exist_ok=True)
+    for name, source in (("best.pt", best[-1]), ("last.pt", last[-1])):
+        target = weights / name
+        if target.exists() or target.is_symlink():
+            target.unlink()
+        target.symlink_to(source.resolve())
+
+    metrics = {
+        "val/AP50": metric_value(val_metrics, "coco/bbox_mAP_50"),
+        "val/mAP50-95": metric_value(val_metrics, "coco/bbox_mAP"),
+        "test/AP50": metric_value(test_metrics, "coco/bbox_mAP_50"),
+        "test/mAP50-95": metric_value(test_metrics, "coco/bbox_mAP"),
+        "test_evaluator": "MMDetection COCO bbox on official VisDrone2019-DET test-dev",
+    }
+    (args.work_dir / "evaluation_metrics.json").write_text(
+        json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (args.work_dir / "results.csv").write_text(
+        "split,AP50,mAP50-95\n"
+        f"val,{metrics['val/AP50']},{metrics['val/mAP50-95']}\n"
+        f"test,{metrics['test/AP50']},{metrics['test/mAP50-95']}\n",
+        encoding="utf-8",
+    )
+    return [
+        "weights/best.pt",
+        "weights/last.pt",
+        "results.csv",
+        "evaluation_metrics.json",
+        "experiment_manifest.json",
+        "resolved_config.py",
+    ]
+
+
+def upload_artifacts(args: argparse.Namespace, files: list[str]) -> None:
+    from utils.marimo_ops import require_training_context
+
+    require_training_context(hf_repo_id=args.hf_repo_id)
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        raise RuntimeError("HF_TOKEN is required for upload")
+    from huggingface_hub import HfApi
+
+    api = HfApi(token=token)
+    api.create_repo(repo_id=args.hf_repo_id, repo_type="dataset", exist_ok=True)
+    prefix = args.remote_prefix.rstrip("/")
+    api.upload_folder(
+        folder_path=str(args.work_dir),
+        path_in_repo=prefix,
+        repo_id=args.hf_repo_id,
+        repo_type="dataset",
+        allow_patterns=files,
+    )
+    verified = [f"{prefix}/{item}" for item in files]
+    remote_files = set(api.list_repo_files(args.hf_repo_id, repo_type="dataset"))
+    missing = sorted(set(verified) - remote_files)
+    if missing:
+        raise RuntimeError(f"Remote upload verification failed: {missing}")
+    marker = {
+        "repo_id": args.hf_repo_id,
+        "remote_prefix": prefix,
+        "verified": [
+            "weights/best.pt",
+            "weights/last.pt",
+            "results.csv",
+            "evaluation_metrics.json",
+            "experiment_manifest.json",
+        ],
+    }
+    marker_path = args.work_dir / "upload_complete.json"
+    marker_path.write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    api.upload_file(
+        path_or_fileobj=str(marker_path),
+        path_in_repo=f"{prefix}/upload_complete.json",
+        repo_id=args.hf_repo_id,
+        repo_type="dataset",
+    )
 
 
 def main() -> None:
@@ -312,7 +421,10 @@ def main() -> None:
 
     runner = Runner.from_cfg(cfg)
     runner.train()
-    runner.test()
+    val_metrics = runner.val()
+    test_metrics = runner.test()
+    required = write_completion_artifacts(args, val_metrics, test_metrics)
+    upload_artifacts(args, required)
     print(json.dumps({"work_dir": str(args.work_dir), "model": args.model}, sort_keys=True))
 
 
