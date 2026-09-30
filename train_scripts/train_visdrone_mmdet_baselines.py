@@ -142,6 +142,10 @@ def resolve_image_dir(path: Path, data_root: Path) -> str:
 
 
 def build_config(args: argparse.Namespace):
+    if args.optimizer == "MuSGD":
+        from musgd import register_musgd
+
+        register_musgd()
     from mmengine.config import Config
 
     config_path = Path(args.config or MODELS[args.model]).expanduser()
@@ -222,6 +226,20 @@ def build_config(args: argparse.Namespace):
     train_cfg = copy.deepcopy(dict(cfg.train_cfg))
     train_cfg.update(type="EpochBasedTrainLoop", max_epochs=args.epochs, val_interval=1)
     cfg.train_cfg = train_cfg
+    if args.optimizer == "MuSGD":
+        cfg.optim_wrapper = dict(
+            type="OptimWrapper",
+            optimizer=dict(
+                type="MuSGD",
+                lr=0.01,
+                momentum=0.9,
+                nesterov=True,
+                weight_decay=0.0005,
+                muon=0.2,
+                sgd=1.0,
+            ),
+            paramwise_cfg=dict(custom_keys={"bias": dict(decay_mult=0.0), "norm": dict(decay_mult=0.0)}),
+        )
     if args.clip_grad_max_norm is not None:
         optim_wrapper = copy.deepcopy(dict(cfg.optim_wrapper))
         optim_wrapper["clip_grad"] = dict(max_norm=args.clip_grad_max_norm, norm_type=2)
@@ -262,6 +280,8 @@ def write_manifest(args: argparse.Namespace, config_path: Path, pipeline: list[d
         "epochs": args.epochs,
         "patience": args.patience,
         "clip_grad_max_norm": args.clip_grad_max_norm,
+        "optimizer": args.optimizer,
+        "optimizer_lr": 0.01 if args.optimizer == "MuSGD" else None,
         "seed": args.seed,
         "split_seed": args.split_seed,
         "split": "official VisDrone2019-DET train/val/test-dev",
@@ -300,6 +320,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--clip-grad-max-norm", type=float)
+    parser.add_argument("--optimizer", choices=("config", "MuSGD"), default="config")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument(
