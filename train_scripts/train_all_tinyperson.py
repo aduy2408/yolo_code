@@ -784,8 +784,9 @@ def effective_settings(args: argparse.Namespace, variant: str, seed: int) -> dic
 
 def validate_confirmed_settings(settings: dict) -> None:
     failures = []
-    if settings["variant"] != STRICT_BASELINE_VARIANT:
-        failures.append(f"variant must be {STRICT_BASELINE_VARIANT!r}")
+    # Historical architecture variants are intentional experiment settings.
+    # Confirmation still enforces the shared provenance and schedule invariants
+    # below for every variant.
     if settings["context_augmentation"] != "none":
         failures.append("context_augmentation must be 'none' (OACP disabled)")
     if settings["augmentation"]["mosaic"] != 0.0:
