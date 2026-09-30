@@ -59,6 +59,7 @@ REQUIRED_CONTRACT_KEYS = (
     "seed",
     "split_seed",
     "workers",
+    "image_size",
     "epochs",
     "patience",
     "nms_iou",
