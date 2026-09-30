@@ -186,7 +186,8 @@ def main() -> None:
             per_model_pools: dict[str, torch.Tensor] = {}
             best_p2: dict[str, tuple[int, float]] = {}
             best_other: dict[str, float] = {}
-            for name, data in model_data.items():
+            for name, per_image in model_data.items():
+                data = per_image[image_index]
                 pool = data["eligible"][0, gt_index].bool()
                 p2_pool = pool & p2
                 other_pool = pool & ~p2
@@ -202,9 +203,10 @@ def main() -> None:
                 per_model_pools[name] = pool.nonzero(as_tuple=False).flatten()
                 best_p2[name] = (best_index, best_value)
                 best_other[name] = other_value
-            for name, data in model_data.items():
+            for name, per_image in model_data.items():
                 if name not in best_p2 or best_p2[name][1] <= best_other[name] + 1e-7:
                     continue
+                data = per_image[image_index]
                 candidate = best_p2[name][0]
                 with torch.no_grad():
                     row = assign_trace(
