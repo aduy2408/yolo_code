@@ -5,16 +5,17 @@ This runner deliberately keeps the detector config and optimizer independent
 from the augmentation policy.  FCOS, RetinaNet, and RTMDet all receive the
 same train pipeline:
 
-    Mosaic(p=1.0)
+    CachedMosaic(p=1.0)
     -> RandomAffine(scale/translate, no rotate/shear/perspective)
     -> YOLOXHSVRandomAug
     -> RandomFlip(p=0.5)
     -> Resize/Pad to the requested square size
 
 The implementation uses MMDetection transforms, so it is not byte-identical
-to Ultralytics Mosaic.  It is the explicit cross-detector approximation used
-by this project and, unlike the old runner, is identical across the three
-MMDetection models.  MixUp, CachedMixUp, RandomCrop, and detector-specific
+to Ultralytics Mosaic.  ``CachedMosaic`` is used instead of plain ``Mosaic``
+because the latter requires a ``MultiImageMixDataset`` wrapper.  This keeps
+the direct COCO dataset contract valid while applying identical augmentation
+to every detector.  MixUp, CachedMixUp, RandomCrop, and detector-specific
 multi-scale policies are intentionally disabled.
 
 Expected dataset layout::
@@ -81,24 +82,22 @@ def seed_everything(seed: int) -> None:
 def shared_yolo_train_pipeline(imgsz: int) -> list[dict[str, Any]]:
     """Return the common augmentation pipeline for every detector.
 
-    The values mirror the YOLO baseline controls: Mosaic probability 1.0,
+    The values mirror the YOLO baseline controls: CachedMosaic probability 1.0,
     scale ratio 0.5..1.5, translate ratio 0.1, HSV 0.015/0.7/0.4, and
     horizontal flip probability 0.5.  Rotation, shear, perspective, and
     MixUp remain disabled.
     """
 
     img_scale = (imgsz, imgsz)
-    pre_transform = [
+    return [
         dict(type="LoadImageFromFile"),
         dict(type="LoadAnnotations", with_bbox=True),
-    ]
-    return [
         dict(
-            type="Mosaic",
+            type="CachedMosaic",
             img_scale=img_scale,
             pad_val=114.0,
-            prob=1.0,
-            pre_transform=pre_transform,
+            max_cached_images=20,
+            random_pop=False,
         ),
         dict(
             type="RandomAffine",
