@@ -186,7 +186,7 @@ def train_one(args: argparse.Namespace, tph_root: Path, dataset: str, seed: int,
     if (run_dir / "upload_complete.json").is_file():
         print(f"SKIP_VERIFIED {remote}", flush=True)
         return
-    config = args.dataset_root / "tph_configs" / f"yolov5l-xs-tph_{dataset}.yaml"
+    config = args.model_yaml or (args.dataset_root / "tph_configs" / f"yolov5l-xs-tph_{dataset}.yaml")
     patch_model_yaml(tph_root, dataset, config)
     if not (run_dir / "weights/best.pt").is_file():
         seed_everything(seed)
@@ -209,7 +209,9 @@ def train_one(args: argparse.Namespace, tph_root: Path, dataset: str, seed: int,
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS))
-    parser.add_argument("--seeds", nargs="+", type=int, default=[42, 43, 44])
+    parser.add_argument("--seeds", nargs="+", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--model-yaml", type=Path, default=None)
     parser.add_argument("--split-seed", type=int, default=SPLIT_SEED)
     parser.add_argument("--data-root", action="append", metavar="DATASET=PATH")
     parser.add_argument("--dataset-root", type=Path, default=ROOT / "datasets/tph_yolov5")
@@ -223,6 +225,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hf-repo-id", required=True)
     parser.add_argument("--source-commit", required=True)
     args = parser.parse_args()
+    if args.seed is not None and args.seeds is not None:
+        raise ValueError("Use either --seed or --seeds, not both")
+    if args.seed is not None:
+        args.seeds = [args.seed]
+    elif args.seeds is None:
+        args.seeds = [42, 43, 44]
     if args.split_seed != SPLIT_SEED:
         raise ValueError(f"This TPH matrix requires split-seed={SPLIT_SEED}")
     roots = dict(DEFAULT_ROOTS)
@@ -235,6 +243,7 @@ def parse_args() -> argparse.Namespace:
     args.dataset_root = args.dataset_root.resolve()
     args.project = args.project.resolve()
     args.tph_root = args.tph_root.resolve()
+    args.model_yaml = args.model_yaml.resolve() if args.model_yaml is not None else None
     return args
 
 
