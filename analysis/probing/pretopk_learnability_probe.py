@@ -93,6 +93,8 @@ def main() -> None:
             gt = torch.tensor([[x[1] * 640 / width, x[2] * 640 / height, x[3] * 640 / width, x[4] * 640 / height] for x in gt_rows], device=device, dtype=boxes.dtype)
             gt_labels = torch.tensor([[[x[0]] for x in gt_rows]], device=device, dtype=torch.long)
             mask = torch.ones((1, len(gt_rows), 1), device=device, dtype=torch.bool)
+            assigner.bs = 1
+            assigner.n_max_boxes = len(gt_rows)
             with torch.no_grad():
                 eligible = assigner.select_candidates_in_gts(anchors * strides, gt.unsqueeze(0), mask)
                 align, overlaps = assigner.get_box_metrics(class_scores.T.unsqueeze(0), boxes.unsqueeze(0), gt_labels, gt.unsqueeze(0), eligible * mask)
