@@ -125,7 +125,7 @@ Ranking uses the mean `test/mAP50-95` across seeds 42-44. Mosaic and no-Mosaic a
 
 The previous MMDetection rerun is complete and was verified from the public Hugging Face dataset repository [duyle2408/visdrone2019-mmdet-baselines-1536-seeds](https://huggingface.co/datasets/duyle2408/visdrone2019-mmdet-baselines-1536-seeds). The requested matrix contains five detector families, two training seeds per model, and the official VisDrone2019-DET train/val/test-dev split.
 
-Protocol recorded in the uploaded manifests: 1536x1536 input, batch 8, 8 workers, 100 epochs, patience 15, AMP enabled, MuSGD with lr 0.01, fixed split seed 42, training seeds 42 and 43, and NMS IoU 0.5. Every listed run has uploaded checkpoints, a manifest, validation/test artifacts, and an upload marker.
+Protocol recorded in the uploaded manifests: 1536x1536 input, batch 8, 8 workers, 100-epoch maximum, patience 15, MuSGD with lr 0.01, fixed split seed 42, training seeds 42 and 43, and NMS IoU 0.5. AMP was not uniform across the recovered runs: it was enabled for Faster R-CNN and FCOS seed42, and disabled for FCOS seed43, Cascade R-CNN, RetinaNet, and RTMDet. Every listed run has uploaded checkpoints, a manifest, validation/test artifacts, and an upload marker.
 
 ### Per-seed results
 
