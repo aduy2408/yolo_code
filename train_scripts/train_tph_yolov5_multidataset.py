@@ -119,9 +119,10 @@ def prepare_dataset(name: str, data_root: Path, dataset_root: Path) -> Path:
     return _ensure_tph_dataset_schema(output, name)
 
 
-def patch_model_yaml(tph_root: Path, dataset: str, output: Path) -> None:
+def patch_model_yaml(tph_root: Path, dataset: str, output: Path, source: Path | None = None) -> None:
     import yaml
-    config = yaml.safe_load((tph_root / "models/yolov5l-xs-tph.yaml").read_text(encoding="utf-8"))
+    source = source or (tph_root / "models/yolov5l-xs-tph.yaml")
+    config = yaml.safe_load(source.read_text(encoding="utf-8"))
     config["nc"] = 10 if dataset == "visdrone" else 1
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
@@ -187,11 +188,11 @@ def train_one(args: argparse.Namespace, tph_root: Path, dataset: str, seed: int,
         print(f"SKIP_VERIFIED {remote}", flush=True)
         return
     config = args.model_yaml or (args.dataset_root / "tph_configs" / f"yolov5l-xs-tph_{dataset}.yaml")
-    patch_model_yaml(tph_root, dataset, config)
+    patch_model_yaml(tph_root, dataset, config, source=args.model_yaml)
     image_size = args.image_size or IMAGE_SIZES[dataset]
     if not (run_dir / "weights/best.pt").is_file():
         seed_everything(seed)
-        command = [sys.executable, "train.py", "--img", str(image_size), "--adam", "--batch", str(args.batch_size), "--epochs", str(args.epochs), "--patience", str(args.patience), "--data", str(data_yaml), "--weights", "yolov5l.pt", "--hyp", "data/hyps/hyp.VisDrone.yaml", "--cfg", str(config), "--name", f"{dataset}_seed_{seed}", "--project", str(args.project), "--workers", str(args.workers), "--device", args.device, "--seed", str(seed), "--single-cls"]
+        command = [sys.executable, "train.py", "--img", str(image_size), "--adam", "--batch", str(args.batch_size), "--epochs", str(args.epochs), "--patience", str(args.patience), "--data", str(data_yaml), "--weights", args.weights, "--hyp", "data/hyps/hyp.VisDrone.yaml", "--cfg", str(config), "--name", f"{dataset}_seed_{seed}", "--project", str(args.project), "--workers", str(args.workers), "--device", args.device, "--seed", str(seed), "--single-cls"]
         if dataset == "visdrone":
             command.remove("--single-cls")
         run(command, cwd=tph_root)
@@ -212,7 +213,8 @@ def train_one(args: argparse.Namespace, tph_root: Path, dataset: str, seed: int,
                 produced.rmdir()
     write_results_csv(run_dir)
     metrics = evaluate(tph_root, run_dir, data_yaml, dataset, image_size, args.batch_size, args.workers, args.device)
-    manifest = {"experiment_id": "tph_yolov5_multidataset", "dataset": dataset, "baseline": "none", "variant": "upstream TPH-YOLOv5 yolov5l-xs-tph", "source_commit": args.source_commit, "tph_upstream_commit": TPH_COMMIT, "runner": "train_scripts/train_tph_yolov5_multidataset.py", "model_yaml": str(config), "pretrained_source": "yolov5l.pt", "data_yaml": str(data_yaml), "data_root": args.data_roots[dataset], "split_seed": SPLIT_SEED, "seed": seed, "image_size": image_size, "batch_size": args.batch_size, "epochs": args.epochs, "patience": args.patience, "amp": True, "optimizer": "Adam", "nms_iou": 0.5, "hf_repo_id": args.hf_repo_id, "remote_prefix": remote, "test_protocol": metrics["test_protocol"], **metrics}
+    variant = f"custom TPH-YOLOv5 {config.stem}" if args.model_yaml else "upstream TPH-YOLOv5 yolov5l-xs-tph"
+    manifest = {"experiment_id": "tph_yolov5_multidataset", "dataset": dataset, "baseline": "none", "variant": variant, "source_commit": args.source_commit, "tph_upstream_commit": TPH_COMMIT, "runner": "train_scripts/train_tph_yolov5_multidataset.py", "model_yaml": str(config), "pretrained_source": args.weights, "data_yaml": str(data_yaml), "data_root": args.data_roots[dataset], "split_seed": SPLIT_SEED, "seed": seed, "image_size": image_size, "batch_size": args.batch_size, "epochs": args.epochs, "patience": args.patience, "amp": True, "optimizer": "Adam", "nms_iou": 0.5, "hf_repo_id": args.hf_repo_id, "remote_prefix": remote, "test_protocol": metrics["test_protocol"], **metrics}
     (run_dir / "evaluation_metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     upload(args.hf_repo_id, remote, run_dir)
@@ -225,6 +227,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", nargs="+", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--model-yaml", type=Path, default=None)
+    parser.add_argument("--weights", default="yolov5l.pt")
     parser.add_argument("--image-size", type=int, default=None)
     parser.add_argument("--split-seed", type=int, default=SPLIT_SEED)
     parser.add_argument("--data-root", action="append", metavar="DATASET=PATH")
