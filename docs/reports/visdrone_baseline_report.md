@@ -177,6 +177,22 @@ This table puts the existing YOLO Mosaic baselines and the requested MMDetection
 
 **Important comparability note:** this is a matched baseline summary, not a perfectly identical training experiment. The YOLO rows use the Ultralytics Mosaic implementation, three seeds, and the YOLO `auto` optimizer behavior recorded as MuSGD. The MMDetection rows use the common MMDetection CachedMosaic pipeline, two seeds, explicit MuSGD, and a 15-epoch patience setting. AMP was also mixed across the recovered MMDetection runs. The ranking is therefore useful for baseline reporting, but small differences should not be interpreted as a controlled architecture-only ablation.
 
+### Full COCO area metrics from the remote checkpoint re-evaluation
+
+The checkpoints were pulled from the task-specific HF repository and evaluated on the official 1,610-image VisDrone test-dev split with `pycocotools`. The table reports seed means for `AP` over IoU 0.50:0.95, `AP50`, `AP-small`, `AP50-small`, `AP50-medium`, and `AP50-large`.
+
+| Model | Seeds | AP | AP50 | AP-small | AP50-small | AP50-medium | AP50-large |
+|---|:---:|---:|---:|---:|---:|---:|---:|
+| Cascade R-CNN R50-FPN | 2 | 0.1981 | 0.3348 | 0.1104 | 0.2210 | 0.5083 | 0.3889 |
+| Faster R-CNN R50-FPN | 2 | 0.1809 | 0.3282 | 0.0946 | 0.2072 | 0.5034 | 0.3521 |
+| RetinaNet R50-FPN | 2 | 0.1771 | 0.3102 | 0.0839 | 0.1775 | 0.4946 | 0.3581 |
+| FCOS R50-FPN-GN | 2 | 0.1329 | 0.2525 | 0.0671 | 0.1536 | 0.3881 | 0.2769 |
+| RTMDet-S* | 2 | 0.1243 | 0.2371 | 0.0836 | 0.1820 | 0.2954 | 0.1392 |
+
+The RTMDet row uses a fixed-shape recovery evaluation because the uploaded original 1536 test config raised a CSPNeXt-PAN feature-map size mismatch on this server. The original uploaded RTMDet protocol artifacts remain the authoritative standard metrics (`test/mAP50-95` 0.194 for seed42 and 0.189 for seed43). Do not mix the fixed-shape RTMDet row with the original-protocol rows for a strict ranking.
+
+The YOLO checkpoints already had verified `pycocotools` size metrics in their uploaded `evaluation_metrics.json` files, including `test_size/AP-Small`, `test_size/AP50-Small`, `test_size/AP-Medium`, and `test_size/AP50-Medium`. Those existing YOLO artifacts were retained rather than silently replacing them with a different evaluation protocol.
+
 ### MMDetection provenance
 
 - HF repository: `duyle2408/visdrone2019-mmdet-baselines-1536-seeds`
