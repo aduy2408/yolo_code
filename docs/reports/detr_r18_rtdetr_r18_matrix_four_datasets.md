@@ -77,6 +77,16 @@ VisDrone uses the `1536×1536` matrix protocol. The two DETR logs record zero me
 | RT-DETR-R18 | 42 | 0.000004 | 0.000022 | 0.000000 | 0.000000 | 0.000007 | 0.000022 |
 | RT-DETR-R18 | 43 | 0.000075 | 0.000256 | 0.000000 | 0.000000 | 0.000102 | 0.000010 |
 
+## TPH YOLOv5 cross-reference on VisDrone
+
+The same four-dataset consolidation can be compared with the verified TPH YOLOv5n Mosaic baseline on VisDrone. Its manifests record `imgsz=1536`, batch size `8`, workers `8`, NMS IoU `0.5`, and seeds `43` and `44`.
+
+| Model | Seeds (n) | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 | Test AP50-Tiny1 | Test AP50-Tiny2 | Test AP50-Tiny3 | Test AP50-Small | Test AP50-Medium |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| TPH YOLOv5n, Mosaic, 1536 | 43,44 (2) | 0.5204 | 0.3136 | 0.4247 | 0.2444 | 0.0935 | 0.2945 | 0.5118 | 0.7176 | 0.8351 |
+
+Source repository: [`duyle2408/visdrone-yolov5-yolov8-tph-runs`](https://huggingface.co/datasets/duyle2408/visdrone-yolov5-yolov8-tph-runs). YOLOv5n seed 42 is not present in the repository, so this aggregate uses only seeds 43 and 44.
+
 ## Interpretation
 
 - RT-DETR-R18 is substantially stronger than DETR-R18 on Varroa and TinyPerson in this matrix.
