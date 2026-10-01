@@ -200,6 +200,36 @@ Với historical P2/P3/P4 baseline từ HF `duyle2408/tinyperson-yolov8n-baselin
 
 P2/P3/P4 tăng candidate coverage rõ rệt, nhưng coverage tốt không đồng nghĩa final score learning đã tốt.
 
+### 8.3 Local full-budget replication
+
+Đã chạy lại public entrypoint thật bằng:
+
+```text
+PYTHONPATH=. conda run -n ml2 python analysis/probing/pretopk_learnability_probe.py
+```
+
+Input là local TinyPerson split `datasets/tinyperson_split_42_corner_sw640_sh512/tinyperson.yaml`, checkpoint local `runs/tinyperson_yolo_baselines/yolov8/seed_42_corner_sw640_sh512/weights/best.pt`, CPU, đủ 808 validation images. Smoke 20 ảnh exit 0 nhưng bị `insufficient_split`; full run đã đạt `status=ok` với artifact `probe_c2_summary.json`.
+
+| Metric | Full local baseline |
+|---|---:|
+| Images | 808 |
+| Train candidates | 2098 |
+| Test candidates | 2292 |
+| Test groups | 611 |
+| Eligible mean | 3.751227 |
+| Eligible max | 6 |
+| Eligible `< topk=10` | 100% |
+| TAL best IoU | 0.610408 |
+| Learned best IoU | 0.610408 |
+| Delta best IoU | 0.000000 |
+| TAL oracle recall | 1.000000 |
+| Learned oracle recall | 1.000000 |
+| TAL rank correlation | 0.977424 |
+| Learned rank correlation | 0.509125 |
+| Top-k overlap | 1.000000 |
+
+Kết quả local tái lập đúng kết luận pre-top-k của session Marimo cho P3/P4/P5: toàn bộ group có dưới 10 eligible candidate, TAL đã đạt cùng best IoU/oracle recall với learned ranker, và learned ranker không thay đổi top-k. Đây là kiểm tra end-to-end trên public probe và artifact thật, không phải fixture tổng hợp. Nó không kiểm tra được cohort `eligible >10` của P2/P3/P4, vì checkpoint P2/P3/P4 historical và artifact Marimo tương ứng không có sẵn local trong workspace.
+
 ## 9. Post-selection trace probe trên P2/P3/P4
 
 ### 9.1 Protocol
