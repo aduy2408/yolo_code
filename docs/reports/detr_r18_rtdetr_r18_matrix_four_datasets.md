@@ -77,15 +77,28 @@ VisDrone uses the `1536×1536` matrix protocol. The two DETR logs record zero me
 | RT-DETR-R18 | 42 | 0.000004 | 0.000022 | 0.000000 | 0.000000 | 0.000007 | 0.000022 |
 | RT-DETR-R18 | 43 | 0.000075 | 0.000256 | 0.000000 | 0.000000 | 0.000102 | 0.000010 |
 
-## TPH YOLOv5 cross-reference on VisDrone
+## TPH-YOLOv5l-xs-tph cross-reference across four datasets
 
-The same four-dataset consolidation can be compared with the verified TPH YOLOv5n Mosaic baseline on VisDrone. Its manifests record `imgsz=1536`, batch size `8`, workers `8`, NMS IoU `0.5`, and seeds `43` and `44`.
+The intended TPH result is the upstream **TPH-YOLOv5l-xs-tph** model, not the vanilla YOLOv5n Mosaic row from the separate VisDrone repository. The multi-dataset repository records `variant: upstream TPH-YOLOv5 yolov5l-xs-tph` and uses NMS IoU `0.5`.
 
-| Model | Seeds (n) | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 | Test AP50-Tiny1 | Test AP50-Tiny2 | Test AP50-Tiny3 | Test AP50-Small | Test AP50-Medium |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| TPH YOLOv5n, Mosaic, 1536 | 43,44 (2) | 0.5204 | 0.3136 | 0.4247 | 0.2444 | 0.0935 | 0.2945 | 0.5118 | 0.7176 | 0.8351 |
+| Dataset | Seeds (n) | Image size | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 |
+|---|---:|---:|---:|---:|---:|---:|
+| LEVIR-Ship | 42,43 (2) | 512 | 0.7345 | 0.2735 | 0.7085 | 0.2530 |
+| TinyPerson | 42,43 (2) | 640 | 0.5170 | 0.1805 | 0.5195 | 0.1880 |
+| Varroa | 42,43 (2) | 640 | 0.8455 | 0.3010 | 0.8330 | 0.2960 |
+| VisDrone | 43 (1) | 1536 | 0.6120 | 0.3910 | 0.5040 | 0.3030 |
 
-Source repository: [`duyle2408/visdrone-yolov5-yolov8-tph-runs`](https://huggingface.co/datasets/duyle2408/visdrone-yolov5-yolov8-tph-runs). YOLOv5n seed 42 is not present in the repository, so this aggregate uses only seeds 43 and 44.
+Source repository: [`duyle2408/varroa-tinyperson-levirship-visdrone-tph-yolov5-runs`](https://huggingface.co/datasets/duyle2408/varroa-tinyperson-levirship-visdrone-tph-yolov5-runs). The VisDrone TPH-YOLOv5l-xs-tph run currently has only seed 43. The repository's VisDrone manifest records the `tph_yolov5l-xs-tph_visdrone_recovery.yaml` model config, image size `1536`, batch size `8`, AMP enabled, Adam optimizer, split seed `42`, and training seed `43`.
+
+| Dataset | Seed | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 |
+|---|---:|---:|---:|---:|---:|
+| LEVIR-Ship | 42 | 0.714 | 0.259 | 0.674 | 0.237 |
+| LEVIR-Ship | 43 | 0.755 | 0.288 | 0.743 | 0.269 |
+| TinyPerson | 42 | 0.542 | 0.192 | 0.550 | 0.201 |
+| TinyPerson | 43 | 0.492 | 0.169 | 0.489 | 0.175 |
+| Varroa | 42 | 0.850 | 0.299 | 0.827 | 0.290 |
+| Varroa | 43 | 0.841 | 0.303 | 0.839 | 0.302 |
+| VisDrone | 43 | 0.612 | 0.391 | 0.504 | 0.303 |
 
 ## Interpretation
 
