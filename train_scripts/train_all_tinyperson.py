@@ -275,7 +275,8 @@ def prepare_test_set(data_root: Path, output_dir: Path) -> Path:
         dest_name = f"test_{img_id}.jpg"
         dest_img_path = test_images_dir / dest_name
         dest_lbl_path = test_labels_dir / f"test_{img_id}.txt"
-        write_corner_crop(src_path, img_info, ann_by_image.get(img_id, []), dest_img_path, dest_lbl_path)
+        if not (dest_img_path.is_file() and dest_lbl_path.is_file()):
+            write_corner_crop(src_path, img_info, ann_by_image.get(img_id, []), dest_img_path, dest_lbl_path)
         records.append({
             "image_id": img_id,
             "file_name": img_info["file_name"],
