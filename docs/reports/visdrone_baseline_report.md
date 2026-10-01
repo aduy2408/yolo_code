@@ -158,6 +158,25 @@ The FCOS seed spread is large because seed 42 is substantially weaker than seed 
 
 The existing YOLO report contains the 1536-pixel VisDrone baseline matrix with YOLOv5n, YOLOv8n, YOLOv9t, YOLOv10n, and YOLO11n, each evaluated with Mosaic and no-Mosaic policies over seeds 42-44. The strongest YOLO aggregate in that matrix is YOLOv9t with Mosaic: test/AP50 `0.2882` and test/mAP50-95 `0.1572`. The strongest requested MMDetection aggregate by test/mAP50-95 is Cascade R-CNN at `0.198`, followed closely by RTMDet-S at `0.192`.
 
+### Unified 1536-pixel Mosaic baseline comparison
+
+This table puts the existing YOLO Mosaic baselines and the requested MMDetection baselines in one ranking. All rows use the 1536-pixel VisDrone protocol, batch 8, workers 8, Mosaic-style training augmentation, and NMS IoU 0.5. YOLO rows aggregate three seeds (42-44). MMDetection rows aggregate two seeds (42-43).
+
+| Rank | Family | Model | Seeds | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 |
+|---:|---|---|:---:|---:|---:|---:|---:|
+| 1 | MMDetection | Cascade R-CNN R50-FPN | 2 | 0.418 ± 0.005 | 0.259 ± 0.003 | 0.335 ± 0.004 | **0.198 ± 0.001** |
+| 2 | MMDetection | RTMDet-S | 2 | 0.417 ± 0.004 | 0.238 ± 0.003 | 0.335 ± 0.005 | **0.192 ± 0.004** |
+| 3 | MMDetection | Faster R-CNN R50-FPN | 2 | 0.404 ± 0.006 | 0.231 ± 0.001 | 0.328 ± 0.007 | **0.181 ± 0.003** |
+| 4 | MMDetection | RetinaNet R50-FPN | 2 | 0.378 ± 0.002 | 0.227 ± 0.004 | 0.311 ± 0.002 | **0.177 ± 0.003** |
+| 5 | YOLO | YOLOv9t | 3 | 0.3367 ± 0.0034 | 0.1865 ± 0.0009 | 0.2882 ± 0.0018 | **0.1572 ± 0.0011** |
+| 6 | YOLO | YOLO11n | 3 | 0.3350 ± 0.0008 | 0.1848 ± 0.0010 | 0.2794 ± 0.0023 | **0.1519 ± 0.0017** |
+| 7 | YOLO | YOLOv8n | 3 | 0.3378 ± 0.0013 | 0.1860 ± 0.0011 | 0.2776 ± 0.0012 | **0.1514 ± 0.0005** |
+| 8 | YOLO | YOLOv5n | 3 | 0.3252 ± 0.0035 | 0.1794 ± 0.0015 | 0.2716 ± 0.0006 | **0.1474 ± 0.0002** |
+| 9 | YOLO | YOLOv10n | 3 | 0.3229 ± 0.0022 | 0.1812 ± 0.0014 | 0.2686 ± 0.0018 | **0.1469 ± 0.0008** |
+| 10 | MMDetection | FCOS R50-FPN-GN | 2 | 0.283 ± 0.071 | 0.155 ± 0.058 | 0.254 ± 0.074 | **0.133 ± 0.057** |
+
+**Important comparability note:** this is a matched baseline summary, not a perfectly identical training experiment. The YOLO rows use the Ultralytics Mosaic implementation, three seeds, and the YOLO `auto` optimizer behavior recorded as MuSGD. The MMDetection rows use the common MMDetection CachedMosaic pipeline, two seeds, explicit MuSGD, and a 15-epoch patience setting. AMP was also mixed across the recovered MMDetection runs. The ranking is therefore useful for baseline reporting, but small differences should not be interpreted as a controlled architecture-only ablation.
+
 ### MMDetection provenance
 
 - HF repository: `duyle2408/visdrone2019-mmdet-baselines-1536-seeds`
