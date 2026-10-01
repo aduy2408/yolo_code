@@ -307,6 +307,19 @@ Merged `AP50-Small=0.66977` thuộc **R1 P2/P3/P4, seed 42, no Mosaic**, không 
 
 Các giá trị `0.689397` và `0.681343` là R1 seed 43/44 dùng canonical P3/P4/P5 với Mosaic trong study khác. Không trộn chúng vào bảng P2/P3/P4.
 
+### 10.3 Related session with an overloaded `R1` label
+
+Session `session_otter_1790770140377_e96f5567febc0b0b` có các kết quả dùng tên R1/R4 nhưng đây là **Negative-canvas Copy-Paste augmentation**, không phải ranking-loss R1 `ranking_mode=localization` trong các section trên. Ghi lại để tránh bỏ sót và tránh nhập nhầm protocol:
+
+| Dataset / study | Result | Provenance boundary |
+|---|---|---|
+| LEVIR-Ship | R1 `test/AP50=0.8222`, `test/mAP50-95=0.3156`; R4 `test/mAP50-95=0.3158` | YOLOv8 canonical P3/P4/P5 + Negative-canvas augmentation |
+| TinyPerson augmentation matrix | Best reported method: P2/P3/P4 + mass-adaptive OACP + clustered CP3 + Mosaic, `test/mAP50-95=0.2061` | Different augmentation study, not TAL ranking R1/J1 |
+| TinyPerson R1 seed 43 | `test_merged/AP50-Small=0.689397` | P3/P4/P5 + Mosaic + Negative-canvas |
+| TinyPerson R1 seed 44 | `test_merged/AP50-Small=0.681343` | P3/P4/P5 + Mosaic + Negative-canvas |
+
+Các metric trên không được dùng làm bằng chứng cho ranking loss R1/J1. Session `session_dromedary_1790668453013_fa076d346a3855e2` cũng nằm trong cùng ngày nhưng chủ yếu là VisDrone DETR/RT-DETR, không thuộc TAL/RANKING scope nên không đưa vào bảng kết quả này.
+
 ## 11. Run status ledger
 
 | Item | Status | Có metric cuối? | Ghi chú |
