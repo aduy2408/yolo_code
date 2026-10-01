@@ -1,17 +1,20 @@
-# VisDrone2019-DET baseline results at 1536 pixels
+# VisDrone2019-DET baseline results, provenance audit
 
 **Updated:** 2026-10-01 (ICT)
 **Dataset:** official VisDrone2019-DET train / val / test-dev split
-**Common settings:** image size `1536×1536`, batch `8`, workers `8`, NMS IoU `0.5`, Mosaic-style training augmentation.
+**MMDetection settings:** image size `1536×1536`, batch `8`, workers `8`, NMS IoU `0.5`.
 
-This report intentionally contains two result tables: one for YOLO and one for MMDetection. Values are seed means. YOLO rows aggregate seeds 42, 43, and 44. MMDetection rows aggregate seeds 42 and 43.
+**Important provenance correction:** the YOLO artifacts previously used in this report are **not 1536-pixel runs**. Their Hugging Face manifests explicitly record `imgsz: 640`. Therefore the YOLO numbers below must not be compared as 1536-pixel results against MMDetection. The MMDetection rows remain 1536-pixel results.
 
-## 1. YOLO baseline results
+## 1. YOLO baseline results currently available, confirmed as 640 pixels
 
-YOLO models use the Ultralytics Mosaic or no-Mosaic policy. The uploaded YOLO artifacts expose validation aggregate metrics, test aggregate metrics, and test AP50 size buckets. `Tiny1`, `Tiny2`, `Tiny3`, `Small`, and `Medium` are the existing size-bucket fields from `evaluation_metrics.json`.
+The table below is retained for provenance, but it is **not** a 1536-pixel table. The source manifests for `duyle2408/visdrone-yolo-baselines-runs` record `imgsz: 640` for the runs, including YOLOv9t Mosaic seed42 and YOLO11n Mosaic seed42. Values are seed means. YOLO rows aggregate seeds 42, 43, and 44.
+
+The candidate repository `duyle2408/visdrone2019-mmdet-yoloaug-1536-runs` currently exposes no run artifacts beyond `.gitattributes`, so verified YOLO 1536 metrics are not available from the checked Hugging Face sources.
 
 | Model | Augmentation | n | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 | test/AP50-Tiny1 | test/AP50-Tiny2 | test/AP50-Tiny3 | test/AP50-Small | test/AP50-Medium |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **Status** | **YOLO table below is 640-pixel provenance only** | — | — | — | — | — | — | — | — | — | — |
 | YOLOv5n | Mosaic | 3 | 0.3252 | 0.1793 | 0.2716 | 0.1474 | 0.0124 | 0.0832 | 0.2636 | 0.4998 | 0.7319 |
 | YOLOv5n | No Mosaic | 3 | 0.3126 | 0.1712 | 0.2596 | 0.1401 | 0.0099 | 0.0760 | 0.2497 | 0.4874 | 0.7204 |
 | YOLOv8n | Mosaic | 3 | 0.3377 | 0.1860 | 0.2776 | 0.1514 | 0.0122 | 0.0945 | 0.2785 | 0.5213 | 0.7415 |
@@ -39,13 +42,10 @@ MMDetection models use the shared CachedMosaic, RandomAffine, HSV, horizontal-fl
 
 ## Protocol and provenance
 
-- YOLO source: `duyle2408/visdrone-yolo-baselines-runs`
-- MMDetection source: `duyle2408/visdrone2019-mmdet-baselines-1536-seeds`
-- MMDetection executable: `/marimo/mmdet-venv/bin/python`
-- MMDetection remote area-metric artifacts: `/marimo/visdrone_full_eval_1536/`
-- MMDetection source commit recorded in the run manifests: `3bb25c76577e0b4025a4f51ff46069c18c396057`
-- YOLO artifacts contain `val/AP50`, `val/mAP50-95`, `test/AP50`, `test/mAP50-95`, and test AP50 size buckets. They do not expose the same full COCO area-field set as the MMDetection re-evaluation, so the YOLO table reports the fields actually recorded rather than inventing AP75 or AP-small values.
-- YOLO uses three seeds and MMDetection uses two seeds. AMP and early stopping were not identical across all recovered MMDetection runs, so the tables are baseline summaries, not a strict architecture-only ablation.
+- YOLO source actually used by the table: `duyle2408/visdrone-yolo-baselines-runs`, whose manifests record `imgsz: 640`.
+- Candidate YOLO 1536 source checked: `duyle2408/visdrone2019-mmdet-yoloaug-1536-runs`, currently empty apart from `.gitattributes`.
+- YOLO artifacts contain `val/AP50`, `val/mAP50-95`, `test/AP50`, `test/mAP50-95`, and test AP50 size buckets. They do not expose the same full COCO area-field set as the MMDetection re-evaluation.
+- **Do not use the YOLO table for a 1536-vs-1536 comparison until actual YOLO 1536 checkpoints and manifests are found or rerun.**
 
 ## Reproducibility
 
