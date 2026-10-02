@@ -131,7 +131,7 @@ def job_specs(args: argparse.Namespace) -> list[dict[str, str]]:
     return specs
 
 
-def _prepare_dataset(dataset: str, args: argparse.Namespace) -> tuple[Path, Path]:
+def _prepare_dataset(dataset: str, method: str, args: argparse.Namespace) -> tuple[Path, Path]:
     if dataset == "levir":
         from misc.prepare_levir_ship import prepare
 
@@ -147,9 +147,11 @@ def _prepare_dataset(dataset: str, args: argparse.Namespace) -> tuple[Path, Path
         return (split_root / "tinyperson.yaml").resolve(), test_root.resolve()
     from misc.prepare_dataset import prepare_dataset
 
-    output = args.dataset_root / f"varroa_augmentation_matrix_split_{args.split_seed}"
+    only_positives = method != "copy_paste"
+    suffix = "copy_paste" if method == "copy_paste" else "augmentation"
+    output = args.dataset_root / f"varroa_{suffix}_matrix_split_{args.split_seed}"
     data_yaml = prepare_dataset(
-        args.data_roots[dataset], output, gt_source="gt_one", only_positives=True,
+        args.data_roots[dataset], output, gt_source="gt_one", only_positives=only_positives,
         class_policy="map-3-to-1", seed=args.split_seed,
     )
     return data_yaml.resolve(), output.resolve()
@@ -172,7 +174,7 @@ def _mosaic_settings(spec: dict[str, str], args: argparse.Namespace) -> dict[str
     else:
         settings["mosaic_policy"] = "standard"
     if spec["variant"] == "M3_post_scale_constrained":
-        settings["scale_statistics"] = str(args.scale_statistics[spec["dataset"]])
+        settings["mosaic_scale_statistics"] = str(args.scale_statistics[spec["dataset"]])
     if spec["variant"] == "M5_hard_negative":
         settings["hard_negative_bank"] = str(args.hard_negative_banks[spec["dataset"]])
     return settings
@@ -218,11 +220,17 @@ def _evaluate(run_dir: Path, data_yaml: Path, spec: dict[str, str], args: argpar
     if spec["dataset"] == "tinyperson":
         from train_scripts.train_copy_paste import _evaluate_run
 
-        old = args.dataset
-        args.dataset = "tinyperson"
-        metrics = _evaluate_run(run_dir, data_yaml, args)
-        args.dataset = old
-        return metrics
+        eval_args = argparse.Namespace(
+            dataset="tinyperson",
+            data_root=args.data_roots["tinyperson"],
+            dataset_root=args.dataset_root,
+            imgsz=args.imgsz["tinyperson"],
+            batch_size=args.batch_size,
+            device=args.device,
+            workers=args.workers,
+            nms_iou=args.nms_iou,
+        )
+        return _evaluate_run(run_dir, data_yaml, eval_args)
 
     model = YOLO(run_dir / "weights/best.pt")
     metrics: dict[str, Any] = {"test_protocol": "LEVIR-Ship standard held-out test split" if spec["dataset"] == "levir" else "Varroa standard held-out test split"}
@@ -280,6 +288,7 @@ def _train_one(spec: dict[str, str], data_yaml: Path, test_root: Path, args: arg
         "detector": "canonical YOLOv8 P3/P4/P5",
         "data_root": str(args.data_roots[spec["dataset"]]),
         "dataset_yaml": str(data_yaml),
+        "dataset_label_policy": "all_records_including_negative_images" if spec["method"] == "copy_paste" and spec["dataset"] == "varroa" else "positive_only",
         "seed": args.seed,
         "split_seed": args.split_seed,
         "epochs": args.epochs,
@@ -401,15 +410,16 @@ def main(argv: list[str] | None = None) -> None:
         require_training_context(hf_repo_id=repo_id)
         ensure_hf_repo(repo_id)
 
-    prepared: dict[str, tuple[Path, Path]] = {}
+    prepared: dict[tuple[str, str], tuple[Path, Path]] = {}
     for dataset in args.datasets:
-        prepared[dataset] = _prepare_dataset(dataset, args)
+        for method in args.methods:
+            prepared[(dataset, method)] = _prepare_dataset(dataset, method, args)
     if args.prepare_only:
-        print(json.dumps({dataset: {"dataset_yaml": str(values[0]), "test_root": str(values[1])} for dataset, values in prepared.items()}, indent=2, sort_keys=True))
+        print(json.dumps({f"{dataset}/{method}": {"dataset_yaml": str(values[0]), "test_root": str(values[1])} for (dataset, method), values in prepared.items()}, indent=2, sort_keys=True))
         return
     for spec in specs:
         print(f"START {spec['dataset']}/{spec['method']}/{spec['variant']}/{spec['mosaic_mode']}", flush=True)
-        _train_one(spec, prepared[spec["dataset"]][0], prepared[spec["dataset"]][1], args)
+        _train_one(spec, prepared[(spec["dataset"], spec["method"])][0], prepared[(spec["dataset"], spec["method"])][1], args)
     print(f"Completed {len(specs)} augmentation runs.", flush=True)
 
 
