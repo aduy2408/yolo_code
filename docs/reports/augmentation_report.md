@@ -1,6 +1,6 @@
 # Augmentation Report: OACP, Copy-Paste, and Mosaic Runs
 
-**Updated:** 2026-09-21
+**Updated:** 2026-10-02
 **Scope:** the Hugging Face repositories and run names supplied in the request, filtered to experiments involving **OACP**, **Copy-Paste**, **Mosaic**, or a direct no-augmentation/no-Mosaic control.
 **Primary metric:** mAP50-95(B). Values are fractions, not percentages.
 
@@ -15,13 +15,13 @@ Main observations:
 1. **OACP is most consistently useful when paired with a small-object detector and a data-aware policy.** On LEVIR-Ship, YOLOv8n P2/P3/P4 with load-adaptive OACP + Mosaic reaches test mAP50-95 **0.3109**, ahead of spacing-adaptive OACP + Mosaic (**0.3065**) and the no-Mosaic density/budget variants (**0.3054**).
 2. **The detector configuration is a major confounder.** P2/P3/P4 runs should not be compared directly with the canonical P3/P4/P5 Mosaic policy matrix. The strongest TinyPerson combination, P2/P3/P4 + mass-adaptive OACP + clustered Copy-Paste + Mosaic, reports **0.2061**, but that gain includes both architecture and augmentation changes.
 3. **Visibility-aware Mosaic is the best isolated Mosaic policy in the controlled canonical YOLOv8 matrix.** On LEVIR-Ship it reaches test mAP50-95 **0.2580**, versus **0.2453** for standard Mosaic, a relative improvement of about **5.2%**.
-4. **Copy-Paste alone is not uniformly beneficial.** In the four-way no-Mosaic LEVIR ablation, CP3 has the highest reported mAP50-95 (**0.3234**) but is essentially tied with the no-Copy-Paste control (**0.3202**) within the limitations of the reported artifact. On TinyPerson, CP3 is more favorable (**0.1751** versus **0.1590** for CP0).
+4. **Copy-Paste alone is not uniformly beneficial.** In the older four-way no-Mosaic LEVIR ablation, CP3 has the highest reported mAP50-95 (**0.3234**) but is essentially tied with the no-Copy-Paste control (**0.3202**) within that artifact. In the corrected post-hoc family, CP2 is highest (**0.3167**) and CP3 is lower (**0.3046**). On TinyPerson, CP3 is more favorable (**0.1751** versus **0.1590** for CP0).
 5. **The historical OACP results require provenance caution.** The older aggressive sweep used accidental double-OACP. The corrected single-pass sweep selected R4 by validation mAP50, while R2 had the highest test mAP50 and R7 the highest test AP75. These are screening results, not a final multi-seed claim.
 6. **Mosaic is not automatically helpful.** Its effect depends on policy, object visibility, detector scale, and dataset. No-Mosaic OACP can be competitive on LEVIR, while adaptive OACP + Mosaic is clearly stronger for the reported TinyPerson YOLOv8n runs than the no-Mosaic baseline.
 7. **The new R2 no-Mosaic OACP audit does not overturn the earlier ranking.** In the matched YOLOv8n P2/P3/P4, split-seed-42 audit, load-adaptive and effect-adaptive OACP are close at test mAP50-95 (**0.3094** and **0.3102**), while curriculum and size-adaptive variants are lower (**0.2992** and **0.2977**). These are single-seed screening results, not a replacement for the earlier matched Mosaic family.
 8. **The newly completed context-adaptive audit favors the C3 expand/protection policy in this single-seed screen.** C3 reaches test mAP50-95 **0.3145**, ahead of C1 strength (**0.3123**) and the existing R2 current audit (**0.3113**), while C2 scale is lower (**0.3051**). The detector, split seed, training seed, and no-Mosaic protocol are matched across these four context-audit rows.
 9. **The completed negative-canvas ablation isolates four Copy-Paste hypotheses on the same canonical protocol.** R2 has the strongest validation result, while R1 has the strongest test mAP50-95 among R1-R4. The larger-donor policy in R3 reduces test performance, and weak post-resize blur in R4 recovers most of that loss without exceeding R1 on test mAP50-95.
-10. **On TinyPerson, R1 is slightly above the available HF baseline on standard test metrics, while R4 is below it.** R1 improves test AP50 by **+0.0033** and test mAP50-95 by **+0.0030** relative to the seed-42 TinyPerson baseline. R4 changes those deltas to **-0.0058** and **-0.0031**. These comparisons are directional because the available baseline is the P2/P3/P4 TinyPerson model, while the negative-canvas runs use the canonical P3/P4/P5 YAML.
+10. **The current TinyPerson P2/P3/P4 NegativeCanvas R1 run is a separate completed result.** With no Mosaic, seed 42, and split seed 42, it reports test AP50 **0.51816**, test mAP50-95 **0.18917**, and merged `test_merged/AP50-Small` **0.66977**. It must not be conflated with the canonical P3/P4/P5 + Mosaic R1 seeds 43/44 or with the historical P2/P3/P4 baseline.
 
 ## 2. Consolidated result tables
 
@@ -52,6 +52,34 @@ does not paste objects. The MuSGD row is the original `optimizer=auto` run;
 the SGD and AdamW rows explicitly force their optimizer. The AdamW result is
 verified in `duyle2408/levir-adaptive-copy-paste-adamw-runs`, and the SGD result
 is verified in `duyle2408/levir-adaptive-copy-paste-sgd-runs`.
+
+### 2.1a YOLOv8 no-Mosaic MuSGD baseline reference
+
+This is the baseline reference for the current augmentation comparisons. It is
+the **YOLOv8 seed-42** run from
+`duyle2408/yolo-baselines-no-mosaic-musgd-runs`, with split seed 42, no Mosaic,
+MuSGD via `optimizer=auto`, and NMS IoU 0.50. Only this YOLOv8 baseline is used
+for the focused augmentation interpretation below. The other model families
+remain stored on HF for the broader baseline archive and are not pooled into
+this table.
+
+| Dataset | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 | Small-object metric | Protocol |
+|---|---:|---:|---:|---:|---:|---|
+| Varroa | 0.8920 | 0.3240 | 0.8792 | 0.3264 | **0.7959** | `test_size/AP50-Small`, native-image TinyBenchmark buckets |
+| LEVIR-Ship | 0.8244 | 0.3184 | 0.7907 | 0.2948 | **0.7879** | `test_size/AP50-Small`, native-image TinyBenchmark buckets |
+| TinyPerson | 0.4607 | 0.1607 | 0.4506 | 0.1547 | **0.6288** | `test_merged/AP50-Small`, official corner-window merge, `sw640/sh512` |
+
+The exact unrounded small-object values are Varroa `0.7959046099`, LEVIR-Ship
+`0.7879227075`, and TinyPerson `0.6288433716`. TinyPerson's merged-corner
+evaluation was recovered from the HF checkpoint and uploaded back to the same
+HF run path. Its standard `test/AP50` and merged `test_merged/AP50` are both
+shown because they measure different protocols.
+
+The specified HF repository also contains uploaded baseline artifacts for
+YOLOv5, YOLOv9, YOLOv10, and YOLO11 across the three dataset directories, with
+multiple seeds where available. Those artifacts are retained for model-family
+reference, but this report's augmentation conclusions use the matched YOLOv8
+baseline above.
 
 ### 2.2 Copy-Paste
 
@@ -122,25 +150,54 @@ must not be substituted for standard test metrics.
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | R1 | Empirical + matched + resize only | 0.5287 | 0.1892 | **0.5037** | **0.1817** | **0.5276** | **0.3099** | **0.6772** |
 | R4 | Deficit + larger + resize + weak blur | 0.4990 | 0.1781 | 0.4946 | 0.1756 | 0.5187 | 0.3032 | 0.6646 |
-| TinyPerson baseline, seed 42 | Available HF `yolov8n_p2p3p4_plain` artifact | 0.5421 | 0.1925 | 0.5004 | 0.1787 | not reported | not reported | not reported |
+| TinyPerson P2/P3/P4 baseline, seed 42 | Available HF `yolov8n_p2p3p4_plain` artifact | 0.5421 | 0.1925 | 0.5004 | 0.1787 | not reported | not reported | not reported |
 
-The baseline row is from
-`duyle2408/tinyperson-yolov8n-baselines/runs/yolov8n_p2p3p4_plain/seed_42`.
-Its artifact reports standard validation/test metrics but
-`test_merged/available=0`, so no merged AP50 or AP50-Small value is imputed.
+The legacy P2/P3/P4 baseline row is retained only for the historical negative-canvas
+comparison below. The canonical YOLOv8 P3/P4/P5 no-Mosaic MuSGD baseline is now
+reported in Section 2.1a and must be used for the primary baseline reference.
 The negative-canvas runs report the merged metrics from their verified HF
 artifacts:
 
 - R1: `test_merged/AP50-Small = 0.6771773148`.
 - R4: `test_merged/AP50-Small = 0.6645901893`.
 
-Relative to the available baseline, R1 is +0.0033 test AP50 and +0.0030 test
-mAP50-95, while R4 is -0.0058 test AP50 and -0.0031 test mAP50-95. R1 also
-exceeds R4 by 0.0126 merged AP50-Small. Do not treat these as a clean causal
-architecture-matched ablation until a P3/P4/P5 TinyPerson no-negative-canvas
-baseline is available.
+#### Current-session TinyPerson R1 seed replication
 
-HF sources:
+The current session also completed two additional R1 runs using the canonical
+YOLOv8 P3/P4/P5 detector with **base standard Mosaic enabled** (`mosaic=1.0`,
+`close_mosaic=10`), `negative_cp_p=0.30`, empirical target scale, matched donor,
+resize-only rendering, training seeds 43 and 44, and fixed split seed 42. These
+are NegativeCanvas R1 results, not no-Copy-Paste Mosaic controls.
+
+| Run | Mosaic / seed | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 | test_merged/AP50-Small |
+|---|---|---:|---:|---:|---:|---:|
+| R1 seed 43 | Standard Mosaic, seed 43 | 0.552287 | 0.202082 | 0.521823 | 0.187141 | **0.689397** |
+| R1 seed 44 | Standard Mosaic, seed 44 | 0.556521 | 0.201771 | 0.514203 | 0.185507 | **0.681343** |
+| Mean | Fixed protocol, seeds 43/44 | **0.554404** | **0.201926** | **0.518013** | **0.186324** | **0.685370** |
+
+Both runs have verified weights, split-qualified evaluation metrics,
+`experiment_manifest.json`, and `upload_complete.json` in
+`duyle2408/tinyperson-negative-canvas-r1-r4-runs`:
+
+- [R1 seed 43 evaluation metrics](https://huggingface.co/datasets/duyle2408/tinyperson-negative-canvas-r1-r4-runs/blob/main/copy_paste/tinyperson/negative_canvas_r1/seed_43/evaluation_metrics.json)
+- [R1 seed 44 evaluation metrics](https://huggingface.co/datasets/duyle2408/tinyperson-negative-canvas-r1-r4-runs/blob/main/copy_paste/tinyperson/negative_canvas_r1/seed_44/evaluation_metrics.json)
+
+The session also launched LEVIR R1 seed 43 with Mosaic disabled, fixed split
+seed 42, and the same canonical detector, but that run was still active at the
+time of this report update. No LEVIR seed-43 metric is reported here until its
+evaluation and HF upload are verified.
+
+#### Current-session TinyPerson R1 with P2/P3/P4
+
+A later session completed a separate NegativeCanvas R1 run with the historical YOLOv8n P2/P3/P4 plain detector, **Mosaic disabled**, training seed 42, fixed split seed 42, and the official TinyPerson corner-window protocol. This is not the same detector or Mosaic protocol as the canonical P3/P4/P5 R1 seed-43/44 replication above.
+
+| Run | Detector / Mosaic / seed | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 | test_merged/AP50-Small |
+|---|---|---:|---:|---:|---:|---:|
+| R1 seed 42 | P2/P3/P4 plain, no Mosaic | 0.55368 | 0.20086 | 0.51816 | 0.18917 | 0.66977 |
+
+The session recorded a clean training exit, complete split-qualified evaluation, merged evaluation, and verified upload. The task-specific HF repository is `duyle2408/tinyperson-yolov8n-p2p3p4-negative-canvas-r1-runs`; its public `evaluation_metrics.json` confirms the values above, including `test_merged/available=1.0` and `test_merged/AP50-Small=0.6697681534`.
+
+HF source: [P2/P3/P4 R1 evaluation metrics](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-negative-canvas-r1-runs/blob/main/copy_paste/tinyperson/negative_canvas_r1/no_mosaic/seed_42/evaluation_metrics.json)
 
 - [R1 evaluation metrics](https://huggingface.co/datasets/duyle2408/tinyperson-negative-canvas-r1-r4-runs/blob/main/copy_paste/tinyperson/negative_canvas_r1/seed_42/evaluation_metrics.json)
 - [R4 evaluation metrics](https://huggingface.co/datasets/duyle2408/tinyperson-negative-canvas-r1-r4-runs/blob/main/copy_paste/tinyperson/negative_canvas_r4/seed_42/evaluation_metrics.json)
