@@ -1,6 +1,6 @@
 # Augmentation Report: OACP, Copy-Paste, and Mosaic Runs
 
-**Updated:** 2026-10-02
+**Updated:** 2026-10-03
 **Scope:** the Hugging Face repositories and run names supplied in the request, filtered to experiments involving **OACP**, **Copy-Paste**, **Mosaic**, or a direct no-augmentation/no-Mosaic control.
 **Primary metric:** mAP50-95(B). Values are fractions, not percentages.
 
@@ -8,7 +8,36 @@
 
 The filtered results do not represent one clean ablation table. They contain several experiment families with different detectors, datasets, split/training seeds, schedules, and metric artifacts. The most reliable conclusions are therefore **within matched families**, not from a single global ranking.
 
-**Live-run status:** the currently running matched adaptive Mosaic + current-OACP experiment is not treated as completed evidence here. Its validation/test metrics and remote upload acceptance are not yet available. The numeric adaptive-OACP rows below come from previously uploaded artifacts identified in the compiled results reports; they are not a status claim about the still-running job.
+**Final matrix status:** the YOLO augmentation matrix is complete and remotely verified at **38/38 runs**: OACP **12/12**, Mosaic **10/10**, and Copy-Paste **16/16**. Every uploaded evaluation artifact contains explicit `val/AP50`, `val/mAP50-95`, `test/AP50`, and `test/mAP50-95` fields. This completion statement is limited to the augmentation matrix and does not include DETR or RT-DETR jobs.
+
+### 1.1 Final augmentation matrix completion
+
+The task-specific Hugging Face repositories contain one completion marker and one
+split-qualified evaluation artifact for every run in the final matrix:
+
+| Family | Hugging Face repository | Verified runs | `upload_complete.json` | Split-qualified evaluation files |
+|---|---|---:|---:|---:|
+| OACP | `duyle2408/augmentation-oacp-runs` | 12 | 12 | 12 |
+| Mosaic | `duyle2408/augmentation-mosaic-runs` | 10 | 10 | 10 |
+| Copy-Paste | `duyle2408/augmentation-copy-paste-runs` | 16 | 16 | 16 |
+| **Total** | 3 task-specific repositories | **38** | **38** | **38** |
+
+The completed queue uses training seed 42 and split seed 42. The final
+augmentation report preserves split-qualified validation and held-out test
+metrics rather than substituting validation values for test values. TinyPerson
+rows retain the `sw640/sh512` corner-window test protocol where applicable;
+`test/*` and `test_merged/*` are not interchangeable.
+
+The final LEVIR Copy-Paste run, `negative_canvas_r4/no_mosaic/seed_42`, reports:
+
+| Run | `val/AP50` | `val/mAP50-95` | `test/AP50` | `test/mAP50-95` | Test protocol |
+|---|---:|---:|---:|---:|---|
+| Copy-Paste negative-canvas R4, no Mosaic, seed 42 | 0.717299 | 0.259869 | 0.670821 | 0.231321 | LEVIR-Ship standard held-out test split |
+
+The 38 uploaded evaluation files are the source of truth for the complete
+matrix. Existing sections below retain older experiment families and their
+provenance caveats, so unlike detector configurations and historical screens
+are not pooled into the final 38-run count.
 
 Main observations:
 
@@ -757,7 +786,7 @@ The fixed-split seed groups in the supplied list are useful for stability checks
 - No universal claim that Copy-Paste improves LEVIR. In the corrected post-hoc family, CP2 is highest among CP0-CP3, while the older manifest-only table gives a different ranking and is retained only as historical evidence.
 - No pooling of legacy double-OACP and corrected single-pass OACP results.
 - No uncertainty estimate from the single-seed Mosaic and Copy-Paste matrices.
-- No validation/test result or upload-acceptance claim for the currently running adaptive Mosaic + current-OACP job.
+- The final augmentation matrix is now complete and upload-verified at 38/38. This does not remove the report's cautions about single-seed uncertainty or about comparing unlike detector architectures.
 
 ### Recommended publication-quality follow-up
 
