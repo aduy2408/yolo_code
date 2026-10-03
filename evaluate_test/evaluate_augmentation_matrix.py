@@ -202,9 +202,6 @@ def main() -> None:
     from huggingface_hub import HfApi
     api = HfApi(token=token)
     api.create_repo(repo_id=args.hf_repo_id, repo_type="dataset", exist_ok=True)
-    args.dataset_root.mkdir(parents=True, exist_ok=True)
-    args.project.mkdir(parents=True, exist_ok=True)
-    prepared = {(dataset, method): prepare_dataset(dataset, args, method) for dataset in DATASETS for method in ("oacp", "mosaic", "copy_paste")}
     jobs = source_prefixes(api)
     if args.jobs:
         wanted = set(args.jobs)
@@ -212,6 +209,11 @@ def main() -> None:
         missing = sorted(wanted - {prefix for _, prefix in jobs})
         if missing:
             raise RuntimeError(f"Requested prefixes not found: {missing}")
+    required_pairs = {(prefix.split("/")[0], prefix.split("/")[1]) for _, prefix in jobs}
+    prepared = {
+        pair: prepare_dataset(pair[0], args, pair[1])
+        for pair in sorted(required_pairs)
+    }
     print(json.dumps({"jobs": len(jobs), "output_repo": args.hf_repo_id}, sort_keys=True), flush=True)
     for repo, prefix in jobs:
         evaluate_one(api, args, repo, prefix, prepared)
