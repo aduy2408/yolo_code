@@ -211,6 +211,15 @@ report["runtime"]["python"] = probe.stdout.splitlines()[0]
 report["runtime"]["version"] = probe.stdout.splitlines()[1] if len(probe.stdout.splitlines()) > 1 else ""
 
 imports = "from transformers import DetrForObjectDetection, DetrImageProcessor, RTDetrForObjectDetection, RTDetrImageProcessor"
+timm_probe = subprocess.run([str(python), "-c", "import timm; print(timm.__version__)"], capture_output=True, text=True)
+if timm_probe.returncode:
+    install = subprocess.run([str(python), "-m", "pip", "install", "--disable-pip-version-check", "timm"], capture_output=True, text=True)
+    timm_probe = subprocess.run([str(python), "-c", "import timm; print(timm.__version__)"], capture_output=True, text=True)
+report["runtime"]["timm_import"] = timm_probe.returncode == 0
+if timm_probe.returncode == 0:
+    report["runtime"]["timm_version"] = timm_probe.stdout.strip()
+else:
+    report["runtime"]["timm_error"] = timm_probe.stderr[-2000:]
 transformers_probe = subprocess.run([str(python), "-c", imports], capture_output=True, text=True)
 report["runtime"]["transformers_import"] = transformers_probe.returncode == 0
 if transformers_probe.returncode:
