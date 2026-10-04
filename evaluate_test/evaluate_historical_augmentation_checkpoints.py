@@ -39,6 +39,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--split-seed", type=int, default=42)
     p.add_argument("--image-size", type=int, default=640)
+    p.add_argument("--epochs", type=int, default=100, help="Contract metadata; evaluation does not train")
+    p.add_argument("--patience", type=int, default=0, help="Contract metadata; evaluation does not train")
+    p.add_argument("--seed", type=int, default=42, help="Contract metadata")
+    p.add_argument("--model-yaml", default="source checkpoint weights/best.pt", help="Contract metadata")
+    p.add_argument("--data-root", default="matrix", help="Contract metadata")
+    p.add_argument("--nms-iou", type=float, default=0.5, help="Evaluation metadata")
     p.add_argument("--force", action="store_true")
     return p.parse_args()
 
