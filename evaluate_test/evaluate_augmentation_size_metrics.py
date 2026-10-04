@@ -144,6 +144,9 @@ def evaluate_standard_metrics(out_dir: Path, data_yaml: Path, dataset: str, args
 
 
 def evaluate_size_metrics(out_dir: Path, dataset: str, data_yaml: Path, test_root: Path, data_root: Path, args: argparse.Namespace) -> tuple[dict, list[Path], str]:
+    from train_scripts.train_all_yolo_baselines_no_mosaic import local_ultralytics
+
+    local_ultralytics()
     eval_args = SimpleNamespace(
         batch_size=args.batch_size,
         imgsz=args.image_size,
