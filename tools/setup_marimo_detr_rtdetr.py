@@ -211,15 +211,16 @@ report["runtime"]["python"] = probe.stdout.splitlines()[0]
 report["runtime"]["version"] = probe.stdout.splitlines()[1] if len(probe.stdout.splitlines()) > 1 else ""
 
 imports = "from transformers import DetrForObjectDetection, DetrImageProcessor, RTDetrForObjectDetection, RTDetrImageProcessor"
-timm_probe = subprocess.run([str(python), "-c", "import timm; print(timm.__version__)"], capture_output=True, text=True)
-if timm_probe.returncode:
-    install = subprocess.run([str(python), "-m", "pip", "install", "--disable-pip-version-check", "timm"], capture_output=True, text=True)
-    timm_probe = subprocess.run([str(python), "-c", "import timm; print(timm.__version__)"], capture_output=True, text=True)
-report["runtime"]["timm_import"] = timm_probe.returncode == 0
-if timm_probe.returncode == 0:
-    report["runtime"]["timm_version"] = timm_probe.stdout.strip()
-else:
-    report["runtime"]["timm_error"] = timm_probe.stderr[-2000:]
+for dependency, probe_code in (("timm", "import timm; print(timm.__version__)"), ("pycocotools", "from pycocotools.coco import COCO; print('ok')")):
+    dependency_probe = subprocess.run([str(python), "-c", probe_code], capture_output=True, text=True)
+    if dependency_probe.returncode:
+        subprocess.run([str(python), "-m", "pip", "install", "--disable-pip-version-check", dependency], capture_output=True, text=True)
+        dependency_probe = subprocess.run([str(python), "-c", probe_code], capture_output=True, text=True)
+    report["runtime"][f"{dependency}_import"] = dependency_probe.returncode == 0
+    if dependency_probe.returncode == 0:
+        report["runtime"][f"{dependency}_version"] = dependency_probe.stdout.strip()
+    else:
+        report["runtime"][f"{dependency}_error"] = dependency_probe.stderr[-2000:]
 transformers_probe = subprocess.run([str(python), "-c", imports], capture_output=True, text=True)
 report["runtime"]["transformers_import"] = transformers_probe.returncode == 0
 if transformers_probe.returncode:
