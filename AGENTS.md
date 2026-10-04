@@ -65,6 +65,18 @@ log/artifact timestamps, and `run_contract.json`. A checkpoint without test
 metrics is an evaluation-pending run, not permission to retrain. A dead PID
 with incomplete artifacts must be classified as interrupted or unverified.
 
+**Concrete progress reporting contract:** When the user asks for `progress`,
+report numeric workflow progress from the relevant artifact set, not only
+liveness. Include `completed/total`, the number still pending, the current
+PID/state, the newest log or artifact timestamp, and the exact artifact marker
+being counted. For an evaluation queue, count per-prefix completion markers
+only after the required split-qualified validation/test metrics and bucket
+artifacts are present. Report upload progress separately as
+`local_complete/total` and `HF_verified/total`. If a helper's process identity
+heuristic conflicts with direct `/proc` liveness and the exact command in
+`state.json`, report both observations and do not reduce the concrete artifact
+count to zero. Never answer a progress question with only “alive” or “running”.
+
 8. Create and use a **task-specific Hugging Face repository** for every
    experiment. Never use a generic shared repository such as
    `stw-yolo-runs`. Prefer an explicit ID following
