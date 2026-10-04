@@ -51,6 +51,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root-levir", type=Path, default=Path(DATA_ROOTS["levirship"]))
     parser.add_argument("--data-root-tinyperson", type=Path, default=Path(DATA_ROOTS["tinyperson"]))
     parser.add_argument("--data-root-varroa", type=Path, default=Path(DATA_ROOTS["varroa"]))
+    parser.add_argument("--data-yaml-levir", type=Path)
+    parser.add_argument("--data-yaml-tinyperson", type=Path)
+    parser.add_argument("--data-yaml-varroa", type=Path)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--hf-repo-id", required=True)
@@ -99,6 +102,16 @@ def split_prefix(repo: str, prefix: str) -> tuple[str, str, int, str]:
 
 
 def prepare_dataset(dataset: str, args: argparse.Namespace) -> Path:
+    existing = {
+        "levirship": getattr(args, "data_yaml_levir", None),
+        "tinyperson": getattr(args, "data_yaml_tinyperson", None),
+        "varroa": getattr(args, "data_yaml_varroa", None),
+    }[dataset]
+    if existing is not None:
+        path = Path(existing).resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"Existing dataset YAML does not exist: {path}")
+        return path
     if dataset == "levirship":
         from misc.prepare_levir_ship import prepare
         return prepare(
