@@ -32,7 +32,18 @@ DATA_ROOTS = {
     "varroa": "/marimo/Varroa",
 }
 IMAGE_SIZES = {"levirship": 512, "tinyperson": 640, "varroa": 640}
-REQUIRED_METRICS = ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95")
+REQUIRED_METRICS = (
+    "val/AP50",
+    "val/AP75",
+    "val/mAP50-95",
+    "val_size/AP50-Small",
+    "val_size/AP75",
+    "test/AP50",
+    "test/AP75",
+    "test/mAP50-95",
+    "test_size/AP50-Small",
+    "test_size/AP75",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -118,6 +129,7 @@ def prepare_dataset(dataset: str, args: argparse.Namespace) -> Path:
 
 def evaluate_checkpoint(checkpoint: Path, data_yaml: Path, dataset: str, out_dir: Path, args: argparse.Namespace) -> dict[str, float | str]:
     from train_scripts.train_all_yolo_baselines_no_mosaic import local_ultralytics
+    from size_bucket_evaluator import evaluate_native_size_buckets
     local_ultralytics()
     from ultralytics import YOLO
 
@@ -138,7 +150,19 @@ def evaluate_checkpoint(checkpoint: Path, data_yaml: Path, dataset: str, out_dir
             exist_ok=True,
         )
         metrics[f"{split}/AP50"] = float(result.results_dict["metrics/mAP50(B)"])
+        metrics[f"{split}/AP75"] = float(result.box.map75)
         metrics[f"{split}/mAP50-95"] = float(result.results_dict["metrics/mAP50-95(B)"])
+        metrics.update(
+            evaluate_native_size_buckets(
+                out_dir,
+                data_yaml,
+                split=split,
+                imgsz=IMAGE_SIZES[dataset],
+                batch=args.batch_size,
+                device=args.device,
+                workers=args.workers,
+            )
+        )
     metrics["nms_iou"] = 0.5
     metrics["split_seed"] = args.split_seed
     if dataset == "tinyperson":
@@ -198,8 +222,9 @@ def main() -> None:
         metrics = evaluate_checkpoint(checkpoint, prepared[dataset], dataset, out_dir, args)
         metrics.update({"dataset": dataset, "model": model, "seed": seed, "mode": mode, "source_repo": repo, "source_prefix": prefix, "output_repo": args.hf_repo_id, "output_prefix": output_prefix})
         metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        if any(key not in metrics for key in REQUIRED_METRICS):
-            raise RuntimeError(f"Missing split-qualified metrics for {output_prefix}")
+        missing = [key for key in REQUIRED_METRICS if key not in metrics]
+        if missing:
+            raise RuntimeError(f"Missing split-qualified metrics for {output_prefix}: {missing}")
         manifest_path.write_text(json.dumps({"source_repo": repo, "source_prefix": prefix, "output_repo": args.hf_repo_id, "output_prefix": output_prefix, "dataset": dataset, "model": model, "seed": seed, "mode": mode, "split_seed": args.split_seed, "nms_iou": 0.5, "required_metrics": list(REQUIRED_METRICS), "test_protocol": metrics["test_protocol"]}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         marker_path.write_text(json.dumps({"verified": True, "output_prefix": output_prefix, "required_metrics": list(REQUIRED_METRICS)}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         for local, remote in ((metrics_path, f"{output_prefix}/evaluation_metrics.json"), (manifest_path, f"{output_prefix}/evaluation_manifest.json"), (marker_path, f"{output_prefix}/evaluation_complete.json")):
