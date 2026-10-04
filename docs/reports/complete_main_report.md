@@ -179,3 +179,57 @@ defaults to training artifacts such as `weights/best.pt`, `weights/last.pt`, and
 `results.csv`, so it is not the completion gate for this evaluator-only run.
 The evaluator-specific marker, manifest, metric, protocol, and HF remote-path
 checks are the authoritative completion evidence here.
+
+### 8.1 AP75 and AP50-Small values from the uploaded size evaluator
+
+The earlier 12-row tables were a compact reporting slice and therefore did not
+show the newly backfilled size-evaluator fields. The values below are read from
+the uploaded `evaluation_metrics.json` artifacts. They are explicitly labeled
+as native size-bucket metrics. For TinyPerson, the `test_merged/*` columns use
+the original-image merged protocol. `--` means that the merged protocol does
+not apply to that dataset, not that the native `test_size/*` metric is absent.
+
+| Dataset | Method | Variant | Mosaic | `val_size/AP75` | `val_size/AP50-Small` | `test_size/AP75` | `test_size/AP50-Small` | `test_merged/AP75` | `test_merged/AP50-Small` |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|
+| LEVIR | Copy-Paste | CP1 | Off | 0.0695 | 0.4818 | 0.0654 | 0.4980 | -- | -- |
+| LEVIR | Copy-Paste | CP3 | Off | 0.0565 | 0.6150 | 0.0500 | 0.5499 | -- | -- |
+| LEVIR | Copy-Paste | NegativeCanvas R1 | Off | 0.0676 | 0.6892 | 0.0539 | 0.6126 | -- | -- |
+| LEVIR | Copy-Paste | NegativeCanvas R4 | Off | 0.0635 | 0.6195 | 0.0581 | 0.6267 | -- | -- |
+| TinyPerson | Copy-Paste | CP1 | On | 0.0879 | 0.5495 | 0.0815 | 0.5196 | 0.0882 | 0.6658 |
+| TinyPerson | Copy-Paste | CP1 | Off | 0.0624 | 0.4598 | 0.0650 | 0.4543 | 0.0710 | 0.6005 |
+| TinyPerson | Copy-Paste | CP3 | On | 0.0870 | 0.5339 | 0.0771 | 0.5127 | 0.0816 | 0.6571 |
+| TinyPerson | Copy-Paste | CP3 | Off | 0.0736 | 0.5238 | 0.0635 | 0.4593 | 0.0668 | 0.6101 |
+| TinyPerson | Copy-Paste | NegativeCanvas R1 | On | 0.0890 | 0.5071 | 0.0759 | 0.5074 | 0.0845 | 0.6542 |
+| TinyPerson | Copy-Paste | NegativeCanvas R1 | Off | 0.0719 | 0.4083 | 0.0592 | 0.4422 | 0.0612 | 0.5863 |
+| TinyPerson | Copy-Paste | NegativeCanvas R4 | On | 0.0923 | 0.5248 | 0.0814 | 0.5106 | 0.0899 | 0.6580 |
+| TinyPerson | Copy-Paste | NegativeCanvas R4 | Off | 0.0631 | 0.4255 | 0.0611 | 0.4662 | 0.0669 | 0.6160 |
+| Varroa | Copy-Paste | CP1 | On | 0.1028 | 0.7869 | 0.1080 | 0.7612 | -- | -- |
+| Varroa | Copy-Paste | CP3 | On | 0.1121 | 0.7650 | 0.1019 | 0.7599 | -- | -- |
+| Varroa | Copy-Paste | NegativeCanvas R1 | On | 0.1021 | 0.7761 | 0.1040 | 0.7385 | -- | -- |
+| Varroa | Copy-Paste | NegativeCanvas R4 | On | 0.0874 | 0.7882 | 0.0832 | 0.7272 | -- | -- |
+| TinyPerson | Mosaic | M2 Cluster-preserving | On | 0.0727 | 0.5307 | 0.0711 | 0.4582 | 0.0789 | 0.6087 |
+| TinyPerson | Mosaic | M3 Post-scale-constrained | On | 0.0815 | 0.5215 | 0.0713 | 0.4818 | 0.0800 | 0.6399 |
+| TinyPerson | Mosaic | M4 Adaptive-geometry | On | 0.0880 | 0.5565 | 0.0816 | 0.5173 | 0.0878 | 0.6567 |
+| TinyPerson | Mosaic | M5 Hard-negative | On | 0.0826 | 0.4916 | 0.0728 | 0.4907 | 0.0822 | 0.6568 |
+| TinyPerson | Mosaic | Standard | On | 0.0991 | 0.5077 | 0.0771 | 0.4999 | 0.0844 | 0.6584 |
+| Varroa | Mosaic | M2 Cluster-preserving | On | 0.0956 | 0.8188 | 0.0628 | 0.8254 | -- | -- |
+| Varroa | Mosaic | M3 Post-scale-constrained | On | 0.0901 | 0.8538 | 0.0896 | 0.8482 | -- | -- |
+| Varroa | Mosaic | M4 Adaptive-geometry | On | 0.0849 | 0.9134 | 0.0807 | 0.8868 | -- | -- |
+| Varroa | Mosaic | M5 Hard-negative | On | 0.0889 | 0.8727 | 0.1029 | 0.8466 | -- | -- |
+| Varroa | Mosaic | Standard | On | 0.0789 | 0.8858 | 0.0870 | 0.8596 | -- | -- |
+| LEVIR | OACP | Load-adaptive | Off | 0.0658 | 0.6966 | 0.0676 | 0.6416 | -- | -- |
+| LEVIR | OACP | Mass-adaptive | Off | 0.0459 | 0.5923 | 0.0306 | 0.5532 | -- | -- |
+| LEVIR | OACP | Spacing-adaptive | Off | 0.0789 | 0.6900 | 0.0554 | 0.6126 | -- | -- |
+| TinyPerson | OACP | Load-adaptive | On | 0.0864 | 0.5690 | 0.0777 | 0.5046 | 0.0832 | 0.6462 |
+| TinyPerson | OACP | Load-adaptive | Off | 0.0635 | 0.4689 | 0.0550 | 0.4393 | 0.0606 | 0.5732 |
+| TinyPerson | OACP | Mass-adaptive | On | 0.0929 | 0.5151 | 0.0794 | 0.5047 | 0.0854 | 0.6541 |
+| TinyPerson | OACP | Mass-adaptive | Off | 0.0696 | 0.4372 | 0.0570 | 0.4303 | 0.0612 | 0.5787 |
+| TinyPerson | OACP | Spacing-adaptive | On | 0.0907 | 0.5214 | 0.0788 | 0.5084 | 0.0846 | 0.6527 |
+| TinyPerson | OACP | Spacing-adaptive | Off | 0.0631 | 0.4379 | 0.0579 | 0.4515 | 0.0612 | 0.5845 |
+| Varroa | OACP | Load-adaptive | On | 0.0927 | 0.8844 | 0.0977 | 0.8422 | -- | -- |
+| Varroa | OACP | Mass-adaptive | On | 0.0981 | 0.8530 | 0.1012 | 0.8709 | -- | -- |
+| Varroa | OACP | Spacing-adaptive | On | 0.1069 | 0.8891 | 0.1174 | 0.8632 | -- | -- |
+
+These values are the backfill the report previously omitted. The underlying
+artifacts already contained them, so no retraining was required and no metric
+was inferred from another run.
