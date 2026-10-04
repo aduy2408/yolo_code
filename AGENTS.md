@@ -18,14 +18,21 @@ When a user asks to train, evaluate, or upload through Marimo, the agent MUST:
    Persistent Marimo source mounts are canonical: `/marimo/LevirShip`,
    `/marimo/Varroa`, and `/marimo/TinyPerson` (with the known Levir nested
    layout `/marimo/LevirShip/LevirShipData`).
-4. Launch only through `python -m utils.marimo_ops launch`. Direct
+4. If the user's original request explicitly includes training, evaluation, or
+   upload, a successful setup/preflight is authorization to continue directly
+   to launch. Do not ask for a second confirmation between setup and launch.
+   This automatic continuation is fail-closed: stop on any failed or ambiguous
+   checkout, executable, dataset, runner, seed, artifact, authentication, or
+   task-specific HF repository gate. A setup-only request does not authorize a
+   training launch.
+5. Launch only through `python -m utils.marimo_ops launch`. Direct
    `subprocess.Popen`, `nohup`, or ad-hoc background launches are forbidden for
    training jobs.
-5. Stop at the first failed shared gate. For independent multi-server runs,
+6. Stop at the first failed shared gate. For independent multi-server runs,
    stop only the affected slot at a per-run failure and continue healthy slots.
    Never add `--no-upload`, change the dataset root, or substitute a repository
    to make a run proceed.
-6. After preflight, schedule runs according to the number of independent live
+7. After preflight, schedule runs according to the number of independent live
    Marimo servers explicitly supplied or successfully discovered:
    - With one usable server, keep the queue sequential. Verify local artifacts
      and remote upload before starting the next variant.
@@ -58,7 +65,7 @@ log/artifact timestamps, and `run_contract.json`. A checkpoint without test
 metrics is an evaluation-pending run, not permission to retrain. A dead PID
 with incomplete artifacts must be classified as interrupted or unverified.
 
-7. Create and use a **task-specific Hugging Face repository** for every
+8. Create and use a **task-specific Hugging Face repository** for every
    experiment. Never use a generic shared repository such as
    `stw-yolo-runs`. Prefer an explicit ID following
    `<hf-user>/<dataset>-<experiment>-runs`, for example
@@ -66,7 +73,7 @@ with incomplete artifacts must be classified as interrupted or unverified.
    `MARIMO_TASK_NAME` so the shared helper derives a task-specific repository,
    and fail preflight if neither is configured.
 
-8. Every evaluation and report MUST include both validation and test metrics,
+9. Every evaluation and report MUST include both validation and test metrics,
    explicitly labeled by split: `AP50`, `mAP50-95`, and the corresponding
    `AP50`/`mAP50-95` values for **both** `val` and `test`. Never present a
    validation metric as a test result, and never report an unlabeled AP/mAP

@@ -109,6 +109,27 @@ and run an import check before proceeding with merged corner-window evaluation.
 - Do not overwrite a dirty remote checkout blindly. Use a clean checkout or
   stop and report the conflict.
 
+## Automatic continuation after setup
+
+When the user's original request explicitly asks to train, evaluate, or upload,
+the workflow is end-to-end. After the setup and complete preflight pass, launch
+the requested job immediately through `python -m utils.marimo_ops launch`.
+Do not pause for a second confirmation just because setup and launch are two
+separate technical steps.
+
+This rule does not authorize guessing a workload. If the request only says to
+set up or validate a server, stop after setup. If the request names a workload,
+the initial request authorizes the entire declared queue, including independent
+server slots and automatic backfilling after per-run verification.
+
+The continuation remains fail-closed. Stop before launch when any shared gate
+fails or is ambiguous: exact commit, clean checkout, executable, runner import,
+dataset root/YAML/split paths, requested settings, authentication,
+task-specific Hugging Face repository, or immutable run contract. For an
+independent multi-server queue, isolate the failed slot and continue only
+healthy slots. Report the launch PID and durable run directory immediately
+after each successful launch.
+
 ## 1. Local experiment contract
 
 Before coding, record:
