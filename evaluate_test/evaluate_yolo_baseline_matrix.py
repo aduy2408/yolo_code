@@ -46,6 +46,19 @@ REQUIRED_METRICS = (
 )
 
 
+def pinned_upstream_ultralytics() -> None:
+    """Prefer the pinned upstream runtime over the legacy compatibility fork."""
+    upstream = str(ROOT / "vendor/ultralytics_upstream")
+    sys.path[:] = [
+        entry
+        for entry in sys.path
+        if "models_related/ultralytics" not in str(Path(entry).resolve())
+    ]
+    if upstream in sys.path:
+        sys.path.remove(upstream)
+    sys.path.insert(0, upstream)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root-levir", type=Path, default=Path(DATA_ROOTS["levirship"]))
@@ -145,9 +158,8 @@ def prepare_dataset(dataset: str, args: argparse.Namespace) -> Path:
 
 
 def evaluate_checkpoint(checkpoint: Path, data_yaml: Path, dataset: str, out_dir: Path, args: argparse.Namespace) -> dict[str, float | str]:
-    from train_scripts.train_all_yolo_baselines_no_mosaic import local_ultralytics
     from evaluate_test.size_bucket_evaluator import evaluate_native_size_buckets
-    local_ultralytics()
+    pinned_upstream_ultralytics()
     from ultralytics import YOLO
 
     model = YOLO(checkpoint)
