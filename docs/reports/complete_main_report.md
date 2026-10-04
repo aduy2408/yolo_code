@@ -19,6 +19,53 @@ The final matrix coverage is:
 
 **Evaluation backlog:** there is no remaining training or checkpoint-evaluation backlog for the 38-run matrix. The three rows summarized with `--` below are report-slice mapping gaps. The complete all-run artifact set contains the required core and size-bucket metrics for every run, with TinyPerson merged metrics under the explicit `test_merged/*` protocol where applicable.
 
+### 1.2 Consolidated AP75 and AP50-Small table
+
+This is the top-level size-metric table for the OACP, Mosaic, and Copy-Paste
+tables below. Values come from the completed size evaluator. For TinyPerson,
+the final small-object column is the merged original-image metric; for LEVIR
+and Varroa it is the native `test_size/AP50-Small` metric. `--` means that the
+exact requested variant/protocol is not present in the 38-run size queue.
+
+| Method | Variant | Dataset | Mosaic | Val AP75 | Val AP50-Small | Test AP75 | Test AP50-Small |
+|---|---|---|---|---:|---:|---:|---:|
+| OACP | Spacing-adaptive | LEVIR | Off | 0.0789 | 0.6900 | 0.0554 | 0.6126 |
+| OACP | Spacing-adaptive | TinyPerson | On | 0.0907 | 0.5214 | 0.0788 | 0.6527 |
+| OACP | Spacing-adaptive | Varroa | On | 0.1069 | 0.8891 | 0.1174 | 0.8632 |
+| OACP | Load-adaptive | LEVIR | Off | 0.0658 | 0.6966 | 0.0676 | 0.6416 |
+| OACP | Load-adaptive | TinyPerson | On | 0.0864 | 0.5690 | 0.0777 | 0.6462 |
+| OACP | Load-adaptive | Varroa | On | 0.0927 | 0.8844 | 0.0977 | 0.8422 |
+| OACP | Mass-adaptive | LEVIR | Off | 0.0459 | 0.5923 | 0.0306 | 0.5532 |
+| OACP | Mass-adaptive | TinyPerson | On | 0.0929 | 0.5151 | 0.0794 | 0.6541 |
+| OACP | Mass-adaptive | Varroa | On | 0.0981 | 0.8530 | 0.1012 | 0.8709 |
+| Mosaic | Standard | LEVIR | On | -- | -- | -- | -- |
+| Mosaic | Standard | TinyPerson | On | 0.0991 | 0.5077 | 0.0771 | 0.6584 |
+| Mosaic | Standard | Varroa | On | 0.0789 | 0.8858 | 0.0870 | 0.8596 |
+| Mosaic | M2 Cluster-preserving | LEVIR | On | -- | -- | -- | -- |
+| Mosaic | M2 Cluster-preserving | TinyPerson | On | 0.0727 | 0.5307 | 0.0711 | 0.6087 |
+| Mosaic | M2 Cluster-preserving | Varroa | On | 0.0956 | 0.8188 | 0.0628 | 0.8254 |
+| Mosaic | M3 Post-scale-constrained | LEVIR | On | -- | -- | -- | -- |
+| Mosaic | M3 Post-scale-constrained | TinyPerson | On | 0.0815 | 0.5215 | 0.0713 | 0.6399 |
+| Mosaic | M3 Post-scale-constrained | Varroa | On | 0.0901 | 0.8538 | 0.0896 | 0.8482 |
+| Mosaic | M4 Adaptive-geometry | LEVIR | On | -- | -- | -- | -- |
+| Mosaic | M4 Adaptive-geometry | TinyPerson | On | 0.0880 | 0.5565 | 0.0816 | 0.6567 |
+| Mosaic | M4 Adaptive-geometry | Varroa | On | 0.0849 | 0.9134 | 0.0807 | 0.8868 |
+| Mosaic | M5 Hard-negative | LEVIR | On | -- | -- | -- | -- |
+| Mosaic | M5 Hard-negative | TinyPerson | On | 0.0826 | 0.4916 | 0.0728 | 0.6568 |
+| Mosaic | M5 Hard-negative | Varroa | On | 0.0889 | 0.8727 | 0.1029 | 0.8466 |
+| Copy-Paste | CP1 Single-object | LEVIR | Off | 0.0695 | 0.4818 | 0.0654 | 0.4980 |
+| Copy-Paste | CP1 Single-object | TinyPerson | Off | 0.0624 | 0.4598 | 0.0650 | 0.6005 |
+| Copy-Paste | CP1 Single-object | Varroa | On | 0.1028 | 0.7869 | 0.1080 | 0.7612 |
+| Copy-Paste | CP3 Clustered | LEVIR | Off | 0.0565 | 0.6150 | 0.0500 | 0.5499 |
+| Copy-Paste | CP3 Clustered | TinyPerson | Off | 0.0736 | 0.5238 | 0.0635 | 0.6101 |
+| Copy-Paste | CP3 Clustered | Varroa | On | 0.1121 | 0.7650 | 0.1019 | 0.7599 |
+| Copy-Paste | NegativeCanvas R1 | LEVIR | Off | 0.0676 | 0.6892 | 0.0539 | 0.6126 |
+| Copy-Paste | NegativeCanvas R1 | TinyPerson | Off | 0.0719 | 0.4083 | 0.0592 | 0.5863 |
+| Copy-Paste | NegativeCanvas R1 | Varroa | On | 0.1021 | 0.7761 | 0.1040 | 0.7385 |
+| Copy-Paste | NegativeCanvas R4 | LEVIR | Off | 0.0635 | 0.6195 | 0.0581 | 0.6267 |
+| Copy-Paste | NegativeCanvas R4 | TinyPerson | Off | 0.0631 | 0.4255 | 0.0611 | 0.6160 |
+| Copy-Paste | NegativeCanvas R4 | Varroa | On | 0.0874 | 0.7882 | 0.0832 | 0.7272 |
+
 ---
 
 ## 2. OACP: 3 variants
