@@ -267,11 +267,17 @@ def _upload(run_dir: Path, repo_id: str, remote_prefix: str) -> None:
         raise RuntimeError(f"HF upload verification failed for {remote_prefix}: {missing_remote}")
 
 
-def _train_one(spec: dict[str, str], data_yaml: Path, test_root: Path, args: argparse.Namespace) -> Path:
+def _train_one(
+    spec: dict[str, str],
+    data_yaml: Path,
+    test_root: Path,
+    args: argparse.Namespace,
+    seed: int,
+) -> Path:
     _configure_env(spec)
     repo_id = args.hf_repos[spec["method"]]
-    remote_prefix = "/".join((spec["dataset"], spec["method"], spec["variant"], spec["mosaic_mode"], f"seed_{args.seed}"))
-    run_dir = args.project / spec["dataset"] / spec["method"] / spec["variant"] / spec["mosaic_mode"] / f"seed_{args.seed}"
+    remote_prefix = "/".join((spec["dataset"], spec["method"], spec["variant"], spec["mosaic_mode"], f"seed_{seed}"))
+    run_dir = args.project / spec["dataset"] / spec["method"] / spec["variant"] / spec["mosaic_mode"] / f"seed_{seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
     if _complete(run_dir, repo_id, remote_prefix):
         print(f"SKIP verified {remote_prefix}", flush=True)
@@ -289,7 +295,7 @@ def _train_one(spec: dict[str, str], data_yaml: Path, test_root: Path, args: arg
         "data_root": str(args.data_roots[spec["dataset"]]),
         "dataset_yaml": str(data_yaml),
         "dataset_label_policy": "all_records_including_negative_images" if spec["method"] == "copy_paste" and spec["dataset"] == "varroa" else "positive_only",
-        "seed": args.seed,
+        "seed": seed,
         "split_seed": args.split_seed,
         "epochs": args.epochs,
         "patience": args.patience,
@@ -317,7 +323,7 @@ def _train_one(spec: dict[str, str], data_yaml: Path, test_root: Path, args: arg
         model.load(args.pretrained, smart_transfer=True)
         model.train(
             data=str(data_yaml), epochs=args.epochs, patience=args.patience, imgsz=args.imgsz[spec["dataset"]],
-            batch=args.batch_size, device=args.device, workers=args.workers, amp=args.amp, seed=args.seed,
+            batch=args.batch_size, device=args.device, workers=args.workers, amp=args.amp, seed=seed,
             deterministic=True, plots=False, project=str(run_dir.parent), name=run_dir.name, exist_ok=True,
             val=True, iou=args.nms_iou, optimizer="auto", **settings,
         )
@@ -358,7 +364,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hard-negative-bank-tinyperson", type=Path)
     parser.add_argument("--hard-negative-bank-varroa", type=Path)
     parser.add_argument("--pretrained", default="yolov8n.pt")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=None, help="Backward-compatible single training seed")
+    parser.add_argument("--seeds", type=int, nargs="+", default=None, help="Training seeds; split seed remains fixed at 42")
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
@@ -391,17 +398,24 @@ def main(argv: list[str] | None = None) -> None:
     args.hf_repos = {"oacp": args.hf_repo_oacp, "mosaic": args.hf_repo_mosaic, "copy_paste": args.hf_repo_copy_paste}
     args.scale_statistics = {"levir": args.scale_statistics_levir, "tinyperson": args.scale_statistics_tinyperson, "varroa": args.scale_statistics_varroa}
     args.hard_negative_banks = {"levir": args.hard_negative_bank_levir, "tinyperson": args.hard_negative_bank_tinyperson, "varroa": args.hard_negative_bank_varroa}
+    if args.seeds is not None and args.seed is not None:
+        raise ValueError("Use either --seed or --seeds, not both")
+    args.training_seeds = list(args.seeds if args.seeds is not None else [args.seed if args.seed is not None else 42])
+    if not args.training_seeds or len(set(args.training_seeds)) != len(args.training_seeds):
+        raise ValueError("Training seeds must be non-empty and unique")
+    if any(seed < 0 for seed in args.training_seeds):
+        raise ValueError("Training seeds must be non-negative")
 
     specs = job_specs(args)
     if not specs:
         raise ValueError("No jobs selected. LEVIR Mosaic-policy jobs are intentionally skipped because LEVIR uses no Mosaic.")
     if args.print_effective_config:
-        print(json.dumps({"job_count": len(specs), "jobs": specs}, indent=2, sort_keys=True))
+        print(json.dumps({"job_count": len(specs) * len(args.training_seeds), "seeds": args.training_seeds, "split_seed": args.split_seed, "jobs": specs}, indent=2, sort_keys=True))
         return
     if not args.confirm_settings:
         raise RuntimeError("Refusing to train without --confirm-settings")
-    if (args.seed, args.split_seed, args.epochs, args.patience, args.workers) != (42, 42, 100, 0, 8):
-        raise ValueError("Matrix requires seed=42, split-seed=42, epochs=100, patience=0, workers=8")
+    if (args.split_seed, args.epochs, args.patience, args.workers) != (42, 100, 0, 8):
+        raise ValueError("Matrix requires split-seed=42, epochs=100, patience=0, workers=8")
     if any(spec["variant"] == "M3_post_scale_constrained" and (args.scale_statistics[spec["dataset"]] is None or not args.scale_statistics[spec["dataset"]].is_file()) for spec in specs):
         raise ValueError("M3 requires an existing --scale-statistics-{levir,tinyperson,varroa} file for every selected dataset")
     if any(spec["variant"] == "M5_hard_negative" and (args.hard_negative_banks[spec["dataset"]] is None or not args.hard_negative_banks[spec["dataset"]].is_file()) for spec in specs):
@@ -417,10 +431,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.prepare_only:
         print(json.dumps({f"{dataset}/{method}": {"dataset_yaml": str(values[0]), "test_root": str(values[1])} for (dataset, method), values in prepared.items()}, indent=2, sort_keys=True))
         return
-    for spec in specs:
-        print(f"START {spec['dataset']}/{spec['method']}/{spec['variant']}/{spec['mosaic_mode']}", flush=True)
-        _train_one(spec, prepared[(spec["dataset"], spec["method"])][0], prepared[(spec["dataset"], spec["method"])][1], args)
-    print(f"Completed {len(specs)} augmentation runs.", flush=True)
+    completed = 0
+    for seed in args.training_seeds:
+        for spec in specs:
+            print(f"START seed_{seed} {spec['dataset']}/{spec['method']}/{spec['variant']}/{spec['mosaic_mode']}", flush=True)
+            _train_one(spec, prepared[(spec["dataset"], spec["method"])][0], prepared[(spec["dataset"], spec["method"])][1], args, seed)
+            completed += 1
+    print(f"Completed {completed} augmentation runs across seeds {args.training_seeds} with split_seed={args.split_seed}.", flush=True)
 
 
 if __name__ == "__main__":
