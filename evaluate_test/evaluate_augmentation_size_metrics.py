@@ -114,6 +114,30 @@ def download_json(huggingface_hub, repo: str, path: str, destination: Path) -> d
         return {}
 
 
+def evaluate_standard_metrics(out_dir: Path, data_yaml: Path, dataset: str, args: argparse.Namespace) -> dict[str, float]:
+    from ultralytics import YOLO
+
+    model = YOLO(out_dir / "weights/best.pt")
+    metrics: dict[str, float] = {}
+    for split in ("val", "test"):
+        result = model.val(
+            data=str(data_yaml),
+            split=split,
+            imgsz=args.image_size,
+            batch=args.batch_size,
+            device=args.device,
+            workers=args.workers,
+            iou=0.5,
+            plots=False,
+            project=str(out_dir / "evaluation"),
+            name=f"standard_{split}",
+            exist_ok=True,
+        )
+        metrics[f"{split}/AP50"] = float(result.results_dict["metrics/mAP50(B)"])
+        metrics[f"{split}/mAP50-95"] = float(result.results_dict["metrics/mAP50-95(B)"])
+    return metrics
+
+
 def evaluate_size_metrics(out_dir: Path, dataset: str, data_yaml: Path, test_root: Path, data_root: Path, args: argparse.Namespace) -> tuple[dict, list[Path], str]:
     eval_args = SimpleNamespace(
         batch_size=args.batch_size,
@@ -121,29 +145,36 @@ def evaluate_size_metrics(out_dir: Path, dataset: str, data_yaml: Path, test_roo
         device=args.device,
         workers=args.workers,
     )
-    if dataset == "tinyperson":
-        from train_scripts.train_all_tinyperson import evaluate_merged_test
+    from evaluate_test.size_bucket_evaluator import evaluate_native_size_buckets
 
-        metrics = evaluate_merged_test(out_dir, test_root, data_root, eval_args)
-        metrics["test_size/protocol"] = "TinyPerson official corner-window merged TinyBenchmark evaluator; IoU=0.50:0.05:0.75"
-        artifact_paths = [out_dir / "evaluation" / "test_merged_predictions.json"]
-        return metrics, artifact_paths, "test_merged"
-
-    from evaluate_test.size_bucket_evaluator import evaluate_native_test_size_buckets
-
-    metrics = evaluate_native_test_size_buckets(
-        out_dir,
-        data_yaml,
-        imgsz=args.image_size,
-        batch=args.batch_size,
-        device=args.device,
-        workers=args.workers,
-    )
+    metrics: dict[str, float | str] = {}
+    for split in ("val", "test"):
+        metrics.update(
+            evaluate_native_size_buckets(
+                out_dir,
+                data_yaml,
+                split=split,
+                imgsz=args.image_size,
+                batch=args.batch_size,
+                device=args.device,
+                workers=args.workers,
+            )
+        )
     artifact_paths = [
+        out_dir / "evaluation" / "val_size_ground_truth.json",
+        out_dir / "evaluation" / "val_size_predictions.json",
         out_dir / "evaluation" / "test_size_ground_truth.json",
         out_dir / "evaluation" / "test_size_predictions.json",
     ]
-    return metrics, artifact_paths, "test_size"
+    protocol_family = "native_test_size_and_val_size"
+    if dataset == "tinyperson":
+        from train_scripts.train_all_tinyperson import evaluate_merged_test
+
+        metrics.update(evaluate_merged_test(out_dir, test_root, data_root, eval_args))
+        metrics["test_merged/protocol"] = "TinyPerson official corner-window merged TinyBenchmark evaluator; IoU=0.50:0.05:0.75"
+        artifact_paths.append(out_dir / "evaluation" / "test_merged_predictions.json")
+        protocol_family = "native_val_test_size_and_tinyperson_test_merged"
+    return metrics, artifact_paths, protocol_family
 
 
 def evaluate_one(api, huggingface_hub, args: argparse.Namespace, repo: str, prefix: str, prepared: dict[tuple[str, str], tuple[Path, Path]], remote_files: set[str]) -> None:
@@ -200,6 +231,13 @@ def evaluate_one(api, huggingface_hub, args: argparse.Namespace, repo: str, pref
         "nms_iou": 0.5,
         "size_metric_family": protocol_family,
     }
+    required_standard = ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95")
+    missing_standard = [key for key in required_standard if key not in metrics]
+    if missing_standard:
+        metrics.update(evaluate_standard_metrics(out_dir, data_yaml, dataset, args))
+    missing_standard = [key for key in required_standard if key not in metrics]
+    if missing_standard:
+        raise RuntimeError(f"Missing split-qualified standard metrics for {prefix}: {missing_standard}")
     metrics_path = out_dir / "evaluation_metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     manifest = {
@@ -216,7 +254,11 @@ def evaluate_one(api, huggingface_hub, args: argparse.Namespace, repo: str, pref
         "nms_iou": 0.5,
         "checkpoint": f"{prefix}/weights/best.pt",
         "size_metric_family": protocol_family,
-        "size_metric_keys": sorted(key for key in size_metrics if key.startswith(("test_size/", "test_merged/"))),
+        "size_metric_keys": sorted(key for key in size_metrics if key.startswith(("val_size/", "test_size/", "test_merged/"))),
+        "size_metric_protocols": {
+            key: value for key, value in size_metrics.items()
+            if key.endswith("/protocol")
+        },
         "size_metric_source_artifacts": [str(path.relative_to(out_dir)) for path in artifacts if path.is_file()],
     }
     manifest_path = out_dir / "size_metrics_manifest.json"
@@ -227,7 +269,10 @@ def evaluate_one(api, huggingface_hub, args: argparse.Namespace, repo: str, pref
             {
                 "repo_id": args.hf_repo_id,
                 "remote_prefix": remote_prefix,
-                "protocol": size_metrics.get(f"{protocol_family}/protocol", ""),
+                "protocols": {
+                    key: value for key, value in size_metrics.items()
+                    if key.endswith("/protocol")
+                },
                 "verified": True,
             },
             indent=2,
@@ -251,7 +296,7 @@ def evaluate_one(api, huggingface_hub, args: argparse.Namespace, repo: str, pref
             {
                 "prefix": prefix,
                 "size_metric_family": protocol_family,
-                "size_metric_keys": sorted(key for key in size_metrics if key.startswith(("test_size/", "test_merged/"))),
+                "size_metric_keys": sorted(key for key in size_metrics if key.startswith(("val_size/", "test_size/", "test_merged/"))),
             },
             sort_keys=True,
         ),

@@ -3,8 +3,8 @@
 TinyPerson has an official corner-window/merged evaluator. Varroa and
 LEVIR-Ship do not use that crop protocol, but their native YOLO test images
 can be evaluated with the same TinyBenchmark area ranges and IoU thresholds.
-The output is deliberately namespaced as ``test_size`` so it is not confused
-with TinyPerson's ``test_merged`` protocol.
+The output is deliberately namespaced as ``val_size`` or ``test_size`` so it is
+not confused with TinyPerson's ``test_merged`` protocol.
 """
 
 from __future__ import annotations
@@ -29,20 +29,20 @@ IOU_THRESHOLDS = tuple(0.50 + 0.05 * index for index in range(6))
 BUCKET_LABELS = ("Tiny1", "Tiny2", "Tiny3", "Small", "Medium")
 
 
-def _resolve_test_images(data_yaml: Path) -> list[Path]:
+def _resolve_split_images(data_yaml: Path, split: str) -> list[Path]:
     import yaml
 
     config = yaml.safe_load(data_yaml.read_text(encoding="utf-8"))
     root = Path(config.get("path", data_yaml.parent))
     if not root.is_absolute():
         root = (data_yaml.parent / root).resolve()
-    test = Path(config["test"])
-    if not test.is_absolute():
-        test = root / test
-    if test.is_file():
-        images = [Path(line.strip()) for line in test.read_text(encoding="utf-8").splitlines() if line.strip()]
-        return [path if path.is_absolute() else (test.parent / path).resolve() for path in images]
-    return sorted(path for path in test.rglob("*") if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"})
+    split_path = Path(config[split])
+    if not split_path.is_absolute():
+        split_path = root / split_path
+    if split_path.is_file():
+        images = [Path(line.strip()) for line in split_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return [path if path.is_absolute() else (split_path.parent / path).resolve() for path in images]
+    return sorted(path for path in split_path.rglob("*") if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"})
 
 
 def _label_path(image_path: Path) -> Path:
@@ -142,7 +142,7 @@ def _precision_ap(precision: Any, iou_index: int, area_index: int) -> float:
     return float(values.mean()) if values.size else -1.0
 
 
-def _evaluate_coco(gt_path: Path, prediction_path: Path) -> dict[str, float]:
+def _evaluate_coco(gt_path: Path, prediction_path: Path, metric_prefix: str) -> dict[str, float]:
     import numpy as np
     from pycocotools.coco import COCO
 
@@ -177,24 +177,51 @@ def _evaluate_coco(gt_path: Path, prediction_path: Path) -> dict[str, float]:
         all_ap = [_precision_ap(precision, index, area_indices["all"]) for index in range(6)]
         valid_all = [value for value in all_ap if value > -1]
         metrics: dict[str, float] = {
-            "test_size/available": 1.0,
-            "test_size/AP50": all_ap[0],
-            "test_size/AP75": all_ap[-1],
-            "test_size/mAP50-75": float(np.mean(valid_all)) if valid_all else -1.0,
+            f"{metric_prefix}/available": 1.0,
+            f"{metric_prefix}/AP50": all_ap[0],
+            f"{metric_prefix}/AP75": all_ap[-1],
+            f"{metric_prefix}/mAP50-75": float(np.mean(valid_all)) if valid_all else -1.0,
         }
         for name in BUCKET_LABELS:
             key = name.lower()
             area_index = area_indices[key]
             bucket_ap = [_precision_ap(precision, index, area_index) for index in range(6)]
             valid_bucket = [value for value in bucket_ap if value > -1]
-            metrics[f"test_size/AP50-{name}"] = bucket_ap[0]
-            metrics[f"test_size/AP-{name}"] = float(np.mean(valid_bucket)) if valid_bucket else -1.0
+            metrics[f"{metric_prefix}/AP50-{name}"] = bucket_ap[0]
+            metrics[f"{metric_prefix}/AP-{name}"] = float(np.mean(valid_bucket)) if valid_bucket else -1.0
         return metrics
     finally:
         module.np.linspace = old_linspace
         if not had_np_float:
             del module.np.float
         module.Params.EVAL_STRANDARD = previous_standard
+
+
+def evaluate_native_size_buckets(
+    run_dir: Path,
+    data_yaml: Path,
+    *,
+    split: str,
+    imgsz: int,
+    batch: int,
+    device: str,
+    workers: int,
+) -> dict[str, float | str]:
+    """Evaluate one native YOLO split with the TinyBenchmark area protocol."""
+    from ultralytics import YOLO
+
+    image_paths = _resolve_split_images(data_yaml, split)
+    if not image_paths:
+        raise FileNotFoundError(f"No test images resolved from {data_yaml}")
+    evaluation_dir = run_dir / "evaluation"
+    evaluation_dir.mkdir(parents=True, exist_ok=True)
+    gt_path = evaluation_dir / f"{split}_size_ground_truth.json"
+    prediction_path = evaluation_dir / f"{split}_size_predictions.json"
+    gt_path.write_text(json.dumps(_coco_ground_truth(image_paths), indent=2) + "\n", encoding="utf-8")
+    prediction_path.write_text(json.dumps(_predictions(YOLO(run_dir / "weights/best.pt"), image_paths, imgsz=imgsz, batch=batch, device=device, workers=workers), indent=2) + "\n", encoding="utf-8")
+    metrics = _evaluate_coco(gt_path, prediction_path, f"{split}_size")
+    metrics[f"{split}_size/protocol"] = f"TinyBenchmark area buckets on native YOLO {split} images; IoU=0.50:0.05:0.75; maxDets=200"
+    return metrics
 
 
 def evaluate_native_test_size_buckets(
@@ -206,18 +233,13 @@ def evaluate_native_test_size_buckets(
     device: str,
     workers: int,
 ) -> dict[str, float | str]:
-    """Evaluate native test images with the TinyBenchmark area protocol."""
-    from ultralytics import YOLO
-
-    image_paths = _resolve_test_images(data_yaml)
-    if not image_paths:
-        raise FileNotFoundError(f"No test images resolved from {data_yaml}")
-    evaluation_dir = run_dir / "evaluation"
-    evaluation_dir.mkdir(parents=True, exist_ok=True)
-    gt_path = evaluation_dir / "test_size_ground_truth.json"
-    prediction_path = evaluation_dir / "test_size_predictions.json"
-    gt_path.write_text(json.dumps(_coco_ground_truth(image_paths), indent=2) + "\n", encoding="utf-8")
-    prediction_path.write_text(json.dumps(_predictions(YOLO(run_dir / "weights/best.pt"), image_paths, imgsz=imgsz, batch=batch, device=device, workers=workers), indent=2) + "\n", encoding="utf-8")
-    metrics = _evaluate_coco(gt_path, prediction_path)
-    metrics["test_size/protocol"] = "TinyBenchmark area buckets on native YOLO test images; IoU=0.50:0.05:0.75; maxDets=200"
-    return metrics
+    """Backward-compatible wrapper for native test-size evaluation."""
+    return evaluate_native_size_buckets(
+        run_dir,
+        data_yaml,
+        split="test",
+        imgsz=imgsz,
+        batch=batch,
+        device=device,
+        workers=workers,
+    )
