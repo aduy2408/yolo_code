@@ -27,44 +27,44 @@ the final small-object column is the merged original-image metric; for LEVIR
 and Varroa it is the native `test_size/AP50-Small` metric. `--` means that the
 exact requested variant/protocol is not present in the 38-run size queue.
 
-| Method | Variant | Dataset | Mosaic | Val AP75 | Val AP50-Small | Test AP75 | Test AP50-Small |
-|---|---|---|---|---:|---:|---:|---:|
-| OACP | Spacing-adaptive | LEVIR | Off | 0.0789 | 0.6900 | 0.0554 | 0.6126 |
-| OACP | Spacing-adaptive | TinyPerson | On | 0.0907 | 0.5214 | 0.0788 | 0.6527 |
-| OACP | Spacing-adaptive | Varroa | On | 0.1069 | 0.8891 | 0.1174 | 0.8632 |
-| OACP | Load-adaptive | LEVIR | Off | 0.0658 | 0.6966 | 0.0676 | 0.6416 |
-| OACP | Load-adaptive | TinyPerson | On | 0.0864 | 0.5690 | 0.0777 | 0.6462 |
-| OACP | Load-adaptive | Varroa | On | 0.0927 | 0.8844 | 0.0977 | 0.8422 |
-| OACP | Mass-adaptive | LEVIR | Off | 0.0459 | 0.5923 | 0.0306 | 0.5532 |
-| OACP | Mass-adaptive | TinyPerson | On | 0.0929 | 0.5151 | 0.0794 | 0.6541 |
-| OACP | Mass-adaptive | Varroa | On | 0.0981 | 0.8530 | 0.1012 | 0.8709 |
-| Mosaic | Standard | LEVIR | On | -- | -- | -- | -- |
-| Mosaic | Standard | TinyPerson | On | 0.0991 | 0.5077 | 0.0771 | 0.6584 |
-| Mosaic | Standard | Varroa | On | 0.0789 | 0.8858 | 0.0870 | 0.8596 |
-| Mosaic | M2 Cluster-preserving | LEVIR | On | -- | -- | -- | -- |
-| Mosaic | M2 Cluster-preserving | TinyPerson | On | 0.0727 | 0.5307 | 0.0711 | 0.6087 |
-| Mosaic | M2 Cluster-preserving | Varroa | On | 0.0956 | 0.8188 | 0.0628 | 0.8254 |
-| Mosaic | M3 Post-scale-constrained | LEVIR | On | -- | -- | -- | -- |
-| Mosaic | M3 Post-scale-constrained | TinyPerson | On | 0.0815 | 0.5215 | 0.0713 | 0.6399 |
-| Mosaic | M3 Post-scale-constrained | Varroa | On | 0.0901 | 0.8538 | 0.0896 | 0.8482 |
-| Mosaic | M4 Adaptive-geometry | LEVIR | On | -- | -- | -- | -- |
-| Mosaic | M4 Adaptive-geometry | TinyPerson | On | 0.0880 | 0.5565 | 0.0816 | 0.6567 |
-| Mosaic | M4 Adaptive-geometry | Varroa | On | 0.0849 | 0.9134 | 0.0807 | 0.8868 |
-| Mosaic | M5 Hard-negative | LEVIR | On | -- | -- | -- | -- |
-| Mosaic | M5 Hard-negative | TinyPerson | On | 0.0826 | 0.4916 | 0.0728 | 0.6568 |
-| Mosaic | M5 Hard-negative | Varroa | On | 0.0889 | 0.8727 | 0.1029 | 0.8466 |
-| Copy-Paste | CP1 Single-object | LEVIR | Off | 0.0695 | 0.4818 | 0.0654 | 0.4980 |
-| Copy-Paste | CP1 Single-object | TinyPerson | Off | 0.0624 | 0.4598 | 0.0650 | 0.6005 |
-| Copy-Paste | CP1 Single-object | Varroa | On | 0.1028 | 0.7869 | 0.1080 | 0.7612 |
-| Copy-Paste | CP3 Clustered | LEVIR | Off | 0.0565 | 0.6150 | 0.0500 | 0.5499 |
-| Copy-Paste | CP3 Clustered | TinyPerson | Off | 0.0736 | 0.5238 | 0.0635 | 0.6101 |
-| Copy-Paste | CP3 Clustered | Varroa | On | 0.1121 | 0.7650 | 0.1019 | 0.7599 |
-| Copy-Paste | NegativeCanvas R1 | LEVIR | Off | 0.0676 | 0.6892 | 0.0539 | 0.6126 |
-| Copy-Paste | NegativeCanvas R1 | TinyPerson | Off | 0.0719 | 0.4083 | 0.0592 | 0.5863 |
-| Copy-Paste | NegativeCanvas R1 | Varroa | On | 0.1021 | 0.7761 | 0.1040 | 0.7385 |
-| Copy-Paste | NegativeCanvas R4 | LEVIR | Off | 0.0635 | 0.6195 | 0.0581 | 0.6267 |
-| Copy-Paste | NegativeCanvas R4 | TinyPerson | Off | 0.0631 | 0.4255 | 0.0611 | 0.6160 |
-| Copy-Paste | NegativeCanvas R4 | Varroa | On | 0.0874 | 0.7882 | 0.0832 | 0.7272 |
+| Method | Variant | Dataset | Mosaic | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 | Val AP75 | Val AP50-Small | Test AP75 | Test AP50-Small |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| OACP | Spacing-adaptive | LEVIR | Off | 0.7343 | 0.2611 | 0.6978 | 0.2512 | 0.0789 | 0.6900 | 0.0554 | 0.6126 |
+| OACP | Spacing-adaptive | TinyPerson | On | 0.5168 | 0.1848 | 0.5009 | 0.1767 | 0.0907 | 0.5214 | 0.0788 | 0.6527 |
+| OACP | Spacing-adaptive | Varroa | On | 0.9199 | 0.3372 | 0.9092 | 0.3424 | 0.1069 | 0.8891 | 0.1174 | 0.8632 |
+| OACP | Load-adaptive | LEVIR | Off | 0.7337 | 0.2691 | 0.7087 | 0.2529 | 0.0658 | 0.6966 | 0.0676 | 0.6416 |
+| OACP | Load-adaptive | TinyPerson | On | 0.5342 | 0.1885 | 0.4941 | 0.1738 | 0.0864 | 0.5690 | 0.0777 | 0.6462 |
+| OACP | Load-adaptive | Varroa | On | 0.9342 | 0.3314 | 0.9063 | 0.3354 | 0.0927 | 0.8844 | 0.0977 | 0.8422 |
+| OACP | Mass-adaptive | LEVIR | Off | 0.7168 | 0.2651 | 0.6621 | 0.2372 | 0.0459 | 0.5923 | 0.0306 | 0.5532 |
+| OACP | Mass-adaptive | TinyPerson | On | 0.5062 | 0.1800 | 0.4956 | 0.1726 | 0.0929 | 0.5151 | 0.0794 | 0.6541 |
+| OACP | Mass-adaptive | Varroa | On | 0.9187 | 0.3343 | 0.9096 | 0.3305 | 0.0981 | 0.8530 | 0.1012 | 0.8709 |
+| Mosaic | Standard | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
+| Mosaic | Standard | TinyPerson | On | 0.5228 | 0.1893 | 0.4993 | 0.1743 | 0.0991 | 0.5077 | 0.0771 | 0.6584 |
+| Mosaic | Standard | Varroa | On | 0.9262 | 0.3283 | 0.9018 | 0.3276 | 0.0789 | 0.8858 | 0.0870 | 0.8596 |
+| Mosaic | M2 Cluster-preserving | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
+| Mosaic | M2 Cluster-preserving | TinyPerson | On | 0.4931 | 0.1686 | 0.4655 | 0.1621 | 0.0727 | 0.5307 | 0.0711 | 0.6087 |
+| Mosaic | M2 Cluster-preserving | Varroa | On | 0.8158 | 0.2744 | 0.7995 | 0.2584 | 0.0956 | 0.8188 | 0.0628 | 0.8254 |
+| Mosaic | M3 Post-scale-constrained | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
+| Mosaic | M3 Post-scale-constrained | TinyPerson | On | 0.4931 | 0.1738 | 0.4803 | 0.1677 | 0.0815 | 0.5215 | 0.0713 | 0.6399 |
+| Mosaic | M3 Post-scale-constrained | Varroa | On | 0.9129 | 0.3320 | 0.9047 | 0.3202 | 0.0901 | 0.8538 | 0.0896 | 0.8482 |
+| Mosaic | M4 Adaptive-geometry | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
+| Mosaic | M4 Adaptive-geometry | TinyPerson | On | 0.5065 | 0.1851 | 0.4876 | 0.1724 | 0.0880 | 0.5565 | 0.0816 | 0.6567 |
+| Mosaic | M4 Adaptive-geometry | Varroa | On | 0.8762 | 0.2969 | 0.8500 | 0.2891 | 0.0849 | 0.9134 | 0.0807 | 0.8868 |
+| Mosaic | M5 Hard-negative | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
+| Mosaic | M5 Hard-negative | TinyPerson | On | 0.4981 | 0.1772 | 0.4708 | 0.1643 | 0.0826 | 0.4916 | 0.0728 | 0.6568 |
+| Mosaic | M5 Hard-negative | Varroa | On | 0.9335 | 0.3326 | 0.9098 | 0.3349 | 0.0889 | 0.8727 | 0.1029 | 0.8466 |
+| Copy-Paste | CP1 Single-object | LEVIR | Off | 0.7466 | 0.2786 | 0.6936 | 0.2495 | 0.0695 | 0.4818 | 0.0654 | 0.4980 |
+| Copy-Paste | CP1 Single-object | TinyPerson | Off | 0.4351 | 0.1500 | 0.4363 | 0.1514 | 0.0624 | 0.4598 | 0.0650 | 0.6005 |
+| Copy-Paste | CP1 Single-object | Varroa | On | 0.8640 | 0.3160 | 0.8579 | 0.3150 | 0.1028 | 0.7869 | 0.1080 | 0.7612 |
+| Copy-Paste | CP3 Clustered | LEVIR | Off | 0.7057 | 0.2622 | 0.6790 | 0.2451 | 0.0565 | 0.6150 | 0.0500 | 0.5499 |
+| Copy-Paste | CP3 Clustered | TinyPerson | Off | 0.4459 | 0.1585 | 0.4478 | 0.1558 | 0.0736 | 0.5238 | 0.0635 | 0.6101 |
+| Copy-Paste | CP3 Clustered | Varroa | On | 0.8571 | 0.3127 | 0.8639 | 0.3201 | 0.1121 | 0.7650 | 0.1019 | 0.7599 |
+| Copy-Paste | NegativeCanvas R1 | LEVIR | Off | 0.6907 | 0.2506 | 0.6562 | 0.2316 | 0.0676 | 0.6892 | 0.0539 | 0.6126 |
+| Copy-Paste | NegativeCanvas R1 | TinyPerson | Off | 0.4324 | 0.1513 | 0.4227 | 0.1442 | 0.0719 | 0.4083 | 0.0592 | 0.5863 |
+| Copy-Paste | NegativeCanvas R1 | Varroa | On | 0.8688 | 0.3175 | 0.8521 | 0.3064 | 0.1021 | 0.7761 | 0.1040 | 0.7385 |
+| Copy-Paste | NegativeCanvas R4 | LEVIR | Off | 0.7173 | 0.2599 | 0.6708 | 0.2313 | 0.0635 | 0.6195 | 0.0581 | 0.6267 |
+| Copy-Paste | NegativeCanvas R4 | TinyPerson | Off | 0.4378 | 0.1537 | 0.4393 | 0.1497 | 0.0631 | 0.4255 | 0.0611 | 0.6160 |
+| Copy-Paste | NegativeCanvas R4 | Varroa | On | 0.8816 | 0.3166 | 0.8453 | 0.3053 | 0.0874 | 0.7882 | 0.0832 | 0.7272 |
 
 ---
 
