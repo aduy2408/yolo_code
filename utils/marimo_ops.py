@@ -433,6 +433,8 @@ def preflight(
         }
         for key, actual in (("epochs", epochs), ("patience", patience), ("hf_repo_id", hf_repo_id),
                             ("data_root", data_root), ("dataset_yaml", dataset_yaml)):
+            if declared[key] == "matrix":
+                continue
             if declared[key] is None:
                 if actual is None:
                     raise MarimoOpsError(f"Preflight must provide matrix contract value for {key}")
