@@ -203,6 +203,12 @@ def evaluate_one(api, huggingface_hub, args: argparse.Namespace, repo: str, pref
 
     checkpoint = out_dir / "weights" / "best.pt"
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    if args.defer_upload and not args.force:
+        local_marker = out_dir / "size_metrics_complete.json"
+        if (local_marker.is_file() and (out_dir / "evaluation_metrics.json").is_file()
+                and (out_dir / "size_metrics_manifest.json").is_file()):
+            print(f"SKIP_LOCAL_SIZE_COMPLETE {prefix}", flush=True)
+            return
     if not checkpoint.is_file():
         downloaded = huggingface_hub.hf_hub_download(
             repo_id=repo,
