@@ -437,9 +437,9 @@ def main(argv: list[str] | None = None) -> None:
         raise RuntimeError("Refusing to train without --confirm-settings")
     if (args.split_seed, args.epochs, args.patience, args.workers) != (42, 100, 0, 8):
         raise ValueError("Matrix requires split-seed=42, epochs=100, patience=0, workers=8")
-    if any(spec["variant"] == "M3_post_scale_constrained" and (args.scale_statistics[spec["dataset"]] is None or not args.scale_statistics[spec["dataset"]].is_file()) for spec in specs):
+    if any(spec["variant"] == "M3_post_scale_constrained" and (args.scale_statistics[spec["dataset"]] is None or not args.scale_statistics[spec["dataset"]].is_file()) for _, spec in queue):
         raise ValueError("M3 requires an existing --scale-statistics-{levir,tinyperson,varroa} file for every selected dataset")
-    if any(spec["variant"] == "M5_hard_negative" and (args.hard_negative_banks[spec["dataset"]] is None or not args.hard_negative_banks[spec["dataset"]].is_file()) for spec in specs):
+    if any(spec["variant"] == "M5_hard_negative" and (args.hard_negative_banks[spec["dataset"]] is None or not args.hard_negative_banks[spec["dataset"]].is_file()) for _, spec in queue):
         raise ValueError("M5 requires an existing --hard-negative-bank-{levir,tinyperson,varroa} file for every selected dataset")
     for repo_id in args.hf_repos.values():
         require_training_context(hf_repo_id=repo_id)
