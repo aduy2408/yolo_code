@@ -41,16 +41,16 @@ exact requested variant/protocol is not present in the 38-run size queue.
 | Mosaic | Standard | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
 | Mosaic | Standard | TinyPerson | On | 0.5228 | 0.1893 | 0.4993 | 0.1743 | 0.0991 | 0.5077 | 0.0771 | 0.6584 |
 | Mosaic | Standard | Varroa | On | 0.9262 | 0.3283 | 0.9018 | 0.3276 | 0.0789 | 0.8858 | 0.0870 | 0.8596 |
-| Mosaic | M2 Cluster-preserving | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
+| Mosaic | M2 Cluster-preserving | LEVIR | On | 0.6812 | 0.2221 | 0.6307 | 0.2035 | 0.0542 | 0.6085 | 0.0557 | 0.6051 |
 | Mosaic | M2 Cluster-preserving | TinyPerson | On | 0.4931 | 0.1686 | 0.4655 | 0.1621 | 0.0727 | 0.5307 | 0.0711 | 0.6087 |
 | Mosaic | M2 Cluster-preserving | Varroa | On | 0.8158 | 0.2744 | 0.7995 | 0.2584 | 0.0956 | 0.8188 | 0.0628 | 0.8254 |
-| Mosaic | M3 Post-scale-constrained | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
+| Mosaic | M3 Post-scale-constrained | LEVIR | On | 0.6473 | 0.1966 | 0.5887 | 0.1790 | 0.0386 | 0.6951 | 0.0368 | 0.6579 |
 | Mosaic | M3 Post-scale-constrained | TinyPerson | On | 0.4931 | 0.1738 | 0.4803 | 0.1677 | 0.0815 | 0.5215 | 0.0713 | 0.6399 |
 | Mosaic | M3 Post-scale-constrained | Varroa | On | 0.9129 | 0.3320 | 0.9047 | 0.3202 | 0.0901 | 0.8538 | 0.0896 | 0.8482 |
-| Mosaic | M4 Adaptive-geometry | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
+| Mosaic | M4 Adaptive-geometry | LEVIR | On | 0.6198 | 0.1982 | 0.6043 | 0.1904 | 0.0402 | 0.6698 | 0.0497 | 0.6340 |
 | Mosaic | M4 Adaptive-geometry | TinyPerson | On | 0.5065 | 0.1851 | 0.4876 | 0.1724 | 0.0880 | 0.5565 | 0.0816 | 0.6567 |
 | Mosaic | M4 Adaptive-geometry | Varroa | On | 0.8762 | 0.2969 | 0.8500 | 0.2891 | 0.0849 | 0.9134 | 0.0807 | 0.8868 |
-| Mosaic | M5 Hard-negative | LEVIR | On | -- | -- | -- | -- | -- | -- | -- | -- |
+| Mosaic | M5 Hard-negative | LEVIR | On | 0.6912 | 0.2314 | 0.6706 | 0.2090 | 0.0759 | 0.7004 | 0.0641 | 0.6416 |
 | Mosaic | M5 Hard-negative | TinyPerson | On | 0.4981 | 0.1772 | 0.4708 | 0.1643 | 0.0826 | 0.4916 | 0.0728 | 0.6568 |
 | Mosaic | M5 Hard-negative | Varroa | On | 0.9335 | 0.3326 | 0.9098 | 0.3349 | 0.0889 | 0.8727 | 0.1029 | 0.8466 |
 | Copy-Paste | CP1 Single-object | LEVIR | Off | 0.7466 | 0.2786 | 0.6936 | 0.2495 | 0.0695 | 0.4818 | 0.0654 | 0.4980 |
@@ -65,6 +65,8 @@ exact requested variant/protocol is not present in the 38-run size queue.
 | Copy-Paste | NegativeCanvas R4 | LEVIR | Off | 0.7173 | 0.2599 | 0.6708 | 0.2313 | 0.0635 | 0.6195 | 0.0581 | 0.6267 |
 | Copy-Paste | NegativeCanvas R4 | TinyPerson | Off | 0.4378 | 0.1537 | 0.4393 | 0.1497 | 0.0631 | 0.4255 | 0.0611 | 0.6160 |
 | Copy-Paste | NegativeCanvas R4 | Varroa | On | 0.8816 | 0.3166 | 0.8453 | 0.3053 | 0.0874 | 0.7882 | 0.0832 | 0.7272 |
+
+The LEVIR M2-M5 rows above are provenance-matched historical checkpoint evaluations, not values imputed from the 38-run size queue. Source checkpoints came from `duyle2408/mosaic-only-yolo-runs`; the read-only backfill used the native LEVIR split, split seed `42`, image size `640`, workers `8`, NMS IoU `0.50`, and uploaded verified artifacts to `duyle2408/augmentation-checkpoint-eval-20261004-runs` under `historical_mosaic/levir/<variant>/seed_42`. The LEVIR Standard row remains `--` because no matching Standard checkpoint was evaluated in this backfill.
 
 ---
 
