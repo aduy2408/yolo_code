@@ -1,12 +1,12 @@
 # Complete Main Report: Augmentation Matrix
 
-**Updated:** 2026-10-03  
+**Updated:** 2026-10-04
 **Scope:** YOLO augmentation matrix only: OACP, Mosaic, and Copy-Paste.  
 **Metric policy:** preserve split-qualified metrics exactly as reported. Use `--` when a metric is absent from the source artifact. Do not relabel unsplit metrics as validation or test metrics.
 
 ## 1. Report status
 
-This report consolidates the 12 requested augmentation variants from the completed YOLO augmentation matrix. All 38 augmentation jobs are complete and upload-verified. A row or metric marked as pending below means that this report has not yet mapped or evaluated that metric field for the corresponding completed run. It does **not** mean that the training job is missing.
+This report consolidates the 12 requested augmentation variants from the completed YOLO augmentation matrix. All 38 augmentation jobs are complete and upload-verified. The all-run read-only evaluation now also produced split-qualified core metrics and size-bucket metrics for all 38 checkpoints. A row or metric marked as `--` below means that this report slice has not copied that field into its table, not that the underlying run, checkpoint, or all-run evaluation is missing.
 
 The final matrix coverage is:
 
@@ -17,7 +17,7 @@ The final matrix coverage is:
 | Copy-Paste | 4 | 0 | 2 | 0 | **2** |
 | **Total** | **12** | **0** | **3** | **0** | **3 rows** |
 
-**Evaluation backlog:** all 38 jobs are already complete. The remaining 3 rows summarized here are report-level split-metric gaps, not missing training jobs. A read-only checkpoint backfill verified 20 selected prefixes and populated the Varroa rows plus the missing core fields for the selected LEVIR/TinyPerson rows.
+**Evaluation backlog:** there is no remaining training or checkpoint-evaluation backlog for the 38-run matrix. The three rows summarized with `--` below are report-slice mapping gaps. The complete all-run artifact set contains the required core and size-bucket metrics for every run, with TinyPerson merged metrics under the explicit `test_merged/*` protocol where applicable.
 
 ---
 
@@ -101,16 +101,16 @@ These values remain explicitly unsplit and must not be copied into `val/*` or `t
 
 ## 5. Evaluation backlog
 
-### 5.1 Completed runs with metric mapping gaps
+### 5.1 Report-slice mapping gaps
 
-The following 3 report rows still need metric mapping or checkpoint evaluation in this selected view. The underlying augmentation jobs are already included in the completed 38-run matrix:
+The following 3 report rows still need table mapping in this selected view. The underlying augmentation jobs and their all-run evaluation artifacts are already complete:
 
 - Mosaic: M5 / TinyPerson.
 - Copy-Paste: CP1 / TinyPerson; CP3 / TinyPerson.
 
-### 5.2 Existing checkpoints with missing metrics
+### 5.2 Existing checkpoints and unmapped table fields
 
-Rows containing `--` are not automatically metric gaps in this report. Before training, check whether the existing run has a checkpoint and manifest. If it does, schedule read-only evaluation to populate only the missing fields, preserving:
+Rows containing `--` are not automatically metric gaps in this report. The complete all-run evaluation has already populated the required core and bucket artifacts. If this table is expanded with an optional field, use the existing checkpoint and manifest and preserve:
 
 - dataset and exact split protocol;
 - detector YAML and commit;
@@ -142,10 +142,40 @@ Add AP75 and AP50-S only when the evaluator emits them under an explicit protoco
 - [`docs/reports/report_yolo.md`](report_yolo.md)
 - [`docs/reports/huggingface_results_20260912.md`](huggingface_results_20260912.md)
 
-The source augmentation report records the final **38/38 completed and upload-verified** augmentation matrix. This 12-variant view is a reporting slice over that completed matrix. The **3 pending rows** above are metric extraction/evaluation gaps in this report, not missing training jobs.
+The source augmentation report records the final **38/38 completed and upload-verified** augmentation matrix. This 12-variant view is a reporting slice over that completed matrix. The **3 rows** above are table-mapping gaps only, not missing training jobs or missing all-run evaluation artifacts.
 
 ## 7. Verified checkpoint backfill
 
 The read-only evaluation completed on the supplied Marimo endpoint without retraining. The task-specific output repository is `duyle2408/augmentation-evaluation-backfill-runs`. It contains **20/20** `evaluation_backfill_complete.json` markers and **20/20** `evaluation_metrics.json` files for the selected prefixes. Every verified metrics artifact contains `val/AP50`, `val/mAP50-95`, `test/AP50`, and `test/mAP50-95`.
 
 The evaluator used commit `87c9924069d774fdd2f1212773303070bf1d7551`, split seed `42`, NMS IoU `0.5`, image size `640`, and the following test protocols: LEVIR-Ship standard held-out test split, Varroa standard held-out test split, and TinyPerson standard corner-window test plus merged evaluator. The generic `utils.marimo_ops artifacts` training contract is not used as the completion gate for this evaluation because checkpoint evaluation intentionally produces metrics, manifests, and completion markers rather than training weights or `results.csv`.
+
+## 8. Complete all-run size and bucket evaluation
+
+The final read-only evaluator processed every augmentation checkpoint without retraining and uploaded the results to the task-specific repository `duyle2408/augmentation-size-metrics-runs`.
+
+| Artifact or check | Verified count | Result |
+|---|---:|---|
+| Local `size_metrics_complete.json` markers | 38/38 | Complete |
+| Local `size_metrics_manifest.json` files | 38/38 | Complete |
+| Local `evaluation_metrics.json` files | 38/38 | Complete |
+| Required split-qualified core fields | 38/38 | `val/AP50`, `val/mAP50-95`, `test/AP50`, `test/mAP50-95` present |
+| `val_size/*` and `test_size/*` bucket fields | 38/38 | Complete |
+| TinyPerson `test_merged/*` artifacts | 19 prefixes | Present where the merged protocol applies |
+| HF completion markers | 38/38 | Upload verified |
+| HF manifests | 38/38 | Upload verified |
+| HF evaluation metrics | 38/38 | Upload verified |
+| Required remote triplet paths | 114/114 | No missing paths |
+
+The evaluator recorded finite numeric values for the required core and bucket
+metrics, explicit split labels, and protocol metadata. TinyPerson standard
+corner-window `test/*` metrics remain distinct from original-image merged
+`test_merged/*` metrics. No validation metric was relabeled as test, and no
+unsplit metric was promoted into a split-qualified field.
+
+The upload-only phase exited with return code `0` through `python -m
+utils.marimo_ops launch`. The generic `utils.marimo_ops artifacts` command still
+defaults to training artifacts such as `weights/best.pt`, `weights/last.pt`, and
+`results.csv`, so it is not the completion gate for this evaluator-only run.
+The evaluator-specific marker, manifest, metric, protocol, and HF remote-path
+checks are the authoritative completion evidence here.
