@@ -367,6 +367,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=None, help="Backward-compatible single training seed")
     parser.add_argument("--seeds", type=int, nargs="+", default=None, help="Training seeds; split seed remains fixed at 42")
     parser.add_argument("--split-seed", type=int, default=42)
+    parser.add_argument(
+        "--range",
+        dest="job_range",
+        type=int,
+        nargs=2,
+        metavar=("START", "END"),
+        help="Run the inclusive 1-based queue range after deterministic seed/spec ordering",
+    )
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -409,8 +417,21 @@ def main(argv: list[str] | None = None) -> None:
     specs = job_specs(args)
     if not specs:
         raise ValueError("No jobs selected. LEVIR Mosaic-policy jobs are intentionally skipped because LEVIR uses no Mosaic.")
+    queue = [(seed, spec) for seed in args.training_seeds for spec in specs]
+    if args.job_range is not None:
+        start, end = args.job_range
+        if start < 1 or end < start or end > len(queue):
+            raise ValueError(f"--range must be an inclusive 1-based interval within 1..{len(queue)}, got {start}..{end}")
+        queue = queue[start - 1:end]
     if args.print_effective_config:
-        print(json.dumps({"job_count": len(specs) * len(args.training_seeds), "seeds": args.training_seeds, "split_seed": args.split_seed, "jobs": specs}, indent=2, sort_keys=True))
+        print(json.dumps({
+            "job_count": len(queue),
+            "full_job_count": len(specs) * len(args.training_seeds),
+            "seeds": args.training_seeds,
+            "split_seed": args.split_seed,
+            "range": args.job_range,
+            "jobs": [{"seed": seed, **spec} for seed, spec in queue],
+        }, indent=2, sort_keys=True))
         return
     if not args.confirm_settings:
         raise RuntimeError("Refusing to train without --confirm-settings")
@@ -432,12 +453,11 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps({f"{dataset}/{method}": {"dataset_yaml": str(values[0]), "test_root": str(values[1])} for (dataset, method), values in prepared.items()}, indent=2, sort_keys=True))
         return
     completed = 0
-    for seed in args.training_seeds:
-        for spec in specs:
-            print(f"START seed_{seed} {spec['dataset']}/{spec['method']}/{spec['variant']}/{spec['mosaic_mode']}", flush=True)
-            _train_one(spec, prepared[(spec["dataset"], spec["method"])][0], prepared[(spec["dataset"], spec["method"])][1], args, seed)
-            completed += 1
-    print(f"Completed {completed} augmentation runs across seeds {args.training_seeds} with split_seed={args.split_seed}.", flush=True)
+    for seed, spec in queue:
+        print(f"START queue_job {completed + 1} seed_{seed} {spec['dataset']}/{spec['method']}/{spec['variant']}/{spec['mosaic_mode']}", flush=True)
+        _train_one(spec, prepared[(spec["dataset"], spec["method"])][0], prepared[(spec["dataset"], spec["method"])][1], args, seed)
+        completed += 1
+    print(f"Completed {completed} augmentation runs in range {args.job_range or [1, len(specs) * len(args.training_seeds)]} across seeds {args.training_seeds} with split_seed={args.split_seed}.", flush=True)
 
 
 if __name__ == "__main__":

@@ -424,6 +424,11 @@ def preflight(
         missing = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
         if missing:
             raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing))
+        matrix_keys = {
+            key
+            for key in ("epochs", "patience", "hf_repo_id", "data_root", "dataset_yaml")
+            if contract.get(key) == "matrix"
+        }
         declared = {
             "epochs": contract["epochs"],
             "patience": contract["patience"],
@@ -433,7 +438,7 @@ def preflight(
         }
         for key, actual in (("epochs", epochs), ("patience", patience), ("hf_repo_id", hf_repo_id),
                             ("data_root", data_root), ("dataset_yaml", dataset_yaml)):
-            if declared[key] == "matrix":
+            if key in matrix_keys:
                 continue
             if declared[key] is None:
                 if actual is None:
