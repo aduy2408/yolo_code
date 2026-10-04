@@ -446,9 +446,9 @@ def main(argv: list[str] | None = None) -> None:
         ensure_hf_repo(repo_id)
 
     prepared: dict[tuple[str, str], tuple[Path, Path]] = {}
-    for dataset in args.datasets:
-        for method in args.methods:
-            prepared[(dataset, method)] = _prepare_dataset(dataset, method, args)
+    needed_pairs = sorted({(spec["dataset"], spec["method"]) for _, spec in queue})
+    for dataset, method in needed_pairs:
+        prepared[(dataset, method)] = _prepare_dataset(dataset, method, args)
     if args.prepare_only:
         print(json.dumps({f"{dataset}/{method}": {"dataset_yaml": str(values[0]), "test_root": str(values[1])} for (dataset, method), values in prepared.items()}, indent=2, sort_keys=True))
         return
