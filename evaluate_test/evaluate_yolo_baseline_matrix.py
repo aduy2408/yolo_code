@@ -146,7 +146,7 @@ def prepare_dataset(dataset: str, args: argparse.Namespace) -> Path:
 
 def evaluate_checkpoint(checkpoint: Path, data_yaml: Path, dataset: str, out_dir: Path, args: argparse.Namespace) -> dict[str, float | str]:
     from train_scripts.train_all_yolo_baselines_no_mosaic import local_ultralytics
-    from size_bucket_evaluator import evaluate_native_size_buckets
+    from evaluate_test.size_bucket_evaluator import evaluate_native_size_buckets
     local_ultralytics()
     from ultralytics import YOLO
 
