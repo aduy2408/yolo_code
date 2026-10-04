@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from huggingface_hub import CommitOperationAdd
+
 ROOT = Path(__file__).resolve().parents[1]
 REPOS = {
     "oacp": "duyle2408/augmentation-oacp-runs",
@@ -297,8 +299,15 @@ def evaluate_one(api, huggingface_hub, args: argparse.Namespace, repo: str, pref
     for artifact in artifacts:
         if artifact.is_file():
             uploads.append((artifact, f"{remote_prefix}/{artifact.relative_to(out_dir)}"))
-    for local, remote in uploads:
-        api.upload_file(path_or_fileobj=str(local), path_in_repo=remote, repo_id=args.hf_repo_id, repo_type="dataset")
+    api.create_commit(
+        repo_id=args.hf_repo_id,
+        repo_type="dataset",
+        operations=[
+            CommitOperationAdd(path_in_repo=remote, path_or_fileobj=str(local))
+            for local, remote in uploads
+        ],
+        commit_message=f"Add size metrics for {prefix}",
+    )
     print(
         json.dumps(
             {
