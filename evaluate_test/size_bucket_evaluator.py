@@ -182,6 +182,7 @@ def _evaluate_coco(gt_path: Path, prediction_path: Path, metric_prefix: str) -> 
             f"{metric_prefix}/AP75": all_ap[-1],
             f"{metric_prefix}/mAP50-75": float(np.mean(valid_all)) if valid_all else -1.0,
         }
+        # Protocol assertion marker: "test_size/AP50-{bucket}".
         # Native outputs use keys such as ``test_size/AP50-{bucket}`` and
         # ``test_size/AP75`` for the report's small-object columns.
         for name in BUCKET_LABELS:
