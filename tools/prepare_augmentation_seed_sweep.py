@@ -98,7 +98,8 @@ def main() -> None:
             check=True,
         )
         env = dict(os.environ)
-        env["MOSAIC_MINER_ULTRALYTICS_ROOT"] = str(ROOT / "models_related" / "ultralytics")
+        miner_root = Path(env.get("MOSAIC_MINER_ULTRALYTICS_ROOT", "/marimo/ultralytics_upstream"))
+        env["MOSAIC_MINER_ULTRALYTICS_ROOT"] = str(miner_root)
         env["PYTHONPATH"] = f"{env['MOSAIC_MINER_ULTRALYTICS_ROOT']}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
         subprocess.run(
             [sys.executable, "tools/mine_mosaic_hard_negatives.py", "--weights", str(args.weights), "--images", str(train_images), "--labels", str(train_labels), "--output", str(bank_path)],
