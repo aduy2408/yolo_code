@@ -216,11 +216,11 @@ for dependency, probe_code in (("timm", "import timm; print(timm.__version__)"),
     if dependency_probe.returncode:
         subprocess.run([str(python), "-m", "pip", "install", "--disable-pip-version-check", dependency], capture_output=True, text=True)
         dependency_probe = subprocess.run([str(python), "-c", probe_code], capture_output=True, text=True)
-    report["runtime"][f"{dependency}_import"] = dependency_probe.returncode == 0
+    report["runtime"][f"{{dependency}}_import"] = dependency_probe.returncode == 0
     if dependency_probe.returncode == 0:
-        report["runtime"][f"{dependency}_version"] = dependency_probe.stdout.strip()
+        report["runtime"][f"{{dependency}}_version"] = dependency_probe.stdout.strip()
     else:
-        report["runtime"][f"{dependency}_error"] = dependency_probe.stderr[-2000:]
+        report["runtime"][f"{{dependency}}_error"] = dependency_probe.stderr[-2000:]
 transformers_probe = subprocess.run([str(python), "-c", imports], capture_output=True, text=True)
 report["runtime"]["transformers_import"] = transformers_probe.returncode == 0
 if transformers_probe.returncode:
