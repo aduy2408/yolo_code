@@ -46,6 +46,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42, help="Contract metadata")
     parser.add_argument("--model-yaml", default="source checkpoint weights/best.pt", help="Contract metadata")
     parser.add_argument("--data-root", default="matrix", help="Contract metadata")
+    parser.add_argument("--defer-upload", action="store_true", help="Write local artifacts but defer all HF commits")
+    parser.add_argument("--upload-only", action="store_true", help="Upload existing local artifacts without evaluating")
     parser.add_argument("--jobs", nargs="*", help="Exact source prefixes; default evaluates every uploaded checkpoint")
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
@@ -291,6 +293,9 @@ def evaluate_one(api, huggingface_hub, args: argparse.Namespace, repo: str, pref
         + "\n",
         encoding="utf-8",
     )
+    if args.defer_upload:
+        print(f"LOCAL_SIZE_COMPLETE {prefix}", flush=True)
+        return
     uploads = [
         (metrics_path, f"{remote_prefix}/evaluation_metrics.json"),
         (manifest_path, f"{remote_prefix}/size_metrics_manifest.json"),
@@ -321,6 +326,49 @@ def evaluate_one(api, huggingface_hub, args: argparse.Namespace, repo: str, pref
     )
 
 
+def upload_local_artifacts(api, args: argparse.Namespace, remote_files: set[str]) -> None:
+    groups: dict[str, list[CommitOperationAdd]] = {}
+    for marker_path in sorted(args.project.rglob("size_metrics_complete.json")):
+        try:
+            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+            remote_prefix = str(marker["remote_prefix"])
+            manifest_path = marker_path.parent / "size_metrics_manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            relative_paths = [
+                "evaluation_metrics.json",
+                "size_metrics_manifest.json",
+                "size_metrics_complete.json",
+                *manifest.get("size_metric_source_artifacts", []),
+            ]
+            if f"{remote_prefix}/size_metrics_complete.json" in remote_files:
+                continue
+            operations = []
+            for relative in sorted(set(relative_paths)):
+                local = marker_path.parent / relative
+                if local.is_file():
+                    operations.append(
+                        CommitOperationAdd(
+                            path_in_repo=f"{remote_prefix}/{relative}",
+                            path_or_fileobj=str(local),
+                        )
+                    )
+            if operations:
+                groups[remote_prefix] = operations
+        except (OSError, KeyError, TypeError, json.JSONDecodeError):
+            continue
+    prefixes = sorted(groups)
+    for start in range(0, len(prefixes), 8):
+        chunk = prefixes[start : start + 8]
+        api.create_commit(
+            repo_id=args.hf_repo_id,
+            repo_type="dataset",
+            operations=[operation for prefix in chunk for operation in groups[prefix]],
+            commit_message=f"Add deferred size metrics {start + 1}-{start + len(chunk)}",
+        )
+        print(f"UPLOAD_BATCH_COMPLETE {len(chunk)}", flush=True)
+    print(f"UPLOAD_ONLY_COMPLETE {len(prefixes)}", flush=True)
+
+
 def main() -> None:
     args = parse_args()
     token = require_upload_context(args.hf_repo_id)
@@ -329,6 +377,10 @@ def main() -> None:
 
     api = HfApi(token=token)
     api.create_repo(repo_id=args.hf_repo_id, repo_type="dataset", exist_ok=True)
+    remote_files = set(api.list_repo_files(repo_id=args.hf_repo_id, repo_type="dataset"))
+    if args.upload_only:
+        upload_local_artifacts(api, args, remote_files)
+        return
     jobs = source_prefixes(api)
     if args.jobs:
         wanted = set(args.jobs)
@@ -338,7 +390,6 @@ def main() -> None:
             raise RuntimeError(f"Requested prefixes not found: {missing}")
     if not jobs:
         raise RuntimeError("No augmentation checkpoints found")
-    remote_files = set(api.list_repo_files(repo_id=args.hf_repo_id, repo_type="dataset"))
     required_pairs = {(prefix.split("/")[0], prefix.split("/")[1]) for _, prefix in jobs}
     prepared = {
         pair: prepare_dataset(pair[0], args, pair[1])
