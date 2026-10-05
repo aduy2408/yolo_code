@@ -5,8 +5,8 @@
 
 ## 1. Executive summary
 
-- Local evaluation bundles verified: **73/73** requested baseline jobs.
-- Hugging Face completion, metrics, and manifests independently verified: **73/73** each.
+- Local evaluation bundles verified: **83/83** requested baseline jobs, including the recovered Varroa Mosaic two-seed slice.
+- Hugging Face completion, metrics, and manifests independently verified: **83/83** for the consolidated baseline report, with **10/10** additional Varroa Mosaic jobs verified in `duyle2408/varroa-yolo-baselines-mosaic-two-seed-runs`.
 - Every bundle contains split-qualified validation and test metrics:
   `val/test AP50`, `val/test AP75`, `val/test mAP50-95`, and native size-bucket `AP50/AP75`.
 - TinyPerson `test/*` uses the official `sw640/sh512` corner-window native test protocol. Merged-corner metrics remain a separate protocol.
@@ -21,11 +21,11 @@
 | LEVIR-Ship | No Mosaic | 3 | 3 | 3 | 3 | 2 | 14 |
 | TinyPerson | Mosaic | 3 | 3 | 3 | 3 | 2 | 14 |
 | TinyPerson | No Mosaic | 3 | 3 | 3 | 3 | 3 | 15 |
-| Varroa | Mosaic, source-confirmed | 3 | 3 | 3 | 3 | 3 | 15 |
+| Varroa | Mosaic, re-evaluated | 2 | 2 | 2 | 2 | 2 | 10 |
 | Varroa | No Mosaic / MuSGD, re-evaluated | 3 | 3 | 3 | 3 | 3 | 15 |
-| **Re-evaluated total** |  |  |  |  |  |  | **73** |
+| **Re-evaluated total** |  |  |  |  |  |  | **83** |
 
-The current re-evaluation queue has no Varroa Mosaic checkpoint evaluation bundle, but Varroa Mosaic training archives are real and complete for the requested five families and seeds. They are split across `duyle2408/varroa-yolo-baselines-part1-full`, `duyle2408/varroa-yolo-baselines-part2-full`, and `duyle2408/varroa-yolo-baselines-missing-part3-missing`. Their `args.yaml` files record `mosaic: 1.0`, `close_mosaic: 10`, `imgsz: 640`, and seeds `42, 43, 44` for YOLOv5n, YOLOv8n, YOLOv9t, YOLOv10n, and YOLO11n. The 73-job count below remains the count of bundles re-evaluated with the new val/test/AP75/size evaluator, not the count of all source training archives.
+The Varroa Mosaic two-seed recovery queue is now complete for the requested five model families. It uses `duyle2408/varroa-yolo-baselines-mosaic-two-seed-runs`, with seeds `42, 43`, split seed `42`, `mosaic: 1.0`, `close_mosaic: 10`, `imgsz: 640`, and native held-out Varroa test evaluation. All 10 prefixes have split-qualified metrics and verified upload markers.
 
 ## 3. Mean ± std across available seeds
 
@@ -58,6 +58,11 @@ Sample standard deviation across the available verified seeds. `n` is the number
 | Varroa | No Mosaic | YOLOv9 | 3 | 0.9144 ± 0.0091 | 0.1031 ± 0.0040 | 0.3303 ± 0.0054 | 0.8742 ± 0.0174 | 0.0956 ± 0.0042 | 0.8995 ± 0.0024 | 0.1137 ± 0.0072 | 0.3304 ± 0.0021 | 0.8619 ± 0.0171 | 0.1076 ± 0.0151 |
 | Varroa | No Mosaic | YOLOv10 | 3 | 0.8285 ± 0.0258 | 0.1128 ± 0.0150 | 0.3043 ± 0.0146 | 0.7202 ± 0.0477 | 0.0790 ± 0.0206 | 0.8327 ± 0.0141 | 0.1316 ± 0.0026 | 0.3161 ± 0.0102 | 0.6972 ± 0.0510 | 0.0919 ± 0.0058 |
 | Varroa | No Mosaic | YOLO11 | 3 | 0.8907 ± 0.0264 | 0.1111 ± 0.0112 | 0.3230 ± 0.0059 | 0.7763 ± 0.0591 | 0.0990 ± 0.0121 | 0.8954 ± 0.0112 | 0.1138 ± 0.0136 | 0.3294 ± 0.0082 | 0.7851 ± 0.0657 | 0.1046 ± 0.0058 |
+| Varroa | Mosaic | YOLOv5 | 2 | 0.9225 ± 0.0141 | 0.1025 ± 0.0106 | 0.3310 ± 0.0037 | 0.8961 ± 0.0115 | 0.0961 ± 0.0140 | 0.9113 ± 0.0037 | 0.1186 ± 0.0082 | 0.3349 ± 0.0001 | 0.8704 ± 0.0023 | 0.1076 ± 0.0132 |
+| Varroa | Mosaic | YOLOv8 | 2 | 0.9109 ± 0.0117 | 0.0949 ± 0.0082 | 0.3287 ± 0.0037 | 0.8922 ± 0.0040 | 0.0933 ± 0.0017 | 0.9023 ± 0.0090 | 0.1031 ± 0.0072 | 0.3313 ± 0.0082 | 0.8727 ± 0.0221 | 0.0973 ± 0.0139 |
+| Varroa | Mosaic | YOLOv9 | 2 | 0.8967 ± 0.0007 | 0.1057 ± 0.0043 | 0.3259 ± 0.0035 | 0.8825 ± 0.0231 | 0.0954 ± 0.0072 | 0.8865 ± 0.0001 | 0.0968 ± 0.0123 | 0.3183 ± 0.0106 | 0.8685 ± 0.0124 | 0.0909 ± 0.0070 |
+| Varroa | Mosaic | YOLOv10 | 2 | 0.8519 ± 0.0594 | 0.1371 ± 0.0071 | 0.3273 ± 0.0159 | 0.7791 ± 0.1125 | 0.0967 ± 0.0114 | 0.8614 ± 0.0283 | 0.1314 ± 0.0105 | 0.3212 ± 0.0014 | 0.7752 ± 0.0710 | 0.0965 ± 0.0016 |
+| Varroa | Mosaic | YOLO11 | 2 | 0.9131 ± 0.0044 | 0.1116 ± 0.0000 | 0.3341 ± 0.0072 | 0.8866 ± 0.0033 | 0.1053 ± 0.0084 | 0.9022 ± 0.0125 | 0.1084 ± 0.0070 | 0.3293 ± 0.0014 | 0.8624 ± 0.0012 | 0.1035 ± 0.0014 |
 
 ## 4. Per-seed artifact source
 
@@ -67,7 +72,7 @@ The complete per-seed table is preserved by the verified artifacts in the task-s
 - `evaluation_manifest.json`
 - `evaluation_complete.json`
 
-The HF audit found `73/73` of each artifact type.
+The HF audit found `83/83` completion, metric, and manifest artifacts in the consolidated report scope. The recovered Varroa Mosaic repository independently contains `10/10` `evaluation_metrics.json`, `10/10` `experiment_manifest.json`, and `10/10` `upload_complete.json` files.
 
 ## 5. Provenance and protocols
 
@@ -75,16 +80,17 @@ The HF audit found `73/73` of each artifact type.
 - Image sizes: LEVIR-Ship `512`, TinyPerson `640`, Varroa `640`.
 - Source repository and prefix are preserved in every evaluation manifest.
 - Output repository: `duyle2408/yolo-baseline-valtest-ap75-small-runs`.
+- Varroa Mosaic re-evaluation repository: `duyle2408/varroa-yolo-baselines-mosaic-two-seed-runs`.
 - Varroa Mosaic source archives: `duyle2408/varroa-yolo-baselines-part1-full`, `duyle2408/varroa-yolo-baselines-part2-full`, and `duyle2408/varroa-yolo-baselines-missing-part3-missing`. Their uploaded `args.yaml` files confirm `mosaic: 1.0` and `close_mosaic: 10` for the requested nano/tiny families and seeds.
 - No-Mosaic/MuSGD source: `duyle2408/yolo-baselines-no-mosaic-musgd-runs`.
-- Limitation: the Varroa Mosaic source archives currently expose `args.yaml`, `results.csv`, test summaries, and plots, but no reusable `weights/best.pt`. The full split-qualified AP75 and size-bucket re-evaluation for that slice remains pending rather than being reconstructed from plots or unlabeled summaries.
+- Varroa Mosaic metrics were read from uploaded `evaluation_metrics.json` files, not reconstructed from plots. All ten files contain the required `val/test` AP50, AP75, mAP50-95, and native size-bucket AP50/AP75 fields.
 
 ## 6. Artifact acceptance
 
 - Local marker: `evaluation_complete.json`.
 - Local metrics: `evaluation_metrics.json`.
 - HF manifest: `evaluation_manifest.json`.
-- Final HF audit: `73/73` completion markers, `73/73` metric files, and `73/73` manifests.
+- Final HF audit: `83/83` completion markers, `83/83` metric files, and `83/83` manifests in the consolidated report scope. The Varroa Mosaic recovery slice is `10/10` for each artifact type.
 
 ## 7. Related reports
 
