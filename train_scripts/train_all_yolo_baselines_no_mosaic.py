@@ -64,7 +64,7 @@ def seed_everything(seed: int) -> None:
 
 
 def local_ultralytics() -> None:
-    """Use the pinned upstream package shipped as the repository submodule."""
+    """Use the project-owned Ultralytics fork used by augmentation runs."""
     path = str(PROJECT_ULTRALYTICS)
     if path not in sys.path:
         sys.path.insert(0, path)

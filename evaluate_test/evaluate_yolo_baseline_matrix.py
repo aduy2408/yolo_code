@@ -46,17 +46,17 @@ REQUIRED_METRICS = (
 )
 
 
-def pinned_upstream_ultralytics() -> None:
-    """Prefer the pinned upstream runtime over the legacy compatibility fork."""
-    upstream = str(ROOT / "vendor/ultralytics_upstream")
+def project_ultralytics() -> None:
+    """Use the project-owned Ultralytics fork used by the augmentation matrix."""
+    project = str(ROOT / "models_related/ultralytics")
     sys.path[:] = [
         entry
         for entry in sys.path
-        if "models_related/ultralytics" not in str(Path(entry).resolve())
+        if "vendor/ultralytics_upstream" not in str(Path(entry).resolve())
     ]
-    if upstream in sys.path:
-        sys.path.remove(upstream)
-    sys.path.insert(0, upstream)
+    if project in sys.path:
+        sys.path.remove(project)
+    sys.path.insert(0, project)
 
 
 def parse_args() -> argparse.Namespace:
@@ -159,7 +159,7 @@ def prepare_dataset(dataset: str, args: argparse.Namespace) -> Path:
 
 def evaluate_checkpoint(checkpoint: Path, data_yaml: Path, dataset: str, out_dir: Path, args: argparse.Namespace) -> dict[str, float | str]:
     from evaluate_test.size_bucket_evaluator import evaluate_native_size_buckets
-    pinned_upstream_ultralytics()
+    project_ultralytics()
     from ultralytics import YOLO
 
     model = YOLO(checkpoint)
