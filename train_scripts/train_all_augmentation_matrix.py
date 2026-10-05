@@ -32,6 +32,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 ULTRALYTICS = ROOT / "models_related" / "ultralytics"
 CANONICAL_CONFIG = ULTRALYTICS / "ultralytics/cfg/models/v8/yolov8.yaml"
+BASELINE_CANONICAL_CONFIG = ROOT / "vendor/ultralytics_upstream/ultralytics/cfg/models/v8/yolov8.yaml"
 
 from copy_paste_protocol import variant_overrides
 from train_scripts.train_augmentation_baselines_seed42 import COMMON_AUGMENTATION
@@ -180,8 +181,20 @@ def _mosaic_settings(spec: dict[str, str], args: argparse.Namespace) -> dict[str
     return settings
 
 
+def _model_config(args: argparse.Namespace) -> Path:
+    return BASELINE_CANONICAL_CONFIG if args.baseline_augmentation_parity else CANONICAL_CONFIG
+
+
+def _common_augmentation(args: argparse.Namespace) -> dict[str, Any]:
+    if args.baseline_augmentation_parity:
+        # Match train_all_yolo_baselines_no_mosaic.py. Its baseline runner
+        # leaves Ultralytics translate/scale defaults active: 0.1 and 0.5.
+        return {**COMMON_AUGMENTATION, "translate": 0.1, "scale": 0.5}
+    return dict(COMMON_AUGMENTATION)
+
+
 def _settings(spec: dict[str, str], args: argparse.Namespace) -> dict[str, Any]:
-    settings: dict[str, Any] = {**COMMON_AUGMENTATION, **_mosaic_settings(spec, args), "mixup": 0.0, "cutmix": 0.0}
+    settings: dict[str, Any] = {**_common_augmentation(args), **_mosaic_settings(spec, args), "mixup": 0.0, "cutmix": 0.0}
     if spec["method"] == "oacp":
         settings.update({"copy_paste": 0.0})
     elif spec["method"] == "copy_paste":
@@ -290,7 +303,7 @@ def _train_one(
         "method": spec["method"],
         "variant": spec["variant"],
         "mosaic_mode": spec["mosaic_mode"],
-        "model_config": str(CANONICAL_CONFIG),
+        "model_config": str(_model_config(args)),
         "detector": "canonical YOLOv8 P3/P4/P5",
         "data_root": str(args.data_roots[spec["dataset"]]),
         "dataset_yaml": str(data_yaml),
@@ -304,6 +317,7 @@ def _train_one(
         "workers": args.workers,
         "device": args.device,
         "nms_iou": args.nms_iou,
+        "augmentation_protocol": "baseline_no_mosaic_parity" if args.baseline_augmentation_parity else "augmentation_matrix_current",
         "augmentation": settings,
         "oacp_env": {key: os.environ[key] for key in ("YOLO_CONTEXT_AUG", "YOLO_LEGACY_DOUBLE_OACP", "OACP_VARIANT") if key in os.environ},
         "hf_repo_id": repo_id,
@@ -319,8 +333,11 @@ def _train_one(
         sys.path.insert(0, str(ULTRALYTICS))
         from ultralytics import YOLO
 
-        model = YOLO(str(CANONICAL_CONFIG), task="detect")
-        model.load(args.pretrained, smart_transfer=True)
+        model = YOLO(str(_model_config(args)), task="detect")
+        if args.baseline_augmentation_parity:
+            model.load(args.pretrained)
+        else:
+            model.load(args.pretrained, smart_transfer=True)
         model.train(
             data=str(data_yaml), epochs=args.epochs, patience=args.patience, imgsz=args.imgsz[spec["dataset"]],
             batch=args.batch_size, device=args.device, workers=args.workers, amp=args.amp, seed=seed,
@@ -385,6 +402,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--imgsz-tinyperson", type=int, default=640)
     parser.add_argument("--imgsz-varroa", type=int, default=640)
     parser.add_argument("--nms-iou", type=float, default=0.5)
+    parser.add_argument(
+        "--baseline-augmentation-parity",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use the baseline model YAML/load path and baseline translate=0.1, scale=0.5 defaults.",
+    )
     parser.add_argument("--confirm-settings", action="store_true")
     parser.add_argument("--print-effective-config", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
