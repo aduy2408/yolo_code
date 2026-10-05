@@ -46,8 +46,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--project", type=Path, required=True)
-    parser.add_argument("--output-repo", required=True, help="Task-specific HF dataset repository")
+    parser.add_argument("--output-repo", required=False, help="Task-specific HF dataset repository")
+    parser.add_argument("--hf-repo-id", dest="hf_repo_id", help="Contract-compatible alias for --output-repo")
     parser.add_argument("--image-sizes", nargs="+", type=int, default=[512, 640])
+    parser.add_argument("--image-size", type=int, default=512, help="Contract metadata for the primary evaluation size")
+    parser.add_argument("--epochs", type=int, default=1, help="Contract metadata; evaluation does not train")
+    parser.add_argument("--patience", type=int, default=0, help="Contract metadata; evaluation does not train")
+    parser.add_argument("--seed", type=int, default=42, help="Contract metadata for this slot")
+    parser.add_argument("--model-yaml", default="source checkpoint weights/best.pt", help="Contract metadata")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--split-seed", type=int, default=42)
@@ -145,9 +151,17 @@ def download_optional_json(hf_hub_download, repo: str, filename: str, destinatio
 
 def main() -> None:
     args = parse_args()
+    if args.output_repo is None:
+        args.output_repo = args.hf_repo_id
+    elif args.hf_repo_id is not None and args.output_repo != args.hf_repo_id:
+        raise ValueError("--output-repo and --hf-repo-id must match")
+    if not args.output_repo:
+        raise ValueError("Provide --output-repo or --hf-repo-id")
     token = require_context(args.output_repo)
     if args.split_seed != 42 or args.batch_size != 8 or args.workers != 8 or args.nms_iou != 0.5:
         raise ValueError("This control suite requires split_seed=42, batch_size=8, workers=8, and nms_iou=0.5")
+    if args.image_size not in args.image_sizes:
+        raise ValueError("--image-size must be included in --image-sizes")
     if sorted(set(args.image_sizes)) != sorted(args.image_sizes) or not args.image_sizes:
         raise ValueError("--image-sizes must be non-empty and duplicate-free")
 
