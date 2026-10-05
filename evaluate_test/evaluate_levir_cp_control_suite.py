@@ -212,6 +212,17 @@ def main() -> None:
             hf_hub_download, repo, f"{prefix}/experiment_manifest.json", out_dir / "source_manifest"
         )
         metrics = evaluate_checkpoint(checkpoint, data_yaml, out_dir, args)
+        observed = [
+            float(metrics[f"imgsz{size}/{key}"])
+            for size in args.image_sizes
+            for key in REQUIRED_METRICS
+            if f"imgsz{size}/{key}" in metrics
+        ]
+        if not observed or max(observed) <= 0.0:
+            raise RuntimeError(
+                f"Refusing invalid all-zero evaluation for {label}. "
+                "Checkpoint/runtime loading is incompatible or the model produced no detections."
+            )
         metrics.update({"label": label, "source_repo": repo, "source_prefix": prefix, "checkpoint": f"{prefix}/weights/best.pt"})
         all_metrics[label] = metrics
         for image_size in args.image_sizes:
