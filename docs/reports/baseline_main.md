@@ -11,6 +11,7 @@
   `val/test AP50`, `val/test AP75`, `val/test mAP50-95`, and native size-bucket `AP50/AP75`.
 - TinyPerson `test/*` uses the official `sw640/sh512` corner-window native test protocol. Merged-corner metrics remain a separate protocol.
 - Two custom P2/P2-offset checkpoints were excluded because they are not part of the requested YOLOv5/v8/v9/v10/v11 baseline families.
+- A live Hugging Face audit confirms that Varroa Mosaic baseline training archives do exist, but their source repositories contain training logs and plots rather than reusable `best.pt` checkpoints or split-qualified evaluation JSON. They were therefore not part of the 73-job re-evaluation queue.
 
 ## 2. Verified coverage
 
@@ -20,10 +21,11 @@
 | LEVIR-Ship | No Mosaic | 3 | 3 | 3 | 3 | 2 | 14 |
 | TinyPerson | Mosaic | 3 | 3 | 3 | 3 | 2 | 14 |
 | TinyPerson | No Mosaic | 3 | 3 | 3 | 3 | 3 | 15 |
-| Varroa | No Mosaic / MuSGD | 3 | 3 | 3 | 3 | 3 | 15 |
-| **Total** |  |  |  |  |  |  | **73** |
+| Varroa | Mosaic, source-confirmed | 3 | 3 | 3 | 3 | 3 | 15 |
+| Varroa | No Mosaic / MuSGD, re-evaluated | 3 | 3 | 3 | 3 | 3 | 15 |
+| **Re-evaluated total** |  |  |  |  |  |  | **73** |
 
-There is no verified Varroa Mosaic slice in this evaluation queue. The verified queue contains 15 LEVIR Mosaic jobs, 14 TinyPerson Mosaic jobs, and 44 no-Mosaic/MuSGD jobs across the three datasets.
+The current re-evaluation queue has no Varroa Mosaic checkpoint evaluation bundle, but Varroa Mosaic training archives are real and complete for the requested five families and seeds. They are split across `duyle2408/varroa-yolo-baselines-part1-full`, `duyle2408/varroa-yolo-baselines-part2-full`, and `duyle2408/varroa-yolo-baselines-missing-part3-missing`. Their `args.yaml` files record `mosaic: 1.0`, `close_mosaic: 10`, `imgsz: 640`, and seeds `42, 43, 44` for YOLOv5n, YOLOv8n, YOLOv9t, YOLOv10n, and YOLO11n. The 73-job count below remains the count of bundles re-evaluated with the new val/test/AP75/size evaluator, not the count of all source training archives.
 
 ## 3. Mean ± std across available seeds
 
@@ -73,7 +75,9 @@ The HF audit found `73/73` of each artifact type.
 - Image sizes: LEVIR-Ship `512`, TinyPerson `640`, Varroa `640`.
 - Source repository and prefix are preserved in every evaluation manifest.
 - Output repository: `duyle2408/yolo-baseline-valtest-ap75-small-runs`.
+- Varroa Mosaic source archives: `duyle2408/varroa-yolo-baselines-part1-full`, `duyle2408/varroa-yolo-baselines-part2-full`, and `duyle2408/varroa-yolo-baselines-missing-part3-missing`. Their uploaded `args.yaml` files confirm `mosaic: 1.0` and `close_mosaic: 10` for the requested nano/tiny families and seeds.
 - No-Mosaic/MuSGD source: `duyle2408/yolo-baselines-no-mosaic-musgd-runs`.
+- Limitation: the Varroa Mosaic source archives currently expose `args.yaml`, `results.csv`, test summaries, and plots, but no reusable `weights/best.pt`. The full split-qualified AP75 and size-bucket re-evaluation for that slice remains pending rather than being reconstructed from plots or unlabeled summaries.
 
 ## 6. Artifact acceptance
 
