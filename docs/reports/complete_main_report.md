@@ -325,9 +325,18 @@ until the matrix is rerun with the historical parity settings. The historical
 post-hoc files still do not contain native AP50-Small, so that metric must be
 computed separately on the historical checkpoints.
 
+The current matrix also has a **runtime mismatch in the size evaluation path**:
+`evaluate_yolo_baseline_matrix.py` forces `vendor/ultralytics_upstream`, while
+`evaluate_augmentation_size_metrics.py` calls `local_ultralytics()` from
+`train_all_yolo_baselines_no_mosaic.py`, which actually prepends
+`models_related/ultralytics`. Those trees differ in `ultralytics/data/augment.py`
+and other core files. Consequently, the approximately 0.80 LEVIR baseline
+`AP50-Small` values and the current Copy-Paste `AP50-Small` values are not
+evaluator-matched. A representative baseline and Copy-Paste checkpoint must
+be reevaluated through one pinned runtime before interpreting the apparent
+Copy-Paste regression.
 
-The follow-up multi-seed augmentation sweep is complete and upload-verified.
-The sweep used the pinned commit
+The follow-up multi-seed augmentation sweep is complete and upload-verified. It used the pinned commit
 `53686d0364de3c720426672c2fc05a3e0b6f4a5f`, fixed split seed `42`, training
 seeds `43` and `44`, `100` epochs, patience `0`, workers `8`, NMS IoU `0.50`,
 and the three task-specific repositories listed in Section 1.1. Completion was

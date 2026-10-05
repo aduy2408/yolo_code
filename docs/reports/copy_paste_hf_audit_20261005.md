@@ -62,7 +62,17 @@ Those values came from already-trained checkpoints evaluated later with the hist
 
 The current 43/44 matrix instead uses the current matrix data layout and LEVIR image size 512. Its Copy-Paste `AP50-Small` values are therefore measuring a different training/evaluation configuration. Changing the report cannot reconcile the two families.
 
-## Required next step for a fair comparison
+## Concrete implementation finding: evaluator runtime mismatch
+
+The baseline and current 43/44 size metrics are not evaluated by the same Ultralytics runtime:
+
+- `evaluate_test/evaluate_yolo_baseline_matrix.py` calls `pinned_upstream_ultralytics()`, removes `models_related/ultralytics` from `sys.path`, and inserts `vendor/ultralytics_upstream` before evaluating the baseline checkpoints.
+- `evaluate_test/evaluate_augmentation_size_metrics.py` calls `train_scripts.train_all_yolo_baselines_no_mosaic.local_ultralytics()`. That helper is documented as upstream but actually inserts `models_related/ultralytics` (`PROJECT_ULTRALYTICS`) into `sys.path`.
+- The 76-job training runner also inserts `models_related/ultralytics` before importing YOLO and the project Copy-Paste transforms.
+- The two runtimes differ materially in `ultralytics/data/augment.py` and other core files. The legacy/project fork adds custom transform plumbing and changes Mosaic/augmentation behavior.
+
+This is a concrete comparison bug. The baseline table's approximately 0.80 LEVIR `AP50-Small` values come from the pinned upstream evaluator, while the current Copy-Paste `AP50-Small` values were produced through the project fork. Therefore the current 43/44 Copy-Paste size values cannot be compared to `baseline_main.md` until the same evaluator runtime is used. The immediate corrective experiment is to reevaluate representative baseline and Copy-Paste checkpoints through one pinned runtime, without retraining first.
+
 
 1. Rerun the LEVIR Copy-Paste rows with historical parity settings: image size 640, translate 0.1, scale 0.5, Mosaic off, split seed 42, and a recorded parity manifest.
 2. Evaluate the historical CP checkpoints with the native size-bucket evaluator if historical `AP50-Small` is required.
