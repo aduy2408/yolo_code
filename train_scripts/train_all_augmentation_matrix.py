@@ -52,6 +52,7 @@ COPY_PASTE_VARIANTS = (
     "negative_canvas_r1",
     "negative_canvas_r4",
 )
+COPY_PASTE_CHOICES = ("cp0", *COPY_PASTE_VARIANTS)
 METHODS = ("oacp", "mosaic", "copy_paste")
 DATASETS = ("levir", "tinyperson", "varroa")
 REQUIRED = (
@@ -372,7 +373,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--methods", nargs="+", choices=METHODS, default=list(METHODS))
     parser.add_argument("--oacp-variants", nargs="+", choices=OACP_VARIANTS, default=list(OACP_VARIANTS))
     parser.add_argument("--mosaic-variants", nargs="+", choices=MOSAIC_VARIANTS, default=list(MOSAIC_VARIANTS))
-    parser.add_argument("--copy-paste-variants", nargs="+", choices=COPY_PASTE_VARIANTS, default=list(COPY_PASTE_VARIANTS))
+    parser.add_argument("--copy-paste-variants", nargs="+", choices=COPY_PASTE_CHOICES, default=list(COPY_PASTE_VARIANTS))
     parser.add_argument("--tinyperson-mosaic-modes", nargs="+", choices=("mosaic", "no_mosaic"), default=["mosaic", "no_mosaic"])
     parser.add_argument("--scale-statistics-levir", type=Path)
     parser.add_argument("--scale-statistics-tinyperson", type=Path)
