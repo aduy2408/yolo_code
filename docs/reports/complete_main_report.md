@@ -373,3 +373,89 @@ that path did not contain the expected `All Images` and `All Annotations`
 directories. The corrected relaunch used `/marimo/LevirShip/LevirShipData` and
 produced the accepted artifact set. The earlier 38-run size-evaluator sections
 in this report remain separate from this full 76-prefix seed 43/44 acceptance.
+
+### 9.4 Seed 43/44 per-prefix metrics
+
+The following table contains the actual values from the 76 remote
+`evaluation_metrics.json` artifacts. Values are rounded to four decimals. `--`
+means the metric is not applicable to that dataset/protocol, notably
+`test_merged/*` outside TinyPerson.
+
+| Prefix | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 | val/AP75 | val/AP50-Small | test/AP75 | test/AP50-Small | test_merged/AP50-Small | test_merged/AP75 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `augmentation-copy-paste-runs/levir/copy_paste/cp1_single1/no_mosaic/seed_43` | 0.7357 | 0.2666 | 0.6972 | 0.2501 | 0.0612 | 0.6657 | 0.0565 | 0.6372 | -- | -- |
+| `augmentation-copy-paste-runs/levir/copy_paste/cp1_single1/no_mosaic/seed_44` | 0.7152 | 0.2662 | 0.6519 | 0.2387 | 0.0790 | 0.5868 | 0.0682 | 0.5874 | -- | -- |
+| `augmentation-copy-paste-runs/levir/copy_paste/cp3_cluster1/no_mosaic/seed_43` | 0.7174 | 0.2643 | 0.6905 | 0.2416 | 0.0298 | 0.4517 | 0.0268 | 0.4676 | -- | -- |
+| `augmentation-copy-paste-runs/levir/copy_paste/cp3_cluster1/no_mosaic/seed_44` | 0.6863 | 0.2639 | 0.6562 | 0.2428 | 0.0777 | 0.5971 | 0.0590 | 0.5670 | -- | -- |
+| `augmentation-copy-paste-runs/levir/copy_paste/negative_canvas_r1/no_mosaic/seed_43` | 0.7053 | 0.2646 | 0.7006 | 0.2494 | 0.0818 | 0.7164 | 0.0739 | 0.6573 | -- | -- |
+| `augmentation-copy-paste-runs/levir/copy_paste/negative_canvas_r1/no_mosaic/seed_44` | 0.7406 | 0.2703 | 0.7162 | 0.2596 | 0.0515 | 0.6253 | 0.0372 | 0.6929 | -- | -- |
+| `augmentation-copy-paste-runs/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_43` | 0.7149 | 0.2536 | 0.7049 | 0.2511 | 0.0956 | 0.6651 | 0.0673 | 0.6177 | -- | -- |
+| `augmentation-copy-paste-runs/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_44` | 0.7427 | 0.2635 | 0.6816 | 0.2419 | 0.0736 | 0.6813 | 0.0600 | 0.6769 | -- | -- |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/cp1_single1/mosaic/seed_43` | 0.5069 | 0.1823 | 0.4900 | 0.1730 | 0.0886 | 0.5083 | 0.0773 | 0.5075 | 0.6617 | 0.0857 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/cp1_single1/mosaic/seed_44` | 0.5061 | 0.1842 | 0.4980 | 0.1771 | 0.0912 | 0.5411 | 0.0791 | 0.5215 | 0.6669 | 0.0851 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/cp1_single1/no_mosaic/seed_43` | 0.4154 | 0.1443 | 0.4411 | 0.1529 | 0.0707 | 0.4172 | 0.0631 | 0.4674 | 0.6111 | 0.0715 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/cp1_single1/no_mosaic/seed_44` | 0.4249 | 0.1500 | 0.4176 | 0.1441 | 0.0722 | 0.3918 | 0.0641 | 0.4396 | 0.6036 | 0.0692 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/cp3_cluster1/mosaic/seed_43` | 0.5224 | 0.1866 | 0.4988 | 0.1760 | 0.0946 | 0.5328 | 0.0778 | 0.5021 | 0.6667 | 0.0852 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/cp3_cluster1/mosaic/seed_44` | 0.5400 | 0.1898 | 0.4881 | 0.1729 | 0.0932 | 0.5390 | 0.0779 | 0.5103 | 0.6555 | 0.0829 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/cp3_cluster1/no_mosaic/seed_43` | 0.4561 | 0.1594 | 0.4360 | 0.1516 | 0.0788 | 0.4750 | 0.0664 | 0.4650 | 0.6064 | 0.0719 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/cp3_cluster1/no_mosaic/seed_44` | 0.4490 | 0.1608 | 0.4427 | 0.1553 | 0.0812 | 0.4467 | 0.0629 | 0.4631 | 0.6107 | 0.0702 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/negative_canvas_r1/mosaic/seed_43` | 0.5223 | 0.1855 | 0.4896 | 0.1752 | 0.0900 | 0.5390 | 0.0792 | 0.4973 | 0.6557 | 0.0876 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/negative_canvas_r1/mosaic/seed_44` | 0.5203 | 0.1862 | 0.4948 | 0.1734 | 0.0844 | 0.5212 | 0.0752 | 0.5041 | 0.6536 | 0.0813 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/negative_canvas_r1/no_mosaic/seed_43` | 0.4334 | 0.1480 | 0.4219 | 0.1428 | 0.0681 | 0.4834 | 0.0592 | 0.4523 | 0.5763 | 0.0657 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/negative_canvas_r1/no_mosaic/seed_44` | 0.4282 | 0.1494 | 0.4153 | 0.1409 | 0.0700 | 0.3845 | 0.0542 | 0.4378 | 0.5976 | 0.0605 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_43` | 0.5139 | 0.1866 | 0.4975 | 0.1761 | 0.0945 | 0.5191 | 0.0764 | 0.5097 | 0.6602 | 0.0824 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_44` | 0.5026 | 0.1807 | 0.4910 | 0.1735 | 0.0840 | 0.5390 | 0.0801 | 0.4994 | 0.6621 | 0.0868 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/negative_canvas_r4/no_mosaic/seed_43` | 0.4383 | 0.1485 | 0.4267 | 0.1445 | 0.0698 | 0.4292 | 0.0595 | 0.4539 | 0.6034 | 0.0647 |
+| `augmentation-copy-paste-runs/tinyperson/copy_paste/negative_canvas_r4/no_mosaic/seed_44` | 0.4272 | 0.1480 | 0.4310 | 0.1456 | 0.0689 | 0.4174 | 0.0591 | 0.4619 | 0.6033 | 0.0658 |
+| `augmentation-copy-paste-runs/varroa/copy_paste/cp1_single1/mosaic/seed_43` | 0.8566 | 0.3171 | 0.8582 | 0.3011 | 0.1036 | 0.7750 | 0.0886 | 0.7719 | -- | -- |
+| `augmentation-copy-paste-runs/varroa/copy_paste/cp1_single1/mosaic/seed_44` | 0.8594 | 0.3165 | 0.8589 | 0.3193 | 0.0938 | 0.7698 | 0.1124 | 0.7483 | -- | -- |
+| `augmentation-copy-paste-runs/varroa/copy_paste/cp3_cluster1/mosaic/seed_43` | 0.8539 | 0.3131 | 0.8604 | 0.3117 | 0.1065 | 0.7819 | 0.1006 | 0.7663 | -- | -- |
+| `augmentation-copy-paste-runs/varroa/copy_paste/cp3_cluster1/mosaic/seed_44` | 0.8748 | 0.3174 | 0.8582 | 0.3153 | 0.0927 | 0.7664 | 0.0909 | 0.7629 | -- | -- |
+| `augmentation-copy-paste-runs/varroa/copy_paste/negative_canvas_r1/mosaic/seed_43` | 0.8654 | 0.3114 | 0.8688 | 0.3149 | 0.0855 | 0.7558 | 0.1005 | 0.7552 | -- | -- |
+| `augmentation-copy-paste-runs/varroa/copy_paste/negative_canvas_r1/mosaic/seed_44` | 0.8670 | 0.3206 | 0.8453 | 0.3102 | 0.0998 | 0.7608 | 0.0966 | 0.7612 | -- | -- |
+| `augmentation-copy-paste-runs/varroa/copy_paste/negative_canvas_r4/mosaic/seed_43` | 0.8580 | 0.3170 | 0.8559 | 0.3153 | 0.0985 | 0.7704 | 0.0865 | 0.7466 | -- | -- |
+| `augmentation-copy-paste-runs/varroa/copy_paste/negative_canvas_r4/mosaic/seed_44` | 0.8847 | 0.3215 | 0.8574 | 0.3101 | 0.1006 | 0.7703 | 0.0897 | 0.7704 | -- | -- |
+| `augmentation-mosaic-runs/tinyperson/mosaic/M2_cluster_preserving/mosaic/seed_43` | 0.4845 | 0.1725 | 0.4506 | 0.1575 | 0.0777 | 0.4807 | 0.0679 | 0.4281 | 0.5830 | 0.0782 |
+| `augmentation-mosaic-runs/tinyperson/mosaic/M2_cluster_preserving/mosaic/seed_44` | 0.5005 | 0.1751 | 0.4552 | 0.1610 | 0.0759 | 0.5092 | 0.0725 | 0.4493 | 0.5938 | 0.0827 |
+| `augmentation-mosaic-runs/tinyperson/mosaic/M3_post_scale_constrained/mosaic/seed_43` | 0.4901 | 0.1768 | 0.4820 | 0.1664 | 0.0839 | 0.4870 | 0.0695 | 0.4924 | 0.6353 | 0.0766 |
+| `augmentation-mosaic-runs/tinyperson/mosaic/M3_post_scale_constrained/mosaic/seed_44` | 0.4959 | 0.1770 | 0.4718 | 0.1635 | 0.0846 | 0.5115 | 0.0655 | 0.4796 | 0.6305 | 0.0718 |
+| `augmentation-mosaic-runs/tinyperson/mosaic/M4_adaptive_geometry/mosaic/seed_43` | 0.5005 | 0.1816 | 0.4823 | 0.1708 | 0.0874 | 0.5391 | 0.0791 | 0.5163 | 0.6408 | 0.0875 |
+| `augmentation-mosaic-runs/tinyperson/mosaic/M4_adaptive_geometry/mosaic/seed_44` | 0.5196 | 0.1827 | 0.4842 | 0.1705 | 0.0782 | 0.5419 | 0.0757 | 0.5069 | 0.6288 | 0.0826 |
+| `augmentation-mosaic-runs/tinyperson/mosaic/M5_hard_negative/mosaic/seed_43` | 0.5076 | 0.1817 | 0.4764 | 0.1675 | 0.0860 | 0.4898 | 0.0750 | 0.4916 | 0.6730 | 0.0835 |
+| `augmentation-mosaic-runs/tinyperson/mosaic/M5_hard_negative/mosaic/seed_44` | 0.5038 | 0.1800 | 0.4891 | 0.1695 | 0.0845 | 0.4620 | 0.0704 | 0.4832 | 0.6668 | 0.0814 |
+| `augmentation-mosaic-runs/tinyperson/mosaic/standard/mosaic/seed_43` | 0.5196 | 0.1859 | 0.4981 | 0.1753 | 0.0866 | 0.4966 | 0.0747 | 0.5079 | 0.6626 | 0.0833 |
+| `augmentation-mosaic-runs/tinyperson/mosaic/standard/mosaic/seed_44` | 0.5071 | 0.1893 | 0.4967 | 0.1733 | 0.0890 | 0.4973 | 0.0725 | 0.4893 | 0.6517 | 0.0820 |
+| `augmentation-mosaic-runs/varroa/mosaic/M2_cluster_preserving/mosaic/seed_43` | 0.8140 | 0.2593 | 0.7818 | 0.2598 | 0.0589 | 0.7920 | 0.0596 | 0.7698 | -- | -- |
+| `augmentation-mosaic-runs/varroa/mosaic/M2_cluster_preserving/mosaic/seed_44` | 0.7724 | 0.2429 | 0.7545 | 0.2376 | 0.0680 | 0.7860 | 0.0672 | 0.7949 | -- | -- |
+| `augmentation-mosaic-runs/varroa/mosaic/M3_post_scale_constrained/mosaic/seed_43` | 0.9177 | 0.3324 | 0.9122 | 0.3353 | 0.1154 | 0.8963 | 0.1093 | 0.8812 | -- | -- |
+| `augmentation-mosaic-runs/varroa/mosaic/M3_post_scale_constrained/mosaic/seed_44` | 0.9236 | 0.3348 | 0.8864 | 0.3249 | 0.0999 | 0.8831 | 0.0966 | 0.8620 | -- | -- |
+| `augmentation-mosaic-runs/varroa/mosaic/M4_adaptive_geometry/mosaic/seed_43` | 0.8421 | 0.2693 | 0.8048 | 0.2557 | 0.0573 | 0.8791 | 0.0523 | 0.8768 | -- | -- |
+| `augmentation-mosaic-runs/varroa/mosaic/M4_adaptive_geometry/mosaic/seed_44` | 0.8293 | 0.2680 | 0.8076 | 0.2596 | 0.0582 | 0.7290 | 0.0626 | 0.7281 | -- | -- |
+| `augmentation-mosaic-runs/varroa/mosaic/M5_hard_negative/mosaic/seed_43` | 0.9175 | 0.3366 | 0.9028 | 0.3325 | 0.0906 | 0.8267 | 0.1041 | 0.8074 | -- | -- |
+| `augmentation-mosaic-runs/varroa/mosaic/M5_hard_negative/mosaic/seed_44` | 0.9274 | 0.3405 | 0.9172 | 0.3395 | 0.0913 | 0.8501 | 0.1044 | 0.8522 | -- | -- |
+| `augmentation-mosaic-runs/varroa/mosaic/standard/mosaic/seed_43` | 0.9114 | 0.3328 | 0.9078 | 0.3252 | 0.0993 | 0.8328 | 0.0932 | 0.8350 | -- | -- |
+| `augmentation-mosaic-runs/varroa/mosaic/standard/mosaic/seed_44` | 0.9276 | 0.3331 | 0.9121 | 0.3361 | 0.0879 | 0.8965 | 0.1089 | 0.8826 | -- | -- |
+| `augmentation-oacp-runs/levir/oacp/load_adaptive/no_mosaic/seed_43` | 0.7311 | 0.2668 | 0.7145 | 0.2592 | 0.0640 | 0.6213 | 0.0436 | 0.5815 | -- | -- |
+| `augmentation-oacp-runs/levir/oacp/load_adaptive/no_mosaic/seed_44` | 0.7173 | 0.2721 | 0.6935 | 0.2476 | 0.0528 | 0.5857 | 0.0521 | 0.5070 | -- | -- |
+| `augmentation-oacp-runs/levir/oacp/mass_adaptive/no_mosaic/seed_43` | 0.7431 | 0.2707 | 0.6955 | 0.2484 | 0.0601 | 0.6766 | 0.0623 | 0.6186 | -- | -- |
+| `augmentation-oacp-runs/levir/oacp/mass_adaptive/no_mosaic/seed_44` | 0.7040 | 0.2592 | 0.6879 | 0.2407 | 0.0509 | 0.5691 | 0.0275 | 0.5528 | -- | -- |
+| `augmentation-oacp-runs/levir/oacp/spacing_adaptive/no_mosaic/seed_43` | 0.7627 | 0.2828 | 0.7174 | 0.2568 | 0.0676 | 0.6364 | 0.0559 | 0.5768 | -- | -- |
+| `augmentation-oacp-runs/levir/oacp/spacing_adaptive/no_mosaic/seed_44` | 0.7077 | 0.2674 | 0.7004 | 0.2540 | 0.0525 | 0.5487 | 0.0628 | 0.5499 | -- | -- |
+| `augmentation-oacp-runs/tinyperson/oacp/load_adaptive/mosaic/seed_43` | 0.5250 | 0.1853 | 0.4914 | 0.1712 | 0.0895 | 0.5374 | 0.0730 | 0.5149 | 0.6536 | 0.0789 |
+| `augmentation-oacp-runs/tinyperson/oacp/load_adaptive/mosaic/seed_44` | 0.5172 | 0.1883 | 0.4902 | 0.1710 | 0.0867 | 0.5391 | 0.0784 | 0.5080 | 0.6594 | 0.0827 |
+| `augmentation-oacp-runs/tinyperson/oacp/load_adaptive/no_mosaic/seed_43` | 0.4318 | 0.1472 | 0.4216 | 0.1413 | 0.0615 | 0.4061 | 0.0557 | 0.4460 | 0.6009 | 0.0592 |
+| `augmentation-oacp-runs/tinyperson/oacp/load_adaptive/no_mosaic/seed_44` | 0.4485 | 0.1503 | 0.4238 | 0.1423 | 0.0731 | 0.4386 | 0.0596 | 0.4706 | 0.5939 | 0.0638 |
+| `augmentation-oacp-runs/tinyperson/oacp/mass_adaptive/mosaic/seed_43` | 0.5185 | 0.1867 | 0.4913 | 0.1731 | 0.0865 | 0.5273 | 0.0769 | 0.5126 | 0.6586 | 0.0845 |
+| `augmentation-oacp-runs/tinyperson/oacp/mass_adaptive/mosaic/seed_44` | 0.5135 | 0.1813 | 0.4970 | 0.1758 | 0.0812 | 0.4997 | 0.0813 | 0.5067 | 0.6569 | 0.0872 |
+| `augmentation-oacp-runs/tinyperson/oacp/mass_adaptive/no_mosaic/seed_43` | 0.4432 | 0.1489 | 0.4316 | 0.1453 | 0.0660 | 0.4681 | 0.0594 | 0.4497 | 0.6011 | 0.0668 |
+| `augmentation-oacp-runs/tinyperson/oacp/mass_adaptive/no_mosaic/seed_44` | 0.4347 | 0.1469 | 0.4360 | 0.1485 | 0.0621 | 0.4023 | 0.0613 | 0.4686 | 0.6094 | 0.0652 |
+| `augmentation-oacp-runs/tinyperson/oacp/spacing_adaptive/mosaic/seed_43` | 0.5255 | 0.1878 | 0.4946 | 0.1738 | 0.0889 | 0.5026 | 0.0751 | 0.5071 | 0.6492 | 0.0841 |
+| `augmentation-oacp-runs/tinyperson/oacp/spacing_adaptive/mosaic/seed_44` | 0.5079 | 0.1863 | 0.4985 | 0.1767 | 0.0974 | 0.5297 | 0.0811 | 0.5100 | 0.6586 | 0.0860 |
+| `augmentation-oacp-runs/tinyperson/oacp/spacing_adaptive/no_mosaic/seed_43` | 0.4207 | 0.1444 | 0.4203 | 0.1396 | 0.0652 | 0.4162 | 0.0530 | 0.4223 | 0.5867 | 0.0582 |
+| `augmentation-oacp-runs/tinyperson/oacp/spacing_adaptive/no_mosaic/seed_44` | 0.4319 | 0.1493 | 0.4227 | 0.1434 | 0.0683 | 0.4397 | 0.0590 | 0.4445 | 0.5935 | 0.0654 |
+| `augmentation-oacp-runs/varroa/oacp/load_adaptive/mosaic/seed_43` | 0.9305 | 0.3350 | 0.8985 | 0.3277 | 0.0880 | 0.9024 | 0.0816 | 0.8749 | -- | -- |
+| `augmentation-oacp-runs/varroa/oacp/load_adaptive/mosaic/seed_44` | 0.9307 | 0.3398 | 0.9124 | 0.3396 | 0.1083 | 0.8792 | 0.1125 | 0.8569 | -- | -- |
+| `augmentation-oacp-runs/varroa/oacp/mass_adaptive/mosaic/seed_43` | 0.9197 | 0.3255 | 0.9107 | 0.3330 | 0.0977 | 0.8595 | 0.0937 | 0.8510 | -- | -- |
+| `augmentation-oacp-runs/varroa/oacp/mass_adaptive/mosaic/seed_44` | 0.8961 | 0.3358 | 0.9037 | 0.3254 | 0.1101 | 0.8576 | 0.0872 | 0.8584 | -- | -- |
+| `augmentation-oacp-runs/varroa/oacp/spacing_adaptive/mosaic/seed_43` | 0.9047 | 0.3293 | 0.9089 | 0.3306 | 0.0994 | 0.8362 | 0.0968 | 0.8057 | -- | -- |
+| `augmentation-oacp-runs/varroa/oacp/spacing_adaptive/mosaic/seed_44` | 0.9199 | 0.3317 | 0.9058 | 0.3378 | 0.0960 | 0.8715 | 0.1181 | 0.8468 | -- | -- |
