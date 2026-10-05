@@ -98,3 +98,46 @@ The HF audit found `83/83` completion, metric, and manifest artifacts in the con
 - [`complete_main_report.md`](complete_main_report.md)
 - [`augmentation_report.md`](augmentation_report.md)
 - [`baseline_validation_test_recovered.md`](baseline_validation_test_recovered.md)
+
+## 8. MMDetection baseline supplement
+
+This supplement records the independently evaluated MMDetection baseline jobs for the same three datasets. It does not change the YOLO baseline count in Sections 1-6. The evaluation completed **26/26 jobs**, with all requested validation and test fields present: AP50, AP75, mAP50-95, and AP50-Small.
+
+| Dataset | Protocol | Seed | Model | Val AP50 | Val AP75 | Val mAP50-95 | Val AP50-Small | Test AP50 | Test AP75 | Test mAP50-95 | Test AP50-Small |
+|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| LEVIR-Ship | no_mosaic | 42 | retinanet | 0.6613 | 0.0774 | 0.2314 | 0.6618 | 0.7074 | 0.0901 | 0.2563 | 0.7034 |
+| TinyPerson | no_mosaic | 43 | retinanet | 0.5591 | 0.0781 | 0.1892 | 0.5277 | 0.0567 | 0.0045 | 0.0172 | 0.0476 |
+| Varroa | mosaic | 42 | atss | 0.8792 | 0.0810 | 0.3043 | 0.8457 | 0.8778 | 0.0932 | 0.3218 | 0.8434 |
+| Varroa | mosaic | 42 | cascade_rcnn | 0.9007 | 0.0817 | 0.3105 | 0.8788 | 0.8929 | 0.1084 | 0.3157 | 0.8709 |
+| Varroa | mosaic | 42 | faster_rcnn | 0.9183 | 0.0959 | 0.3249 | 0.9015 | 0.8886 | 0.1013 | 0.3216 | 0.8764 |
+| Varroa | mosaic | 42 | fcos | 0.8899 | 0.0887 | 0.3102 | 0.8745 | 0.8939 | 0.1089 | 0.3207 | 0.8671 |
+| Varroa | mosaic | 42 | retinanet | 0.8937 | 0.0994 | 0.3205 | 0.8780 | 0.8938 | 0.1105 | 0.3316 | 0.8630 |
+| Varroa | mosaic | 42 | rtmdet | 0.9053 | 0.1261 | 0.3398 | 0.9094 | 0.9051 | 0.1257 | 0.3447 | 0.8795 |
+| Varroa | mosaic | 43 | atss | 0.8976 | 0.0897 | 0.3110 | 0.8783 | 0.8927 | 0.0837 | 0.3132 | 0.8615 |
+| Varroa | mosaic | 43 | cascade_rcnn | 0.9087 | 0.0911 | 0.3214 | 0.8918 | 0.8913 | 0.1134 | 0.3267 | 0.8743 |
+| Varroa | mosaic | 43 | faster_rcnn | 0.9098 | 0.0982 | 0.3119 | 0.8865 | 0.8857 | 0.1036 | 0.3198 | 0.8741 |
+| Varroa | mosaic | 43 | fcos | 0.8872 | 0.0842 | 0.3133 | 0.8472 | 0.9007 | 0.1162 | 0.3247 | 0.8623 |
+| Varroa | mosaic | 43 | retinanet | 0.8898 | 0.0925 | 0.3210 | 0.8848 | 0.8954 | 0.0930 | 0.3352 | 0.8757 |
+| Varroa | mosaic | 43 | rtmdet | 0.9233 | 0.1069 | 0.3340 | 0.9079 | 0.9134 | 0.1166 | 0.3289 | 0.8991 |
+| Varroa | no_mosaic | 42 | atss | 0.8821 | 0.0865 | 0.3156 | 0.8532 | 0.8892 | 0.1021 | 0.3169 | 0.8547 |
+| Varroa | no_mosaic | 42 | cascade_rcnn | 0.8819 | 0.0768 | 0.3055 | 0.8720 | 0.8802 | 0.1006 | 0.3128 | 0.8534 |
+| Varroa | no_mosaic | 42 | faster_rcnn | 0.9016 | 0.0976 | 0.3282 | 0.8777 | 0.8929 | 0.0919 | 0.3241 | 0.8750 |
+| Varroa | no_mosaic | 42 | fcos | 0.9170 | 0.0825 | 0.3195 | 0.8973 | 0.8987 | 0.0997 | 0.3257 | 0.8875 |
+| Varroa | no_mosaic | 42 | retinanet | 0.8953 | 0.1076 | 0.3246 | 0.8845 | 0.8819 | 0.1028 | 0.3268 | 0.8727 |
+| Varroa | no_mosaic | 42 | rtmdet | 0.9316 | 0.1147 | 0.3442 | 0.9303 | 0.9048 | 0.1088 | 0.3387 | 0.8931 |
+| Varroa | no_mosaic | 43 | atss | 0.8799 | 0.1054 | 0.3132 | 0.8593 | 0.8793 | 0.0859 | 0.3086 | 0.8588 |
+| Varroa | no_mosaic | 43 | cascade_rcnn | 0.9007 | 0.0830 | 0.3108 | 0.8840 | 0.8774 | 0.0879 | 0.3085 | 0.8408 |
+| Varroa | no_mosaic | 43 | faster_rcnn | 0.9031 | 0.1031 | 0.3171 | 0.8857 | 0.8854 | 0.0910 | 0.3108 | 0.8676 |
+| Varroa | no_mosaic | 43 | fcos | 0.9168 | 0.1025 | 0.3229 | 0.9002 | 0.9133 | 0.0983 | 0.3257 | 0.8985 |
+| Varroa | no_mosaic | 43 | retinanet | 0.8941 | 0.0971 | 0.3211 | 0.8862 | 0.8923 | 0.1036 | 0.3303 | 0.8673 |
+| Varroa | no_mosaic | 43 | rtmdet | 0.9392 | 0.1181 | 0.3506 | 0.9321 | 0.9191 | 0.1193 | 0.3427 | 0.8986 |
+
+### 8.1 MMDetection provenance
+
+- Evaluation manifest: `/marimo/mmdet_eval_20261005/results_combined/metrics_manifest.json`.
+- Detailed result roots: `/marimo/mmdet_eval_20261005/results_retry3/` and `/marimo/mmdet_eval_20261005/results_retry6/`.
+- Evaluator: `mmdetection/evaluate_missing_baseline_metrics.py`, source commit `5ae6ca63`.
+- Runner: `/marimo/mmdet-venv/bin/python` through `utils.marimo_ops`.
+- Split seed: `42`. Training seeds represented: `42` and `43`. NMS IoU: `0.50`.
+- Metric source: MMDetection inference output converted to COCO predictions and scored with `pycocotools`. TinyPerson test used the same external COCO scorer because the native evaluator had a category mapping mismatch.
+- This evaluation was local to the Marimo server. No Hugging Face upload was performed.
