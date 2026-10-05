@@ -337,24 +337,39 @@ recovery shards supplied the missing queue indices.
   the three task-specific repositories.
 - No pending queue item remains, and no additional monitor is required.
 
-### 9.3 Metric coverage limitation for the seed 43/44 sweep
+### 9.3 Complete size-metric acceptance for the seed 43/44 sweep
 
-The **76/76** completion claim above is for the four required split-qualified
-core metrics only. A direct audit of all 76 remote `evaluation_metrics.json`
-files found:
+The seed 43/44 size-metric evaluator completed and remote acceptance was verified
+against the task-specific Hugging Face **dataset** repository
+`duyle2408/augmentation-seed43-44-size-metrics-runs`. The evaluator used commit
+`53686d0364de3c720426672c2fc05a3e0b6f4a5f`, split seed `42`, image size `640`,
+batch size `8`, and workers `8`. The corrected LEVIR root was
+`/marimo/LevirShip/LevirShipData`.
+
+The accepted coverage is:
 
 | Metric/artifact family | Coverage |
 |---|---:|
 | `val/AP50`, `val/mAP50-95`, `test/AP50`, `test/mAP50-95` | **76/76** |
-| `val_size/*` fields | **0/76** |
-| `test_size/*` fields | **0/76** |
-| `size_metrics_complete.json` or `size_metrics_manifest.json` | **0/76** |
-| `test_merged/AP50-Small` | **3/76** |
-| `test_merged/AP75` | **3/76** |
+| `val_size/*` fields | **76/76** |
+| `test_size/*` fields | **76/76** |
+| `val_size/AP50-Small` | **76/76** |
+| `test_size/AP50-Small` | **76/76** |
+| `val_size/AP75` | **76/76** |
+| `test_size/AP75` | **76/76** |
+| `size_metrics_complete.json` | **76/76** |
+| `size_metrics_manifest.json` | **76/76** |
+| `test_merged/AP50-Small` | **38/38 TinyPerson prefixes** |
+| `test_merged/AP75` | **38/38 TinyPerson prefixes** |
 
-Therefore, this seed 43/44 sweep is fully complete for the core validation/test
-metrics and HF uploads, but it is **not** a complete AP50-Small or size-bucket
-evaluation sweep. The 3 merged TinyPerson fields are preserved where present
-and must not be generalized to all 76 runs. The earlier size-metric sections in
-this report refer to the separate 38-run size-evaluator pass, not this
-seed 43/44 training sweep.
+Remote acceptance checked `76` completion markers, `76` evaluation metric
+paths, and `76` manifests. Every marker directory had all three required
+siblings, and all remote completion markers reported `verified: true`. The
+repository is a Hugging Face **dataset** repository because the evaluator's
+upload implementation uses `repo_type="dataset"`.
+
+The initial evaluator launch used `/marimo/LevirShip` and failed closed because
+that path did not contain the expected `All Images` and `All Annotations`
+directories. The corrected relaunch used `/marimo/LevirShip/LevirShipData` and
+produced the accepted artifact set. The earlier 38-run size-evaluator sections
+in this report remain separate from this full 76-prefix seed 43/44 acceptance.
