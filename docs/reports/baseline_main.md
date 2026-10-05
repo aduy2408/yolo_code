@@ -173,3 +173,58 @@ These mean ± sample standard deviation values use both training seeds (`42`, `4
 | TinyPerson | no_mosaic | fcos | 2 | 0.4212 ± 0.0081 | 0.0611 ± 0.0004 | 0.1448 ± 0.0052 | 0.5555 ± 0.0151 | 0.4290 ± 0.0021 | 0.0661 ± 0.0016 | 0.1477 ± 0.0011 | 0.5659 ± 0.0009 |
 | TinyPerson | no_mosaic | retinanet | 2 | 0.5191 ± 0.0567 | 0.0665 ± 0.0164 | 0.1703 ± 0.0267 | 0.5403 ± 0.0179 | 0.2618 ± 0.2900 | 0.0254 ± 0.0296 | 0.0834 ± 0.0937 | 0.2929 ± 0.3470 |
 | TinyPerson | no_mosaic | rtmdet | 2 | 0.5016 ± 0.0064 | 0.0876 ± 0.0004 | 0.1803 ± 0.0021 | 0.5933 ± 0.0271 | 0.5083 ± 0.0037 | 0.0963 ± 0.0014 | 0.1867 ± 0.0032 | 0.6143 ± 0.0035 |
+
+### 8.3 Full LEVIR-Ship and TinyPerson per-seed rows
+
+The following table makes the full baseline-model coverage visible in `baseline_main`. These are the existing verified rows plus the two newly evaluated RetinaNet rows. The 26-row missing-row table above is not the complete LEVIR-Ship or TinyPerson matrix by itself.
+
+| Dataset | Protocol | Seed | Model | Val AP50 | Val AP75 | Val mAP50-95 | Val AP50-Small | Test AP50 | Test AP75 | Test mAP50-95 | Test AP50-Small |
+|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| LEVIR-Ship | no_mosaic | 42 | fcos | 0.7227 | 0.0945 | 0.2487 | 0.7222 | 0.7602 | 0.0988 | 0.2872 | 0.7583 |
+| LEVIR-Ship | no_mosaic | 42 | faster_rcnn | 0.7420 | 0.1318 | 0.2846 | 0.7459 | 0.7344 | 0.1297 | 0.2749 | 0.7331 |
+| LEVIR-Ship | no_mosaic | 42 | cascade_rcnn | 0.7265 | 0.0957 | 0.2568 | 0.7316 | 0.6556 | 0.0959 | 0.2310 | 0.6512 |
+| LEVIR-Ship | no_mosaic | 42 | rtmdet | 0.5875 | 0.1378 | 0.2435 | 0.5889 | 0.5804 | 0.0802 | 0.2162 | 0.5857 |
+| LEVIR-Ship | no_mosaic | 42 | atss | 0.7370 | 0.1029 | 0.2611 | 0.7372 | 0.7714 | 0.1002 | 0.2795 | 0.7679 |
+| LEVIR-Ship | no_mosaic | 42 | retinanet | 0.6899 | 0.0807 | 0.2445 | 0.6909 | 0.7075 | 0.0919 | 0.2571 | 0.7064 |
+| LEVIR-Ship | mosaic | 42 | fcos | 0.7306 | 0.1109 | 0.2726 | 0.7336 | 0.6991 | 0.0837 | 0.2455 | 0.6947 |
+| LEVIR-Ship | mosaic | 42 | faster_rcnn | 0.7262 | 0.1275 | 0.2776 | 0.7299 | 0.7073 | 0.1100 | 0.2560 | 0.7056 |
+| LEVIR-Ship | mosaic | 42 | cascade_rcnn | 0.7596 | 0.1151 | 0.2850 | 0.7614 | 0.6479 | 0.0968 | 0.2347 | 0.6450 |
+| LEVIR-Ship | mosaic | 42 | rtmdet | 0.7186 | 0.1205 | 0.2805 | 0.7272 | 0.6341 | 0.0897 | 0.2313 | 0.6402 |
+| LEVIR-Ship | mosaic | 42 | atss | 0.7486 | 0.0954 | 0.2647 | 0.7476 | 0.7556 | 0.1212 | 0.2866 | 0.7563 |
+| LEVIR-Ship | mosaic | 42 | retinanet | 0.6990 | 0.1022 | 0.2511 | 0.6994 | 0.7378 | 0.1215 | 0.2829 | 0.7391 |
+| LEVIR-Ship | no_mosaic | 43 | fcos | 0.7051 | 0.0890 | 0.2485 | 0.7042 | 0.7084 | 0.0642 | 0.2315 | 0.7046 |
+| LEVIR-Ship | no_mosaic | 43 | faster_rcnn | 0.7548 | 0.1156 | 0.2867 | 0.7558 | 0.7107 | 0.0816 | 0.2524 | 0.7069 |
+| LEVIR-Ship | no_mosaic | 43 | cascade_rcnn | 0.7465 | 0.1197 | 0.2798 | 0.7515 | 0.6522 | 0.0920 | 0.2422 | 0.6437 |
+| LEVIR-Ship | no_mosaic | 43 | rtmdet | 0.7062 | 0.1472 | 0.2884 | 0.7094 | 0.6712 | 0.1178 | 0.2658 | 0.6790 |
+| LEVIR-Ship | no_mosaic | 43 | atss | 0.7265 | 0.1012 | 0.2596 | 0.7289 | 0.7514 | 0.0956 | 0.2812 | 0.7478 |
+| LEVIR-Ship | no_mosaic | 43 | retinanet | 0.7184 | 0.0840 | 0.2575 | 0.7200 | 0.7076 | 0.0936 | 0.2579 | 0.7093 |
+| LEVIR-Ship | mosaic | 43 | fcos | 0.7372 | 0.0906 | 0.2578 | 0.7430 | 0.7217 | 0.0856 | 0.2496 | 0.7179 |
+| LEVIR-Ship | mosaic | 43 | faster_rcnn | 0.7569 | 0.1203 | 0.2836 | 0.7591 | 0.7020 | 0.0912 | 0.2542 | 0.6980 |
+| LEVIR-Ship | mosaic | 43 | cascade_rcnn | 0.7355 | 0.1176 | 0.2701 | 0.7393 | 0.7128 | 0.1223 | 0.2684 | 0.7051 |
+| LEVIR-Ship | mosaic | 43 | rtmdet | 0.7362 | 0.1329 | 0.2849 | 0.7384 | 0.7558 | 0.1061 | 0.2896 | 0.7581 |
+| LEVIR-Ship | mosaic | 43 | atss | 0.7609 | 0.0868 | 0.2616 | 0.7575 | 0.7472 | 0.1127 | 0.2818 | 0.7417 |
+| LEVIR-Ship | mosaic | 43 | retinanet | 0.7241 | 0.0983 | 0.2583 | 0.7276 | 0.6598 | 0.1046 | 0.2509 | 0.6595 |
+| TinyPerson | no_mosaic | 42 | fcos | 0.4154 | 0.0608 | 0.1411 | 0.5449 | 0.4305 | 0.0672 | 0.1484 | 0.5666 |
+| TinyPerson | no_mosaic | 42 | faster_rcnn | 0.3092 | 0.0557 | 0.1105 | 0.5954 | 0.3688 | 0.0682 | 0.1361 | 0.6278 |
+| TinyPerson | no_mosaic | 42 | cascade_rcnn | 0.5106 | 0.0923 | 0.1903 | 0.6034 | 0.5139 | 0.0909 | 0.1896 | 0.6025 |
+| TinyPerson | no_mosaic | 42 | rtmdet | 0.5061 | 0.0873 | 0.1818 | 0.6124 | 0.5056 | 0.0953 | 0.1844 | 0.6118 |
+| TinyPerson | no_mosaic | 42 | atss | 0.4392 | 0.0706 | 0.1525 | 0.5617 | 0.4413 | 0.0718 | 0.1553 | 0.5768 |
+| TinyPerson | no_mosaic | 42 | retinanet | 0.4790 | 0.0549 | 0.1514 | 0.5530 | 0.4668 | 0.0463 | 0.1497 | 0.5383 |
+| TinyPerson | mosaic | 42 | fcos | 0.4060 | 0.0557 | 0.1394 | 0.5862 | 0.4415 | 0.0693 | 0.1523 | 0.5981 |
+| TinyPerson | mosaic | 42 | faster_rcnn | 0.2904 | 0.0515 | 0.1084 | 0.5822 | 0.3526 | 0.0681 | 0.1329 | 0.6185 |
+| TinyPerson | mosaic | 42 | cascade_rcnn | 0.5272 | 0.0979 | 0.1981 | 0.5981 | 0.4810 | 0.0944 | 0.1820 | 0.5865 |
+| TinyPerson | mosaic | 42 | rtmdet | 0.5054 | 0.0861 | 0.1837 | 0.5813 | 0.5191 | 0.0980 | 0.1902 | 0.6348 |
+| TinyPerson | mosaic | 42 | atss | 0.4298 | 0.0660 | 0.1500 | 0.5995 | 0.4469 | 0.0707 | 0.1550 | 0.5984 |
+| TinyPerson | mosaic | 42 | retinanet | 0.4515 | 0.0532 | 0.1484 | 0.5020 | 0.4344 | 0.0478 | 0.1405 | 0.4980 |
+| TinyPerson | no_mosaic | 43 | fcos | 0.4269 | 0.0614 | 0.1485 | 0.5662 | 0.4276 | 0.0650 | 0.1469 | 0.5653 |
+| TinyPerson | no_mosaic | 43 | faster_rcnn | 0.2895 | 0.0604 | 0.1103 | 0.5605 | 0.3488 | 0.0640 | 0.1285 | 0.6231 |
+| TinyPerson | no_mosaic | 43 | cascade_rcnn | 0.5207 | 0.1047 | 0.1946 | 0.5384 | 0.5195 | 0.1015 | 0.1938 | 0.6092 |
+| TinyPerson | no_mosaic | 43 | rtmdet | 0.4971 | 0.0878 | 0.1788 | 0.5741 | 0.5109 | 0.0973 | 0.1889 | 0.6168 |
+| TinyPerson | no_mosaic | 43 | atss | 0.4331 | 0.0732 | 0.1542 | 0.5988 | 0.4347 | 0.0666 | 0.1514 | 0.5957 |
+| TinyPerson | no_mosaic | 43 | retinanet | 0.5591 | 0.0781 | 0.1892 | 0.5277 | 0.0567 | 0.0045 | 0.0172 | 0.0476 |
+| TinyPerson | mosaic | 43 | fcos | 0.4048 | 0.0562 | 0.1354 | 0.5682 | 0.4325 | 0.0623 | 0.1488 | 0.5839 |
+| TinyPerson | mosaic | 43 | faster_rcnn | 0.3049 | 0.0532 | 0.1120 | 0.5902 | 0.3722 | 0.0739 | 0.1404 | 0.6238 |
+| TinyPerson | mosaic | 43 | cascade_rcnn | 0.5172 | 0.0991 | 0.1912 | 0.5416 | 0.5185 | 0.0986 | 0.1928 | 0.5998 |
+| TinyPerson | mosaic | 43 | rtmdet | 0.4910 | 0.0859 | 0.1809 | 0.5625 | 0.5204 | 0.0963 | 0.1907 | 0.6376 |
+| TinyPerson | mosaic | 43 | atss | 0.4237 | 0.0612 | 0.1480 | 0.5196 | 0.4348 | 0.0697 | 0.1516 | 0.5555 |
+| TinyPerson | mosaic | 43 | retinanet | 0.4496 | 0.0509 | 0.1444 | 0.5091 | 0.4485 | 0.0508 | 0.1437 | 0.5249 |
