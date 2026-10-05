@@ -61,6 +61,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--project", type=Path, default=ROOT / "runs/varroa_yolo_baselines_mosaic_two_seed")
     parser.add_argument("--models", nargs="+", choices=list(base.MODELS), default=list(base.MODELS))
     parser.add_argument("--seeds", nargs="+", type=int, default=list(SEEDS))
+    parser.add_argument("--job-start", type=int, default=1, help="One-based inclusive job index in model-major order")
+    parser.add_argument("--job-end", type=int, default=10, help="One-based inclusive job index in model-major order")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -150,6 +152,10 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError(f"This runner requires --split-seed {SPLIT_SEED}")
     if sorted(args.seeds) != sorted(set(args.seeds)):
         raise ValueError("Seeds must be unique")
+    jobs = [(model, seed) for model in args.models for seed in args.seeds]
+    if not 1 <= args.job_start <= args.job_end <= len(jobs):
+        raise ValueError(f"Job range must be within 1..{len(jobs)}")
+    jobs = jobs[args.job_start - 1 : args.job_end]
     if os.environ.get("MARIMO_TRAIN_WORKFLOW") != "1":
         raise RuntimeError("Use python -m utils.marimo_ops launch for upload-required training")
 
@@ -163,9 +169,8 @@ def main(argv: list[str] | None = None) -> None:
     args.dataset_root = args.dataset_root.resolve()
     args.project = args.project.resolve()
     data_yaml = base.prepare_dataset(DATASET, args.data_root, args.dataset_root)
-    jobs = [(model, seed) for model in args.models for seed in args.seeds]
     verified = base.verified_remote_prefixes(api, repo_id)
-    print(json.dumps({"dataset": DATASET, "models": args.models, "seeds": args.seeds, "jobs": len(jobs), "mosaic": MOSAIC, "close_mosaic": CLOSE_MOSAIC, "split_seed": SPLIT_SEED}, sort_keys=True), flush=True)
+    print(json.dumps({"dataset": DATASET, "models": args.models, "seeds": args.seeds, "job_start": args.job_start, "job_end": args.job_end, "jobs": len(jobs), "mosaic": MOSAIC, "close_mosaic": CLOSE_MOSAIC, "split_seed": SPLIT_SEED}, sort_keys=True), flush=True)
 
     for model_name, seed in jobs:
         remote = f"runs/{DATASET}/{model_name}/seed_{seed}"
@@ -181,6 +186,8 @@ def main(argv: list[str] | None = None) -> None:
             "model_yaml": str((ROOT / base.MODELS[model_name][1]).resolve()),
             "seed": seed,
             "split_seed": SPLIT_SEED,
+            "job_start": args.job_start,
+            "job_end": args.job_end,
             "mosaic": MOSAIC,
             "close_mosaic": CLOSE_MOSAIC,
             "epochs": args.epochs,
