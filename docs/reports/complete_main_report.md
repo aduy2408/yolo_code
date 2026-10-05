@@ -283,6 +283,19 @@ These values are the backfill the report previously omitted. The underlying
 artifacts already contained them, so no retraining was required and no metric
 was inferred from another run.
 
+**Important provenance clarification for LEVIR Copy-Paste:** the four LEVIR
+Copy-Paste rows above are the canonical augmentation-matrix checkpoints for
+training seeds 43 and 44. The historical Copy-Paste report contains seed-42
+core metrics such as CP3 `mAP50-95=0.3234` and NegativeCanvas R1/R4 test
+`mAP50-95=0.3156/0.3158`, but those historical LEVIR Copy-Paste checkpoints
+were not included in this native size-bucket backfill. Therefore there is no
+verified seed-42 LEVIR Copy-Paste `AP50-Small` value in this table. The
+`0.7879` LEVIR `test_size/AP50-Small` value cited in the augmentation report is
+the YOLOv8 no-Mosaic MuSGD baseline, not a Copy-Paste result. Both the
+baseline evaluator and this augmentation evaluator use the same native
+`size_bucket_evaluator` protocol; the low Copy-Paste values are not caused by
+substituting TinyPerson's merged metric.
+
 ## 9. Seed 43/44 augmentation sweep completion
 
 The follow-up multi-seed augmentation sweep is complete and upload-verified.
