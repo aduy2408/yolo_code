@@ -103,8 +103,7 @@ The HF audit found `83/83` completion, metric, and manifest artifacts in the con
 
 This supplement records the independently evaluated MMDetection baseline jobs for the same three datasets. It does not change the YOLO baseline count in Sections 1-6. The evaluation completed **26/26 jobs**, with all requested validation and test fields present: AP50, AP75, mAP50-95, and AP50-Small.
 
-**Coverage note:** this is a missing-row supplement, not the complete MMDetection matrix. The new evaluation added 24 Varroa rows, one LEVIR-Ship row (`seed42/no_mosaic/retinanet`), and one TinyPerson row (`seed43/no_mosaic/retinanet`). Therefore, this table alone is not sufficient for mean ± standard deviation. The pre-existing LEVIR-Ship and TinyPerson rows remain in [`mmdetection_baseline_runs_report.md`](mmdetection_baseline_runs_report.md). Any MMDetection std analysis must merge that full matrix with the rows below instead of computing std from this supplement alone.
-
+**Coverage note:** the first table is the newly evaluated missing-row supplement. It adds 24 Varroa rows, one LEVIR-Ship row (`seed42/no_mosaic/retinanet`), and one TinyPerson row (`seed43/no_mosaic/retinanet`). The merged seed statistics in Section 8.2 combine these new rows with the pre-existing LEVIR-Ship and TinyPerson rows from [`mmdetection_baseline_runs_report.md`](mmdetection_baseline_runs_report.md).
 | Dataset | Protocol | Seed | Model | Val AP50 | Val AP75 | Val mAP50-95 | Val AP50-Small | Test AP50 | Test AP75 | Test mAP50-95 | Test AP50-Small |
 |---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | LEVIR-Ship | no_mosaic | 42 | retinanet | 0.6613 | 0.0774 | 0.2314 | 0.6618 | 0.7074 | 0.0901 | 0.2563 | 0.7034 |
@@ -143,3 +142,34 @@ This supplement records the independently evaluated MMDetection baseline jobs fo
 - Split seed: `42`. Training seeds represented: `42` and `43`. NMS IoU: `0.50`.
 - Metric source: MMDetection inference output converted to COCO predictions and scored with `pycocotools`. TinyPerson test used the same external COCO scorer because the native evaluator had a category mapping mismatch.
 - This evaluation was local to the Marimo server. No Hugging Face upload was performed.
+
+### 8.2 Merged LEVIR-Ship and TinyPerson seed statistics
+
+These mean ± sample standard deviation values use both training seeds (`42`, `43`). They merge the pre-existing rows from `mmdetection_baseline_runs_report.md` with the two newly evaluated RetinaNet rows. Values are fractions, not percentages.
+
+| Dataset | Protocol | Model | n | Val AP50 | Val AP75 | Val mAP50-95 | Val AP50-Small | Test AP50 | Test AP75 | Test mAP50-95 | Test AP50-Small |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| LEVIR-Ship | mosaic | atss | 2 | 0.7548 ± 0.0087 | 0.0911 ± 0.0061 | 0.2631 ± 0.0022 | 0.7526 ± 0.0070 | 0.7514 ± 0.0059 | 0.1169 ± 0.0060 | 0.2842 ± 0.0034 | 0.7490 ± 0.0103 |
+| LEVIR-Ship | mosaic | cascade_rcnn | 2 | 0.7476 ± 0.0170 | 0.1163 ± 0.0018 | 0.2775 ± 0.0105 | 0.7503 ± 0.0156 | 0.6804 ± 0.0459 | 0.1096 ± 0.0180 | 0.2515 ± 0.0238 | 0.6750 ± 0.0425 |
+| LEVIR-Ship | mosaic | faster_rcnn | 2 | 0.7415 ± 0.0217 | 0.1239 ± 0.0051 | 0.2806 ± 0.0042 | 0.7445 ± 0.0206 | 0.7046 ± 0.0037 | 0.1006 ± 0.0133 | 0.2551 ± 0.0013 | 0.7018 ± 0.0054 |
+| LEVIR-Ship | mosaic | fcos | 2 | 0.7339 ± 0.0047 | 0.1008 ± 0.0144 | 0.2652 ± 0.0105 | 0.7383 ± 0.0066 | 0.7104 ± 0.0160 | 0.0847 ± 0.0013 | 0.2475 ± 0.0029 | 0.7063 ± 0.0164 |
+| LEVIR-Ship | mosaic | retinanet | 2 | 0.7115 ± 0.0177 | 0.1003 ± 0.0028 | 0.2547 ± 0.0051 | 0.7135 ± 0.0199 | 0.6988 ± 0.0552 | 0.1130 ± 0.0120 | 0.2669 ± 0.0226 | 0.6993 ± 0.0563 |
+| LEVIR-Ship | mosaic | rtmdet | 2 | 0.7274 ± 0.0124 | 0.1267 ± 0.0088 | 0.2827 ± 0.0031 | 0.7328 ± 0.0079 | 0.6949 ± 0.0861 | 0.0979 ± 0.0116 | 0.2605 ± 0.0412 | 0.6991 ± 0.0834 |
+| LEVIR-Ship | no_mosaic | atss | 2 | 0.7318 ± 0.0074 | 0.1021 ± 0.0012 | 0.2603 ± 0.0011 | 0.7330 ± 0.0059 | 0.7614 ± 0.0141 | 0.0979 ± 0.0033 | 0.2803 ± 0.0012 | 0.7579 ± 0.0142 |
+| LEVIR-Ship | no_mosaic | cascade_rcnn | 2 | 0.7365 ± 0.0141 | 0.1077 ± 0.0170 | 0.2683 ± 0.0163 | 0.7415 ± 0.0141 | 0.6539 ± 0.0024 | 0.0940 ± 0.0028 | 0.2366 ± 0.0079 | 0.6475 ± 0.0053 |
+| LEVIR-Ship | no_mosaic | faster_rcnn | 2 | 0.7484 ± 0.0091 | 0.1237 ± 0.0115 | 0.2857 ± 0.0015 | 0.7509 ± 0.0070 | 0.7226 ± 0.0168 | 0.1057 ± 0.0340 | 0.2636 ± 0.0159 | 0.7200 ± 0.0185 |
+| LEVIR-Ship | no_mosaic | fcos | 2 | 0.7139 ± 0.0124 | 0.0917 ± 0.0039 | 0.2486 ± 0.0001 | 0.7132 ± 0.0127 | 0.7343 ± 0.0366 | 0.0815 ± 0.0245 | 0.2594 ± 0.0394 | 0.7314 ± 0.0380 |
+| LEVIR-Ship | no_mosaic | retinanet | 2 | 0.6899 ± 0.0403 | 0.0807 ± 0.0047 | 0.2445 ± 0.0184 | 0.6909 ± 0.0412 | 0.7075 ± 0.0001 | 0.0919 ± 0.0025 | 0.2571 ± 0.0011 | 0.7064 ± 0.0042 |
+| LEVIR-Ship | no_mosaic | rtmdet | 2 | 0.6469 ± 0.0839 | 0.1425 ± 0.0066 | 0.2660 ± 0.0317 | 0.6492 ± 0.0852 | 0.6258 ± 0.0642 | 0.0990 ± 0.0266 | 0.2410 ± 0.0351 | 0.6323 ± 0.0660 |
+| TinyPerson | mosaic | atss | 2 | 0.4268 ± 0.0043 | 0.0636 ± 0.0034 | 0.1490 ± 0.0014 | 0.5595 ± 0.0565 | 0.4409 ± 0.0086 | 0.0702 ± 0.0007 | 0.1533 ± 0.0024 | 0.5770 ± 0.0303 |
+| TinyPerson | mosaic | cascade_rcnn | 2 | 0.5222 ± 0.0071 | 0.0985 ± 0.0008 | 0.1946 ± 0.0049 | 0.5698 ± 0.0400 | 0.4997 ± 0.0265 | 0.0965 ± 0.0030 | 0.1874 ± 0.0076 | 0.5932 ± 0.0094 |
+| TinyPerson | mosaic | faster_rcnn | 2 | 0.2976 ± 0.0103 | 0.0523 ± 0.0012 | 0.1102 ± 0.0025 | 0.5862 ± 0.0057 | 0.3624 ± 0.0139 | 0.0710 ± 0.0041 | 0.1366 ± 0.0053 | 0.6212 ± 0.0037 |
+| TinyPerson | mosaic | fcos | 2 | 0.4054 ± 0.0008 | 0.0559 ± 0.0004 | 0.1374 ± 0.0028 | 0.5772 ± 0.0127 | 0.4370 ± 0.0064 | 0.0658 ± 0.0049 | 0.1505 ± 0.0025 | 0.5910 ± 0.0100 |
+| TinyPerson | mosaic | retinanet | 2 | 0.4506 ± 0.0013 | 0.0520 ± 0.0016 | 0.1464 ± 0.0028 | 0.5055 ± 0.0050 | 0.4415 ± 0.0100 | 0.0493 ± 0.0021 | 0.1421 ± 0.0023 | 0.5114 ± 0.0190 |
+| TinyPerson | mosaic | rtmdet | 2 | 0.4982 ± 0.0102 | 0.0860 ± 0.0001 | 0.1823 ± 0.0020 | 0.5719 ± 0.0133 | 0.5197 ± 0.0009 | 0.0972 ± 0.0012 | 0.1905 ± 0.0004 | 0.6362 ± 0.0020 |
+| TinyPerson | no_mosaic | atss | 2 | 0.4361 ± 0.0043 | 0.0719 ± 0.0018 | 0.1533 ± 0.0012 | 0.5802 ± 0.0262 | 0.4380 ± 0.0047 | 0.0692 ± 0.0037 | 0.1533 ± 0.0028 | 0.5862 ± 0.0134 |
+| TinyPerson | no_mosaic | cascade_rcnn | 2 | 0.5157 ± 0.0071 | 0.0985 ± 0.0088 | 0.1925 ± 0.0030 | 0.5709 ± 0.0460 | 0.5167 ± 0.0040 | 0.0962 ± 0.0075 | 0.1917 ± 0.0030 | 0.6058 ± 0.0047 |
+| TinyPerson | no_mosaic | faster_rcnn | 2 | 0.2994 ± 0.0139 | 0.0581 ± 0.0033 | 0.1104 ± 0.0001 | 0.5779 ± 0.0247 | 0.3588 ± 0.0141 | 0.0661 ± 0.0030 | 0.1323 ± 0.0054 | 0.6255 ± 0.0033 |
+| TinyPerson | no_mosaic | fcos | 2 | 0.4212 ± 0.0081 | 0.0611 ± 0.0004 | 0.1448 ± 0.0052 | 0.5555 ± 0.0151 | 0.4290 ± 0.0021 | 0.0661 ± 0.0016 | 0.1477 ± 0.0011 | 0.5659 ± 0.0009 |
+| TinyPerson | no_mosaic | retinanet | 2 | 0.5191 ± 0.0567 | 0.0665 ± 0.0164 | 0.1703 ± 0.0267 | 0.5403 ± 0.0179 | 0.2618 ± 0.2900 | 0.0254 ± 0.0296 | 0.0834 ± 0.0937 | 0.2929 ± 0.3470 |
+| TinyPerson | no_mosaic | rtmdet | 2 | 0.5016 ± 0.0064 | 0.0876 ± 0.0004 | 0.1803 ± 0.0021 | 0.5933 ± 0.0271 | 0.5083 ± 0.0037 | 0.0963 ± 0.0014 | 0.1867 ± 0.0032 | 0.6143 ± 0.0035 |
