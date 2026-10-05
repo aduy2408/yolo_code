@@ -1,4 +1,4 @@
-# SOTA Main Report: STW YOLO, TPH YOLO, FCOS-SET, FCOS-SR-TOD
+# SOTA Report: STW YOLO, TPH YOLO, FCOS-SET, FCOS-SR-TOD
 
 **Updated:** 2026-10-05  
 **Scope:** Varroa, LEVIR-Ship, and TinyPerson only. **VisDrone is intentionally excluded.**  
@@ -8,7 +8,7 @@
 
 | Family | Repository | Scope/status |
 |---|---|---|
-| STW YOLO | `duyle2408/stw-yolo-runs` | Standard STW YOLO runs for LEVIR-Ship, TinyPerson, Varroa. The same repo also contains Copy-Paste/variant subtrees, inventoried separately. |
+| STW YOLO | `duyle2408/stw-yolo-runs` | STW YOLO runs for LEVIR-Ship, TinyPerson, Varroa. The same repo also contains Copy-Paste/variant subtrees, inventoried separately. |
 | TPH YOLO | `duyle2408/varroa-tinyperson-levirship-visdrone-tph-yolov5-runs` | TPH-YOLOv5 runs for the three target datasets; VisDrone paths excluded. |
 | TPH YOLO-n | `duyle2408/varroa-tinyperson-levirship-visdrone-tph-yolov5n-runs` | Observed seed43 artifact for Varroa; requested comparison seed42 is not present in the inspected repo. |
 | FCOS-SET | `duyle2408/set_fcos_runs` and `duyle2408/set-fcos-stw-protocol-runs` | FCOS-SET artifacts exist for target datasets; split-qualified and test-only artifacts are kept distinct. |
@@ -16,7 +16,7 @@
 
 ## 2. Metrics inventory
 
-The compact table below records the fields that are present in the remote artifacts. TPH and FCOS-SET rows are split-qualified where the source exposes val/test fields. STW main rows expose aggregate YOLO evaluation metrics only.
+The compact table below records the fields that are present in the remote artifacts. TPH and FCOS-SET rows are split-qualified where the source exposes val/test fields. STW YOLO rows expose aggregate YOLO evaluation metrics only. Existing rows are historical results and are not being marked for re-evaluation by the seed plan below.
 
 | Family | Model/variant | Dataset | Protocol | Seed | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 | Status | Source |
 |---|---|---|---|---:|---:|---:|---:|---:|---|---|
@@ -38,38 +38,40 @@ The compact table below records the fields that are present in the remote artifa
 
 ## 3. Requested seed alignment
 
-| Family | Requested seed | HF evidence checked | Current result |
-|---|---:|---|---|
-| STW YOLO | 42 for the standard STW path | `stw-yolo-runs/runs/{levirship,tinyperson,varroa}/seed_42` | Recorded as **STW YOLO**, not “main”. Variant branches also contain seeds43/44 but are not included in the standard rows. |
-| TPH-YOLOv5n | 42 | `varroa-tinyperson-levirship-visdrone-tph-yolov5n-runs` | Seed42 artifact not found in the inspected repo; seed43 artifact exists and is retained as observed evidence. |
-| FCOS-SET | 43 | `set_fcos_runs`, `set-fcos-stw-protocol-runs` | Only seed42 target-dataset artifacts were found; seed43 remains a requested/missing artifact. |
-| FCOS-SR-TOD | 43 | `srtod-set-mosaic-matrix-runs` | Seed43 checkpoint/train/test artifacts exist for Varroa, LEVIR-Ship, and TinyPerson, but split-qualified metric files are missing. |
+| Family | Requested seed | Note |
+|---|---:|---|
+| STW YOLO | existing result uses seed42 | Keep the existing result. No new STW YOLO run is requested here. It is recorded simply as **STW YOLO**, not “main”. |
+| TPH-YOLOv5n | 42 | Existing seed43 result remains historical. Run a new seed42 experiment. |
+| FCOS-SET | 43 | Existing seed42 results remain historical. Run a new seed43 experiment. |
+| FCOS-SR-TOD | 43 | Run/record the requested seed43 experiment. Existing artifacts remain historical. |
 
-## 4. Missing metrics and re-evaluation backlog
+## 4. Historical artifact notes
+
+The items below describe the old artifacts already present. They are retained as historical evidence and are not a request to rerun or re-evaluate them.
 
 ### 4.1 STW YOLO
 
-- Standard STW YOLO LEVIR-Ship, TinyPerson, and Varroa artifacts contain aggregate `metrics/mAP50(B)` and `metrics/mAP50-95(B)` plus precision/recall. They do not expose explicit val/test labels in `evaluation_metrics.json`, so this report does not relabel them.
-- TinyPerson additionally has independent tile metrics and merged source-image metrics under `runs/tinyperson/seed_42/evaluation/`. These are test-side protocols and must remain separately labeled.
-- The STW repository contains additional Copy-Paste and LEVIR P2 variant subtrees. They are present on HF but are not expanded into the main table because they are augmentation/variant branches rather than the main STW control run.
+- STW YOLO LEVIR-Ship, TinyPerson, and Varroa artifacts contain aggregate `metrics/mAP50(B)` and `metrics/mAP50-95(B)` plus precision/recall. They do not expose explicit val/test labels in `evaluation_metrics.json`, so this report does not relabel them.
+- TinyPerson additionally has independent tile metrics and merged source-image metrics under `runs/tinyperson/seed_42/evaluation/`. These are test-side protocols and remain separately labeled.
+- The STW repository contains additional Copy-Paste and LEVIR P2 variant subtrees. They are present on HF but are not expanded into the table because they are augmentation/variant branches rather than the requested STW YOLO result.
 
 ### 4.2 TPH YOLO
 
 - TPH-YOLOv5 has split-qualified val/test AP50 and mAP50-95 for LEVIR-Ship seed42, TinyPerson seed42, Varroa seed42, plus LEVIR-Ship/TinyPerson seed43 where present.
-- TPH-YOLOv5n has an observed Varroa seed43 run, but the requested seed42 artifact is not present in the inspected repo.
-- The TPH manifests record `patience: 0`, so these are not directly comparable to the baseline matrix patience15 protocol.
+- TPH-YOLOv5n has an observed Varroa seed43 result. This old result is retained. The new requested run seed is 42.
+- The TPH manifests record `patience: 0`, so these historical results are not directly comparable to the baseline matrix patience15 protocol.
 
 ### 4.3 FCOS-SET
 
 - LEVIR-Ship and TinyPerson FCOS-SET STW-protocol rows have complete split-qualified `final_results.json` artifacts at seed42.
 - Varroa FCOS-SET has an observed seed42 checkpoint/job summary and test metric artifact.
-- The requested FCOS-SET seed43 artifact was not found in the inspected target-dataset repos.
+- These seed42 results are retained as historical evidence. The new requested FCOS-SET run seed is 43.
 
 ### 4.4 FCOS-SR-TOD
 
-- The requested seed43 SRTOD matrix contains Varroa, LEVIR-Ship, and TinyPerson train/checkpoint/test artifacts under `duyle2408/srtod-set-mosaic-matrix-runs`.
-- No complete split-qualified `final_results.json` or equivalent metric artifact was found for those seed43 rows.
-- The older `srtod-varroa-protocol-runs` repo contains a separate partial seed42-style artifact and should not be merged with the seed43 matrix.
+- The existing SRTOD artifacts include Varroa, LEVIR-Ship, and TinyPerson train/checkpoint/test material under `duyle2408/srtod-set-mosaic-matrix-runs`.
+- The old artifact set does not provide complete split-qualified `final_results.json` or equivalent metric files for all rows.
+- The new requested FCOS-SR-TOD run seed is 43. Existing artifacts remain historical and should not be interpreted as a request to repair the old results.
 
 ## 5. Protocol cautions
 
@@ -78,7 +80,19 @@ The compact table below records the fields that are present in the remote artifa
 - Do not compare aggregate STW metrics directly against split-qualified TPH/FCOS-SET metrics without marking the evaluation protocol.
 - VisDrone is excluded from this report by scope, including any paths containing `visdrone`.
 
-## 6. Recommended next steps
+## 6. Requested future runs
+
+This is the run note for the next execution. It does not invalidate or replace the historical results above.
+
+| Model family | Training seed | Scope | Note |
+|---|---:|---|---|
+| TPH-YOLOv5n | 42 | Varroa, LEVIR-Ship, TinyPerson as applicable | New requested run. |
+| FCOS-SET | 43 | Varroa, LEVIR-Ship, TinyPerson as applicable | New requested run. |
+| FCOS-SR-TOD | 43 | Varroa, LEVIR-Ship, TinyPerson as applicable | New requested run. |
+
+STW YOLO is not included in the new-run list. Keep its existing result only, and do not use the label “STW YOLO main”.
+
+## 7. Recommended next steps
 
 1. Upload or generate split-qualified evaluation artifacts for standard STW YOLO runs if val/test comparison is required.
 2. Complete Varroa FCOS-SET validation evaluation.
