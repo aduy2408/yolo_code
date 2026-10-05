@@ -336,3 +336,25 @@ recovery shards supplied the missing queue indices.
 - The live Hugging Face tree contains `76` seed 43/44 completion markers across
   the three task-specific repositories.
 - No pending queue item remains, and no additional monitor is required.
+
+### 9.3 Metric coverage limitation for the seed 43/44 sweep
+
+The **76/76** completion claim above is for the four required split-qualified
+core metrics only. A direct audit of all 76 remote `evaluation_metrics.json`
+files found:
+
+| Metric/artifact family | Coverage |
+|---|---:|
+| `val/AP50`, `val/mAP50-95`, `test/AP50`, `test/mAP50-95` | **76/76** |
+| `val_size/*` fields | **0/76** |
+| `test_size/*` fields | **0/76** |
+| `size_metrics_complete.json` or `size_metrics_manifest.json` | **0/76** |
+| `test_merged/AP50-Small` | **3/76** |
+| `test_merged/AP75` | **3/76** |
+
+Therefore, this seed 43/44 sweep is fully complete for the core validation/test
+metrics and HF uploads, but it is **not** a complete AP50-Small or size-bucket
+evaluation sweep. The 3 merged TinyPerson fields are preserved where present
+and must not be generalized to all 76 runs. The earlier size-metric sections in
+this report refer to the separate 38-run size-evaluator pass, not this
+seed 43/44 training sweep.
