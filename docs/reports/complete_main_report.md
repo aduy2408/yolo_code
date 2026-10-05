@@ -1,6 +1,6 @@
 # Complete Main Report: Augmentation Matrix
 
-**Updated:** 2026-10-04
+**Updated:** 2026-10-05
 **Scope:** YOLO augmentation matrix only: OACP, Mosaic, and Copy-Paste.  
 **Metric policy:** preserve split-qualified metrics exactly as reported. Use `--` when a metric is absent from the source artifact. Do not relabel unsplit metrics as validation or test metrics.
 
@@ -282,3 +282,57 @@ not apply to that dataset, not that the native `test_size/*` metric is absent.
 These values are the backfill the report previously omitted. The underlying
 artifacts already contained them, so no retraining was required and no metric
 was inferred from another run.
+
+## 9. Seed 43/44 augmentation sweep completion
+
+The follow-up multi-seed augmentation sweep is complete and upload-verified.
+The sweep used the pinned commit
+`53686d0364de3c720426672c2fc05a3e0b6f4a5f`, fixed split seed `42`, training
+seeds `43` and `44`, `100` epochs, patience `0`, workers `8`, NMS IoU `0.50`,
+and the three task-specific repositories listed in Section 1.1. Completion was
+counted only when an evaluation artifact contained all four split-qualified
+fields:
+
+```text
+val/AP50
+val/mAP50-95
+test/AP50
+test/mAP50-95
+```
+
+The final acceptance check through the live Marimo kernels and the Hugging Face
+listing interface reported **76/76 local-complete**, **76/76 HF-verified**, and
+**0 pending**. The checked artifacts all contained the required metric fields
+and the corresponding `upload_complete.json` marker.
+
+### 9.1 Recovery-slot accounting
+
+The recovery servers covered the missing queue ranges as follows. Counts below
+are local split-qualified evaluation artifacts and upload markers in each
+isolated run directory.
+
+| Slot | Queue range | Final state | Local complete | HF markers | Completion note |
+|---|---:|---|---:|---:|---|
+| A | 20-22 | exited 0 | 3/3 | 3/3 | Completed normally |
+| B | 51-55 | exited `-15` | 3/5 | 3/5 | Stopped after queue job 4 began; duplicate 54-55 owned by extra1 |
+| C | 62-66 | exited `-15` | 3/5 | 3/5 | Stopped after queue job 4 began; duplicate 65-66 owned by extra2 |
+| D | 76 | exited 0 | 1/1 | 1/1 | Completed normally |
+| extra1 | 54-55 | exited 0 | 2/2 | 2/2 | Completed duplicate-owned shard |
+| extra2 | 65-66 | exited 0 | 2/2 | 2/2 | Completed duplicate-owned shard |
+
+The B and C queues were not stopped prematurely. Their logs were checked for
+the duplicate boundary before the authorized stop, and their durable
+`state.json` records were verified after termination. The protected legacy
+endpoint for the original 23-28 slot remained HTTP 410 and was not relaunched.
+It did not reduce the final unique sweep coverage because the replacement and
+recovery shards supplied the missing queue indices.
+
+### 9.2 Final acceptance evidence
+
+- All tracked recovery run directories have terminal state records.
+- Every inspected `evaluation_metrics.json` contains the four required
+  validation/test fields.
+- Every completed recovery artifact has `upload_complete.json`.
+- The live Hugging Face tree contains `76` seed 43/44 completion markers across
+  the three task-specific repositories.
+- No pending queue item remains, and no additional monitor is required.
