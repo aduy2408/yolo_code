@@ -103,6 +103,8 @@ The HF audit found `83/83` completion, metric, and manifest artifacts in the con
 
 This supplement records the independently evaluated MMDetection baseline jobs for the same three datasets. It does not change the YOLO baseline count in Sections 1-6. The evaluation completed **26/26 jobs**, with all requested validation and test fields present: AP50, AP75, mAP50-95, and AP50-Small.
 
+**Coverage note:** this is a missing-row supplement, not the complete MMDetection matrix. The new evaluation added 24 Varroa rows, one LEVIR-Ship row (`seed42/no_mosaic/retinanet`), and one TinyPerson row (`seed43/no_mosaic/retinanet`). Therefore, this table alone is not sufficient for mean ± standard deviation. The pre-existing LEVIR-Ship and TinyPerson rows remain in [`mmdetection_baseline_runs_report.md`](mmdetection_baseline_runs_report.md). Any MMDetection std analysis must merge that full matrix with the rows below instead of computing std from this supplement alone.
+
 | Dataset | Protocol | Seed | Model | Val AP50 | Val AP75 | Val mAP50-95 | Val AP50-Small | Test AP50 | Test AP75 | Test mAP50-95 | Test AP50-Small |
 |---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | LEVIR-Ship | no_mosaic | 42 | retinanet | 0.6613 | 0.0774 | 0.2314 | 0.6618 | 0.7074 | 0.0901 | 0.2563 | 0.7034 |
