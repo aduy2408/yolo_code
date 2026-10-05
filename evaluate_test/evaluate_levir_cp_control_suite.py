@@ -31,6 +31,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ULTRALYTICS = ROOT / "models_related" / "ultralytics"
+CANONICAL_CONFIG = PROJECT_ULTRALYTICS / "ultralytics/cfg/models/v8/yolov8.yaml"
 REQUIRED_METRICS = ("val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95")
 
 
@@ -111,7 +112,12 @@ def evaluate_checkpoint(checkpoint: Path, data_yaml: Path, out_dir: Path, args: 
     project_runtime()
     from ultralytics import YOLO
 
-    model = YOLO(str(checkpoint))
+    # Rebuild the canonical detector and load only checkpoint weights. Loading
+    # the full pickled YOLO object can retain stale Detect attributes from the
+    # training checkout, which is exactly the compatibility failure this suite
+    # is meant to detect.
+    model = YOLO(str(CANONICAL_CONFIG), task="detect")
+    model.load(str(checkpoint))
     metrics: dict[str, float | int | str] = {
         "split_seed": args.split_seed,
         "nms_iou": args.nms_iou,
