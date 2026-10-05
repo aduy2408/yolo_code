@@ -52,7 +52,11 @@ def main() -> None:
     parser.add_argument("--min-crop", type=int, default=96)
     args = parser.parse_args()
     from ultralytics import YOLO
-    model = YOLO(args.weights)
+    model_yaml = os.environ.get("MOSAIC_MINER_MODEL_YAML")
+    if model_yaml:
+        model = YOLO(model_yaml, task="detect").load(args.weights)
+    else:
+        model = YOLO(args.weights)
     bank = []
     for image_path in sorted(p for p in args.images.rglob("*") if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}):
         image = cv2.imread(str(image_path))
