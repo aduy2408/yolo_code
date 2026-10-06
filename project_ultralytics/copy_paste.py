@@ -784,10 +784,19 @@ def build_small_object_copy_paste(dataset, hyp):
             debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
             rng=getattr(hyp, "copy_paste_rng", None),
         )
-    if mode in {"negative_canvas", "sparse_canvas"}:
-        from .negative_canvas_copy_paste import NegativeCanvasCopyPaste, SparseCanvasCopyPaste
+    if mode in {"negative_canvas", "negative_canvas_cluster", "sparse_canvas"}:
+        from .negative_canvas_copy_paste import (
+            NegativeCanvasClusterCopyPaste,
+            NegativeCanvasCopyPaste,
+            SparseCanvasCopyPaste,
+        )
 
-        transform_cls = SparseCanvasCopyPaste if mode == "sparse_canvas" else NegativeCanvasCopyPaste
+        if mode == "sparse_canvas":
+            transform_cls = SparseCanvasCopyPaste
+        elif mode == "negative_canvas_cluster":
+            transform_cls = NegativeCanvasClusterCopyPaste
+        else:
+            transform_cls = NegativeCanvasCopyPaste
         sparse_kwargs = {}
         if mode == "sparse_canvas":
             sparse_kwargs = {
@@ -796,6 +805,12 @@ def build_small_object_copy_paste(dataset, hyp):
                 "max_new_objects": int(getattr(hyp, "sparse_max_new_objects", 1)),
                 "target_increment": float(getattr(hyp, "sparse_target_increment", 0.0)),
                 "stats_path": getattr(hyp, "copy_paste_stats_path", "") or "",
+            }
+        cluster_kwargs = {}
+        if mode == "negative_canvas_cluster":
+            cluster_kwargs = {
+                "cluster_expand": float(getattr(hyp, "copy_paste_cluster_expand", 3.0)),
+                "cluster_min_objects": int(getattr(hyp, "copy_paste_cluster_min_objects", 2)),
             }
         return transform_cls(
             dataset=dataset,
@@ -814,6 +829,7 @@ def build_small_object_copy_paste(dataset, hyp):
             debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
             rng=getattr(hyp, "copy_paste_rng", None),
             **sparse_kwargs,
+            **cluster_kwargs,
         )
     if mode in {"stcp", "scale_transfer"}:
         from .stcp_copy_paste import ScaleTransferCopyPaste

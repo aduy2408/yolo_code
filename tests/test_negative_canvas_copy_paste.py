@@ -6,7 +6,11 @@ import cv2
 import numpy as np
 
 from project_ultralytics.copy_paste import build_small_object_copy_paste, copy_paste_config
-from project_ultralytics.negative_canvas_copy_paste import NegativeCanvasCopyPaste, SparseCanvasCopyPaste
+from project_ultralytics.negative_canvas_copy_paste import (
+    NegativeCanvasClusterCopyPaste,
+    NegativeCanvasCopyPaste,
+    SparseCanvasCopyPaste,
+)
 from ultralytics.utils.instance import Instances
 
 
@@ -79,6 +83,18 @@ def test_r1_matches_donor_and_adds_one_target_sized_instance(tmp_path):
     assert 1.0 <= transform.stats["source_size_sum"] / transform.stats["target_size_sum"] < 1.5
     result_size = np.sqrt(np.prod(out["instances"].bboxes[0, 2:] - out["instances"].bboxes[0, :2]))
     assert result_size == 8.0
+
+
+def test_negative_canvas_cp3_pastes_one_cluster_to_empty_canvas(tmp_path):
+    dataset = _dataset(tmp_path)
+    transform = NegativeCanvasClusterCopyPaste(
+        dataset, p=1.0, cluster_expand=3.0, cluster_min_objects=2,
+        rng=random.Random(4), max_trials=100,
+    )
+    out = transform(_labels(np.zeros((64, 64, 3), np.uint8), im_file=dataset.im_files[1]))
+    assert len(out["instances"]) >= 2
+    assert transform.stats["pasted_clusters"] == 1
+    assert transform.stats["pasted_instances"] == len(out["instances"])
 
 
 def test_sparse_r1_adds_one_object_to_low_occupancy_positive_scene(tmp_path):

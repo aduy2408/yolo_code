@@ -33,7 +33,7 @@ DEFAULT_SEED = 42
 DEFAULT_SPLIT_SEED = 42
 DEFAULT_OACP_VARIANT = "load_adaptive"
 DEFAULT_MOSAIC_VARIANT = "standard"
-DEFAULT_COPY_PASTE_VARIANT = "negative_canvas_r1"
+DEFAULT_COPY_PASTE_VARIANT = "negative_canvas_cp3_cluster1"
 
 
 def _repo_id(value: str | None) -> str:

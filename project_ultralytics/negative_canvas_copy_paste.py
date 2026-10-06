@@ -312,6 +312,68 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         return {f"{prefix}/{key}": value for key, value in out.items()}
 
 
+class NegativeCanvasClusterCopyPaste(NegativeCanvasCopyPaste):
+    """Paste one natural multi-object cluster onto an original empty image.
+
+    This combines the NegativeCanvas eligibility gate with the existing CP3
+    cluster crop. It deliberately performs one cluster paste per selected
+    canvas, with no per-object resize or blur.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        cluster_expand: float = 3.0,
+        cluster_min_objects: int = 2,
+        **kwargs,
+    ) -> None:
+        super().__init__(dataset=dataset, **kwargs)
+        if cluster_expand <= 0:
+            raise ValueError("cluster_expand must be positive")
+        if cluster_min_objects < 2:
+            raise ValueError("cluster_min_objects must be at least 2")
+        self.cluster_expand = float(cluster_expand)
+        self.cluster_min_objects = int(cluster_min_objects)
+
+    def _paste_one(self, labels: dict[str, Any], existing: list[Any]) -> bool:
+        if not self.object_pool:
+            self.stats["donor_failed"] += 1
+            return False
+        record = self.rng.choice(self.object_pool)
+        source_image = self._load_raw(record.image_index)
+        if source_image is None:
+            self.stats["donor_failed"] += 1
+            return False
+        cluster = self._cluster(record.image_index, record.bbox_xyxy, source_image)
+        if cluster is None:
+            self.stats["donor_failed"] += 1
+            return False
+        crop, relative, classes, _union = cluster
+        destination = self._choose_destination(crop.shape[:2], labels["img"].shape[:2], existing)
+        if destination is None:
+            self.stats["placement_failed"] += 1
+            return False
+        x, y, _box = destination
+        ph, pw = crop.shape[:2]
+        labels["img"][y:y + ph, x:x + pw] = crop
+        translated = relative.copy()
+        translated[:, [0, 2]] += x
+        translated[:, [1, 3]] += y
+        self._append_instances(labels, [translated], [classes])
+        self.stats["pasted_instances"] += len(translated)
+        self.stats["pasted_clusters"] += 1
+        self.stats["source_cluster_count"] += 1
+        self.stats["source_cluster_size_sum"] += len(classes)
+        self.stats["source_cluster_size_max"] = max(
+            self.stats["source_cluster_size_max"], len(classes)
+        )
+        self.stats["cluster_crop_area_sum"] += float(pw * ph)
+        return True
+
+
+__all__ = ["NegativeCanvasCopyPaste", "NegativeCanvasClusterCopyPaste", "SparseCanvasCopyPaste"]
+
+
 class SparseCanvasCopyPaste(NegativeCanvasCopyPaste):
     """Apply R1-style matched Copy-Paste to low-occupancy positive scenes.
 

@@ -70,6 +70,15 @@ VARIANTS = {
         "negative_cp_target_max_size": 20.0,
         "negative_cp_degradation": "none",
     },
+    "negative_canvas_cp3_cluster1": {
+        "copy_paste_enabled": True,
+        "copy_paste_unit": "cluster",
+        "copy_paste_copies": 1,
+        "copy_paste_mode": "negative_canvas_cluster",
+        "negative_cp_p": 0.30,
+        "copy_paste_cluster_expand": 3.0,
+        "copy_paste_cluster_min_objects": 2,
+    },
     "visdrone_sparse_r1": {
         "copy_paste_enabled": True,
         "copy_paste_unit": "single",
@@ -210,7 +219,8 @@ def validate_settings(settings: dict) -> None:
     }
     for key, expected in required.items():
         if key == "copy_paste_p" and settings.get("copy_paste_mode") in {
-            "negative", "crowded", "scale_matched", "negative_canvas", "sparse_canvas",
+            "negative", "crowded", "scale_matched", "negative_canvas", "negative_canvas_cluster",
+            "sparse_canvas",
         }:
             continue
         if settings.get(key) != expected:

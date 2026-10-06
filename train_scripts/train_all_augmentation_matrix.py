@@ -7,7 +7,7 @@ Protocol
 * Mosaic: ``standard``, ``M2_cluster_preserving``, ``M3_post_scale_constrained``,
   ``M4_adaptive_geometry``, ``M5_hard_negative``.
 * Copy-Paste: ``cp1_single1``, ``cp3_cluster1``, ``negative_canvas_r1``,
-  ``negative_canvas_r4``.
+  ``negative_canvas_cp3_cluster1``.
 
 Dataset-specific Mosaic policy follows the requested baseline convention:
 LEVIR-Ship runs use no Mosaic, TinyPerson runs can be selected with and without
@@ -50,7 +50,7 @@ COPY_PASTE_VARIANTS = (
     "cp1_single1",
     "cp3_cluster1",
     "negative_canvas_r1",
-    "negative_canvas_r4",
+    "negative_canvas_cp3_cluster1",
 )
 COPY_PASTE_CHOICES = ("cp0", *COPY_PASTE_VARIANTS)
 METHODS = ("oacp", "mosaic", "copy_paste")
