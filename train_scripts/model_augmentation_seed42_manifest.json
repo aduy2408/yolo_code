@@ -11,7 +11,7 @@
     "model_prefix": true,
     "dataset_policy": "Varroa runs only OACP r2 and CP2; skip Varroa Negative Canvas r2/r4"
   },
-  "source_commit": "d0e424b09a506146ef480186fa9f4317a6f62f84",
+  "source_commit": "03956f756577d34bbaf7fa9ea8997195e3d79138",
   "runner": "train_scripts/rerun_models_augmentation_seed42.py",
   "python_executable": "discover from live Marimo kernel and pass explicitly to preflight/launch",
   "datasets": {
