@@ -54,6 +54,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--data-root-levir", type=Path, default=Path("/marimo/LevirShip/LevirShipData"))
     parser.add_argument("--data-root-tinyperson", type=Path, default=Path("/marimo/TinyPerson"))
     parser.add_argument("--data-root-varroa", type=Path, default=Path("/marimo/Varroa"))
+    parser.add_argument("--scale-statistics-levir", type=Path)
+    parser.add_argument("--scale-statistics-tinyperson", type=Path)
+    parser.add_argument("--scale-statistics-varroa", type=Path)
+    parser.add_argument("--hard-negative-bank-levir", type=Path)
+    parser.add_argument("--hard-negative-bank-tinyperson", type=Path)
+    parser.add_argument("--hard-negative-bank-varroa", type=Path)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--split-seed", type=int, default=DEFAULT_SPLIT_SEED)
     parser.add_argument(
@@ -123,6 +129,13 @@ def build_matrix_args(args: argparse.Namespace) -> list[str]:
         "--baseline-augmentation-parity",
         "--confirm-settings",
     ]
+    for name in (
+        "scale_statistics_levir", "scale_statistics_tinyperson", "scale_statistics_varroa",
+        "hard_negative_bank_levir", "hard_negative_bank_tinyperson", "hard_negative_bank_varroa",
+    ):
+        value = getattr(args, name)
+        if value:
+            output.extend([f"--{name.replace('_', '-')}", str(value)])
     if args.prepare_only:
         output.append("--prepare-only")
     if args.print_effective_config:
