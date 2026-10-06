@@ -28,14 +28,14 @@ Generated from `duyle2408/model-augmentation-seed42-size-metrics-runs` after ver
 | 20 | tinyperson | yolov9 | copy_paste | cp2_single2 | mosaic | 0.5061 | 0.4934 | 0.1822 | 0.5006 | 0.5300 | 0.1814 | `yolov9/tinyperson/copy_paste/cp2_single2/mosaic/seed_42` |
 | 21 | tinyperson | yolov9 | copy_paste | negative_canvas_r2 | mosaic | 0.4984 | 0.4670 | 0.1827 | 0.4806 | 0.5029 | 0.1711 | `yolov9/tinyperson/copy_paste/negative_canvas_r2/mosaic/seed_42` |
 | 22 | tinyperson | yolov9 | copy_paste | negative_canvas_r4 | mosaic | 0.4951 | 0.5139 | 0.1816 | 0.4892 | 0.5220 | 0.1751 | `yolov9/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_42` |
-| 23 | tinyperson | yolov8 | oacp | r2 | mosaic | 0.5178 | 0.4648 | 0.1872 | 0.5091 | 0.5334 | 0.1834 | `yolov8/tinyperson/oacp/r2/mosaic/seed_42` |
+| 23 | tinyperson | yolov8 | oacp | r2 (missing-oacp-rerun) | mosaic | 0.5178 | 0.4648 | 0.1872 | 0.5091 | 0.5334 | 0.1834 | `model-augmentation-seed42-missing-oacp-rerun-runs::yolov8/tinyperson/oacp/r2/mosaic/seed_42` |
 | 24 | tinyperson | yolov9 | oacp | r2 | mosaic | 0.5212 | 0.4641 | 0.1879 | 0.5067 | 0.5195 | 0.1812 | `yolov9/tinyperson/oacp/r2/mosaic/seed_42` |
 | 25 | varroa | yolov9 | oacp | r2 | mosaic | 0.9140 | 0.8501 | 0.3392 | 0.9063 | 0.8111 | 0.3375 | `yolov9/varroa/oacp/r2/mosaic/seed_42` |
 | 26 | levir | yolov11 | oacp | r2 | no_mosaic | 0.8304 | 0.8267 | 0.3240 | 0.8180 | 0.8377 | 0.3126 | `yolov11/levir/oacp/r2/no_mosaic/seed_42` |
 | 27 | tinyperson | yolov11 | oacp | r2 | mosaic | 0.5530 | 0.4920 | 0.2008 | 0.5242 | 0.5367 | 0.1919 | `yolov11/tinyperson/oacp/r2/mosaic/seed_42` |
 | 28 | varroa | yolov11 | oacp | r2 | mosaic | 0.9008 | 0.8386 | 0.3389 | 0.9186 | 0.8578 | 0.3391 | `yolov11/varroa/oacp/r2/mosaic/seed_42` |
 | 29 | levir | yolov8 | oacp | r2 | no_mosaic | 0.8003 | 0.8136 | 0.3152 | 0.7944 | 0.7911 | 0.3024 | `yolov8/levir/oacp/r2/no_mosaic/seed_42` |
-| 30 | tinyperson | yolov8 | oacp | r2 | mosaic | 0.5540 | 0.5367 | 0.2021 | 0.5243 | 0.5253 | 0.1885 | `yolov8/tinyperson/oacp/r2/mosaic/seed_42` |
+| 30 | tinyperson | yolov8 | oacp | r2 (original-oacp) | mosaic | 0.5540 | 0.5367 | 0.2021 | 0.5243 | 0.5253 | 0.1885 | `model-augmentation-seed42-oacp-runs::yolov8/tinyperson/oacp/r2/mosaic/seed_42` |
 | 31 | varroa | yolov8 | oacp | r2 | mosaic | 0.9174 | 0.8990 | 0.3341 | 0.9013 | 0.8636 | 0.3401 | `yolov8/varroa/oacp/r2/mosaic/seed_42` |
 | 32 | levir | yolov9 | oacp | r2 | no_mosaic | 0.8076 | 0.8017 | 0.3247 | 0.7914 | 0.8238 | 0.2944 | `yolov9/levir/oacp/r2/no_mosaic/seed_42` |
 
@@ -80,3 +80,5 @@ Generated from `duyle2408/model-augmentation-seed42-size-metrics-runs` after ver
 - Split seed: `42`; training seed: `42`.
 - Completion markers verified: `32/32` for both `evaluation_metrics.json` and `size_metrics_complete.json`.
 - `val/AP50-Small` and `test/AP50-Small` come from the size-bucket evaluator. `N/A` means the corresponding bucket was unavailable in the artifact.
+- Source audit: Varroa copy-paste has only two verified artifacts in this matrix: YOLOv8 CP2 Single2 and YOLO11 CP2 Single2. There are no verified Varroa YOLOv9 CP2 or Varroa NegativeCanvas R2/R4 artifacts, so those rows are intentionally absent rather than filled from an older report.
+- Source-prefix collision: TinyPerson YOLOv8 OACP R2 appears twice because two different source repositories contain the same logical prefix. The `missing-oacp-rerun` and `original-oacp` rows are retained separately with their source repository included in the table.
