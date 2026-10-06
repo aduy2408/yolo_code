@@ -1,8 +1,9 @@
-"""Negative-canvas small-object Copy-Paste study.
+"""Canvas-scoped small-object Copy-Paste study.
 
 This transform is deliberately isolated from the legacy Copy-Paste strategies. It
-turns only empty training images into synthetic-positive scenes, with target-scale
-sampling, disjoint donor policies, and an optional fixed weak blur ablation.
+supports the original empty-image protocol and an explicit all-image extension,
+with target-scale sampling, disjoint donor policies, and an optional fixed weak
+blur ablation.
 """
 from __future__ import annotations
 
@@ -19,11 +20,13 @@ from .copy_paste import ObjectRecord, SmallObjectCopyPaste, _box_area
 
 
 class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
-    """Paste one resized donor object onto a truly empty image.
+    """Paste one resized donor object onto a negative or any training image.
 
     The transform intentionally locks the study protocol: one hard-pasted object,
     collision-aware placement, zero allowed overlap, and no fallback between donor
-    policies. ``p`` is conditional on the image having no existing instances.
+    policies. ``canvas_scope='negative'`` keeps ``p`` conditional on an image
+    having no existing instances. ``canvas_scope='all'`` applies the same policy
+    to every image and allows collision-aware placement around existing boxes.
     """
 
     def __init__(
@@ -41,6 +44,7 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         degradation: str = "none",
         blur_sigma: float = 0.5,
         max_trials: int = 30,
+        canvas_scope: str = "negative",
         rng=None,
         debug_dir: str | Path | None = None,
     ) -> None:
@@ -60,6 +64,8 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
             raise ValueError("degradation must be 'none' or 'weak_blur'")
         if blur_sigma <= 0:
             raise ValueError("blur_sigma must be positive")
+        if canvas_scope not in {"negative", "all"}:
+            raise ValueError("canvas_scope must be 'negative' or 'all'")
 
         super().__init__(
             dataset=dataset,
@@ -87,6 +93,7 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         self.large_ratio_max = float(large_ratio_max)
         self.degradation = degradation
         self.blur_sigma = float(blur_sigma)
+        self.canvas_scope = canvas_scope
         self.target_sizes: list[float] = []
         self.scale_bins: Counter[int] = Counter()
         self.scale_bin_values: dict[int, list[float]] = {}
@@ -155,13 +162,15 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         return str(Path(image_path).resolve()) in self._original_negative_paths
 
     def _eligible_canvas(self, labels: dict[str, Any]) -> bool:
+        if self.canvas_scope == "all":
+            return True
         return self._is_original_negative(labels)
 
     def _on_eligible_canvas(self, labels: dict[str, Any], existing: list[Any]) -> None:
-        self.stats["negative_seen"] += 1
+        self.stats["negative_seen" if self.canvas_scope == "negative" else "all_seen"] += 1
 
     def _on_selected_canvas(self, labels: dict[str, Any], existing: list[Any]) -> None:
-        self.stats["negative_selected"] += 1
+        self.stats["negative_selected" if self.canvas_scope == "negative" else "all_selected"] += 1
 
     def _sample_target_size(self, labels: dict[str, Any] | None = None) -> float:
         if not self.scale_bins or not self.target_sizes:
@@ -282,7 +291,7 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         if not self._eligible_canvas(labels):
             return labels
         existing = self._target_boxes(labels)
-        if len(existing) != 0 and not self.allow_existing_instances:
+        if self.canvas_scope == "negative" and len(existing) != 0 and not self.allow_existing_instances:
             return labels
 
         self._on_eligible_canvas(labels, existing)
@@ -299,8 +308,9 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         out = dict(self.stats)
         applied = max(int(out["applied_images"]), 1)
         sparse = "sparse_seen" in out
-        seen_key = "sparse_seen" if sparse else "negative_seen"
-        selected_key = "sparse_selected" if sparse else "negative_selected"
+        all_canvas = self.canvas_scope == "all"
+        seen_key = "sparse_seen" if sparse else ("all_seen" if all_canvas else "negative_seen")
+        selected_key = "sparse_selected" if sparse else ("all_selected" if all_canvas else "negative_selected")
         selected = max(int(out[selected_key]), 1)
         out["effective_rate"] = out["applied_images"] / max(out[seen_key], 1)
         out["selection_success_rate"] = out["applied_images"] / selected
@@ -308,7 +318,7 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         out["mean_source_size"] = out["source_size_sum"] / applied
         out["mean_resize_factor"] = out["resize_factor_sum"] / applied
         out["mean_source_target_ratio"] = out["source_target_ratio_sum"] / applied
-        prefix = "sparsecanvas" if sparse else "negcanvas"
+        prefix = "sparsecanvas" if sparse else ("allcanvas" if all_canvas else "negcanvas")
         return {f"{prefix}/{key}": value for key, value in out.items()}
 
 

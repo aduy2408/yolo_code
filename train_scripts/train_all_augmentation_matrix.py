@@ -53,6 +53,8 @@ COPY_PASTE_VARIANTS = (
     "negative_canvas_r2",
     "negative_canvas_r3",
     "negative_canvas_r4",
+    "all_canvas_r2",
+    "all_canvas_r4",
     "negative_canvas_cp3_cluster1",
 )
 COPY_PASTE_CHOICES = ("cp0", *COPY_PASTE_VARIANTS)
