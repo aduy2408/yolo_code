@@ -341,16 +341,47 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
         # matrix wildcard and the runner's own manifest carries per-run values.
         if contract.get(key) == "matrix":
             continue
-        values = command_option_values(command, option)
+        effective_option = option
+        if key == "data_root":
+            dataset_option = {
+                "levir": "--data-root-levir",
+                "levir_ship": "--data-root-levir",
+                "levirship": "--data-root-levir",
+                "tinyperson": "--data-root-tinyperson",
+                "varroa": "--data-root-varroa",
+            }.get(str(contract.get("dataset", "")).lower(), option)
+            effective_option = dataset_option
+        elif key == "image_size":
+            dataset_option = {
+                "levir": "--imgsz-levir",
+                "levir_ship": "--imgsz-levir",
+                "levirship": "--imgsz-levir",
+                "tinyperson": "--imgsz-tinyperson",
+                "varroa": "--imgsz-varroa",
+            }.get(str(contract.get("dataset", "")).lower(), option)
+            effective_option = dataset_option
+        elif key == "hf_repo_id":
+            method_option = {
+                "oacp": "--hf-repo-oacp",
+                "mosaic": "--hf-repo-mosaic",
+                "copy_paste": "--hf-repo-copy-paste",
+            }.get(str(contract.get("method", "")).lower(), option)
+            effective_option = method_option
+        elif key == "seed":
+            effective_option = "--seeds" if "--seeds" in command else option
+        values = command_option_values(command, effective_option)
         if not values:
             # TinyPerson selects its model YAML from the named variant and does
             # not expose a --model-yaml CLI flag. Its manifest records the
             # concrete CONFIGS entry, so the contract still retains provenance.
-            if key == "model_yaml" and any("train_all_tinyperson.py" in item for item in command):
+            if key == "model_yaml" and any(
+                "train_all_tinyperson.py" in item or "train_all_augmentation_matrix.py" in item
+                for item in command
+            ):
                 continue
-            mismatches.append(f"{option}: missing (contract={contract[key]!r})")
+            mismatches.append(f"{effective_option}: missing (contract={contract[key]!r})")
         elif not all(_same_contract_value(key, contract[key], value) for value in values):
-            mismatches.append(f"{option}: contract={contract[key]!r}, command={values!r}")
+            mismatches.append(f"{effective_option}: contract={contract[key]!r}, command={values!r}")
     nms_values = command_option_values(command, "--nms-iou")
     if nms_values and not all(_same_contract_value("nms_iou", contract["nms_iou"], value) for value in nms_values):
         mismatches.append(f"--nms-iou: contract={contract['nms_iou']!r}, command={nms_values!r}")
