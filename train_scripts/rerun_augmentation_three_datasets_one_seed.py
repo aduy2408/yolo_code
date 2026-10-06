@@ -86,6 +86,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--imgsz-tinyperson", type=int, default=640)
     parser.add_argument("--imgsz-varroa", type=int, default=640)
     parser.add_argument("--tinyperson-mosaic-mode", choices=("mosaic", "no_mosaic"), default="mosaic")
+    parser.add_argument("--range", dest="job_range", type=int, nargs=2, metavar=("START", "END"))
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--print-effective-config", action="store_true")
     return parser.parse_args(argv)
@@ -129,6 +130,8 @@ def build_matrix_args(args: argparse.Namespace) -> list[str]:
         "--baseline-augmentation-parity",
         "--confirm-settings",
     ]
+    if args.job_range is not None:
+        output.extend(["--range", str(args.job_range[0]), str(args.job_range[1])])
     for name in (
         "scale_statistics_levir", "scale_statistics_tinyperson", "scale_statistics_varroa",
         "hard_negative_bank_levir", "hard_negative_bank_tinyperson", "hard_negative_bank_varroa",
