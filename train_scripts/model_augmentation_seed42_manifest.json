@@ -1,0 +1,49 @@
+{
+  "experiment_id": "model-augmentation-seed42-yolov8-yolov9-yolov11",
+  "baseline": {
+    "config": "models_related/ultralytics/ultralytics/cfg/models/v8/yolov8.yaml for yolov8, models_related/ultralytics/ultralytics/cfg/models/v9/yolov9t.yaml for yolov9, models_related/ultralytics/ultralytics/cfg/models/11/yolo11.yaml for yolov11",
+    "augmentation_pipeline": "baseline_no_mosaic_parity: translate=0.1, scale=0.5, hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, fliplr=0.5, mixup=0, cutmix=0",
+    "detectors": ["yolov8n", "yolov9t", "yolo11n"]
+  },
+  "variant": {
+    "oacp": ["r2"],
+    "copy_paste": ["cp1_single1", "cp3_cluster1", "negative_canvas_r4", "negative_canvas_r2"],
+    "model_prefix": true
+  },
+  "source_commit": "d0e424b09a506146ef480186fa9f4317a6f62f84",
+  "runner": "train_scripts/rerun_models_augmentation_seed42.py",
+  "python_executable": "discover from live Marimo kernel and pass explicitly to preflight/launch",
+  "datasets": {
+    "levir": {"dataset_root": "/marimo/LevirShip/LevirShipData", "image_size": 512, "mosaic_mode": "no_mosaic"},
+    "tinyperson": {"dataset_root": "/marimo/TinyPerson", "image_size": 640, "mosaic_mode": "mosaic"},
+    "varroa": {"dataset_root": "/marimo/Varroa", "image_size": 640, "mosaic_mode": "mosaic"}
+  },
+  "split_seed": 42,
+  "training_seeds": [42],
+  "epochs": 100,
+  "patience": 0,
+  "batch_size": 8,
+  "workers": 8,
+  "amp": true,
+  "nms_iou": 0.5,
+  "job_count": 45,
+  "hf_repositories": {
+    "oacp": "duyle2408/model-augmentation-seed42-oacp-runs",
+    "copy_paste": "duyle2408/model-augmentation-seed42-copy-paste-runs"
+  },
+  "required_artifacts": [
+    "weights/best.pt",
+    "weights/last.pt",
+    "results.csv",
+    "experiment_manifest.json",
+    "evaluation_metrics.json",
+    "upload_complete.json"
+  ],
+  "required_metrics": ["val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95"],
+  "upload_required": true,
+  "notes": [
+    "cp1_single1 and cp3_cluster1 are the two requested conventional Copy-Paste variants.",
+    "Existing historical YOLOv9/YOLO11 OACP artifacts are not counted when they use legacy double-OACP or a different matrix.",
+    "Existing YOLOv8 results are counted only when model, dataset, variant, seed, split, and augmentation protocol match this manifest."
+  ]
+}
