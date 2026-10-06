@@ -8,7 +8,8 @@
   "variant": {
     "oacp": ["r2"],
     "copy_paste": ["cp2_single2", "negative_canvas_r4", "negative_canvas_r2"],
-    "model_prefix": true
+    "model_prefix": true,
+    "dataset_policy": "Varroa runs only OACP r2 and CP2; skip Varroa Negative Canvas r2/r4"
   },
   "source_commit": "d0e424b09a506146ef480186fa9f4317a6f62f84",
   "runner": "train_scripts/rerun_models_augmentation_seed42.py",
@@ -26,7 +27,7 @@
   "workers": 8,
   "amp": true,
   "nms_iou": 0.5,
-  "job_count": 36,
+  "job_count": 30,
   "hf_repositories": {
     "oacp": "duyle2408/model-augmentation-seed42-oacp-runs",
     "copy_paste": "duyle2408/model-augmentation-seed42-copy-paste-runs"

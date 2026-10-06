@@ -6,6 +6,7 @@ The queue is intentionally explicit:
 - datasets: LEVIR-Ship, TinyPerson, Varroa
 - methods: corrected single-pass OACP R2 and Copy-Paste
 - Copy-Paste: cp2_single2, negative_canvas_r4, negative_canvas_r2
+- Varroa uses OACP R2 and CP2 only; Negative Canvas is skipped for Varroa
 - split seed: 42
 - training seed: 42
 

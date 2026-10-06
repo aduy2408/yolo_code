@@ -156,6 +156,8 @@ def job_specs(args: argparse.Namespace) -> list[dict[str, str]]:
         for dataset in args.datasets:
             for method in args.methods:
                 for variant in variants[method]:
+                    if dataset == "varroa" and method == "copy_paste" and variant in {"negative_canvas_r2", "negative_canvas_r4"}:
+                        continue
                     for mosaic_mode in _dataset_mosaic_modes(dataset, method, tuple(args.tinyperson_mosaic_modes)):
                         specs.append({"model": model, "dataset": dataset, "method": method, "variant": variant, "mosaic_mode": mosaic_mode})
     return specs
