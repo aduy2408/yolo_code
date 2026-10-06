@@ -47,13 +47,34 @@ MOSAIC_VARIANTS = (
 )
 COPY_PASTE_VARIANTS = (
     "cp1_single1",
+    "cp2_single2",
     "cp3_cluster1",
     "negative_canvas_r1",
+    "negative_canvas_r2",
+    "negative_canvas_r3",
+    "negative_canvas_r4",
     "negative_canvas_cp3_cluster1",
 )
 COPY_PASTE_CHOICES = ("cp0", *COPY_PASTE_VARIANTS)
 METHODS = ("oacp", "mosaic", "copy_paste")
 DATASETS = ("levir", "tinyperson", "varroa")
+MODEL_SPECS = {
+    "yolov8": {
+        "weights": "yolov8n.pt",
+        "model_yaml": ROOT / "models_related/ultralytics/ultralytics/cfg/models/v8/yolov8.yaml",
+        "detector": "YOLOv8n canonical P3/P4/P5",
+    },
+    "yolov9": {
+        "weights": "yolov9t.pt",
+        "model_yaml": ROOT / "models_related/ultralytics/ultralytics/cfg/models/v9/yolov9t.yaml",
+        "detector": "YOLOv9t canonical P3/P4/P5",
+    },
+    "yolov11": {
+        "weights": "yolo11n.pt",
+        "model_yaml": ROOT / "models_related/ultralytics/ultralytics/cfg/models/11/yolo11.yaml",
+        "detector": "YOLO11n canonical P3/P4/P5",
+    },
+}
 REQUIRED = (
     "weights/best.pt",
     "weights/last.pt",
@@ -131,11 +152,12 @@ def job_specs(args: argparse.Namespace) -> list[dict[str, str]]:
         "mosaic": args.mosaic_variants,
         "copy_paste": args.copy_paste_variants,
     }
-    for dataset in args.datasets:
-        for method in args.methods:
-            for variant in variants[method]:
-                for mosaic_mode in _dataset_mosaic_modes(dataset, method, tuple(args.tinyperson_mosaic_modes)):
-                    specs.append({"dataset": dataset, "method": method, "variant": variant, "mosaic_mode": mosaic_mode})
+    for model in args.models:
+        for dataset in args.datasets:
+            for method in args.methods:
+                for variant in variants[method]:
+                    for mosaic_mode in _dataset_mosaic_modes(dataset, method, tuple(args.tinyperson_mosaic_modes)):
+                        specs.append({"model": model, "dataset": dataset, "method": method, "variant": variant, "mosaic_mode": mosaic_mode})
     return specs
 
 
@@ -188,8 +210,13 @@ def _mosaic_settings(spec: dict[str, str], args: argparse.Namespace) -> dict[str
     return settings
 
 
-def _model_config(args: argparse.Namespace) -> Path:
-    return BASELINE_CANONICAL_CONFIG if args.baseline_augmentation_parity else CANONICAL_CONFIG
+def _model_config(spec: dict[str, str], args: argparse.Namespace) -> Path:
+    model = MODEL_SPECS[spec["model"]]
+    return Path(model["model_yaml"])
+
+
+def _model_weights(spec: dict[str, str], args: argparse.Namespace) -> str:
+    return args.pretrained or str(MODEL_SPECS[spec["model"]]["weights"])
 
 
 def _common_augmentation(args: argparse.Namespace) -> dict[str, Any]:
@@ -312,8 +339,13 @@ def _train_one(
 ) -> Path:
     _configure_env(spec)
     repo_id = args.hf_repos[spec["method"]]
-    remote_prefix = "/".join((spec["dataset"], spec["method"], spec["variant"], spec["mosaic_mode"], f"seed_{seed}"))
-    run_dir = args.project / spec["dataset"] / spec["method"] / spec["variant"] / spec["mosaic_mode"] / f"seed_{seed}"
+    prefix_parts = (spec["dataset"], spec["method"], spec["variant"], spec["mosaic_mode"], f"seed_{seed}")
+    path_parts = (spec["dataset"], spec["method"], spec["variant"], spec["mosaic_mode"], f"seed_{seed}")
+    if args.model_prefix:
+        prefix_parts = (spec["model"], *prefix_parts)
+        path_parts = (spec["model"], *path_parts)
+    remote_prefix = "/".join(prefix_parts)
+    run_dir = args.project.joinpath(*path_parts)
     run_dir.mkdir(parents=True, exist_ok=True)
     if _complete(run_dir, repo_id, remote_prefix):
         print(f"SKIP verified {remote_prefix}", flush=True)
@@ -322,12 +354,14 @@ def _train_one(
     settings = _settings(spec, args)
     manifest = {
         "experiment": "augmentation_matrix",
+        "model": spec["model"],
         "dataset": spec["dataset"],
         "method": spec["method"],
         "variant": spec["variant"],
         "mosaic_mode": spec["mosaic_mode"],
-        "model_config": str(_model_config(args)),
-        "detector": "canonical YOLOv8 P3/P4/P5",
+        "model_config": str(_model_config(spec, args)),
+        "detector": MODEL_SPECS[spec["model"]]["detector"],
+        "pretrained": _model_weights(spec, args),
         "data_root": str(args.data_roots[spec["dataset"]]),
         "dataset_yaml": str(data_yaml),
         "dataset_label_policy": "all_records_including_negative_images" if spec["method"] == "copy_paste" and spec["dataset"] == "varroa" else "positive_only",
@@ -365,11 +399,11 @@ def _train_one(
         sys.path.insert(0, str(ULTRALYTICS))
         from ultralytics import YOLO
 
-        model = YOLO(str(_model_config(args)), task="detect")
+        model = YOLO(str(_model_config(spec, args)), task="detect")
         if args.baseline_augmentation_parity:
-            model.load(args.pretrained)
+            model.load(_model_weights(spec, args))
         else:
-            model.load(args.pretrained, smart_transfer=True)
+            model.load(_model_weights(spec, args), smart_transfer=True)
         model.train(
             data=str(data_yaml), epochs=args.epochs, patience=args.patience, imgsz=args.imgsz[spec["dataset"]],
             batch=args.batch_size, device=args.device, workers=args.workers, amp=args.amp, seed=seed,
@@ -401,6 +435,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hf-repo-mosaic", default="duyle2408/augmentation-mosaic-runs")
     parser.add_argument("--hf-repo-copy-paste", default="duyle2408/augmentation-copy-paste-runs")
     parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS))
+    parser.add_argument("--models", nargs="+", choices=tuple(MODEL_SPECS), default=["yolov8"])
     parser.add_argument("--methods", nargs="+", choices=METHODS, default=list(METHODS))
     parser.add_argument("--oacp-variants", nargs="+", choices=OACP_VARIANTS, default=list(OACP_VARIANTS))
     parser.add_argument("--mosaic-variants", nargs="+", choices=MOSAIC_VARIANTS, default=list(MOSAIC_VARIANTS))
@@ -412,7 +447,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hard-negative-bank-levir", type=Path)
     parser.add_argument("--hard-negative-bank-tinyperson", type=Path)
     parser.add_argument("--hard-negative-bank-varroa", type=Path)
-    parser.add_argument("--pretrained", default="yolov8n.pt")
+    parser.add_argument("--pretrained", help="Optional checkpoint override applied to every selected model")
+    parser.add_argument("--model-prefix", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--seed", type=int, default=None, help="Backward-compatible single training seed")
     parser.add_argument("--seeds", type=int, nargs="+", default=None, help="Training seeds; split seed remains fixed at 42")
     parser.add_argument("--split-seed", type=int, default=42)
