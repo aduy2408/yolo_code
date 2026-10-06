@@ -33,7 +33,7 @@ from train_scripts.train_all_augmentation_matrix import (
 DEFAULT_SEED = 42
 DEFAULT_SPLIT_SEED = 42
 DEFAULT_OACP_VARIANTS = tuple(OACP_VARIANTS)
-DEFAULT_MOSAIC_VARIANTS = tuple(MOSAIC_VARIANTS)
+DEFAULT_MOSAIC_VARIANTS = tuple(v for v in MOSAIC_VARIANTS if v != "M2_cluster_preserving")
 DEFAULT_COPY_PASTE_VARIANTS = ("negative_canvas_r1", "negative_canvas_cp3_cluster1")
 
 

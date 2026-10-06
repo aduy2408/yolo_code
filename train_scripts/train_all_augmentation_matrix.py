@@ -3,7 +3,7 @@
 
 Protocol
 --------
-* OACP: ``load_adaptive``, ``spacing_adaptive``, ``mass_adaptive``.
+* OACP: ``load_adaptive``, ``spacing_adaptive``, ``mass_adaptive``, ``r2``.
 * Mosaic: ``standard``, ``M2_cluster_preserving``, ``M3_post_scale_constrained``,
   ``M4_adaptive_geometry``, ``M5_hard_negative``.
 * Copy-Paste: ``cp1_single1``, ``cp3_cluster1``, ``negative_canvas_r1``,
@@ -38,7 +38,7 @@ from copy_paste_protocol import variant_overrides
 from train_scripts.train_augmentation_baselines_seed42 import COMMON_AUGMENTATION
 from train_scripts.train_copy_paste import _split_metrics
 
-OACP_VARIANTS = ("load_adaptive", "spacing_adaptive", "mass_adaptive")
+OACP_VARIANTS = ("load_adaptive", "spacing_adaptive", "mass_adaptive", "r2")
 MOSAIC_VARIANTS = (
     "standard",
     "M2_cluster_preserving",
@@ -102,6 +102,13 @@ def _clear_aug_env() -> None:
         "OACP_STRENGTH_POLICY",
         "OACP_SCALE_POLICY",
         "OACP_PROTECTION_POLICY",
+        "OACP_PROFILE",
+        "OACP_P",
+        "OACP_STRENGTH_MIN",
+        "OACP_STRENGTH_MAX",
+        "OACP_SCALE_MIN",
+        "OACP_SCALE_MAX",
+        "OACP_PROTECTED_EXPAND",
     ):
         os.environ.pop(key, None)
 
@@ -209,12 +216,28 @@ def _settings(spec: dict[str, str], args: argparse.Namespace) -> dict[str, Any]:
 def _configure_env(spec: dict[str, str]) -> None:
     _clear_aug_env()
     if spec["method"] == "oacp":
-        os.environ.update({
+        values = {
             "YOLO_CONTEXT_AUG": "oacp",
             "YOLO_LEGACY_DOUBLE_OACP": "0",
-            "OACP_VARIANT": spec["variant"],
+            "OACP_VARIANT": "current" if spec["variant"] == "r2" else spec["variant"],
             "OACP_PLACEMENT": "pre_transform",
-        })
+        }
+        if spec["variant"] == "r2":
+            values.update({
+                "OACP_PROFILE": "r2",
+                "OACP_PROB_POLICY": "fixed",
+                "OACP_EFFECT_POLICY": "fixed",
+                "OACP_STRENGTH_POLICY": "fixed",
+                "OACP_SCALE_POLICY": "fixed",
+                "OACP_PROTECTION_POLICY": "fixed",
+                "OACP_P": "0.40",
+                "OACP_STRENGTH_MIN": "0.10",
+                "OACP_STRENGTH_MAX": "0.25",
+                "OACP_SCALE_MIN": "0.80",
+                "OACP_SCALE_MAX": "0.95",
+                "OACP_PROTECTED_EXPAND": "3.0",
+            })
+        os.environ.update(values)
 
 
 def _complete(run_dir: Path, repo_id: str, remote_prefix: str) -> bool:
@@ -320,7 +343,16 @@ def _train_one(
         "nms_iou": args.nms_iou,
         "augmentation_protocol": "baseline_no_mosaic_parity" if args.baseline_augmentation_parity else "augmentation_matrix_current",
         "augmentation": settings,
-        "oacp_env": {key: os.environ[key] for key in ("YOLO_CONTEXT_AUG", "YOLO_LEGACY_DOUBLE_OACP", "OACP_VARIANT") if key in os.environ},
+        "oacp_env": {
+            key: os.environ[key]
+            for key in (
+                "YOLO_CONTEXT_AUG", "YOLO_LEGACY_DOUBLE_OACP", "OACP_VARIANT",
+                "OACP_PROFILE", "OACP_P", "OACP_STRENGTH_MIN", "OACP_STRENGTH_MAX",
+                "OACP_SCALE_MIN", "OACP_SCALE_MAX", "OACP_PROTECTED_EXPAND",
+                "OACP_PLACEMENT", "OACP_PROB_POLICY", "OACP_EFFECT_POLICY",
+                "OACP_STRENGTH_POLICY", "OACP_SCALE_POLICY", "OACP_PROTECTION_POLICY",
+            ) if key in os.environ
+        },
         "hf_repo_id": repo_id,
         "remote_prefix": remote_prefix,
         "commit_sha": _git_sha(),
