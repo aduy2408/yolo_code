@@ -109,6 +109,8 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         stats.update({
             "negative_seen": 0,
             "negative_selected": 0,
+            "all_seen": 0,
+            "all_selected": 0,
             "applied_images": 0,
             "pasted_instances": 0,
             "target_size_sum": 0.0,
