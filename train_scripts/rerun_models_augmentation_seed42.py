@@ -39,6 +39,7 @@ FIXED_ARGS = [
     "--workers", "8",
     "--baseline-augmentation-parity",
     "--model-prefix",
+    "--confirm-settings",
 ]
 
 FORBIDDEN_OVERRIDES = {
