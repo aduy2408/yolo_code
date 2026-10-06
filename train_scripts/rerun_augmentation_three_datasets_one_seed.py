@@ -4,10 +4,10 @@
 This wrapper intentionally owns a small, explicit comparison:
 
 * datasets: LEVIR-Ship, TinyPerson, Varroa
-* methods: one OACP, one Mosaic, one Copy-Paste variant
+* methods: one OACP, one Mosaic, and two Copy-Paste variants
 * training seed: 42 only; split seed remains fixed at 42
 
-The resulting queue has 8 valid jobs, not 9, because the project protocol
+The resulting queue has 11 valid jobs, not 12, because the project protocol
 intentionally skips Mosaic for LEVIR-Ship. TinyPerson is fixed to one Mosaic
 mode so it does not expand into duplicate mosaic/no-mosaic controls.
 
@@ -33,7 +33,7 @@ DEFAULT_SEED = 42
 DEFAULT_SPLIT_SEED = 42
 DEFAULT_OACP_VARIANT = "load_adaptive"
 DEFAULT_MOSAIC_VARIANT = "standard"
-DEFAULT_COPY_PASTE_VARIANT = "negative_canvas_cp3_cluster1"
+DEFAULT_COPY_PASTE_VARIANTS = ("negative_canvas_r1", "negative_canvas_cp3_cluster1")
 
 
 def _repo_id(value: str | None) -> str:
@@ -57,7 +57,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--split-seed", type=int, default=DEFAULT_SPLIT_SEED)
     parser.add_argument("--oacp-variant", choices=OACP_VARIANTS, default=DEFAULT_OACP_VARIANT)
     parser.add_argument("--mosaic-variant", choices=MOSAIC_VARIANTS, default=DEFAULT_MOSAIC_VARIANT)
-    parser.add_argument("--copy-paste-variant", choices=COPY_PASTE_CHOICES[1:], default=DEFAULT_COPY_PASTE_VARIANT)
+    parser.add_argument(
+        "--copy-paste-variants",
+        nargs="+",
+        choices=COPY_PASTE_CHOICES[1:],
+        default=list(DEFAULT_COPY_PASTE_VARIANTS),
+    )
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--workers", type=int, default=8)
@@ -95,7 +100,7 @@ def build_matrix_args(args: argparse.Namespace) -> list[str]:
         "--methods", "oacp", "mosaic", "copy_paste",
         "--oacp-variants", args.oacp_variant,
         "--mosaic-variants", args.mosaic_variant,
-        "--copy-paste-variants", args.copy_paste_variant,
+        "--copy-paste-variants", *args.copy_paste_variants,
         "--tinyperson-mosaic-modes", args.tinyperson_mosaic_mode,
         "--seeds", str(DEFAULT_SEED),
         "--split-seed", str(DEFAULT_SPLIT_SEED),
