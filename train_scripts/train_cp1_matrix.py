@@ -43,6 +43,8 @@ def main(argv: list[str] | None = None) -> None:
         "--data-root-varroa", str(args.data_root_varroa),
         "--dataset-root", str(args.dataset_root),
         "--project", str(args.project),
+        "--hf-repo-oacp", args.hf_repo,
+        "--hf-repo-mosaic", args.hf_repo,
         "--hf-repo-copy-paste", args.hf_repo,
         "--datasets", "levir", "tinyperson", "varroa",
         "--models", "yolov8", "yolov9", "yolov11",
