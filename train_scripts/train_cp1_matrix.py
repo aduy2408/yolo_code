@@ -32,6 +32,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--data-root-varroa", type=Path, default=Path("/marimo/Varroa"))
     parser.add_argument("--print-effective-config", action="store_true")
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--patience", type=int, default=0)
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split-seed", type=int, default=42)
+    parser.add_argument("--range", dest="job_range", type=int, nargs=2)
     return parser.parse_args(argv)
 
 
@@ -51,7 +57,6 @@ def main(argv: list[str] | None = None) -> None:
         "--methods", "copy_paste",
         "--copy-paste-variants", "cp1_single1",
         "--tinyperson-mosaic-modes", "mosaic",
-        "--seeds", "42",
         "--split-seed", "42",
         "--epochs", "100",
         "--patience", "0",
@@ -59,8 +64,15 @@ def main(argv: list[str] | None = None) -> None:
         "--batch-size", "8",
         "--nms-iou", "0.5",
         "--model-prefix",
+        "--epochs", str(args.epochs),
+        "--patience", str(args.patience),
+        "--workers", str(args.workers),
+        "--seed", str(args.seed),
+        "--split-seed", str(args.split_seed),
         "--confirm-settings",
     ]
+    if args.job_range is not None:
+        forwarded.extend(["--range", str(args.job_range[0]), str(args.job_range[1])])
     if args.print_effective_config:
         forwarded.append("--print-effective-config")
     if args.prepare_only:
