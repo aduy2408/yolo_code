@@ -4,10 +4,11 @@
 This wrapper intentionally owns a small, explicit comparison:
 
 * datasets: LEVIR-Ship, TinyPerson, Varroa
-* methods: one OACP, one Mosaic, and two Copy-Paste variants
+* methods: all three OACP variants, all five Mosaic variants, and two
+  Copy-Paste variants
 * training seed: 42 only; split seed remains fixed at 42
 
-The resulting queue has 11 valid jobs, not 12, because the project protocol
+The resulting queue has 25 valid jobs, not 30, because the project protocol
 intentionally skips Mosaic for LEVIR-Ship. TinyPerson is fixed to one Mosaic
 mode so it does not expand into duplicate mosaic/no-mosaic controls.
 
@@ -31,8 +32,8 @@ from train_scripts.train_all_augmentation_matrix import (
 
 DEFAULT_SEED = 42
 DEFAULT_SPLIT_SEED = 42
-DEFAULT_OACP_VARIANT = "load_adaptive"
-DEFAULT_MOSAIC_VARIANT = "standard"
+DEFAULT_OACP_VARIANTS = tuple(OACP_VARIANTS)
+DEFAULT_MOSAIC_VARIANTS = tuple(MOSAIC_VARIANTS)
 DEFAULT_COPY_PASTE_VARIANTS = ("negative_canvas_r1", "negative_canvas_cp3_cluster1")
 
 
@@ -55,8 +56,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--data-root-varroa", type=Path, default=Path("/marimo/Varroa"))
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--split-seed", type=int, default=DEFAULT_SPLIT_SEED)
-    parser.add_argument("--oacp-variant", choices=OACP_VARIANTS, default=DEFAULT_OACP_VARIANT)
-    parser.add_argument("--mosaic-variant", choices=MOSAIC_VARIANTS, default=DEFAULT_MOSAIC_VARIANT)
+    parser.add_argument(
+        "--oacp-variants", nargs="+", choices=OACP_VARIANTS,
+        default=list(DEFAULT_OACP_VARIANTS),
+    )
+    parser.add_argument(
+        "--mosaic-variants", nargs="+", choices=MOSAIC_VARIANTS,
+        default=list(DEFAULT_MOSAIC_VARIANTS),
+    )
     parser.add_argument(
         "--copy-paste-variants",
         nargs="+",
@@ -98,8 +105,8 @@ def build_matrix_args(args: argparse.Namespace) -> list[str]:
         "--hf-repo-copy-paste", repo_id,
         "--datasets", "levir", "tinyperson", "varroa",
         "--methods", "oacp", "mosaic", "copy_paste",
-        "--oacp-variants", args.oacp_variant,
-        "--mosaic-variants", args.mosaic_variant,
+        "--oacp-variants", *args.oacp_variants,
+        "--mosaic-variants", *args.mosaic_variants,
         "--copy-paste-variants", *args.copy_paste_variants,
         "--tinyperson-mosaic-modes", args.tinyperson_mosaic_mode,
         "--seeds", str(DEFAULT_SEED),
