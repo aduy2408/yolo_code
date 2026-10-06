@@ -24,11 +24,11 @@ def test_remote_prefix_is_mosaic_qualified_for_every_dataset(monkeypatch):
 def test_all_image_canvas_variants_preserve_r2_r4_geometry_and_scope():
     r2 = variant_overrides("all_canvas_r2")
     r4 = variant_overrides("all_canvas_r4")
-    assert r2["negative_cp_canvas_scope"] == "all"
+    assert r2["copy_paste_mode"] == "all_canvas"
     assert r2["negative_cp_target_policy"] == "deficit"
     assert r2["negative_cp_donor_policy"] == "matched"
     assert r2["negative_cp_degradation"] == "none"
-    assert r4["negative_cp_canvas_scope"] == "all"
+    assert r4["copy_paste_mode"] == "all_canvas"
     assert r4["negative_cp_target_policy"] == "deficit"
     assert r4["negative_cp_donor_policy"] == "larger"
     assert r4["negative_cp_degradation"] == "weak_blur"

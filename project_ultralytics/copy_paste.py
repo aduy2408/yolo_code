@@ -784,7 +784,7 @@ def build_small_object_copy_paste(dataset, hyp):
             debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
             rng=getattr(hyp, "copy_paste_rng", None),
         )
-    if mode in {"negative_canvas", "negative_canvas_cluster", "sparse_canvas"}:
+    if mode in {"negative_canvas", "all_canvas", "negative_canvas_cluster", "sparse_canvas"}:
         from .negative_canvas_copy_paste import (
             NegativeCanvasClusterCopyPaste,
             NegativeCanvasCopyPaste,
@@ -826,7 +826,7 @@ def build_small_object_copy_paste(dataset, hyp):
             degradation=str(getattr(hyp, "negative_cp_degradation", "none")),
             blur_sigma=float(getattr(hyp, "negative_cp_blur_sigma", 0.5)),
             max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
-            canvas_scope=str(getattr(hyp, "negative_cp_canvas_scope", "negative")),
+            canvas_scope="all" if mode == "all_canvas" else "negative",
             debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
             rng=getattr(hyp, "copy_paste_rng", None),
             **sparse_kwargs,
@@ -988,7 +988,7 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "negative_cp_large_ratio_max": float(getattr(hyp, "negative_cp_large_ratio_max", 2.5)),
         "negative_cp_degradation": str(getattr(hyp, "negative_cp_degradation", "none")),
         "negative_cp_blur_sigma": float(getattr(hyp, "negative_cp_blur_sigma", 0.5)),
-        "negative_cp_canvas_scope": str(getattr(hyp, "negative_cp_canvas_scope", "negative")),
+        "canvas_scope": "all" if str(getattr(hyp, "copy_paste_mode", "single")) == "all_canvas" else "negative",
         "stcp_p": float(getattr(hyp, "stcp_p", 0.30)),
         "stcp_min_pastes": int(getattr(hyp, "stcp_min_pastes", 1)),
         "stcp_max_pastes": int(getattr(hyp, "stcp_max_pastes", 2)),
