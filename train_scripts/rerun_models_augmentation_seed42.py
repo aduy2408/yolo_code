@@ -5,7 +5,7 @@ The queue is intentionally explicit:
 - models: YOLOv8n, YOLOv9t, YOLO11n
 - datasets: LEVIR-Ship, TinyPerson, Varroa
 - methods: corrected single-pass OACP R2 and Copy-Paste
-- Copy-Paste: cp1_single1, cp3_cluster1, negative_canvas_r4, negative_canvas_r2
+- Copy-Paste: cp2_single2, negative_canvas_r4, negative_canvas_r2
 - split seed: 42
 - training seed: 42
 
@@ -30,7 +30,7 @@ FIXED_ARGS = [
     "--tinyperson-mosaic-modes", "mosaic",
     "--methods", "oacp", "copy_paste",
     "--oacp-variants", "r2",
-    "--copy-paste-variants", "cp1_single1", "cp3_cluster1", "negative_canvas_r4", "negative_canvas_r2",
+    "--copy-paste-variants", "cp2_single2", "negative_canvas_r4", "negative_canvas_r2",
     "--seeds", "42",
     "--split-seed", "42",
     "--epochs", "100",

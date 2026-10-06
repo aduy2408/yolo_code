@@ -7,7 +7,7 @@
   },
   "variant": {
     "oacp": ["r2"],
-    "copy_paste": ["cp1_single1", "cp3_cluster1", "negative_canvas_r4", "negative_canvas_r2"],
+    "copy_paste": ["cp2_single2", "negative_canvas_r4", "negative_canvas_r2"],
     "model_prefix": true
   },
   "source_commit": "d0e424b09a506146ef480186fa9f4317a6f62f84",
@@ -26,7 +26,7 @@
   "workers": 8,
   "amp": true,
   "nms_iou": 0.5,
-  "job_count": 45,
+  "job_count": 36,
   "hf_repositories": {
     "oacp": "duyle2408/model-augmentation-seed42-oacp-runs",
     "copy_paste": "duyle2408/model-augmentation-seed42-copy-paste-runs"
@@ -42,7 +42,7 @@
   "required_metrics": ["val/AP50", "val/mAP50-95", "test/AP50", "test/mAP50-95"],
   "upload_required": true,
   "notes": [
-    "cp1_single1 and cp3_cluster1 are the two requested conventional Copy-Paste variants.",
+    "cp2_single2 is the requested Copy-Paste variant and inserts two single objects.",
     "Existing historical YOLOv9/YOLO11 OACP artifacts are not counted when they use legacy double-OACP or a different matrix.",
     "Existing YOLOv8 results are counted only when model, dataset, variant, seed, split, and augmentation protocol match this manifest."
   ]
