@@ -4,8 +4,8 @@
 Protocol
 --------
 * OACP: ``load_adaptive``, ``spacing_adaptive``, ``mass_adaptive``, ``r2``.
-* Mosaic: ``standard``, ``M2_cluster_preserving``, ``M3_post_scale_constrained``,
-  ``M4_adaptive_geometry``, ``M5_hard_negative``.
+* Mosaic: ``standard``, ``M3_post_scale_constrained``, ``M4_adaptive_geometry``,
+  ``M5_hard_negative``.
 * Copy-Paste: ``cp1_single1``, ``cp3_cluster1``, ``negative_canvas_r1``,
   ``negative_canvas_cp3_cluster1``.
 
@@ -32,7 +32,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 ULTRALYTICS = ROOT / "models_related" / "ultralytics"
 CANONICAL_CONFIG = ULTRALYTICS / "ultralytics/cfg/models/v8/yolov8.yaml"
-BASELINE_CANONICAL_CONFIG = ROOT / "vendor/ultralytics_upstream/ultralytics/cfg/models/v8/yolov8.yaml"
+BASELINE_CANONICAL_CONFIG = ROOT / "models_related/ultralytics/ultralytics/cfg/models/v8/yolov8.yaml"
 
 from copy_paste_protocol import variant_overrides
 from train_scripts.train_augmentation_baselines_seed42 import COMMON_AUGMENTATION
@@ -41,7 +41,6 @@ from train_scripts.train_copy_paste import _split_metrics
 OACP_VARIANTS = ("load_adaptive", "spacing_adaptive", "mass_adaptive", "r2")
 MOSAIC_VARIANTS = (
     "standard",
-    "M2_cluster_preserving",
     "M3_post_scale_constrained",
     "M4_adaptive_geometry",
     "M5_hard_negative",
