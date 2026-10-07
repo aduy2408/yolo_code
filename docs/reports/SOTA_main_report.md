@@ -14,7 +14,32 @@
 | FCOS-SET | `duyle2408/set_fcos_runs` and `duyle2408/set-fcos-stw-protocol-runs` | FCOS-SET artifacts exist for target datasets; split-qualified and test-only artifacts are kept distinct. |
 | FCOS-SR-TOD | `duyle2408/srtod-set-mosaic-matrix-runs` and `duyle2408/srtod-varroa-protocol-runs` | Requested seed43 artifacts exist for Varroa/LEVIR-Ship/TinyPerson, but split-qualified metrics are incomplete. |
 
-## 2. Metrics inventory
+## 2. Complete main-report metric table
+
+This table is the requested main comparison slice: one selected run per family, across the three target datasets. Every split-qualified field is labelled explicitly. `--` means the source artifact did not expose that split/metric, not zero.
+
+| Family | Dataset | Seed | Val AP50 | Val mAP50-95 | Val AP50-small | Test AP50 | Test mAP50-95 | Test AP50-small | Provenance/status |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| STW YOLO | Varroa | 42 | -- | -- | 0.8978 | -- | -- | 0.8818 | Core artifact aggregate only: AP50 0.9166, mAP50-95 0.3534; size evaluator provides val/test AP50-small |
+| STW YOLO | LEVIR-Ship | 42 | -- | -- | 0.8340 | -- | -- | 0.8408 | Core artifact aggregate only: AP50 0.7981, mAP50-95 0.2949; size evaluator provides val/test AP50-small |
+| STW YOLO | TinyPerson | 42 | -- | -- | 0.5981 | -- | -- | 0.5418 | Core artifact aggregate tile AP50 0.5685, mAP50-95 0.2149; size evaluator provides val/test AP50-small |
+| TPH YOLOv5 | Varroa | 42 | 0.8480 | 0.2930 | -- | 0.8220 | 0.2920 | -- | Native YOLO val/test artifact; AP50-small absent from HF artifact |
+| TPH YOLOv5 | LEVIR-Ship | 42 | 0.7140 | 0.2590 | -- | 0.6740 | 0.2370 | -- | Native YOLO val/test artifact; AP50-small absent from HF artifact |
+| TPH YOLOv5 | TinyPerson | 42 | 0.5420 | 0.1920 | -- | 0.5500 | 0.2010 | -- | Official corner-window val/test artifact; AP50-small absent from HF artifact |
+| FCOS-SET | Varroa | 43 | 0.8950 | 0.3070 | 0.2820 | 0.8750 | 0.3180 | 0.2970 | Fresh `tools/test.py` evaluation of supplied HF checkpoint; predictions verified |
+| FCOS-SET | LEVIR-Ship | 43 | 0.7656 | 0.2762 | 0.7683 | 0.7358 | 0.2708 | 0.7330 | Supplied HF `final_results.json`, cross-checked with fresh MMDetection evaluation |
+| FCOS-SET | TinyPerson | 43 | 0.4084 | 0.1487 | 0.5366 | 0.4247 | 0.1523 | 0.5916 | Supplied HF `final_results.json`; val/test fields complete |
+| FCOS-SR-TOD | Varroa | 43 | 0.9150 | 0.3100 | -- | 0.9030 | 0.3310 | 0.3100 | Supplied HF checkpoint/test artifacts; val AP50/mAP reported, val AP50-small absent |
+| FCOS-SR-TOD | LEVIR-Ship | 43 | -- | -- | -- | 0.6520 | 0.2070 | 0.2050 | Supplied HF test artifact; split-qualified val metrics absent |
+| FCOS-SR-TOD | TinyPerson | 43 | -- | -- | -- | 0.3730 | 0.1290 | 0.1150 | Supplied HF test artifact; split-qualified val metrics absent |
+
+### Metric and provenance notes
+
+- STW YOLO's `evaluation_metrics.json` exposes aggregate YOLO metrics, not explicit `val/*` and `test/*` keys. The table therefore does not relabel its aggregate AP50/mAP50-95 as validation or test. Its AP50-small values come from the separate split-aware size evaluator.
+- TPH YOLO's HF artifacts expose val/test AP50 and mAP50-95, but the inspected `evaluation_metrics.json` files do not contain AP50-small. Those cells remain `--`.
+- FCOS-SET seed43 Varroa was evaluated directly with `/marimo/mmdet_code/mmdetection/tools/test.py` using the supplied checkpoint. FCOS-SET Varroa and LEVIR prediction artifacts are stored under `/marimo/sota_eval/corrected_fcos_eval_results/`.
+- FCOS-SR-TOD rows use the exact user-supplied HF prefixes. Existing HF artifacts provide complete test metrics for all three datasets, but not complete val metrics for LEVIR-Ship and TinyPerson.
+
 
 The compact table below records the fields that are present in the remote artifacts. TPH and FCOS-SET rows are split-qualified where the source exposes val/test fields. STW YOLO rows expose aggregate YOLO evaluation metrics only. Existing rows are historical results and are not being marked for re-evaluation by the seed plan below.
 
