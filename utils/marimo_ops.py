@@ -323,6 +323,7 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
     missing = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
     if missing:
         raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing))
+    matrix_runner = any("train_all_augmentation_matrix.py" in item for item in command)
     options = {
         "epochs": "--epochs",
         "patience": "--patience",
@@ -342,7 +343,7 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
         if contract.get(key) == "matrix":
             continue
         effective_option = option
-        if key == "data_root":
+        if key == "data_root" and matrix_runner:
             dataset_option = {
                 "levir": "--data-root-levir",
                 "levir_ship": "--data-root-levir",
@@ -351,7 +352,7 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
                 "varroa": "--data-root-varroa",
             }.get(str(contract.get("dataset", "")).lower(), option)
             effective_option = dataset_option
-        elif key == "image_size":
+        elif key == "image_size" and matrix_runner:
             dataset_option = {
                 "levir": "--imgsz-levir",
                 "levir_ship": "--imgsz-levir",
@@ -360,7 +361,7 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
                 "varroa": "--imgsz-varroa",
             }.get(str(contract.get("dataset", "")).lower(), option)
             effective_option = dataset_option
-        elif key == "hf_repo_id":
+        elif key == "hf_repo_id" and matrix_runner:
             method_option = {
                 "oacp": "--hf-repo-oacp",
                 "mosaic": "--hf-repo-mosaic",
