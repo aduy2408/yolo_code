@@ -2389,6 +2389,17 @@ class v8DetectionLoss:
         targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
         gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+        original_gt_mask = mask_gt
+        raw_original_mask = batch.get("r5_original_gt_mask")
+        if raw_original_mask is not None:
+            raw_original_mask = torch.as_tensor(raw_original_mask, device=self.device).bool().reshape(-1)
+            raw_batch_idx = batch["batch_idx"].to(self.device).long().reshape(-1)
+            original_gt_mask = torch.zeros_like(mask_gt)
+            for batch_index in range(batch_size):
+                selected = raw_batch_idx == batch_index
+                count = min(int(selected.sum().item()), gt_bboxes.shape[1])
+                if count:
+                    original_gt_mask[batch_index, :count, 0] = raw_original_mask[selected][:count]
 
         # Pboxes
         coarse_bboxes = self.bbox_decode(anchor_points, pred_distri, pred_residual, stride_tensor)  # xyxy
@@ -2420,12 +2431,13 @@ class v8DetectionLoss:
             with torch.no_grad():
                 self.r5_feedback_adapter.observe(
                     pred_bboxes=(pred_bboxes.detach() * stride_tensor).to(gt_bboxes.dtype),
-                    pred_scores=pred_scores.detach(),
+                    pred_scores=pred_scores.detach().sigmoid(),
                     gt_bboxes=gt_bboxes.detach(),
                     gt_labels=gt_labels.detach(),
                     fg_mask=fg_mask.detach(),
                     target_gt_idx=target_gt_idx.detach(),
                     valid_gt_mask=mask_gt.detach(),
+                    original_gt_mask=original_gt_mask.detach(),
                 )
         responsibility_mode = os.environ.get("RESPONSIBILITY_MODE", "off").lower()
         responsibility_modes = {

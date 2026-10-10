@@ -30,9 +30,10 @@ LOSS_ADAPTERS: dict[str, type] = {
 class ProjectDetectionTrainer(DetectionTrainer):
     """DetectionTrainer that reconstructs a model with a project criterion."""
 
-    def __init__(self, *args, loss_adapter: str = "ftal", project_model_args: dict[str, Any] | None = None, **kwargs):
+    def __init__(self, *args, loss_adapter: str = "ftal", project_model_args: dict[str, Any] | None = None, r5_feedback_adapter=None, **kwargs):
         self.project_loss_adapter = loss_adapter
         self.project_model_args = dict(project_model_args or {})
+        self.r5_feedback_adapter = r5_feedback_adapter
         super().__init__(*args, **kwargs)
 
     def get_model(self, cfg=None, weights=None, verbose=True):
@@ -42,6 +43,7 @@ class ProjectDetectionTrainer(DetectionTrainer):
             ch=self.data["channels"],
             verbose=verbose,
             loss_adapter=self.project_loss_adapter,
+            r5_feedback_adapter=self.r5_feedback_adapter,
         )
         model.project_model_args = dict(self.project_model_args)
         if weights:
@@ -62,8 +64,9 @@ def get_loss_adapter(name: str) -> type:
 class ProjectDetectionModel(DetectionModel):
     """Pickle-safe DetectionModel carrying its project loss selection."""
 
-    def __init__(self, cfg, ch=3, nc=None, verbose=True, loss_adapter: str = "ftal"):
+    def __init__(self, cfg, ch=3, nc=None, verbose=True, loss_adapter: str = "ftal", r5_feedback_adapter=None):
         self.project_loss_adapter = str(loss_adapter)
+        self.r5_feedback_adapter = r5_feedback_adapter
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
 
     def init_criterion(self):
@@ -110,6 +113,10 @@ def install_loss_adapter(model: Any, name: str = "ftal") -> Any:
 def train_with_loss_adapter(model: Any, *, loss_adapter: str = "ftal", **train_kwargs: Any):
     """Install a project loss adapter and delegate to the wrapper's ``train``."""
     install_loss_adapter(model, loss_adapter)
+    r5_feedback_adapter = train_kwargs.pop(
+        "r5_feedback_adapter",
+        getattr(model, "r5_feedback_adapter", getattr(getattr(model, "model", None), "r5_feedback_adapter", None)),
+    )
     train = getattr(model, "train", None)
     if not callable(train):
         raise TypeError("Expected a YOLO wrapper with train()")
@@ -118,7 +125,7 @@ def train_with_loss_adapter(model: Any, *, loss_adapter: str = "ftal", **train_k
     # Ultralytics' trainer reconstructs DetectionModel from the YAML. Keep the
     # project parser active for that second construction as well.
     with project_parser(tasks), project_runtime():
-        if loss_adapter in {"upstream", "default"}:
+        if loss_adapter in {"upstream", "default"} and r5_feedback_adapter is None:
             return train(**train_kwargs)
         project_names = (
             "gradient_mode_balance",
@@ -136,5 +143,6 @@ def train_with_loss_adapter(model: Any, *, loss_adapter: str = "ftal", **train_k
             ProjectDetectionTrainer,
             loss_adapter=loss_adapter,
             project_model_args=project_model_args,
+            r5_feedback_adapter=r5_feedback_adapter,
         )
         return train(trainer=trainer, **train_kwargs)

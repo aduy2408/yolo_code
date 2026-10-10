@@ -7,6 +7,7 @@ from typing import Iterable, Mapping
 import numpy as np
 
 from .scale_bins import DEFAULT_SCALE_BINS, ScaleBinSpec
+from .shared_state import SharedProbabilityState
 
 
 class ScaleBinSampler:
@@ -19,6 +20,8 @@ class ScaleBinSampler:
         probabilities: Iterable[float] | None = None,
         seed: int | None = None,
         worker_id: int = 0,
+        shared_state: SharedProbabilityState | None = None,
+        enable_shared_state: bool = False,
     ) -> None:
         if seed is not None and not isinstance(seed, (int, np.integer)):
             raise ValueError("seed must be an integer or None")
@@ -30,6 +33,7 @@ class ScaleBinSampler:
         self.worker_id = int(worker_id)
         sequence = None if self.seed is None else np.random.SeedSequence([self.seed, self.worker_id])
         self._numpy_rng = np.random.default_rng(sequence)
+        self.shared_state = shared_state or (SharedProbabilityState(bin_spec.num_bins) if enable_shared_state else None)
         self._probabilities = np.full(bin_spec.num_bins, 1.0 / bin_spec.num_bins, dtype=np.float64)
         if probabilities is not None:
             self.set_probabilities(probabilities)
@@ -45,6 +49,8 @@ class ScaleBinSampler:
         if np.any(values < 0.0) or not np.all(np.isfinite(values)) or values.sum() <= 0.0:
             raise ValueError("probabilities must be finite, non-negative, and non-zero")
         self._probabilities = values / values.sum()
+        if self.shared_state is not None:
+            self.shared_state.update(self._probabilities)
 
     def feasible_mask(self, values_by_bin: Mapping[int, Iterable[float]]) -> np.ndarray:
         return np.asarray([bool(list(values_by_bin.get(bin_id, ()))) for bin_id in self.bin_spec.bin_ids], dtype=bool)
@@ -54,7 +60,7 @@ class ScaleBinSampler:
         feasible = self.feasible_mask(normalized)
         if not np.any(feasible):
             raise ValueError("no feasible target scale bins")
-        probabilities = self._probabilities.copy()
+        probabilities = self.shared_state.snapshot() if self.shared_state is not None else self._probabilities.copy()
         probabilities[~feasible] = 0.0
         if probabilities.sum() <= 0.0:
             probabilities = feasible.astype(np.float64)
@@ -73,6 +79,8 @@ class ScaleBinSampler:
             "seed": self.seed,
             "worker_id": self.worker_id,
         }
+        if self.shared_state is not None:
+            state["shared_state"] = self.shared_state.state_dict()
         if self.rng is None:
             state["numpy_rng_state"] = deepcopy(self._numpy_rng.bit_generator.state)
         elif hasattr(self.rng, "getstate"):
@@ -86,6 +94,8 @@ class ScaleBinSampler:
             rng=rng,
             seed=state.get("seed"),
             worker_id=int(state.get("worker_id", 0)),
+            shared_state=SharedProbabilityState.from_state_dict(state["shared_state"])
+            if state.get("shared_state") is not None else None,
         )
         sampler.set_probabilities(state["probabilities"])
         if rng is None and state.get("numpy_rng_state") is not None:

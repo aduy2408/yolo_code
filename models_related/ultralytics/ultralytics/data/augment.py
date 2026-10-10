@@ -3262,6 +3262,14 @@ class Format(BaseTransform):
             labels["masks"] = masks
             labels["sem_masks"] = sem_masks.float()
         labels["cls"] = torch.from_numpy(cls) if nl else torch.zeros(nl, 1)
+        provenance = labels.get("r5_original_gt_mask")
+        if provenance is None:
+            labels["r5_original_gt_mask"] = torch.ones(nl, dtype=torch.bool)
+        else:
+            provenance = np.asarray(provenance, dtype=bool).reshape(-1)
+            if len(provenance) != nl:
+                provenance = np.ones(nl, dtype=bool)
+            labels["r5_original_gt_mask"] = torch.from_numpy(provenance)
         labels["bboxes"] = torch.from_numpy(instances.bboxes) if nl else torch.zeros((nl, 4))
         if "preclip_area" in labels:
             labels["preclip_area"] = torch.as_tensor(labels["preclip_area"], dtype=torch.float32) if nl else torch.zeros(nl)

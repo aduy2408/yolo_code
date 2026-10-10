@@ -347,6 +347,13 @@ class SmallObjectCopyPaste:
         instances = labels["instances"]
         instances.convert_bbox("xyxy")
         h, w = labels["img"].shape[:2]
+        existing_count = len(instances)
+        original_mask = np.asarray(
+            labels.get("r5_original_gt_mask", np.ones(existing_count, dtype=bool)),
+            dtype=bool,
+        ).reshape(-1)
+        if len(original_mask) != existing_count:
+            original_mask = np.ones(existing_count, dtype=bool)
         if instances.normalized:
             instances.denormalize(w, h)
         new_boxes = np.concatenate(boxes, axis=0).astype(np.float32)
@@ -359,6 +366,9 @@ class SmallObjectCopyPaste:
             new_boxes, new_segments, new_keypoints, bbox_format="xyxy", normalized=False
         )
         labels["instances"] = Instances.concatenate([instances, new_instances], axis=0)
+        labels["r5_original_gt_mask"] = np.concatenate(
+            [original_mask, np.zeros(len(new_boxes), dtype=bool)], axis=0
+        )
         labels["cls"] = np.concatenate(
             [
                 np.asarray(labels.get("cls", []), dtype=np.float32).reshape(-1, 1),
@@ -792,12 +802,15 @@ def build_small_object_copy_paste(dataset, hyp):
         edges = tuple(float(value) for value in getattr(hyp, "r5_scale_bin_edges", (0.0, 8.0, 12.0, 16.0, 20.0)))
         bin_spec = ScaleBinSpec.from_edges(edges)
         probabilities = getattr(hyp, "r5_scale_probabilities", None)
+        shared_probability_state = getattr(hyp, "r5_shared_probability_state", None)
         sampler = ScaleBinSampler(
             bin_spec=bin_spec,
             rng=getattr(hyp, "copy_paste_rng", None),
             probabilities=probabilities,
             seed=getattr(hyp, "r5_seed", getattr(hyp, "seed", None)),
             worker_id=int(getattr(hyp, "r5_worker_id", 0)),
+            shared_state=shared_probability_state,
+            enable_shared_state=bool(getattr(hyp, "r5_shared_state", True)),
         )
         return AdaptiveNegativeCanvasCopyPaste(
             dataset=dataset,
@@ -1026,6 +1039,7 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "r5_scale_probabilities": getattr(hyp, "r5_scale_probabilities", None),
         "r5_seed": getattr(hyp, "r5_seed", getattr(hyp, "seed", None)),
         "r5_worker_id": int(getattr(hyp, "r5_worker_id", 0)),
+        "r5_shared_state": bool(getattr(hyp, "r5_shared_state", True)),
         "canvas_scope": "all" if str(getattr(hyp, "copy_paste_mode", "single")) == "all_canvas" else "negative",
         "stcp_p": float(getattr(hyp, "stcp_p", 0.30)),
         "stcp_min_pastes": int(getattr(hyp, "stcp_min_pastes", 1)),

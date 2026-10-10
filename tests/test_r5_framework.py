@@ -173,3 +173,4 @@ def test_r5_builder_preserves_negative_canvas_mechanics(tmp_path):
     assert transform.donor_policy == "matched"
     assert transform.max_trials == 30
     assert transform.scale_sampler.probabilities.tolist() == [0.25, 0.25, 0.25, 0.25]
+    assert out["r5_original_gt_mask"].tolist() == [False]

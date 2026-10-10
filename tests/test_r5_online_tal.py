@@ -1,12 +1,13 @@
 import torch
+from torch.utils.data import DataLoader, Dataset
 
 from project_ultralytics.r5 import (
     R5EpochFeedbackAdapter,
+    ScaleBinSampler,
     ScaleBinSpec,
     ScaleDifficultyController,
     TALDifficultyCollector,
 )
-
 
 
 def _inputs():
@@ -36,6 +37,14 @@ def test_tal_alignment_collector_multiplies_class_score_and_iou():
     batch = collector.collect(*_inputs())
     assert torch.allclose(batch.quality, torch.tensor([[0.9, 0.2, 0.0]]))
     assert torch.allclose(batch.difficulty, torch.tensor([[0.1, 0.8, 1.0]]))
+
+
+def test_alignment_collector_can_sigmoid_logits_once():
+    collector = TALDifficultyCollector(ScaleBinSpec((0, 8, 12)), mode="alignment", scores_are_logits=True)
+    inputs = list(_inputs())
+    inputs[1] = torch.logit(inputs[1])
+    batch = collector.collect(*inputs)
+    assert torch.allclose(batch.quality, torch.tensor([[0.9, 0.2, 0.0]]), atol=1e-6)
 
 
 def test_tal_collector_excludes_synthetic_gt_from_observations():
@@ -75,3 +84,28 @@ def test_epoch_adapter_accumulates_and_updates_sampler():
     assert adapter.observations == 3
     assert len(probabilities) == 4
     assert torch.isfinite(torch.tensor(probabilities)).all()
+
+
+def test_shared_probability_state_reaches_real_dataloader_workers():
+    class WorkerSamplingDataset(Dataset):
+        def __init__(self, sampler):
+            self.sampler = sampler
+            self.values = {0: [4.0], 1: [], 2: [], 3: [16.0]}
+
+        def __len__(self):
+            return 64
+
+        def __getitem__(self, index):
+            return self.sampler.sample(self.values)
+
+    sampler = ScaleBinSampler(
+        ScaleBinSpec((0, 8, 12, 16, 20)),
+        seed=123,
+        probabilities=[1.0, 0.0, 0.0, 0.0],
+        enable_shared_state=True,
+    )
+    first = next(iter(DataLoader(WorkerSamplingDataset(sampler), batch_size=64, num_workers=2)))
+    assert torch.all(first == 4.0)
+    sampler.set_probabilities([0.0, 0.0, 0.0, 1.0])
+    second = next(iter(DataLoader(WorkerSamplingDataset(sampler), batch_size=64, num_workers=2)))
+    assert torch.all(second == 16.0)

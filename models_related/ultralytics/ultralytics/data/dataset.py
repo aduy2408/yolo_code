@@ -309,7 +309,7 @@ class YOLODataset(BaseDataset):
                 value = torch.stack(value, 0)
             elif k == "visuals":
                 value = torch.nn.utils.rnn.pad_sequence(value, batch_first=True)
-            if k in {"masks", "keypoints", "bboxes", "preclip_area", "cls", "segments", "obb"}:
+            if k in {"masks", "keypoints", "bboxes", "preclip_area", "cls", "segments", "obb", "r5_original_gt_mask"}:
                 value = torch.cat(value, 0)
             new_batch[k] = value
         if "batch_idx" in new_batch:
