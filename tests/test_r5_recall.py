@@ -1,7 +1,9 @@
 import json
 from argparse import Namespace
+from pathlib import Path
 
 import numpy as np
+import pytest
 
 from project_ultralytics.r5 import (
     R5ProbeCallback,
@@ -115,15 +117,82 @@ def test_probe_runner_predictor_uses_current_training_model(tmp_path):
     )
     wrapper = Wrapper()
     probe_path = tmp_path / "probe.json"
-    probe_path.write_text(json.dumps([{"path": "image.png", "gt_boxes": [[0, 0, 4, 4]], "gt_classes": [0]}]))
+    probe_path.write_text(json.dumps([{"path": "image.png", "coord_system": "original_xyxy", "gt_boxes": [[0, 0, 4, 4]], "gt_classes": [0]}]))
     args.probe_records = probe_path
     shared = SharedProbabilityState(4, [0.25] * 4)
     _, probe, _ = _build_components(args, wrapper, shared)
     current_model = object()
-    probe.records = [{"path": "image.png", "gt_boxes": [[0, 0, 4, 4]], "gt_classes": [0]}]
+    probe.records = [{"path": "image.png", "coord_system": "original_xyxy", "gt_boxes": [[0, 0, 4, 4]], "gt_classes": [0]}]
     probe.evaluate(current_model, epoch=1)
     assert wrapper.seen == [current_model]
     assert wrapper.model is not current_model
+
+
+def test_runner_rejects_probe_records_without_coordinate_contract(tmp_path):
+    path = tmp_path / "probe.json"
+    path.write_text(json.dumps([{"path": "image.png", "gt_boxes": [], "gt_classes": []}]))
+    args = Namespace(
+        r5_mode="online_probe_recall",
+        profile_path=None,
+        probe_records=path,
+        ema_beta=0.9,
+        gamma=1.0,
+        exploration=0.2,
+        warmup=0,
+        log_path=None,
+        probe_iou=0.5,
+        probe_confidence=0.01,
+        nms_iou=0.5,
+        imgsz=64,
+        device="cpu",
+        probe_every=1,
+        kappa=10.0,
+        profile_iou=0.5,
+        profile_confidence=0.01,
+        profile_source_split="train",
+    )
+    with pytest.raises(ValueError, match="coord_system"):
+        _build_components(args, object(), SharedProbabilityState(4, [0.25] * 4))
+
+
+def test_real_yolo_cached_predictor_is_rebound_to_current_model(tmp_path):
+    pytest.importorskip("ultralytics")
+    from ultralytics import YOLO
+
+    root = Path(__file__).resolve().parents[1]
+    yaml = root / "models_related" / "ultralytics" / "ultralytics" / "cfg" / "models" / "v8" / "yolov8.yaml"
+    image = np.zeros((64, 96, 3), dtype=np.uint8)
+    wrapper = YOLO(str(yaml))
+    wrapper.predict(image, imgsz=64, conf=0.01, device="cpu", verbose=False)
+    assert wrapper.predictor is not None
+    cached_model = wrapper.predictor.model
+    current = YOLO(str(yaml))
+    records = tmp_path / "probe.json"
+    records.write_text(json.dumps([{"coord_system": "original_xyxy", "gt_boxes": [], "gt_classes": []}]))
+    args = Namespace(
+        r5_mode="online_probe_recall",
+        profile_path=None,
+        probe_records=records,
+        ema_beta=0.9,
+        gamma=1.0,
+        exploration=0.2,
+        warmup=0,
+        log_path=None,
+        probe_iou=0.5,
+        probe_confidence=0.01,
+        nms_iou=0.5,
+        imgsz=64,
+        device="cpu",
+        probe_every=1,
+        kappa=10.0,
+        profile_iou=0.5,
+        profile_confidence=0.01,
+        profile_source_split="train",
+    )
+    _, probe, _ = _build_components(args, wrapper, SharedProbabilityState(4, [0.25] * 4))
+    probe.predict_fn(current.model, {"image": image, "coord_system": "original_xyxy", "gt_boxes": [], "gt_classes": []})
+    assert wrapper.predictor is None
+    assert cached_model is not current.model
 
 
 def test_probe_callback_updates_shared_state_and_restores_model_mode(tmp_path):

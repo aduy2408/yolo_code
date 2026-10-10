@@ -32,6 +32,15 @@ def _load_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _validate_probe_records(records: list[dict[str, Any]]) -> None:
+    """Require the coordinate contract used by YOLO Results.boxes.xyxy."""
+    for index, record in enumerate(records):
+        if record.get("coord_system") != "original_xyxy":
+            raise ValueError(
+                f"probe record {index} must declare coord_system='original_xyxy'"
+            )
+
+
 def _fixed_r5_overrides(args: argparse.Namespace, shared_state) -> dict[str, Any]:
     return {
         "copy_paste_enabled": True,
@@ -132,6 +141,7 @@ def _build_components(args: argparse.Namespace, model, shared_state):
             exploration=args.exploration,
         )
         records = _load_records(args.probe_records)
+        _validate_probe_records(records)
         evaluator = RecallEvaluator(
             bin_spec=bin_spec,
             iou_threshold=args.probe_iou,
@@ -139,7 +149,9 @@ def _build_components(args: argparse.Namespace, model, shared_state):
         )
 
         def predict_fn(current_model, record):
-            source = record.get("image") or record.get("path")
+            source = record.get("image")
+            if source is None:
+                source = record.get("path")
             if source is None:
                 raise ValueError("probe records require image or path")
             wrapper_model = getattr(model, "model", None)
@@ -150,6 +162,10 @@ def _build_components(args: argparse.Namespace, model, shared_state):
                 # the prediction so R5-E cannot probe stale weights.
                 if wrapper_model is not current_model:
                     model.model = current_model
+                # YOLO.predict reuses a cached predictor whose ``model`` is an
+                # AutoBackend created during the first call. Drop that cache
+                # so setup_model wraps the current training model now.
+                model.predictor = None
                 return model.predict(
                     source,
                     imgsz=args.imgsz,
@@ -161,6 +177,8 @@ def _build_components(args: argparse.Namespace, model, shared_state):
             finally:
                 if wrapper_model is not current_model:
                     model.model = wrapper_model
+                # Do not leave a predictor bound to a temporary training model.
+                model.predictor = None
 
         probe = R5ProbeCallback(
             evaluator=evaluator,
