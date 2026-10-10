@@ -784,6 +784,38 @@ def build_small_object_copy_paste(dataset, hyp):
             debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
             rng=getattr(hyp, "copy_paste_rng", None),
         )
+    if mode in {"adaptive_negative_canvas", "r5_negative_canvas"}:
+        from .adaptive_negative_canvas import AdaptiveNegativeCanvasCopyPaste
+        from .r5.samplers import ScaleBinSampler
+        from .r5.scale_bins import ScaleBinSpec
+
+        edges = tuple(float(value) for value in getattr(hyp, "r5_scale_bin_edges", (0.0, 8.0, 12.0, 16.0, 20.0)))
+        bin_spec = ScaleBinSpec.from_edges(edges)
+        probabilities = getattr(hyp, "r5_scale_probabilities", None)
+        sampler = ScaleBinSampler(
+            bin_spec=bin_spec,
+            rng=getattr(hyp, "copy_paste_rng", None),
+            probabilities=probabilities,
+        )
+        return AdaptiveNegativeCanvasCopyPaste(
+            dataset=dataset,
+            scale_sampler=sampler,
+            bin_spec=bin_spec,
+            p=float(getattr(hyp, "negative_cp_p", 0.30)),
+            donor_policy=str(getattr(hyp, "negative_cp_donor_policy", "matched")),
+            target_max_size=float(getattr(hyp, "negative_cp_target_max_size", 20.0)),
+            deficit_gamma=float(getattr(hyp, "negative_cp_deficit_gamma", 0.5)),
+            max_weight_ratio=float(getattr(hyp, "negative_cp_max_weight_ratio", 3.0)),
+            matched_ratio_max=float(getattr(hyp, "negative_cp_matched_ratio_max", 1.5)),
+            large_ratio_min=float(getattr(hyp, "negative_cp_large_ratio_min", 1.5)),
+            large_ratio_max=float(getattr(hyp, "negative_cp_large_ratio_max", 2.5)),
+            degradation=str(getattr(hyp, "negative_cp_degradation", "none")),
+            blur_sigma=float(getattr(hyp, "negative_cp_blur_sigma", 0.5)),
+            max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
+            canvas_scope="negative",
+            debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
+            rng=getattr(hyp, "copy_paste_rng", None),
+        )
     if mode in {"negative_canvas", "all_canvas", "negative_canvas_cluster", "sparse_canvas"}:
         from .negative_canvas_copy_paste import (
             NegativeCanvasClusterCopyPaste,
@@ -988,6 +1020,8 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "negative_cp_large_ratio_max": float(getattr(hyp, "negative_cp_large_ratio_max", 2.5)),
         "negative_cp_degradation": str(getattr(hyp, "negative_cp_degradation", "none")),
         "negative_cp_blur_sigma": float(getattr(hyp, "negative_cp_blur_sigma", 0.5)),
+        "r5_scale_bin_edges": list(getattr(hyp, "r5_scale_bin_edges", (0.0, 8.0, 12.0, 16.0, 20.0))),
+        "r5_scale_probabilities": getattr(hyp, "r5_scale_probabilities", None),
         "canvas_scope": "all" if str(getattr(hyp, "copy_paste_mode", "single")) == "all_canvas" else "negative",
         "stcp_p": float(getattr(hyp, "stcp_p", 0.30)),
         "stcp_min_pastes": int(getattr(hyp, "stcp_min_pastes", 1)),

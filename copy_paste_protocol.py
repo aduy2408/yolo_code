@@ -70,6 +70,18 @@ VARIANTS = {
         "negative_cp_target_max_size": 20.0,
         "negative_cp_degradation": "none",
     },
+    "negative_canvas_r5_uniform": {
+        "copy_paste_enabled": True,
+        "copy_paste_unit": "single",
+        "copy_paste_copies": 1,
+        "copy_paste_mode": "adaptive_negative_canvas",
+        "negative_cp_p": 0.30,
+        "negative_cp_donor_policy": "matched",
+        "negative_cp_target_max_size": 20.0,
+        "r5_scale_bin_edges": [0.0, 8.0, 12.0, 16.0, 20.0],
+        "r5_scale_probabilities": [0.25, 0.25, 0.25, 0.25],
+        "negative_cp_degradation": "none",
+    },
     "negative_canvas_cp3_cluster1": {
         "copy_paste_enabled": True,
         "copy_paste_unit": "cluster",
@@ -243,7 +255,7 @@ def validate_settings(settings: dict) -> None:
     for key, expected in required.items():
         if key == "copy_paste_p" and settings.get("copy_paste_mode") in {
             "negative", "crowded", "scale_matched", "negative_canvas", "negative_canvas_cluster",
-            "sparse_canvas",
+            "sparse_canvas", "adaptive_negative_canvas", "r5_negative_canvas",
         }:
             continue
         if settings.get(key) != expected:
