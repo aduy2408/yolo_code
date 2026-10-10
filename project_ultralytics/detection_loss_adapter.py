@@ -62,6 +62,7 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
         )
         self.positive_rescue_gain = float(_arg(h, "positive_confidence_rescue_gain", 0.0))
         self.positive_rescue_gamma = float(_arg(h, "positive_confidence_rescue_gamma", 1.0))
+        self.r5_feedback_adapter = getattr(model, "r5_feedback_adapter", None)
         project_args = getattr(model, "project_model_args", {})
         self.gradient_mode_balance = bool(_arg(project_args, "gradient_mode_balance", _arg(h, "gradient_mode_balance", False)))
         self.gradient_mode_count = int(_arg(project_args, "gradient_mode_count", _arg(h, "gradient_mode_count", 2)))
@@ -212,6 +213,18 @@ class FactorizedTALDetectionLoss(v8DetectionLoss):
             gt_bboxes,
             mask_gt,
         )
+
+        if self.r5_feedback_adapter is not None:
+            with torch.no_grad():
+                self.r5_feedback_adapter.observe(
+                    pred_bboxes=(pred_bboxes.detach() * stride_tensor).to(gt_bboxes.dtype),
+                    pred_scores=pred_scores.detach().sigmoid(),
+                    gt_bboxes=gt_bboxes.detach(),
+                    gt_labels=gt_labels.detach(),
+                    fg_mask=fg_mask.detach(),
+                    target_gt_idx=target_gt_idx.detach(),
+                    valid_gt_mask=mask_gt.detach(),
+                )
 
         self.custom_detection_metrics = {}
         if p2_slot_count > 1:
