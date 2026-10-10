@@ -213,3 +213,36 @@ def test_actual_yolo_dataset_builds_r5_transform_with_shared_state(tmp_path):
     r5_transforms = [transform for transform in pipeline.transforms if type(transform).__name__ == "AdaptiveNegativeCanvasCopyPaste"]
     assert len(r5_transforms) == 1
     assert r5_transforms[0].scale_sampler.shared_state is shared_state
+
+
+def test_actual_yolo_dataset_r5_samples_have_consistent_provenance_keys(tmp_path):
+    image_dir = tmp_path / "images"
+    label_dir = tmp_path / "labels"
+    image_dir.mkdir()
+    label_dir.mkdir()
+    image = np.zeros((32, 32, 3), dtype=np.uint8)
+    image[4:8, 5:9] = (10, 20, 30)
+    assert cv2.imwrite(str(image_dir / "sample.png"), image)
+    assert cv2.imwrite(str(image_dir / "negative.png"), np.zeros_like(image))
+    (label_dir / "sample.txt").write_text("0 0.21875 0.1875 0.125 0.125\n")
+    (label_dir / "negative.txt").write_text("")
+    hyp = get_cfg(overrides={
+        "imgsz": 32, "mosaic": 0.0, "mixup": 0.0, "cutmix": 0.0,
+        "degrees": 0.0, "translate": 0.0, "scale": 0.0, "shear": 0.0,
+        "perspective": 0.0, "fliplr": 0.0, "flipud": 0.0,
+        "copy_paste": 0.0, "copy_paste_mode": "adaptive_negative_canvas",
+    })
+    shared_state = SharedProbabilityState(4, [0.25, 0.25, 0.25, 0.25])
+    hyp.copy_paste_enabled = True
+    hyp.negative_cp_p = 1.0
+    hyp.r5_scale_bin_edges = [0.0, 8.0, 12.0, 16.0, 20.0]
+    hyp.r5_scale_probabilities = [0.25, 0.25, 0.25, 0.25]
+    hyp.r5_shared_probability_state = shared_state
+    dataset = YOLODataset(
+        img_path=str(image_dir), imgsz=32, data={"names": {0: "ship"}},
+        task="detect", augment=True, hyp=hyp, batch_size=2, rect=False, cache=False,
+    )
+    samples = [dataset[0], dataset[1]]
+    assert all("r5_original_gt_mask" in sample for sample in samples)
+    batch = YOLODataset.collate_fn(samples)
+    assert batch["r5_original_gt_mask"].numel() == batch["bboxes"].shape[0] == batch["cls"].shape[0]
