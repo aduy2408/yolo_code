@@ -1,6 +1,7 @@
 """Scale samplers shared by R5 negative-canvas transforms."""
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Iterable, Mapping
 
 import numpy as np
@@ -16,10 +17,19 @@ class ScaleBinSampler:
         bin_spec: ScaleBinSpec = DEFAULT_SCALE_BINS,
         rng=None,
         probabilities: Iterable[float] | None = None,
+        seed: int | None = None,
+        worker_id: int = 0,
     ) -> None:
+        if seed is not None and not isinstance(seed, (int, np.integer)):
+            raise ValueError("seed must be an integer or None")
+        if worker_id < 0:
+            raise ValueError("worker_id must be non-negative")
         self.bin_spec = bin_spec
         self.rng = rng
-        self._numpy_rng = np.random.default_rng()
+        self.seed = None if seed is None else int(seed)
+        self.worker_id = int(worker_id)
+        sequence = None if self.seed is None else np.random.SeedSequence([self.seed, self.worker_id])
+        self._numpy_rng = np.random.default_rng(sequence)
         self._probabilities = np.full(bin_spec.num_bins, 1.0 / bin_spec.num_bins, dtype=np.float64)
         if probabilities is not None:
             self.set_probabilities(probabilities)
@@ -57,12 +67,31 @@ class ScaleBinSampler:
         return float(self.rng.choice(normalized[selected]))
 
     def state_dict(self) -> dict[str, object]:
-        return {"edges": list(self.bin_spec.edges), "probabilities": self._probabilities.tolist()}
+        state = {
+            "edges": list(self.bin_spec.edges),
+            "probabilities": self._probabilities.tolist(),
+            "seed": self.seed,
+            "worker_id": self.worker_id,
+        }
+        if self.rng is None:
+            state["numpy_rng_state"] = deepcopy(self._numpy_rng.bit_generator.state)
+        elif hasattr(self.rng, "getstate"):
+            state["python_rng_state"] = self.rng.getstate()
+        return state
 
     @classmethod
     def from_state_dict(cls, state: Mapping[str, object], rng=None) -> "ScaleBinSampler":
-        sampler = cls(ScaleBinSpec.from_edges(state["edges"]), rng=rng)
+        sampler = cls(
+            ScaleBinSpec.from_edges(state["edges"]),
+            rng=rng,
+            seed=state.get("seed"),
+            worker_id=int(state.get("worker_id", 0)),
+        )
         sampler.set_probabilities(state["probabilities"])
+        if rng is None and state.get("numpy_rng_state") is not None:
+            sampler._numpy_rng.bit_generator.state = deepcopy(state["numpy_rng_state"])
+        elif rng is not None and state.get("python_rng_state") is not None and hasattr(rng, "setstate"):
+            rng.setstate(state["python_rng_state"])
         return sampler
 
 

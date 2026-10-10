@@ -50,8 +50,8 @@ class ScaleDifficultyController:
             return
         if np.any(ids < 0) or np.any(ids >= self.num_bins):
             raise ValueError("bin id is outside controller range")
-        if not np.all(np.isfinite(vals)):
-            raise ValueError("difficulty values must be finite")
+        if not np.all(np.isfinite(vals)) or np.any(vals < 0.0) or np.any(vals > 1.0):
+            raise ValueError("difficulty values must be finite and in [0, 1]")
         np.add.at(self.sum_difficulty, ids, vals)
         np.add.at(self.count, ids, 1)
 
@@ -60,7 +60,7 @@ class ScaleDifficultyController:
             index = int(bin_id)
             if index < 0 or index >= self.num_bins:
                 raise ValueError("aggregate bin id is outside controller range")
-            if count < 0 or not math.isfinite(float(total)):
+            if count < 0 or not math.isfinite(float(total)) or float(total) < 0.0 or float(total) > count + self.epsilon:
                 raise ValueError("invalid difficulty aggregate")
             if count:
                 self.sum_difficulty[index] += float(total)
@@ -93,7 +93,9 @@ class ScaleDifficultyController:
         diff = np.asarray(self.difficulty if difficulty is None else list(difficulty), dtype=np.float64)
         if diff.shape != (self.num_bins,):
             raise ValueError("difficulty must have one value per bin")
-        diff = np.maximum(diff, 0.0) ** self.gamma
+        if np.any(~np.isfinite(diff)) or np.any(diff < 0.0) or np.any(diff > 1.0):
+            raise ValueError("difficulty must be finite and in [0, 1]")
+        diff = diff ** self.gamma
         diff = self._normalize(diff)
         if frequency is None:
             base = diff
@@ -110,9 +112,9 @@ class ScaleDifficultyController:
         if not np.any(feasible_mask):
             raise ValueError("at least one scale bin must be feasible")
         base = np.where(feasible_mask, base, 0.0)
-        base = self._normalize(base)
+        base = self._normalize(base, feasible_mask)
         exploration = np.where(feasible_mask, 1.0, 0.0)
-        exploration = self._normalize(exploration)
+        exploration = self._normalize(exploration, feasible_mask)
         return (1.0 - self.exploration) * base + self.exploration * exploration
 
     def state_dict(self) -> dict[str, object]:
@@ -132,16 +134,29 @@ class ScaleDifficultyController:
         if int(state["num_bins"]) != self.num_bins:
             raise ValueError("controller state has a different number of bins")
         for name, target in (("difficulty", self.difficulty), ("sum_difficulty", self.sum_difficulty), ("count", self.count)):
+            if name not in state:
+                raise ValueError(f"controller state is missing {name!r}")
             values = np.asarray(state[name], dtype=target.dtype)
             if values.shape != target.shape:
                 raise ValueError(f"controller state field {name!r} has the wrong shape")
+            if not np.all(np.isfinite(values)) or np.any(values < 0):
+                raise ValueError(f"controller state field {name!r} is invalid")
             target[...] = values
+        if np.any(self.difficulty > 1.0) or np.any(self.sum_difficulty > self.count + self.epsilon):
+            raise ValueError("controller state contains out-of-range difficulty")
         self.epoch = int(state.get("epoch", 0))
+        if self.epoch < 0:
+            raise ValueError("controller epoch must be non-negative")
 
-    def _normalize(self, values: np.ndarray) -> np.ndarray:
+    def _normalize(self, values: np.ndarray, mask: np.ndarray | None = None) -> np.ndarray:
         total = float(values.sum())
         if total <= self.epsilon:
-            return np.full(self.num_bins, 1.0 / self.num_bins, dtype=np.float64)
+            allowed = np.ones(self.num_bins, dtype=bool) if mask is None else np.asarray(mask, dtype=bool)
+            if not np.any(allowed):
+                raise ValueError("normalization mask has no active bins")
+            result = np.zeros(self.num_bins, dtype=np.float64)
+            result[allowed] = 1.0 / allowed.sum()
+            return result
         return values / total
 
 

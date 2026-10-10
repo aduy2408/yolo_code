@@ -239,7 +239,11 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
             self.stats["donor_failed"] += 1
             return False
 
-        target_size = self._sample_target_size(labels)
+        try:
+            target_size = self._sample_target_size(labels)
+        except ValueError:
+            self.stats["donor_failed"] += 1
+            return False
         selected = self._choose_donor(target_size, labels)
         if selected is None:
             self.stats["donor_failed"] += 1

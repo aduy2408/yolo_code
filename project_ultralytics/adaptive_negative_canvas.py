@@ -22,15 +22,23 @@ class AdaptiveNegativeCanvasCopyPaste(NegativeCanvasCopyPaste):
         dataset,
         scale_sampler: ScaleBinSampler | None = None,
         bin_spec: ScaleBinSpec = DEFAULT_SCALE_BINS,
+        seed: int | None = None,
+        worker_id: int = 0,
         **kwargs,
     ) -> None:
         if scale_sampler is not None and scale_sampler.bin_spec != bin_spec:
             raise ValueError("scale_sampler and bin_spec must use the same scale bins")
         self.bin_spec = bin_spec
-        self.scale_sampler = scale_sampler or ScaleBinSampler(bin_spec=bin_spec, rng=kwargs.get("rng"))
+        self.scale_sampler = scale_sampler or ScaleBinSampler(
+            bin_spec=bin_spec,
+            rng=kwargs.get("rng"),
+            seed=seed,
+            worker_id=worker_id,
+        )
         super().__init__(dataset=dataset, target_policy="empirical", **kwargs)
         self.scale_bins = Counter()
         self.scale_bin_values = {bin_id: [] for bin_id in self.bin_spec.bin_ids}
+        self.donor_feasible_bin_values = {bin_id: [] for bin_id in self.bin_spec.bin_ids}
 
     def _build_pool(self) -> None:
         if self._study_pool_built:
@@ -38,16 +46,21 @@ class AdaptiveNegativeCanvasCopyPaste(NegativeCanvasCopyPaste):
         super()._build_pool()
         self.scale_bins.clear()
         self.scale_bin_values = {bin_id: [] for bin_id in self.bin_spec.bin_ids}
+        self.donor_feasible_bin_values = {bin_id: [] for bin_id in self.bin_spec.bin_ids}
+        donor_sizes = [self._effective_source_size(record) for record in self.object_pool]
         for size in self.target_sizes:
             bin_id = self.bin_spec.index(size)
             if bin_id is None:
                 continue
+            value = float(size)
             self.scale_bins[bin_id] += 1
-            self.scale_bin_values[bin_id].append(float(size))
+            self.scale_bin_values[bin_id].append(value)
+            if any(self._donor_valid(source_size, value) for source_size in donor_sizes):
+                self.donor_feasible_bin_values[bin_id].append(value)
 
     def _sample_target_size(self, labels: dict[str, Any] | None = None) -> float:
         self._build_pool()
-        return self.scale_sampler.sample(self.scale_bin_values)
+        return self.scale_sampler.sample(self.donor_feasible_bin_values)
 
     def update_probabilities(self, probabilities: Mapping[int, float] | list[float]) -> None:
         if isinstance(probabilities, Mapping):
@@ -55,6 +68,22 @@ class AdaptiveNegativeCanvasCopyPaste(NegativeCanvasCopyPaste):
         else:
             values = probabilities
         self.scale_sampler.set_probabilities(values)
+
+    def update_from_controller(self, controller, frequency=None, hybrid_ratio: float = 1.0) -> list[float]:
+        """Apply an epoch-level controller distribution to this transform."""
+        self._build_pool()
+        feasible = self.scale_sampler.feasible_mask(self.donor_feasible_bin_values)
+        probabilities = controller.probabilities(
+            frequency=frequency,
+            hybrid_ratio=hybrid_ratio,
+            feasible=feasible,
+        )
+        self.update_probabilities(probabilities.tolist())
+        return probabilities.tolist()
+
+    def end_epoch_from_controller(self, controller, frequency=None, hybrid_ratio: float = 1.0) -> list[float]:
+        controller.end_epoch()
+        return self.update_from_controller(controller, frequency=frequency, hybrid_ratio=hybrid_ratio)
 
     def r5_state_dict(self) -> dict[str, object]:
         return {

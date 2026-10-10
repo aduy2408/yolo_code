@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable, Mapping
+from typing import Iterable
 
 import numpy as np
 
@@ -35,12 +35,18 @@ def r5_diagnostics(
     attempted_pastes: Iterable[float],
     successful_pastes: Iterable[float],
     difficulty: Iterable[float] | None = None,
+    donor_failed: Iterable[float] | None = None,
+    placement_failed: Iterable[float] | None = None,
+    crop_failed: Iterable[float] | None = None,
 ) -> dict[str, object]:
     proposed = np.asarray(list(proposed_probabilities), dtype=np.float64)
     attempted = np.asarray(list(attempted_pastes), dtype=np.float64)
     successful = np.asarray(list(successful_pastes), dtype=np.float64)
     if not (proposed.shape == attempted.shape == successful.shape):
         raise ValueError("all per-bin diagnostics must have the same shape")
+    for name, values in (("proposed_probabilities", proposed), ("attempted_pastes", attempted), ("successful_pastes", successful)):
+        if np.any(values < 0.0) or not np.all(np.isfinite(values)):
+            raise ValueError(f"{name} must be finite and non-negative")
     actual = successful / max(float(successful.sum()), 1.0)
     result: dict[str, object] = {
         "probability": proposed.tolist(),
@@ -48,8 +54,20 @@ def r5_diagnostics(
         "successful_pastes": successful.tolist(),
         "actual_scale_distribution": actual.tolist(),
         "sampling_entropy": sampling_entropy(proposed),
-        "total_donor_failed": float(max(attempted.sum() - successful.sum(), 0.0)),
     }
+    failures = {}
+    for name, values in (("donor_failed", donor_failed), ("placement_failed", placement_failed), ("crop_failed", crop_failed)):
+        if values is None:
+            continue
+        array = np.asarray(list(values), dtype=np.float64)
+        if array.shape != proposed.shape or np.any(array < 0.0) or not np.all(np.isfinite(array)):
+            raise ValueError(f"{name} must be finite, non-negative, and match the per-bin shape")
+        result[name] = array.tolist()
+        failures[name] = float(array.sum())
+    if failures:
+        result["total_failures"] = sum(failures.values())
+    else:
+        result["total_failures"] = float(max(attempted.sum() - successful.sum(), 0.0))
     if difficulty is not None:
         values = np.asarray(list(difficulty), dtype=np.float64)
         if values.shape != proposed.shape:

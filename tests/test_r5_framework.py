@@ -7,7 +7,9 @@ import numpy as np
 
 from copy_paste_protocol import variant_overrides
 from project_ultralytics.copy_paste import build_small_object_copy_paste
+from project_ultralytics.adaptive_negative_canvas import AdaptiveNegativeCanvasCopyPaste
 from project_ultralytics.r5 import ScaleBinSampler, ScaleBinSpec, ScaleDifficultyController
+from project_ultralytics.r5.diagnostics import r5_diagnostics
 from ultralytics.utils.instance import Instances
 
 
@@ -79,6 +81,23 @@ def test_controller_masks_infeasible_bins_and_keeps_exploration():
     assert np.all(probabilities[[0, 2]] > 0.0)
 
 
+def test_controller_zero_weight_fallback_stays_within_feasible_mask():
+    controller = ScaleDifficultyController(num_bins=3, exploration=0.0)
+    probabilities = controller.probabilities(difficulty=[0.0, 0.0, 0.0], feasible=[True, False, True])
+    assert np.allclose(probabilities, [0.5, 0.0, 0.5])
+
+
+def test_controller_rejects_non_bounded_difficulty():
+    controller = ScaleDifficultyController(num_bins=2)
+    for values in ([np.nan, 0.2], [1.2, 0.2]):
+        try:
+            controller.probabilities(difficulty=values)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid difficulty was accepted")
+
+
 def test_sampler_respects_probabilities_and_feasible_values():
     spec = ScaleBinSpec((0, 8, 12))
     sampler = ScaleBinSampler(spec, rng=random.Random(4), probabilities=[0.0, 1.0])
@@ -88,11 +107,59 @@ def test_sampler_respects_probabilities_and_feasible_values():
     assert sampler.sample({0: [], 1: [10.0]}) == 10.0
 
 
+def test_seeded_sampler_is_reproducible_and_resumeable():
+    spec = ScaleBinSpec((0, 8, 12))
+    first = ScaleBinSampler(spec, seed=42)
+    second = ScaleBinSampler(spec, seed=42)
+    values = {0: [4.0], 1: [10.0]}
+    assert [first.sample(values) for _ in range(12)] == [second.sample(values) for _ in range(12)]
+    state = first.state_dict()
+    restored = ScaleBinSampler.from_state_dict(state)
+    assert [first.sample(values) for _ in range(8)] == [restored.sample(values) for _ in range(8)]
+
+
 def test_r5_uniform_protocol_has_explicit_shared_binning():
     settings = variant_overrides("negative_canvas_r5_uniform")
     assert settings["copy_paste_mode"] == "adaptive_negative_canvas"
     assert settings["r5_scale_bin_edges"] == [0.0, 8.0, 12.0, 16.0, 20.0]
     assert settings["r5_scale_probabilities"] == [0.25, 0.25, 0.25, 0.25]
+
+
+def test_controller_updates_adaptive_sampler_using_only_feasible_bins(tmp_path):
+    dataset = _dataset(tmp_path)
+    transform = AdaptiveNegativeCanvasCopyPaste(dataset, p=1.0, donor_policy="matched", seed=42)
+    controller = ScaleDifficultyController(num_bins=4, exploration=0.0)
+    controller.accumulate([0, 1, 2, 3], [0.1, 0.2, 0.8, 0.9])
+    probabilities = transform.end_epoch_from_controller(controller)
+    assert np.isclose(sum(probabilities), 1.0)
+    assert np.allclose(probabilities, transform.scale_sampler.probabilities)
+    assert np.isclose(sum(probabilities[1:]), 1.0)
+
+
+def test_diagnostics_keep_failure_causes_separate():
+    result = r5_diagnostics(
+        [0.5, 0.5], [4, 3], [3, 1],
+        donor_failed=[1, 0], placement_failed=[0, 2], crop_failed=[0, 0],
+    )
+    assert result["donor_failed"] == [1.0, 0.0]
+    assert result["placement_failed"] == [0.0, 2.0]
+    assert result["total_failures"] == 3.0
+    try:
+        r5_diagnostics([0.5, 0.5], [1, -1], [1, 0])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("negative diagnostic count was accepted")
+
+
+def test_adaptive_pool_excludes_target_bins_without_matching_donors(tmp_path):
+    dataset = _dataset(tmp_path)
+    transform = AdaptiveNegativeCanvasCopyPaste(
+        dataset, p=1.0, donor_policy="larger", target_max_size=16.0, seed=42,
+    )
+    transform._build_pool()
+    assert transform.scale_bin_values[3]
+    assert not transform.donor_feasible_bin_values[3]
 
 
 def test_r5_builder_preserves_negative_canvas_mechanics(tmp_path):

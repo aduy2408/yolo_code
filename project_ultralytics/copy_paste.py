@@ -796,6 +796,8 @@ def build_small_object_copy_paste(dataset, hyp):
             bin_spec=bin_spec,
             rng=getattr(hyp, "copy_paste_rng", None),
             probabilities=probabilities,
+            seed=getattr(hyp, "r5_seed", getattr(hyp, "seed", None)),
+            worker_id=int(getattr(hyp, "r5_worker_id", 0)),
         )
         return AdaptiveNegativeCanvasCopyPaste(
             dataset=dataset,
@@ -1022,6 +1024,8 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "negative_cp_blur_sigma": float(getattr(hyp, "negative_cp_blur_sigma", 0.5)),
         "r5_scale_bin_edges": list(getattr(hyp, "r5_scale_bin_edges", (0.0, 8.0, 12.0, 16.0, 20.0))),
         "r5_scale_probabilities": getattr(hyp, "r5_scale_probabilities", None),
+        "r5_seed": getattr(hyp, "r5_seed", getattr(hyp, "seed", None)),
+        "r5_worker_id": int(getattr(hyp, "r5_worker_id", 0)),
         "canvas_scope": "all" if str(getattr(hyp, "copy_paste_mode", "single")) == "all_canvas" else "negative",
         "stcp_p": float(getattr(hyp, "stcp_p", 0.30)),
         "stcp_min_pastes": int(getattr(hyp, "stcp_min_pastes", 1)),
