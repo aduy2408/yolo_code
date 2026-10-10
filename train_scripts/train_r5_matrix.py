@@ -361,6 +361,7 @@ def main(argv: list[str] | None = None) -> None:
         "seed": args.seed,
         "project": str(args.project),
         "name": args.name,
+        "exist_ok": True,
         "resume": args.resume,
         "deterministic": True,
         "plots": False,
