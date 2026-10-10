@@ -45,7 +45,10 @@ def build_offline_profile(
     result = profile.to_dict()
     result["kappa"] = float(kappa)
     result["gamma"] = float(gamma)
-    result["difficulty"] = profile.difficulty(kappa=kappa, gamma=gamma).tolist()
+    # Persist raw smoothed miss-rate. The controller owns gamma so an
+    # experiment applies the exponent exactly once when deriving P(bin).
+    result["difficulty"] = profile.difficulty(kappa=kappa, gamma=1.0).tolist()
+    result["difficulty_gamma"] = 1.0
     return result
 
 

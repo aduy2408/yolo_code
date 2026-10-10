@@ -122,9 +122,13 @@ class RecallProfile:
             raise ValueError("kappa must be finite and non-negative")
         if gamma < 0.0 or not np.isfinite(gamma):
             raise ValueError("gamma must be finite and non-negative")
-        recall = (
-            np.asarray(self.tp_count, dtype=np.float64) + kappa * self.global_recall
-        ) / (np.asarray(self.gt_count, dtype=np.float64) + kappa)
+        numerator = np.asarray(self.tp_count, dtype=np.float64) + kappa * self.global_recall
+        denominator = np.asarray(self.gt_count, dtype=np.float64) + kappa
+        # A bin with no GT and kappa=0 has undefined recall. Treat it as
+        # neutral/easy rather than emitting NaN. Such bins are still subject
+        # to the caller's feasible-bin mask.
+        recall = np.ones_like(numerator)
+        np.divide(numerator, denominator, out=recall, where=denominator > 0.0)
         return np.power(np.clip(1.0 - recall, 0.0, 1.0), gamma)
 
     def to_dict(self) -> dict[str, object]:

@@ -14,6 +14,8 @@ from pathlib import Path
 import sys
 from typing import Any
 
+import numpy as np
+
 
 def _prefer_local_ultralytics() -> None:
     root = Path(__file__).resolve().parents[1]
@@ -43,7 +45,10 @@ def _fixed_r5_overrides(args: argparse.Namespace, shared_state) -> dict[str, Any
         "negative_cp_degradation": "none",
         "copy_paste_max_trials": 30,
         "r5_scale_bin_edges": [0.0, 8.0, 12.0, 16.0, 20.0],
-        "r5_scale_probabilities": [0.25, 0.25, 0.25, 0.25],
+        # Pass the already-published distribution. The dataset builder may
+        # construct a sampler with this value and publish it again, so a
+        # uniform placeholder would erase R5-A's offline initialization.
+        "r5_scale_probabilities": shared_state.snapshot().tolist(),
         "r5_seed": int(args.seed),
         "r5_shared_state": True,
         "r5_shared_probability_state": shared_state,
@@ -72,11 +77,21 @@ def _build_components(args: argparse.Namespace, model, shared_state):
         if args.profile_path is None:
             raise ValueError("offline_recall requires --profile-path")
         profile = json.loads(args.profile_path.read_text(encoding="utf-8"))
-        difficulty = profile.get("difficulty")
-        if difficulty is None:
-            from project_ultralytics.r5.recall_evaluator import RecallProfile
+        from project_ultralytics.r5.recall_evaluator import RecallProfile
 
-            difficulty = RecallProfile.from_dict(profile).difficulty(kappa=args.kappa, gamma=args.gamma).tolist()
+        loaded_profile = RecallProfile.from_dict(profile)
+        expected_edges = tuple(float(value) for value in (0.0, 8.0, 12.0, 16.0, 20.0))
+        if loaded_profile.edges != expected_edges:
+            raise ValueError("offline profile bins do not match the R5 scale-bin protocol")
+        if not np.isclose(loaded_profile.iou_threshold, args.profile_iou):
+            raise ValueError("offline profile IoU threshold does not match the requested protocol")
+        if not np.isclose(loaded_profile.confidence_threshold, args.profile_confidence):
+            raise ValueError("offline profile confidence threshold does not match the requested protocol")
+        if loaded_profile.source_split != args.profile_source_split:
+            raise ValueError("offline profile source split does not match the requested protocol")
+        # Profiles persist raw smoothed miss-rate. Gamma belongs to the
+        # controller, where it is applied exactly once.
+        difficulty = loaded_profile.difficulty(kappa=args.kappa, gamma=1.0).tolist()
         controller = ScaleDifficultyController(
             num_bins=bin_spec.num_bins,
             beta=args.ema_beta,
@@ -123,18 +138,29 @@ def _build_components(args: argparse.Namespace, model, shared_state):
             confidence_threshold=args.probe_confidence,
         )
 
-        def predict_fn(_current_model, record):
+        def predict_fn(current_model, record):
             source = record.get("image") or record.get("path")
             if source is None:
                 raise ValueError("probe records require image or path")
-            return model.predict(
-                source,
-                imgsz=args.imgsz,
-                conf=args.probe_confidence,
-                iou=args.nms_iou,
-                device=args.device,
-                verbose=False,
-            )[0]
+            wrapper_model = getattr(model, "model", None)
+            try:
+                # Ultralytics' public predict API is attached to the wrapper,
+                # while the callback receives trainer.model. Temporarily bind
+                # the wrapper to that exact current model and restore it after
+                # the prediction so R5-E cannot probe stale weights.
+                if wrapper_model is not current_model:
+                    model.model = current_model
+                return model.predict(
+                    source,
+                    imgsz=args.imgsz,
+                    conf=args.probe_confidence,
+                    iou=args.nms_iou,
+                    device=args.device,
+                    verbose=False,
+                )[0]
+            finally:
+                if wrapper_model is not current_model:
+                    model.model = wrapper_model
 
         probe = R5ProbeCallback(
             evaluator=evaluator,
@@ -173,6 +199,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--probe-every", type=int, default=10)
     parser.add_argument("--probe-iou", type=float, default=0.5)
     parser.add_argument("--probe-confidence", type=float, default=0.01)
+    parser.add_argument("--profile-iou", type=float, default=0.5)
+    parser.add_argument("--profile-confidence", type=float, default=0.01)
+    parser.add_argument("--profile-source-split", default="train")
     parser.add_argument("--nms-iou", type=float, default=0.5)
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--ema-beta", type=float, default=0.9)

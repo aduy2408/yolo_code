@@ -76,12 +76,22 @@ class R5ProbeCallback:
         if hasattr(model, "eval"):
             model.eval()
         try:
-            records = [_prediction_record(model, record, self.predict_fn) for record in self.records]
+            try:
+                import torch
+                context = torch.inference_mode()
+            except ImportError:
+                context = None
+            if context is None:
+                records = [_prediction_record(model, record, self.predict_fn) for record in self.records]
+            else:
+                with context:
+                    records = [_prediction_record(model, record, self.predict_fn) for record in self.records]
             profile = self.evaluator.evaluate_records(records, method="online_probe_recall", source_split="train_probe")
         finally:
             if was_training is True and hasattr(model, "train"):
                 model.train()
-        difficulty = profile.difficulty(kappa=self.kappa, gamma=self.gamma)
+        # Keep the profile raw. ScaleDifficultyController applies gamma once.
+        difficulty = profile.difficulty(kappa=self.kappa, gamma=1.0)
         mapping = {
             index: (float(value), 1)
             for index, value in enumerate(difficulty)
@@ -131,6 +141,32 @@ class R5ProbeCallback:
                 "profile": self.last_result.profile.to_dict(),
             },
         }
+
+    def load_state_dict(self, state: Mapping[str, object]) -> None:
+        probe_every = int(state.get("probe_every", self.probe_every))
+        if probe_every < 1:
+            raise ValueError("probe_every must be positive")
+        self.probe_every = probe_every
+        self.probe_count = int(state.get("probe_count", 0))
+        if self.probe_count < 0:
+            raise ValueError("probe_count must be non-negative")
+        payload = state.get("last_result")
+        if payload is None:
+            self.last_result = None
+            return
+        if not isinstance(payload, Mapping):
+            raise ValueError("last_result must be a mapping or null")
+        profile = RecallProfile.from_dict(payload["profile"])
+        difficulty = tuple(float(value) for value in payload["difficulty"])
+        probabilities = tuple(float(value) for value in payload["probabilities"])
+        if len(difficulty) != self.controller.num_bins or len(probabilities) != self.controller.num_bins:
+            raise ValueError("probe state has the wrong number of bins")
+        self.last_result = ProbeResult(
+            epoch=int(payload["epoch"]),
+            profile=profile,
+            difficulty=difficulty,
+            probabilities=probabilities,
+        )
 
 
 __all__ = ["ProbeResult", "R5ProbeCallback"]
