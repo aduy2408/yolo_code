@@ -2,7 +2,13 @@
 from .diagnostics import frequency_probabilities, r5_diagnostics, sampling_entropy
 from .difficulty_controller import ScaleDifficultyController
 from .samplers import ScaleBinSampler
-from .online_tal import R5EpochFeedbackAdapter, TALDifficultyBatch, TALDifficultyCollector, attach_r5_feedback
+from .online_tal import (
+    R5EpochFeedbackAdapter,
+    TALDifficultyBatch,
+    TALDifficultyCollector,
+    attach_r5_feedback,
+    register_r5_epoch_callback,
+)
 from .scale_bins import DEFAULT_SCALE_BINS, ScaleBinSpec
 from .shared_state import SharedProbabilityState
 
@@ -12,6 +18,7 @@ __all__ = [
     "TALDifficultyBatch",
     "TALDifficultyCollector",
     "attach_r5_feedback",
+    "register_r5_epoch_callback",
     "ScaleBinSampler",
     "ScaleBinSpec",
     "ScaleDifficultyController",

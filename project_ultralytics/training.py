@@ -16,6 +16,7 @@ from ultralytics.nn.tasks import DetectionModel
 
 from .detection_loss_adapter import FactorizedTALDetectionLoss, P2SlotsDetectionLoss
 from .parser import project_parser, project_runtime
+from .r5.online_tal import register_r5_epoch_callback
 
 LOSS_ADAPTERS: dict[str, type] = {
     "upstream": v8DetectionLoss,
@@ -35,6 +36,8 @@ class ProjectDetectionTrainer(DetectionTrainer):
         self.project_model_args = dict(project_model_args or {})
         self.r5_feedback_adapter = r5_feedback_adapter
         super().__init__(*args, **kwargs)
+        if self.r5_feedback_adapter is not None:
+            register_r5_epoch_callback(self, self.r5_feedback_adapter)
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         model = ProjectDetectionModel(

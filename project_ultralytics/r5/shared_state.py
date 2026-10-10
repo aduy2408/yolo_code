@@ -48,9 +48,10 @@ class SharedProbabilityState:
 
     @classmethod
     def from_state_dict(cls, state: dict[str, object]) -> "SharedProbabilityState":
-        result = cls(int(state["num_bins"]), state["probabilities"])
-        result._version.fill_(int(state.get("version", 0)))
-        return result
+        # ``__init__`` publishes the supplied probabilities into a coherent
+        # buffer/version pair. The version is only a publication counter and
+        # must not be restored independently of its corresponding buffer.
+        return cls(int(state["num_bins"]), state["probabilities"])
 
 
 __all__ = ["SharedProbabilityState"]

@@ -7,6 +7,7 @@ from project_ultralytics.r5 import (
     ScaleBinSpec,
     ScaleDifficultyController,
     TALDifficultyCollector,
+    register_r5_epoch_callback,
 )
 
 
@@ -84,6 +85,33 @@ def test_epoch_adapter_accumulates_and_updates_sampler():
     assert adapter.observations == 3
     assert len(probabilities) == 4
     assert torch.isfinite(torch.tensor(probabilities)).all()
+
+
+def test_epoch_callback_registration_is_idempotent_and_updates_once():
+    class DummyTransform:
+        def __init__(self):
+            self.calls = 0
+
+        def end_epoch_from_controller(self, controller, frequency=None, hybrid_ratio=1.0):
+            self.calls += 1
+            controller.end_epoch()
+            return [0.25, 0.25, 0.25, 0.25]
+
+    class CallbackOwner:
+        def __init__(self):
+            self.callbacks = {"on_train_epoch_end": []}
+
+        def add_callback(self, event, callback):
+            self.callbacks[event].append(callback)
+
+    owner = CallbackOwner()
+    adapter = R5EpochFeedbackAdapter(DummyTransform(), ScaleDifficultyController(num_bins=4))
+    assert register_r5_epoch_callback(owner, adapter)
+    assert register_r5_epoch_callback(owner, adapter)
+    assert len(owner.callbacks["on_train_epoch_end"]) == 1
+    owner.callbacks["on_train_epoch_end"][0](owner)
+    assert adapter.transform.calls == 1
+    assert adapter.controller.epoch == 1
 
 
 def test_shared_probability_state_reaches_real_dataloader_workers():

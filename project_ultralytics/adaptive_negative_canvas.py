@@ -36,6 +36,7 @@ class AdaptiveNegativeCanvasCopyPaste(NegativeCanvasCopyPaste):
             worker_id=worker_id,
         )
         super().__init__(dataset=dataset, target_policy="empirical", **kwargs)
+        self.r5_provenance_enabled = True
         self.scale_bins = Counter()
         self.scale_bin_values = {bin_id: [] for bin_id in self.bin_spec.bin_ids}
         self.donor_feasible_bin_values = {bin_id: [] for bin_id in self.bin_spec.bin_ids}

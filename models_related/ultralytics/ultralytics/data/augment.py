@@ -793,10 +793,18 @@ class Mosaic(BaseMixTransform):
             return {}
         cls = []
         instances = []
+        provenance = []
+        has_provenance = any("r5_original_gt_mask" in labels for labels in mosaic_labels)
         imgsz = self.imgsz * 2  # mosaic imgsz
         for labels in mosaic_labels:
             cls.append(labels["cls"])
             instances.append(labels["instances"])
+            if has_provenance:
+                mask = labels.get("r5_original_gt_mask", np.ones(len(labels["instances"]), dtype=bool))
+                mask = np.asarray(mask, dtype=bool).reshape(-1)
+                if len(mask) != len(labels["instances"]):
+                    raise RuntimeError("R5 provenance/GT alignment mismatch in Mosaic input")
+                provenance.append(mask)
         # Final labels
         final_labels = {
             "im_file": mosaic_labels[0]["im_file"],
@@ -808,6 +816,8 @@ class Mosaic(BaseMixTransform):
         final_labels["instances"].clip(imgsz, imgsz)
         good = final_labels["instances"].remove_zero_area_boxes()
         final_labels["cls"] = final_labels["cls"][good]
+        if has_provenance:
+            final_labels["r5_original_gt_mask"] = np.concatenate(provenance, axis=0)[good]
         if "texts" in mosaic_labels[0]:
             final_labels["texts"] = mosaic_labels[0]["texts"]
         return final_labels
@@ -986,6 +996,19 @@ class ScaleAdaptiveMosaic(Mosaic):
             mosaic_labels.append(patch)
         cls = np.concatenate([patch["cls"] for patch in mosaic_labels], axis=0)
         instances = Instances.concatenate([patch["instances"] for patch in mosaic_labels], axis=0)
+        has_provenance = any("r5_original_gt_mask" in patch for patch in mosaic_labels)
+        provenance = None
+        if has_provenance:
+            parts = []
+            for patch in mosaic_labels:
+                mask = np.asarray(
+                    patch.get("r5_original_gt_mask", np.ones(len(patch["instances"]), dtype=bool)),
+                    dtype=bool,
+                ).reshape(-1)
+                if len(mask) != len(patch["instances"]):
+                    raise RuntimeError("R5 provenance/GT alignment mismatch in adaptive Mosaic input")
+                parts.append(mask)
+            provenance = np.concatenate(parts, axis=0)
         canvas_height, canvas_width = params["samc_canvas_shape"]
         instances.clip(canvas_width, canvas_height)
         good = instances.remove_zero_area_boxes()
@@ -998,6 +1021,8 @@ class ScaleAdaptiveMosaic(Mosaic):
                 "instances": instances,
             }
         )
+        if provenance is not None:
+            labels["r5_original_gt_mask"] = provenance[good]
         if "texts" in mosaic_labels[0]:
             labels["texts"] = mosaic_labels[0]["texts"]
         return labels
@@ -1555,6 +1580,12 @@ class MixUp(BaseMixTransform):
         labels2 = labels["mix_labels"][0]
         labels["instances"] = Instances.concatenate([labels["instances"], labels2["instances"]], axis=0)
         labels["cls"] = np.concatenate([labels["cls"], labels2["cls"]], 0)
+        if "r5_original_gt_mask" in labels or "r5_original_gt_mask" in labels2:
+            first = np.asarray(labels.get("r5_original_gt_mask", np.ones(len(labels["cls"]) - len(labels2["cls"]), dtype=bool)), dtype=bool)
+            second = np.asarray(labels2.get("r5_original_gt_mask", np.ones(len(labels2["cls"]), dtype=bool)), dtype=bool)
+            if len(first) != len(labels["cls"]) - len(labels2["cls"]) or len(second) != len(labels2["cls"]):
+                raise RuntimeError("R5 provenance/GT alignment mismatch in MixUp")
+            labels["r5_original_gt_mask"] = np.concatenate([first, second], axis=0)
         return labels
 
     def apply_semantic(self, labels: dict[str, Any], params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1726,6 +1757,12 @@ class CutMix(BaseMixTransform):
 
         labels["cls"] = np.concatenate([labels["cls"], labels2["cls"][indexes2]], axis=0)
         labels["instances"] = Instances.concatenate([labels["instances"], instances2], axis=0)
+        if "r5_original_gt_mask" in labels or "r5_original_gt_mask" in labels2:
+            first = np.asarray(labels.get("r5_original_gt_mask", np.ones(len(labels["cls"]) - len(indexes2), dtype=bool)), dtype=bool)
+            second_all = np.asarray(labels2.get("r5_original_gt_mask", np.ones(len(labels2["cls"]), dtype=bool)), dtype=bool)
+            if len(first) != len(labels["cls"]) - len(indexes2) or len(second_all) != len(labels2["cls"]):
+                raise RuntimeError("R5 provenance/GT alignment mismatch in CutMix")
+            labels["r5_original_gt_mask"] = np.concatenate([first, second_all[indexes2]], axis=0)
         return labels
 
     def apply_semantic(self, labels: dict[str, Any], params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -2706,6 +2743,12 @@ class CopyPaste(BaseMixTransform):
 
         labels["cls"] = cls
         labels["instances"] = instances
+        if "r5_original_gt_mask" in labels or "r5_original_gt_mask" in labels2:
+            first = np.asarray(labels.get("r5_original_gt_mask", np.ones(len(labels["cls"]) - len(selected), dtype=bool)), dtype=bool)
+            second_all = np.asarray(labels2.get("r5_original_gt_mask", np.ones(len(labels2["cls"]), dtype=bool)), dtype=bool)
+            if len(first) != len(labels["cls"]) - len(selected) or len(second_all) != len(labels2["cls"]):
+                raise RuntimeError("R5 provenance/GT alignment mismatch in built-in CopyPaste")
+            labels["r5_original_gt_mask"] = np.concatenate([first, second_all[selected]], axis=0)
         return labels
 
     def apply_semantic(self, labels: dict[str, Any], params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -3263,12 +3306,10 @@ class Format(BaseTransform):
             labels["sem_masks"] = sem_masks.float()
         labels["cls"] = torch.from_numpy(cls) if nl else torch.zeros(nl, 1)
         provenance = labels.get("r5_original_gt_mask")
-        if provenance is None:
-            labels["r5_original_gt_mask"] = torch.ones(nl, dtype=torch.bool)
-        else:
+        if provenance is not None:
             provenance = np.asarray(provenance, dtype=bool).reshape(-1)
             if len(provenance) != nl:
-                provenance = np.ones(nl, dtype=bool)
+                raise RuntimeError("R5 provenance/GT alignment mismatch in Format.apply_instances")
             labels["r5_original_gt_mask"] = torch.from_numpy(provenance)
         labels["bboxes"] = torch.from_numpy(instances.bboxes) if nl else torch.zeros((nl, 4))
         if "preclip_area" in labels:

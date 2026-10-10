@@ -103,6 +103,7 @@ class SmallObjectCopyPaste:
         self._source_boxes: dict[int, np.ndarray] = {}
         self._source_classes: dict[int, np.ndarray] = {}
         self._pool_built = False
+        self.r5_provenance_enabled = False
         self.stats = self._new_stats()
         self.stats["debug_dump_count"] = 0
 
@@ -348,12 +349,13 @@ class SmallObjectCopyPaste:
         instances.convert_bbox("xyxy")
         h, w = labels["img"].shape[:2]
         existing_count = len(instances)
-        original_mask = np.asarray(
-            labels.get("r5_original_gt_mask", np.ones(existing_count, dtype=bool)),
-            dtype=bool,
-        ).reshape(-1)
-        if len(original_mask) != existing_count:
-            original_mask = np.ones(existing_count, dtype=bool)
+        provenance = labels.get("r5_original_gt_mask")
+        if provenance is not None or self.r5_provenance_enabled:
+            original_mask = np.ones(existing_count, dtype=bool) if provenance is None else np.asarray(provenance, dtype=bool).reshape(-1)
+            if len(original_mask) != existing_count:
+                raise RuntimeError("R5 provenance/GT alignment mismatch before Copy-Paste append")
+        else:
+            original_mask = None
         if instances.normalized:
             instances.denormalize(w, h)
         new_boxes = np.concatenate(boxes, axis=0).astype(np.float32)
@@ -366,9 +368,10 @@ class SmallObjectCopyPaste:
             new_boxes, new_segments, new_keypoints, bbox_format="xyxy", normalized=False
         )
         labels["instances"] = Instances.concatenate([instances, new_instances], axis=0)
-        labels["r5_original_gt_mask"] = np.concatenate(
-            [original_mask, np.zeros(len(new_boxes), dtype=bool)], axis=0
-        )
+        if original_mask is not None:
+            labels["r5_original_gt_mask"] = np.concatenate(
+                [original_mask, np.zeros(len(new_boxes), dtype=bool)], axis=0
+            )
         labels["cls"] = np.concatenate(
             [
                 np.asarray(labels.get("cls", []), dtype=np.float32).reshape(-1, 1),

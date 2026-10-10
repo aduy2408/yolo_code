@@ -179,11 +179,23 @@ class R5EpochFeedbackAdapter:
         return self.end_epoch()
 
 
+def register_r5_epoch_callback(owner, adapter: R5EpochFeedbackAdapter) -> bool:
+    """Register one adapter callback on a model, trainer, or callback owner."""
+    add_callback = getattr(owner, "add_callback", None)
+    if not callable(add_callback):
+        return False
+    callbacks = getattr(owner, "callbacks", {})
+    event_callbacks = callbacks.get("on_train_epoch_end", []) if isinstance(callbacks, dict) else []
+    callback = adapter.on_train_epoch_end
+    if callback not in event_callbacks:
+        add_callback("on_train_epoch_end", callback)
+    return True
+
+
 def attach_r5_feedback(model, adapter: R5EpochFeedbackAdapter):
     """Attach an adapter to a model and register its epoch-end callback."""
     model.r5_feedback_adapter = adapter
-    if hasattr(model, "add_callback"):
-        model.add_callback("on_train_epoch_end", adapter.on_train_epoch_end)
+    register_r5_epoch_callback(model, adapter)
     return model
 
 
@@ -192,4 +204,5 @@ __all__ = [
     "TALDifficultyBatch",
     "TALDifficultyCollector",
     "attach_r5_feedback",
+    "register_r5_epoch_callback",
 ]

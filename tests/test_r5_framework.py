@@ -4,13 +4,16 @@ from types import SimpleNamespace
 
 import cv2
 import numpy as np
+import pytest
 
 from copy_paste_protocol import variant_overrides
 from project_ultralytics.copy_paste import build_small_object_copy_paste
 from project_ultralytics.adaptive_negative_canvas import AdaptiveNegativeCanvasCopyPaste
 from project_ultralytics.r5 import ScaleBinSampler, ScaleBinSpec, ScaleDifficultyController
+from project_ultralytics.r5 import SharedProbabilityState
 from project_ultralytics.r5.diagnostics import r5_diagnostics
 from ultralytics.utils.instance import Instances
+from ultralytics.data.augment import Format, MixUp
 
 
 def _labels(image, im_file=None):
@@ -116,6 +119,69 @@ def test_seeded_sampler_is_reproducible_and_resumeable():
     state = first.state_dict()
     restored = ScaleBinSampler.from_state_dict(state)
     assert [first.sample(values) for _ in range(8)] == [restored.sample(values) for _ in range(8)]
+
+
+def test_shared_probability_state_restore_preserves_snapshot_not_stale_version():
+    state = SharedProbabilityState(4, [0.1, 0.2, 0.3, 0.4])
+    state.update([0.4, 0.3, 0.2, 0.1])
+    restored = SharedProbabilityState.from_state_dict(state.state_dict())
+    assert np.allclose(restored.snapshot(), [0.4, 0.3, 0.2, 0.1])
+
+
+def test_r5_builder_reuses_explicit_shared_probability_state(tmp_path):
+    from project_ultralytics.copy_paste import build_small_object_copy_paste
+
+    dataset = _dataset(tmp_path)
+    settings = variant_overrides("negative_canvas_r5_uniform")
+    shared_state = SharedProbabilityState(4, [0.25, 0.25, 0.25, 0.25])
+    settings["r5_shared_probability_state"] = shared_state
+    transform = build_small_object_copy_paste(dataset, SimpleNamespace(**settings))
+    assert transform.scale_sampler.shared_state is shared_state
+
+
+def test_format_rejects_r5_provenance_alignment_mismatch():
+    formatter = Format(normalize=False, batch_idx=False)
+    instances = Instances(
+        np.zeros((2, 4), dtype=np.float32),
+        np.zeros((2, 0, 2), dtype=np.float32),
+        bbox_format="xyxy",
+        normalized=False,
+    )
+    with pytest.raises(RuntimeError, match="provenance/GT alignment"):
+        formatter.apply_instances(
+            {
+                "instances": instances,
+                "r5_original_gt_mask": np.array([False], dtype=bool),
+            },
+            {"cls": np.zeros((2, 1), dtype=np.float32), "instances": instances, "nl": 2, "h": 32, "w": 32},
+        )
+
+
+def test_mixup_preserves_synthetic_provenance_when_merging_instances():
+    instances = Instances(
+        np.zeros((1, 4), dtype=np.float32),
+        np.zeros((1, 0, 2), dtype=np.float32),
+        bbox_format="xyxy",
+        normalized=False,
+    )
+    labels = {
+        "instances": instances,
+        "cls": np.zeros((1, 1), dtype=np.float32),
+        "r5_original_gt_mask": np.array([False], dtype=bool),
+        "mix_labels": [
+            {
+                "instances": Instances(
+                    np.zeros((1, 4), dtype=np.float32),
+                    np.zeros((1, 0, 2), dtype=np.float32),
+                    bbox_format="xyxy",
+                    normalized=False,
+                ),
+                "cls": np.ones((1, 1), dtype=np.float32),
+            }
+        ],
+    }
+    MixUp(None, p=1.0).apply_instances(labels, {})
+    assert labels["r5_original_gt_mask"].tolist() == [False, True]
 
 
 def test_r5_uniform_protocol_has_explicit_shared_binning():
