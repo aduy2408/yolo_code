@@ -337,7 +337,16 @@ def main(argv: list[str] | None = None) -> None:
     args.name = args.name or args.r5_mode
     args.log_path = args.log_path or args.project / args.name / "r5_feedback.jsonl"
     args.log_path.parent.mkdir(parents=True, exist_ok=True)
-    model = YOLO(args.model)
+    model_path = Path(args.model)
+    if model_path.suffix.lower() == ".pt":
+        # Build the canonical project YOLOv8 P3/P4/P5 graph first, then load
+        # the report checkpoint. Loading a checkpoint directly can retain an
+        # upstream Detect object that lacks project-fork compatibility fields
+        # such as ``box_detail`` used by the R5 probe path.
+        baseline_yaml = Path(__file__).resolve().parents[1] / "models_related/ultralytics/ultralytics/cfg/models/v8/yolov8.yaml"
+        model = YOLO(str(baseline_yaml)).load(str(model_path))
+    else:
+        model = YOLO(args.model)
     shared_state = SharedProbabilityState(4, [0.25, 0.25, 0.25, 0.25])
     feedback, probe, checkpoint = _build_components(args, model, shared_state)
     overrides = _fixed_r5_overrides(args, shared_state)
