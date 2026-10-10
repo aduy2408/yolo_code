@@ -6,12 +6,14 @@ Ultralytics source files and keeps the default upstream criterion available.
 
 from __future__ import annotations
 
+from copy import copy
 from types import MethodType
 from functools import partial
 from typing import Any
 
 from ultralytics.utils.loss import v8DetectionLoss
 from ultralytics.models.yolo.detect.train import DetectionTrainer
+from ultralytics.models import yolo
 from ultralytics.nn.tasks import DetectionModel
 
 from .detection_loss_adapter import FactorizedTALDetectionLoss, P2SlotsDetectionLoss
@@ -74,6 +76,25 @@ class ProjectDetectionTrainer(DetectionTrainer):
             self.add_callback("on_model_save", self.r5_state_callback.on_model_save)
             self.add_callback("on_train_end", self.r5_state_callback.on_train_end)
             self.r5_state_callback.on_pretrain_routine_start(self)
+
+    def get_validator(self):
+        """Build validation with upstream config fields only.
+
+        Training datasets consume project-only fields from ``self.args``. The
+        stock validator re-validates a copy of that namespace, so strip those
+        fields from the validator copy while preserving them for training.
+        """
+        self.loss_names = self._loss_names()
+        validator_args = copy(self.args)
+        for key in self.project_overrides:
+            if hasattr(validator_args, key):
+                delattr(validator_args, key)
+        return yolo.detect.DetectionValidator(
+            self.test_loader,
+            save_dir=self.save_dir,
+            args=validator_args,
+            _callbacks=self.callbacks,
+        )
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         model = ProjectDetectionModel(
