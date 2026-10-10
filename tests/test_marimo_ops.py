@@ -179,6 +179,7 @@ class MarimoOpsTests(unittest.TestCase):
             "seed": 42,
             "split_seed": 42,
             "workers": 8,
+            "image_size": 512,
             "epochs": 100,
             "patience": 0,
             "nms_iou": 0.5,
@@ -220,6 +221,7 @@ class MarimoOpsTests(unittest.TestCase):
             "seed": 42,
             "split_seed": 42,
             "workers": 8,
+            "image_size": 512,
             "epochs": 100,
             "patience": 0,
             "nms_iou": 0.5,
@@ -231,7 +233,7 @@ class MarimoOpsTests(unittest.TestCase):
             validate_command_contract(
                 run_dir,
                 [
-                    "runner.py", "--epochs", "100", "--patience", "0", "--workers", "8",
+                    "runner.py", "--epochs", "100", "--patience", "0", "--workers", "8", "--image-size", "512",
                     "--seed", "42", "--split-seed", "42", "--hf-repo-id", "user/task-runs",
                     "--model-yaml", "models/yolov8.yaml", "--data-root", "/marimo/LevirShip/LevirShipData",
                 ],
@@ -263,6 +265,7 @@ class MarimoOpsTests(unittest.TestCase):
                     "seed": 42,
                     "split_seed": 42,
                     "workers": 8,
+                    "image_size": 512,
                     "epochs": 100,
                     "patience": 0,
                     "nms_iou": 0.5,
@@ -298,7 +301,7 @@ class MarimoOpsTests(unittest.TestCase):
                 {
                     "dataset": "levir", "data_root": "/data/levir",
                     "dataset_yaml": "/data/levir/data.yaml", "model_yaml": "models/yolov8.yaml",
-                    "seed": 42, "split_seed": 42, "workers": 8, "epochs": 100,
+                    "seed": 42, "split_seed": 42, "workers": 8, "image_size": 512, "epochs": 100,
                     "patience": 0, "nms_iou": 0.5, "hf_repo_id": "user/task-runs",
                 },
             )
@@ -337,7 +340,7 @@ class MarimoOpsTests(unittest.TestCase):
                 {
                     "dataset": "levir", "data_root": "/data/levir",
                     "dataset_yaml": "/data/levir/data.yaml", "model_yaml": "models/yolov8.yaml",
-                    "seed": 42, "split_seed": 42, "workers": 8, "epochs": 100,
+                    "seed": 42, "split_seed": 42, "workers": 8, "image_size": 512, "epochs": 100,
                     "patience": 0, "nms_iou": 0.5, "hf_repo_id": "user/task-runs",
                 },
             )
@@ -423,7 +426,7 @@ class MarimoOpsTests(unittest.TestCase):
             contract.write_text(json.dumps({
                 "dataset": "matrix", "data_root": "matrix", "dataset_yaml": "matrix",
                 "model_yaml": "matrix", "seed": "matrix", "split_seed": 42,
-                "workers": 8, "epochs": 100, "patience": 0, "nms_iou": 0.5,
+                "workers": 8, "image_size": 512, "epochs": 100, "patience": 0, "nms_iou": 0.5,
                 "hf_repo_id": "user/task-runs",
             }))
             subprocess.run(["git", "add", "run_contract.json"], cwd=repo, check=True)
@@ -493,6 +496,7 @@ class MarimoOpsTests(unittest.TestCase):
                     "seed": 42,
                     "split_seed": 42,
                     "workers": 8,
+                    "image_size": 512,
                     "epochs": 100,
                     "patience": 0,
                     "nms_iou": 0.5,
@@ -513,7 +517,7 @@ class MarimoOpsTests(unittest.TestCase):
                     sys.executable,
                     "-c",
                     "print('cli-launch-ok')",
-                    "--epochs", "100", "--patience", "0", "--workers", "8",
+                    "--epochs", "100", "--patience", "0", "--workers", "8", "--image-size", "512",
                     "--seed", "42", "--split-seed", "42", "--hf-repo-id", "user/task-runs",
                     "--model-yaml", "models/yolov8.yaml", "--data-root", "/marimo/LevirShip/LevirShipData",
                 ],
