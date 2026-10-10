@@ -286,7 +286,7 @@ class MarimoOpsTests(unittest.TestCase):
             (run_dir / "upload_complete.json").write_text(json.dumps({
                 "repo_id": "user/task-runs",
                 "remote_prefix": "levir/seed_42",
-                "verified": list(COMPLETION_ARTIFACTS_FOR_TEST),
+                "verified": list(COMPLETION_ARTIFACTS_FOR_TEST[:-1]),
             }))
             result = complete_verified(run_dir)
             self.assertEqual(result["status"], "complete_verified")

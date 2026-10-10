@@ -45,6 +45,7 @@ COMPLETION_REQUIRED_ARTIFACTS = DEFAULT_REQUIRED_ARTIFACTS + (
     "experiment_manifest.json",
     "upload_complete.json",
 )
+REMOTE_REQUIRED_ARTIFACTS = DEFAULT_REQUIRED_ARTIFACTS + ("experiment_manifest.json",)
 REQUIRED_METRIC_KEYS = (
     "val/AP50",
     "val/mAP50-95",
@@ -702,7 +703,7 @@ def status(
                 marker.get("repo_id")
                 and marker.get("remote_prefix")
                 and isinstance(verified_files, list)
-                and all(item in verified_files for item in COMPLETION_REQUIRED_ARTIFACTS)
+                and all(item in verified_files for item in REMOTE_REQUIRED_ARTIFACTS)
             )
             contract_path = run_dir / "run_contract.json"
             if upload_verified and contract_path.is_file():
@@ -845,7 +846,7 @@ def complete_verified(
         raise MarimoOpsError("Upload marker lacks remote verification evidence")
     if not isinstance(verified_files, list) or not all(isinstance(item, str) for item in verified_files):
         raise MarimoOpsError("Upload marker verified field must be a list of remote files")
-    missing_remote_evidence = [item for item in COMPLETION_REQUIRED_ARTIFACTS if item not in verified_files]
+    missing_remote_evidence = [item for item in REMOTE_REQUIRED_ARTIFACTS if item not in verified_files]
     if missing_remote_evidence:
         raise MarimoOpsError(
             "Upload marker lacks verification for: " + ", ".join(missing_remote_evidence)
