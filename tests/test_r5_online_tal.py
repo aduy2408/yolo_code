@@ -130,6 +130,61 @@ def test_project_detection_trainer_registers_r5_callback(monkeypatch):
     assert trainer.callbacks["on_train_epoch_end"] == [adapter.on_train_epoch_end]
 
 
+def test_feedback_callback_updates_shared_state_seen_by_real_workers():
+    class WorkerSamplingDataset(Dataset):
+        def __init__(self, sampler):
+            self.sampler = sampler
+            self.values = {0: [4.0], 1: [], 2: [], 3: [16.0]}
+
+        def __len__(self):
+            return 64
+
+        def __getitem__(self, index):
+            return self.sampler.sample(self.values)
+
+    class TransformBridge:
+        def __init__(self, sampler):
+            self.sampler = sampler
+
+        def end_epoch_from_controller(self, controller, frequency=None, hybrid_ratio=1.0):
+            controller.end_epoch()
+            probabilities = controller.probabilities(feasible=[True, False, False, True])
+            self.sampler.set_probabilities(probabilities.tolist())
+            return probabilities.tolist()
+
+    sampler = ScaleBinSampler(
+        ScaleBinSpec((0, 8, 12, 16, 20)),
+        seed=123,
+        probabilities=[1.0, 0.0, 0.0, 0.0],
+        enable_shared_state=True,
+    )
+    adapter = R5EpochFeedbackAdapter(
+        TransformBridge(sampler),
+        ScaleDifficultyController(num_bins=4, beta=0.0, exploration=0.0),
+        collector=TALDifficultyCollector(ScaleBinSpec((0, 8, 12, 16, 20)), mode="iou"),
+    )
+    dataset = WorkerSamplingDataset(sampler)
+    first = next(iter(DataLoader(dataset, batch_size=64, num_workers=2)))
+    assert torch.all(first == 4.0)
+    inputs = _inputs()
+    adapter.observe(
+        pred_bboxes=inputs[0],
+        pred_scores=inputs[1],
+        gt_bboxes=inputs[2],
+        gt_labels=inputs[3],
+        fg_mask=inputs[4],
+        target_gt_idx=inputs[5],
+        valid_gt_mask=inputs[6],
+    )
+    probabilities = adapter.on_train_epoch_end()
+    second = next(iter(DataLoader(dataset, batch_size=64, num_workers=2)))
+    assert adapter.observations == 3
+    assert adapter.controller.epoch == 1
+    assert probabilities[3] > 0.0
+    assert torch.any(second == 16.0)
+    assert not torch.all(second == 4.0)
+
+
 def test_shared_probability_state_reaches_real_dataloader_workers():
     class WorkerSamplingDataset(Dataset):
         def __init__(self, sampler):

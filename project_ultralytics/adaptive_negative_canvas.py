@@ -4,6 +4,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Mapping
 
+import numpy as np
+
 from .negative_canvas_copy_paste import NegativeCanvasCopyPaste
 from .r5.samplers import ScaleBinSampler
 from .r5.scale_bins import DEFAULT_SCALE_BINS, ScaleBinSpec
@@ -62,6 +64,15 @@ class AdaptiveNegativeCanvasCopyPaste(NegativeCanvasCopyPaste):
     def _sample_target_size(self, labels: dict[str, Any] | None = None) -> float:
         self._build_pool()
         return self.scale_sampler.sample(self.donor_feasible_bin_values)
+
+    def __call__(self, labels: dict[str, Any]) -> dict[str, Any]:
+        """Ensure every R5 sample carries an aligned original-GT mask."""
+        if "r5_original_gt_mask" not in labels:
+            labels["r5_original_gt_mask"] = np.ones(
+                len(labels.get("instances", ())),
+                dtype=bool,
+            )
+        return super().__call__(labels)
 
     def update_probabilities(self, probabilities: Mapping[int, float] | list[float]) -> None:
         if isinstance(probabilities, Mapping):

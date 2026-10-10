@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 import pytest
+import torch
 
 from copy_paste_protocol import variant_overrides
 from project_ultralytics.copy_paste import build_small_object_copy_paste
@@ -14,6 +15,7 @@ from project_ultralytics.r5 import SharedProbabilityState
 from project_ultralytics.r5.diagnostics import r5_diagnostics
 from ultralytics.utils.instance import Instances
 from ultralytics.data.augment import Format, MixUp
+from ultralytics.data.dataset import YOLODataset
 
 
 def _labels(image, im_file=None):
@@ -171,6 +173,29 @@ def test_format_does_not_add_r5_metadata_when_provenance_is_disabled():
         {"cls": np.zeros((1, 1), dtype=np.float32), "instances": instances, "nl": 1, "h": 32, "w": 32},
     )
     assert "r5_original_gt_mask" not in labels
+
+
+def test_r5_collate_keeps_provenance_keys_aligned_for_skipped_and_pasted_samples(tmp_path):
+    dataset = _dataset(tmp_path)
+    negative_path = dataset.im_files[1]
+    skipped = _labels(np.zeros((64, 64, 3), dtype=np.uint8), im_file=negative_path)
+    pasted = _labels(np.zeros((64, 64, 3), dtype=np.uint8), im_file=negative_path)
+    skipped["image_index"] = 1
+    pasted["image_index"] = 1
+
+    skip_transform = AdaptiveNegativeCanvasCopyPaste(dataset, p=0.0, seed=7)
+    paste_transform = AdaptiveNegativeCanvasCopyPaste(dataset, p=1.0, seed=7)
+    skipped = skip_transform(skipped)
+    pasted = paste_transform(pasted)
+    assert skipped["r5_original_gt_mask"].tolist() == []
+    assert pasted["r5_original_gt_mask"].tolist() == [False]
+
+    formatter = Format(normalize=False, batch_idx=True)
+    formatted = [formatter(sample) for sample in (skipped, pasted)]
+    batch = YOLODataset.collate_fn(formatted)
+    assert batch["r5_original_gt_mask"].dtype == torch.bool
+    assert batch["r5_original_gt_mask"].numel() == batch["bboxes"].shape[0] == batch["cls"].shape[0]
+    assert batch["r5_original_gt_mask"].tolist() == [False]
 
 
 def test_mixup_preserves_synthetic_provenance_when_merging_instances():
