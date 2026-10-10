@@ -28,6 +28,21 @@ LOSS_ADAPTERS: dict[str, type] = {
 }
 
 
+def _project_override(key: str) -> bool:
+    """Return whether an override belongs to project runtime state.
+
+    Ultralytics validates its config overrides before the trainer has a chance
+    to consume project-only augmentation and R5 state. Keep those values in
+    the trainer namespace, but do not pass them through the upstream config
+    validator.
+    """
+    return (
+        key.startswith("r5_")
+        or key.startswith("copy_paste_")
+        or key.startswith("negative_cp_")
+    )
+
+
 class ProjectDetectionTrainer(DetectionTrainer):
     """DetectionTrainer that reconstructs a model with a project criterion."""
 
@@ -37,11 +52,19 @@ class ProjectDetectionTrainer(DetectionTrainer):
         self.r5_feedback_adapter = r5_feedback_adapter
         self.r5_probe_callback = r5_probe_callback
         self.r5_state_callback = r5_state_callback
-        overrides = kwargs.get("overrides") or {}
-        self.r5_shared_probability_state = overrides.get("r5_shared_probability_state")
+        overrides = dict(kwargs.get("overrides") or {})
+        self.project_overrides = {
+            key: value for key, value in overrides.items() if _project_override(key)
+        }
+        for key in self.project_overrides:
+            overrides.pop(key, None)
+        kwargs["overrides"] = overrides
+        self.r5_shared_probability_state = self.project_overrides.get(
+            "r5_shared_probability_state"
+        )
         super().__init__(*args, **kwargs)
-        if self.r5_shared_probability_state is not None:
-            self.args.r5_shared_probability_state = self.r5_shared_probability_state
+        for key, value in self.project_overrides.items():
+            setattr(self.args, key, value)
         if self.r5_feedback_adapter is not None:
             register_r5_epoch_callback(self, self.r5_feedback_adapter)
         if self.r5_probe_callback is not None:
