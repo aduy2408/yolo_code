@@ -46,6 +46,11 @@ class SharedProbabilityState:
             "version": int(self._version.item()),
         }
 
+    def load_state_dict(self, state: dict[str, object]) -> None:
+        if int(state["num_bins"]) != self.num_bins:
+            raise ValueError("shared probability state has a different number of bins")
+        self.update(state["probabilities"])
+
     @classmethod
     def from_state_dict(cls, state: dict[str, object]) -> "SharedProbabilityState":
         # ``__init__`` publishes the supplied probabilities into a coherent

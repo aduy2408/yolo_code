@@ -31,13 +31,26 @@ LOSS_ADAPTERS: dict[str, type] = {
 class ProjectDetectionTrainer(DetectionTrainer):
     """DetectionTrainer that reconstructs a model with a project criterion."""
 
-    def __init__(self, *args, loss_adapter: str = "ftal", project_model_args: dict[str, Any] | None = None, r5_feedback_adapter=None, **kwargs):
+    def __init__(self, *args, loss_adapter: str = "ftal", project_model_args: dict[str, Any] | None = None, r5_feedback_adapter=None, r5_probe_callback=None, r5_state_callback=None, **kwargs):
         self.project_loss_adapter = loss_adapter
         self.project_model_args = dict(project_model_args or {})
         self.r5_feedback_adapter = r5_feedback_adapter
+        self.r5_probe_callback = r5_probe_callback
+        self.r5_state_callback = r5_state_callback
+        overrides = kwargs.get("overrides") or {}
+        self.r5_shared_probability_state = overrides.get("r5_shared_probability_state")
         super().__init__(*args, **kwargs)
+        if self.r5_shared_probability_state is not None:
+            self.args.r5_shared_probability_state = self.r5_shared_probability_state
         if self.r5_feedback_adapter is not None:
             register_r5_epoch_callback(self, self.r5_feedback_adapter)
+        if self.r5_probe_callback is not None:
+            self.add_callback("on_train_epoch_end", self.r5_probe_callback.on_train_epoch_end)
+        if self.r5_state_callback is not None:
+            self.add_callback("on_pretrain_routine_start", self.r5_state_callback.on_pretrain_routine_start)
+            self.add_callback("on_model_save", self.r5_state_callback.on_model_save)
+            self.add_callback("on_train_end", self.r5_state_callback.on_train_end)
+            self.r5_state_callback.on_pretrain_routine_start(self)
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         model = ProjectDetectionModel(
@@ -120,6 +133,8 @@ def train_with_loss_adapter(model: Any, *, loss_adapter: str = "ftal", **train_k
         "r5_feedback_adapter",
         getattr(model, "r5_feedback_adapter", getattr(getattr(model, "model", None), "r5_feedback_adapter", None)),
     )
+    r5_probe_callback = train_kwargs.pop("r5_probe_callback", None)
+    r5_state_callback = train_kwargs.pop("r5_state_callback", None)
     train = getattr(model, "train", None)
     if not callable(train):
         raise TypeError("Expected a YOLO wrapper with train()")
@@ -128,7 +143,7 @@ def train_with_loss_adapter(model: Any, *, loss_adapter: str = "ftal", **train_k
     # Ultralytics' trainer reconstructs DetectionModel from the YAML. Keep the
     # project parser active for that second construction as well.
     with project_parser(tasks), project_runtime():
-        if loss_adapter in {"upstream", "default"} and r5_feedback_adapter is None:
+        if loss_adapter in {"upstream", "default"} and r5_feedback_adapter is None and r5_probe_callback is None and r5_state_callback is None:
             return train(**train_kwargs)
         project_names = (
             "gradient_mode_balance",
@@ -147,5 +162,7 @@ def train_with_loss_adapter(model: Any, *, loss_adapter: str = "ftal", **train_k
             loss_adapter=loss_adapter,
             project_model_args=project_model_args,
             r5_feedback_adapter=r5_feedback_adapter,
+            r5_probe_callback=r5_probe_callback,
+            r5_state_callback=r5_state_callback,
         )
         return train(trainer=trainer, **train_kwargs)

@@ -8,6 +8,8 @@ for the epoch-level controller.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -147,12 +149,22 @@ class R5EpochFeedbackAdapter:
         collector: TALDifficultyCollector | None = None,
         frequency=None,
         hybrid_ratio: float = 1.0,
+        shared_state=None,
+        warmup_epochs: int = 0,
+        log_path: str | Path | None = None,
+        feasible_provider=None,
     ) -> None:
         self.transform = transform
         self.controller = controller
         self.collector = collector or TALDifficultyCollector()
         self.frequency = frequency
         self.hybrid_ratio = float(hybrid_ratio)
+        self.shared_state = shared_state
+        self.warmup_epochs = int(warmup_epochs)
+        if self.warmup_epochs < 0:
+            raise ValueError("warmup_epochs must be non-negative")
+        self.log_path = Path(log_path) if log_path else None
+        self.feasible_provider = feasible_provider
         self.observations = 0
         self.last_probabilities: list[float] | None = None
 
@@ -167,16 +179,102 @@ class R5EpochFeedbackAdapter:
             self.observations += int(batch.values.numel())
         return batch
 
-    def end_epoch(self) -> list[float]:
-        self.last_probabilities = self.transform.end_epoch_from_controller(
-            self.controller,
-            frequency=self.frequency,
-            hybrid_ratio=self.hybrid_ratio,
-        )
+    def _resolve_transform(self, trainer=None):
+        if self.transform is not None:
+            return self.transform
+        dataset = getattr(getattr(trainer, "train_loader", None), "dataset", None)
+        stack = [getattr(dataset, "transforms", None)]
+        seen = set()
+        while stack:
+            current = stack.pop()
+            if current is None or id(current) in seen:
+                continue
+            seen.add(id(current))
+            if hasattr(current, "end_epoch_from_controller"):
+                self.transform = current
+                return current
+            children = getattr(current, "transforms", None)
+            if children:
+                stack.extend(children)
+        return None
+
+    def _feasible(self, transform):
+        if callable(self.feasible_provider):
+            return self.feasible_provider(transform)
+        values = getattr(transform, "donor_feasible_bin_values", None)
+        sampler = getattr(transform, "scale_sampler", None)
+        if values is not None and sampler is not None:
+            return sampler.feasible_mask(values)
+        return None
+
+    def _log_epoch(self, probabilities: list[float], *, epoch: int, transform) -> None:
+        if self.log_path is None:
+            return
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "epoch": int(epoch),
+            "observations": int(self.observations),
+            "difficulty": self.controller.difficulty.tolist(),
+            "probabilities": probabilities,
+            "warmup": bool(epoch <= self.warmup_epochs),
+            "transform": type(transform).__name__ if transform is not None else None,
+        }
+        with self.log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+    def end_epoch(self, trainer=None) -> list[float]:
+        transform = self._resolve_transform(trainer)
+        epoch = int(getattr(self.controller, "epoch", 0)) + 1
+        if transform is not None and self.warmup_epochs == 0 and hasattr(transform, "end_epoch_from_controller"):
+            probabilities = transform.end_epoch_from_controller(
+                self.controller,
+                frequency=self.frequency,
+                hybrid_ratio=self.hybrid_ratio,
+            )
+        else:
+            self.controller.end_epoch()
+            feasible = self._feasible(transform)
+            if feasible is None:
+                feasible = [True] * self.controller.num_bins
+            if epoch <= self.warmup_epochs:
+                import numpy as np
+
+                mask = np.asarray(list(feasible), dtype=bool)
+                probabilities_array = np.zeros(self.controller.num_bins, dtype=np.float64)
+                probabilities_array[mask] = 1.0 / max(int(mask.sum()), 1)
+            else:
+                probabilities_array = self.controller.probabilities(
+                    frequency=self.frequency,
+                    hybrid_ratio=self.hybrid_ratio,
+                    feasible=feasible,
+                )
+            probabilities = probabilities_array.tolist()
+            if transform is not None and hasattr(transform, "update_probabilities"):
+                transform.update_probabilities(probabilities)
+            elif self.shared_state is not None:
+                self.shared_state.update(probabilities)
+        self.last_probabilities = list(probabilities)
+        if self.shared_state is not None:
+            self.shared_state.update(self.last_probabilities)
+        self._log_epoch(self.last_probabilities, epoch=epoch, transform=transform)
         return self.last_probabilities
 
+    def state_dict(self) -> dict[str, object]:
+        return {
+            "controller": self.controller.state_dict(),
+            "observations": self.observations,
+            "last_probabilities": self.last_probabilities,
+            "warmup_epochs": self.warmup_epochs,
+        }
+
+    def load_state_dict(self, state: dict[str, object]) -> None:
+        self.controller.load_state_dict(state["controller"])
+        self.observations = int(state.get("observations", 0))
+        values = state.get("last_probabilities")
+        self.last_probabilities = None if values is None else [float(value) for value in values]
+
     def on_train_epoch_end(self, trainer=None) -> list[float]:
-        return self.end_epoch()
+        return self.end_epoch(trainer=trainer)
 
 
 def register_r5_epoch_callback(owner, adapter: R5EpochFeedbackAdapter) -> bool:
