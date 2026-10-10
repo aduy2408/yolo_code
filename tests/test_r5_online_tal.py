@@ -114,6 +114,22 @@ def test_epoch_callback_registration_is_idempotent_and_updates_once():
     assert adapter.controller.epoch == 1
 
 
+def test_project_detection_trainer_registers_r5_callback(monkeypatch):
+    from ultralytics.models.yolo.detect.train import DetectionTrainer
+    from project_ultralytics.training import ProjectDetectionTrainer
+
+    def fake_init(self, *args, **kwargs):
+        self.callbacks = {"on_train_epoch_end": []}
+
+    monkeypatch.setattr(DetectionTrainer, "__init__", fake_init)
+    adapter = R5EpochFeedbackAdapter(
+        transform=type("Transform", (), {"end_epoch_from_controller": lambda *args, **kwargs: []})(),
+        controller=ScaleDifficultyController(num_bins=4),
+    )
+    trainer = ProjectDetectionTrainer(r5_feedback_adapter=adapter)
+    assert trainer.callbacks["on_train_epoch_end"] == [adapter.on_train_epoch_end]
+
+
 def test_shared_probability_state_reaches_real_dataloader_workers():
     class WorkerSamplingDataset(Dataset):
         def __init__(self, sampler):

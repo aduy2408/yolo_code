@@ -157,6 +157,22 @@ def test_format_rejects_r5_provenance_alignment_mismatch():
         )
 
 
+def test_format_does_not_add_r5_metadata_when_provenance_is_disabled():
+    formatter = Format(normalize=False, batch_idx=False)
+    instances = Instances(
+        np.zeros((1, 4), dtype=np.float32),
+        np.zeros((1, 0, 2), dtype=np.float32),
+        bbox_format="xyxy",
+        normalized=False,
+    )
+    labels = {"instances": instances}
+    formatter.apply_instances(
+        labels,
+        {"cls": np.zeros((1, 1), dtype=np.float32), "instances": instances, "nl": 1, "h": 32, "w": 32},
+    )
+    assert "r5_original_gt_mask" not in labels
+
+
 def test_mixup_preserves_synthetic_provenance_when_merging_instances():
     instances = Instances(
         np.zeros((1, 4), dtype=np.float32),
