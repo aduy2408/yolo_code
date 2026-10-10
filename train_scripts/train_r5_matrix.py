@@ -10,11 +10,28 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
 
 import numpy as np
+
+
+DATASET_DEFAULTS = {
+    "levirship": {"imgsz": 512, "batch": 8, "mosaic": 0.0},
+    "tinyperson": {"imgsz": 640, "batch": 8, "mosaic": 1.0},
+}
+
+REQUIRED_ARTIFACTS = (
+    "weights/best.pt",
+    "weights/last.pt",
+    "results.csv",
+    "args.yaml",
+    "config.yaml",
+    "evaluation_metrics.json",
+    "experiment_manifest.json",
+)
 
 
 def _prefer_local_ultralytics() -> None:
@@ -42,6 +59,7 @@ def _validate_probe_records(records: list[dict[str, Any]]) -> None:
 
 
 def _fixed_r5_overrides(args: argparse.Namespace, shared_state) -> dict[str, Any]:
+    mosaic = float(getattr(args, "mosaic", 0.0))
     return {
         "copy_paste_enabled": True,
         "copy_paste_mode": "adaptive_negative_canvas",
@@ -61,8 +79,8 @@ def _fixed_r5_overrides(args: argparse.Namespace, shared_state) -> dict[str, Any
         "r5_seed": int(args.seed),
         "r5_shared_state": True,
         "r5_shared_probability_state": shared_state,
-        "mosaic": 0.0,
-        "close_mosaic": 10,
+        "mosaic": mosaic,
+        "close_mosaic": 10 if mosaic else 0,
         "mixup": 0.0,
         "cutmix": 0.0,
         "workers": int(args.workers),
@@ -200,12 +218,16 @@ def _build_components(args: argparse.Namespace, model, shared_state):
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True, help="Dataset YAML path or dataset identifier accepted by Ultralytics")
+    parser.add_argument("--dataset-name", choices=tuple(DATASET_DEFAULTS), required=True)
+    parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--model", required=True, help="YOLO model checkpoint or YAML")
     parser.add_argument("--r5-mode", required=True, choices=("offline_recall", "online_tal_iou", "online_tal_alignment", "online_probe_recall"))
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--imgsz", type=int, default=512)
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--imgsz", type=int)
+    parser.add_argument("--batch-size", type=int)
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--patience", type=int, default=0)
@@ -227,7 +249,67 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--exploration", type=float, default=0.2)
     parser.add_argument("--kappa", type=float, default=10.0)
     parser.add_argument("--log-path", type=Path, default=None)
+    parser.add_argument("--mosaic", type=float)
+    parser.add_argument("--hf-repo-id", required=True)
     return parser.parse_args(argv)
+
+
+def _complete(run_dir: Path) -> bool:
+    return all((run_dir / item).is_file() for item in REQUIRED_ARTIFACTS) and (run_dir / "upload_complete.json").is_file()
+
+
+def _evaluate(model, args: argparse.Namespace, run_dir: Path) -> dict[str, object]:
+    metrics: dict[str, object] = {"checkpoint": "weights/best.pt", "nms_iou": 0.5}
+    for split in ("val", "test"):
+        result = model.val(
+            data=str(args.dataset),
+            split=split,
+            imgsz=args.imgsz,
+            batch=args.batch_size,
+            workers=args.workers,
+            device=args.device,
+            plots=False,
+            iou=args.nms_iou,
+            project=str(run_dir / "evaluation"),
+            name=split,
+            exist_ok=True,
+        )
+        for key, value in result.results_dict.items():
+            metrics[f"{split}/{key}"] = float(value)
+        metrics[f"{split}/mAP50-95"] = float(result.box.map)
+    (run_dir / "evaluation_metrics.json").write_text(
+        json.dumps(metrics, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return metrics
+
+
+def _upload(args: argparse.Namespace, run_dir: Path) -> None:
+    from huggingface_hub import HfApi
+    from utils.marimo_ops import ensure_hf_repo
+
+    repo_id = ensure_hf_repo(args.hf_repo_id)
+    api = HfApi(token=os.environ["HF_TOKEN"])
+    remote = f"{args.dataset_name}/{args.r5_mode}/seed_{args.seed}"
+    api.upload_folder(folder_path=str(run_dir), path_in_repo=remote, repo_id=repo_id, repo_type="dataset")
+    remote_files = set(api.list_repo_files(repo_id=repo_id, repo_type="dataset"))
+    expected = {f"{remote}/{path}" for path in REQUIRED_ARTIFACTS}
+    missing = sorted(expected - remote_files)
+    if missing:
+        raise RuntimeError(f"Remote upload verification failed: {missing}")
+    marker = {
+        "repo_id": repo_id,
+        "remote_prefix": remote,
+        "verified": sorted(expected),
+    }
+    marker_path = run_dir / "upload_complete.json"
+    marker_path.write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    api.upload_file(
+        path_or_fileobj=str(marker_path),
+        path_in_repo=f"{remote}/upload_complete.json",
+        repo_id=repo_id,
+        repo_type="dataset",
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -237,6 +319,20 @@ def main(argv: list[str] | None = None) -> None:
     from project_ultralytics.r5 import SharedProbabilityState
     from project_ultralytics.training import train_with_loss_adapter
 
+    from utils.marimo_ops import require_training_context
+
+    defaults = DATASET_DEFAULTS[args.dataset_name]
+    args.data_root = args.data_root.resolve()
+    args.dataset_root = args.dataset_root.resolve()
+    args.imgsz = args.imgsz or defaults["imgsz"]
+    args.batch_size = args.batch_size or defaults["batch"]
+    args.mosaic = defaults["mosaic"] if args.mosaic is None else float(args.mosaic)
+    expected_mosaic = float(defaults["mosaic"])
+    if args.mosaic != expected_mosaic:
+        raise ValueError(f"{args.dataset_name} requires mosaic={expected_mosaic}")
+    if args.split_seed != 42:
+        raise ValueError("split seed must remain fixed at 42")
+    require_training_context(hf_repo_id=args.hf_repo_id)
     args.project = args.project.resolve()
     args.name = args.name or args.r5_mode
     args.log_path = args.log_path or args.project / args.name / "r5_feedback.jsonl"
@@ -263,9 +359,38 @@ def main(argv: list[str] | None = None) -> None:
         "r5_feedback_adapter": feedback,
         "r5_probe_callback": probe,
         "r5_state_callback": checkpoint,
+        "r5_shared_probability_state": shared_state,
     })
+    run_dir = args.project / args.name
+    run_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "dataset": args.dataset_name,
+        "dataset_yaml": str(Path(args.dataset).resolve()),
+        "data_root": str(args.data_root),
+        "r5_mode": args.r5_mode,
+        "model": args.model,
+        "seed": args.seed,
+        "split_seed": args.split_seed,
+        "epochs": args.epochs,
+        "patience": args.patience,
+        "imgsz": args.imgsz,
+        "batch_size": args.batch_size,
+        "workers": args.workers,
+        "mosaic": args.mosaic,
+        "close_mosaic": 10 if args.mosaic else 0,
+        "nms_iou": args.nms_iou,
+        "hf_repo_id": args.hf_repo_id,
+        "upload_required": True,
+    }
+    (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     loss_adapter = "upstream" if args.r5_mode == "offline_recall" else "ftal"
     train_with_loss_adapter(model, loss_adapter=loss_adapter, **overrides)
+    best = run_dir / "weights" / "best.pt"
+    if not best.is_file():
+        raise RuntimeError(f"training did not produce {best}")
+    evaluation_model = YOLO(str(best))
+    _evaluate(evaluation_model, args, run_dir)
+    _upload(args, run_dir)
 
 
 if __name__ == "__main__":
