@@ -1052,6 +1052,9 @@ class v8DetectionLoss:
         device = next(model.parameters()).device  # get model device
         h = model.args  # hyperparameters
         self.model = model
+        # Optional, detached AS-NCCP R5 feedback adapter. Baseline behavior is
+        # unchanged when the model does not expose this attribute.
+        self.r5_feedback_adapter = getattr(model, "r5_feedback_adapter", None)
 
         m = model.model[-1]  # Detect() module
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
@@ -2413,6 +2416,17 @@ class v8DetectionLoss:
             mask_gt,
         )
         fg_mask = fg_mask.bool()
+        if self.r5_feedback_adapter is not None:
+            with torch.no_grad():
+                self.r5_feedback_adapter.observe(
+                    pred_bboxes=(pred_bboxes.detach() * stride_tensor).to(gt_bboxes.dtype),
+                    pred_scores=pred_scores.detach(),
+                    gt_bboxes=gt_bboxes.detach(),
+                    gt_labels=gt_labels.detach(),
+                    fg_mask=fg_mask.detach(),
+                    target_gt_idx=target_gt_idx.detach(),
+                    valid_gt_mask=mask_gt.detach(),
+                )
         responsibility_mode = os.environ.get("RESPONSIBILITY_MODE", "off").lower()
         responsibility_modes = {
             "off", "iou", "iou_sqrt", "residual", "residual_tiny",
