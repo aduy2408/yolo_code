@@ -9,6 +9,7 @@ normal environment and, for upload workflows, the Marimo gates.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -166,6 +167,8 @@ def _build_components(args: argparse.Namespace, model, shared_state):
             confidence_threshold=args.probe_confidence,
         )
 
+        probe_cache: dict[str, Any] = {"epoch": None, "model": None}
+
         def predict_fn(current_model, record):
             source = record.get("image")
             if source is None:
@@ -173,17 +176,26 @@ def _build_components(args: argparse.Namespace, model, shared_state):
             if source is None:
                 raise ValueError("probe records require image or path")
             wrapper_model = getattr(model, "model", None)
+            probe_epoch = getattr(current_model, "_r5_probe_epoch", None)
+            if probe_cache["epoch"] != probe_epoch or probe_cache["model"] is None:
+                try:
+                    probe_model = deepcopy(current_model)
+                    probe_model.load_state_dict(current_model.state_dict(), strict=True)
+                    probe_model.eval()
+                except (AttributeError, TypeError, RuntimeError):
+                    # Lightweight wrappers in tests and non-torch adapters do
+                    # not expose a state dict. Preserve the public rebinding
+                    # behavior for those callers.
+                    probe_model = current_model
+                probe_cache["epoch"] = probe_epoch
+                probe_cache["model"] = probe_model
+            probe_model = probe_cache["model"]
             try:
-                # Ultralytics' public predict API is attached to the wrapper,
-                # while the callback receives trainer.model. Temporarily bind
-                # the wrapper to that exact current model and restore it after
-                # the prediction so R5-E cannot probe stale weights.
-                if wrapper_model is not current_model:
-                    model.model = current_model
-                # YOLO.predict reuses a cached predictor whose ``model`` is an
-                # AutoBackend created during the first call. Drop that cache
-                # so setup_model wraps the current training model now.
-                model.predictor = None
+                # Ultralytics' public predict API can mutate the model wrapper
+                # while constructing AutoBackend. Run it against an isolated
+                # snapshot so EMA and optimizer state keep the trainer model's
+                # original parameter keys after the probe callback.
+                model.model = probe_model
                 return model.predict(
                     source,
                     imgsz=args.imgsz,
@@ -193,9 +205,8 @@ def _build_components(args: argparse.Namespace, model, shared_state):
                     verbose=False,
                 )[0]
             finally:
-                if wrapper_model is not current_model:
-                    model.model = wrapper_model
-                # Do not leave a predictor bound to a temporary training model.
+                model.model = wrapper_model
+                # Do not leave a predictor bound to a temporary probe model.
                 model.predictor = None
 
         probe = R5ProbeCallback(

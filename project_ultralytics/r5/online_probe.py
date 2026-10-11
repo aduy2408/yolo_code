@@ -73,6 +73,13 @@ class R5ProbeCallback:
 
     def evaluate(self, model: Any, epoch: int) -> ProbeResult:
         was_training = getattr(model, "training", None)
+        previous_probe_epoch = getattr(model, "_r5_probe_epoch", None)
+        had_probe_epoch = hasattr(model, "_r5_probe_epoch")
+        can_mark_probe_epoch = True
+        try:
+            model._r5_probe_epoch = int(epoch)
+        except AttributeError:
+            can_mark_probe_epoch = False
         parameter_grad_state = None
         try:
             parameter_grad_state = [
@@ -105,6 +112,11 @@ class R5ProbeCallback:
             if parameter_grad_state is not None:
                 for parameter, requires_grad in parameter_grad_state:
                     parameter.requires_grad_(requires_grad)
+            if can_mark_probe_epoch:
+                if had_probe_epoch:
+                    model._r5_probe_epoch = previous_probe_epoch
+                else:
+                    delattr(model, "_r5_probe_epoch")
         # Keep the profile raw. ScaleDifficultyController applies gamma once.
         difficulty = profile.difficulty(kappa=self.kappa, gamma=1.0)
         mapping = {
