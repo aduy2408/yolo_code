@@ -73,6 +73,14 @@ class R5ProbeCallback:
 
     def evaluate(self, model: Any, epoch: int) -> ProbeResult:
         was_training = getattr(model, "training", None)
+        parameter_grad_state = None
+        try:
+            parameter_grad_state = [
+                (parameter, bool(parameter.requires_grad))
+                for parameter in model.parameters()
+            ]
+        except (AttributeError, TypeError):
+            parameter_grad_state = None
         if hasattr(model, "eval"):
             model.eval()
         try:
@@ -90,6 +98,13 @@ class R5ProbeCallback:
         finally:
             if was_training is True and hasattr(model, "train"):
                 model.train()
+            # Ultralytics predictor setup may temporarily freeze the model it
+            # wraps. Restore the exact training gradient contract before the
+            # next batch, otherwise the next backward can receive a detached
+            # loss after an otherwise inference-only probe callback.
+            if parameter_grad_state is not None:
+                for parameter, requires_grad in parameter_grad_state:
+                    parameter.requires_grad_(requires_grad)
         # Keep the profile raw. ScaleDifficultyController applies gamma once.
         difficulty = profile.difficulty(kappa=self.kappa, gamma=1.0)
         mapping = {
