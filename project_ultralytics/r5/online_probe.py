@@ -86,7 +86,7 @@ class R5ProbeCallback:
         try:
             try:
                 import torch
-                context = torch.inference_mode()
+                context = torch.no_grad()
             except ImportError:
                 context = None
             if context is None:
