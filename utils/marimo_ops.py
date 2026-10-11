@@ -66,6 +66,14 @@ REQUIRED_CONTRACT_KEYS = (
     "nms_iou",
     "hf_repo_id",
 )
+
+
+def _remote_artifact_verified(verified_files: object, remote_prefix: object, item: str) -> bool:
+    """Accept marker entries stored as relative or remote-prefixed paths."""
+    if not isinstance(verified_files, list) or not isinstance(remote_prefix, str):
+        return False
+    prefix = remote_prefix.strip("/")
+    return item in verified_files or f"{prefix}/{item}" in verified_files
 MARIMO_DATASET_ROOTS = {
     "levir": ("LevirShip", "LevirShip/LevirShipData"),
     "levir_ship": ("LevirShip", "LevirShip/LevirShipData"),
@@ -703,7 +711,10 @@ def status(
                 marker.get("repo_id")
                 and marker.get("remote_prefix")
                 and isinstance(verified_files, list)
-                and all(item in verified_files for item in REMOTE_REQUIRED_ARTIFACTS)
+                and all(
+                    _remote_artifact_verified(verified_files, marker.get("remote_prefix"), item)
+                    for item in REMOTE_REQUIRED_ARTIFACTS
+                )
             )
             contract_path = run_dir / "run_contract.json"
             if upload_verified and contract_path.is_file():
@@ -846,7 +857,11 @@ def complete_verified(
         raise MarimoOpsError("Upload marker lacks remote verification evidence")
     if not isinstance(verified_files, list) or not all(isinstance(item, str) for item in verified_files):
         raise MarimoOpsError("Upload marker verified field must be a list of remote files")
-    missing_remote_evidence = [item for item in REMOTE_REQUIRED_ARTIFACTS if item not in verified_files]
+    missing_remote_evidence = [
+        item
+        for item in REMOTE_REQUIRED_ARTIFACTS
+        if not _remote_artifact_verified(verified_files, marker.get("remote_prefix"), item)
+    ]
     if missing_remote_evidence:
         raise MarimoOpsError(
             "Upload marker lacks verification for: " + ", ".join(missing_remote_evidence)
