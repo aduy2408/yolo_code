@@ -47,8 +47,7 @@ FIXED_ARGS = [
 
 FORBIDDEN_OVERRIDES = {
     "--models", "--datasets", "--methods", "--copy-paste-variants",
-    "--seed", "--seeds", "--split-seed", "--epochs", "--patience",
-    "--batch-size", "--workers", "--nms-iou", "--baseline-augmentation-parity",
+    "--seed", "--batch-size", "--nms-iou", "--baseline-augmentation-parity",
     "--no-baseline-augmentation-parity", "--tinyperson-mosaic-modes",
 }
 
