@@ -174,7 +174,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--patience", type=int, default=0)
-    parser.add_argument("--imgsz", type=int)
+    parser.add_argument("--imgsz", "--image-size", dest="imgsz", type=int)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--device", default="0")
