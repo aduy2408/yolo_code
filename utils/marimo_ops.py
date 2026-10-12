@@ -332,7 +332,11 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
     missing = [key for key in REQUIRED_CONTRACT_KEYS if key not in contract]
     if missing:
         raise MarimoOpsError("Run contract is missing required fields: " + ", ".join(missing))
-    matrix_runner = any("train_all_augmentation_matrix.py" in item for item in command)
+    matrix_runner = any(
+        "train_all_augmentation_matrix.py" in item
+        or "rerun_yolov8_cp_nc_seed43_44.py" in item
+        for item in command
+    )
     options = {
         "epochs": "--epochs",
         "patience": "--patience",
