@@ -158,7 +158,12 @@ def job_specs(args: argparse.Namespace) -> list[dict[str, str]]:
         for dataset in args.datasets:
             for method in args.methods:
                 for variant in variants[method]:
-                    if dataset == "varroa" and method == "copy_paste" and variant in {"negative_canvas_r2", "negative_canvas_r4"}:
+                    if (
+                        dataset == "varroa"
+                        and method == "copy_paste"
+                        and variant in {"negative_canvas_r2", "negative_canvas_r4"}
+                        and not args.include_varroa_negative_canvas
+                    ):
                         continue
                     for mosaic_mode in _dataset_mosaic_modes(dataset, method, tuple(args.tinyperson_mosaic_modes)):
                         specs.append({"model": model, "dataset": dataset, "method": method, "variant": variant, "mosaic_mode": mosaic_mode})
@@ -444,6 +449,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--oacp-variants", nargs="+", choices=OACP_VARIANTS, default=list(OACP_VARIANTS))
     parser.add_argument("--mosaic-variants", nargs="+", choices=MOSAIC_VARIANTS, default=list(MOSAIC_VARIANTS))
     parser.add_argument("--copy-paste-variants", nargs="+", choices=COPY_PASTE_CHOICES, default=list(COPY_PASTE_VARIANTS))
+    parser.add_argument(
+        "--include-varroa-negative-canvas",
+        action="store_true",
+        help="Opt in to Varroa negative-canvas R2/R4 jobs. Historical protocols skip these by default.",
+    )
     parser.add_argument("--tinyperson-mosaic-modes", nargs="+", choices=("mosaic", "no_mosaic"), default=["mosaic", "no_mosaic"])
     parser.add_argument("--scale-statistics-levir", type=Path)
     parser.add_argument("--scale-statistics-tinyperson", type=Path)
