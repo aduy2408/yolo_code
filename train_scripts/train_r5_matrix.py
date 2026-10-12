@@ -232,12 +232,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dataset-name", choices=tuple(DATASET_DEFAULTS), required=True)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
-    parser.add_argument("--model", required=True, help="YOLO model checkpoint or YAML")
+    parser.add_argument("--model", "--model-yaml", dest="model", required=True, help="YOLO model checkpoint or YAML")
     parser.add_argument("--r5-mode", required=True, choices=("offline_recall", "online_tal_iou", "online_tal_alignment", "online_probe_recall"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--imgsz", type=int)
+    parser.add_argument("--imgsz", "--image-size", dest="imgsz", type=int)
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=8)
@@ -287,7 +287,9 @@ def _evaluate(model, args: argparse.Namespace, run_dir: Path) -> dict[str, objec
         )
         for key, value in result.results_dict.items():
             metrics[f"{split}/{key}"] = float(value)
+        metrics[f"{split}/AP50"] = float(result.results_dict["metrics/mAP50(B)"])
         metrics[f"{split}/mAP50-95"] = float(result.box.map)
+        metrics[f"{split}/protocol"] = "native YOLO split evaluation"
     (run_dir / "evaluation_metrics.json").write_text(
         json.dumps(metrics, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
