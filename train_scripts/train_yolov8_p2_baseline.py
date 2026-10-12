@@ -246,6 +246,9 @@ def main(argv: list[str] | None = None) -> None:
         )
     if not training_complete(run_dir):
         raise RuntimeError(f"Incomplete training artifacts: {run_dir}")
+    config_path = run_dir / "config.yaml"
+    if not config_path.is_file():
+        config_path.write_text(args.model_yaml.read_text(encoding="utf-8"), encoding="utf-8")
     metrics = evaluate(run_dir, data_yaml, args)
     manifest["metrics"] = {key: metrics[key] for key in REQUIRED_METRICS}
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
