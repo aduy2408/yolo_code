@@ -546,7 +546,9 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError("M3 requires an existing --scale-statistics-{levir,tinyperson,varroa} file for every selected dataset")
     if any(spec["variant"] == "M5_hard_negative" and (args.hard_negative_banks[spec["dataset"]] is None or not args.hard_negative_banks[spec["dataset"]].is_file()) for _, spec in queue):
         raise ValueError("M5 requires an existing --hard-negative-bank-{levir,tinyperson,varroa} file for every selected dataset")
-    for repo_id in args.hf_repos.values():
+    selected_methods = sorted({spec["method"] for _, spec in queue})
+    for method in selected_methods:
+        repo_id = args.hf_repos[method]
         require_training_context(hf_repo_id=repo_id)
         ensure_hf_repo(repo_id)
 
