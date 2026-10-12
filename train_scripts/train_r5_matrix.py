@@ -415,7 +415,12 @@ def main(argv: list[str] | None = None) -> None:
     _evaluate(evaluation_model, args, run_dir)
     config_path = run_dir / "config.yaml"
     if not config_path.is_file():
-        config_path.write_text(Path(args.model).read_text(encoding="utf-8") if Path(args.model).is_file() else f"model: {args.model}\n", encoding="utf-8")
+        model_path = Path(args.model)
+        if model_path.is_file() and model_path.suffix.lower() in {".yaml", ".yml"}:
+            config_text = model_path.read_text(encoding="utf-8")
+        else:
+            config_text = f"model: {args.model}\ndataset: {args.dataset}\n"
+        config_path.write_text(config_text, encoding="utf-8")
     _upload(args, run_dir)
 
 
