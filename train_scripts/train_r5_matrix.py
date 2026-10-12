@@ -413,6 +413,9 @@ def main(argv: list[str] | None = None) -> None:
         raise RuntimeError(f"training did not produce {best}")
     evaluation_model = YOLO(str(best))
     _evaluate(evaluation_model, args, run_dir)
+    config_path = run_dir / "config.yaml"
+    if not config_path.is_file():
+        config_path.write_text(Path(args.model).read_text(encoding="utf-8") if Path(args.model).is_file() else f"model: {args.model}\n", encoding="utf-8")
     _upload(args, run_dir)
 
 
