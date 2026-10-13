@@ -337,6 +337,10 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
         or "rerun_yolov8_cp_nc_seed43_44.py" in item
         for item in command
     )
+    baseline_runner = any(
+        "train_augmentation_baselines_seed42.py" in item
+        for item in command
+    )
     options = {
         "epochs": "--epochs",
         "patience": "--patience",
@@ -365,6 +369,13 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
                 "varroa": "--data-root-varroa",
             }.get(str(contract.get("dataset", "")).lower(), option)
             effective_option = dataset_option
+        elif key == "data_root" and baseline_runner:
+            effective_option = {
+                "levir": "--levir-data-root",
+                "levir_ship": "--levir-data-root",
+                "levirship": "--levir-data-root",
+                "tinyperson": "--tinyperson-data-root",
+            }.get(str(contract.get("dataset", "")).lower(), option)
         elif key == "image_size" and matrix_runner:
             dataset_option = {
                 "levir": "--imgsz-levir",
@@ -374,6 +385,13 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
                 "varroa": "--imgsz-varroa",
             }.get(str(contract.get("dataset", "")).lower(), option)
             effective_option = dataset_option
+        elif key == "image_size" and baseline_runner:
+            effective_option = {
+                "levir": "--imgsz-levir",
+                "levir_ship": "--imgsz-levir",
+                "levirship": "--imgsz-levir",
+                "tinyperson": "--imgsz-tinyperson",
+            }.get(str(contract.get("dataset", "")).lower(), option)
         elif key == "hf_repo_id" and matrix_runner:
             method_option = {
                 "oacp": "--hf-repo-oacp",
@@ -381,6 +399,13 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
                 "copy_paste": "--hf-repo-copy-paste",
             }.get(str(contract.get("method", "")).lower(), option)
             effective_option = method_option
+        elif key == "hf_repo_id" and baseline_runner:
+            effective_option = {
+                "levir": "--hf-repo-levir",
+                "levir_ship": "--hf-repo-levir",
+                "levirship": "--hf-repo-levir",
+                "tinyperson": "--hf-repo-tinyperson",
+            }.get(str(contract.get("dataset", "")).lower(), option)
         elif key == "seed":
             effective_option = "--seeds" if "--seeds" in command else option
         values = command_option_values(command, effective_option)
@@ -389,7 +414,9 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
             # not expose a --model-yaml CLI flag. Its manifest records the
             # concrete CONFIGS entry, so the contract still retains provenance.
             if key == "model_yaml" and any(
-                "train_all_tinyperson.py" in item or "train_all_augmentation_matrix.py" in item
+                "train_all_tinyperson.py" in item
+                or "train_all_augmentation_matrix.py" in item
+                or baseline_runner
                 for item in command
             ):
                 continue
