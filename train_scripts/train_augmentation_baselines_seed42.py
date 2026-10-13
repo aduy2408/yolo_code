@@ -39,6 +39,7 @@ CANONICAL_CONFIG = ULTRALYTICS / "ultralytics/cfg/models/v8/yolov8.yaml"
 CONFIGS = {
     "canonical": CANONICAL_CONFIG,
     "levir_p2p3p4": ROOT / "models_related/models_config/yolov8/levir/baseline_controls/yolov8n_p2p3p4_levir_plain.yaml",
+    "levir_p2_four_scale": ROOT / "models_related/models_config/yolov8/levir/yolov8n_p2_levir_baseline.yaml",
     "tinyperson_p2p3p4": ROOT / "models_related/models_config/yolov8/tinyperson/yolov8n_tinyperson_p2p3p4_plain.yaml",
 }
 
@@ -49,6 +50,7 @@ JOBS = {
     "levir_canonical_standard_mosaic": ("levir", "canonical", "standard_mosaic"),
     "levir_p2p3p4_no_aug_no_mosaic": ("levir", "levir_p2p3p4", "no_aug_no_mosaic"),
     "levir_p2p3p4_standard_mosaic": ("levir", "levir_p2p3p4", "standard_mosaic"),
+    "levir_p2_four_scale_no_aug_no_mosaic": ("levir", "levir_p2_four_scale", "no_aug_no_mosaic"),
     "tinyperson_canonical_no_aug_no_mosaic": ("tinyperson", "canonical", "no_aug_no_mosaic"),
     "tinyperson_canonical_standard_mosaic": ("tinyperson", "canonical", "standard_mosaic"),
     "tinyperson_p2p3p4_no_aug_no_mosaic": ("tinyperson", "tinyperson_p2p3p4", "no_aug_no_mosaic"),
@@ -152,6 +154,9 @@ def validate_config(config: Path, detector: str) -> None:
         forbidden = ("CBAM", "ChannelAttention", "GAP")
         if any(token in text for token in forbidden):
             raise ValueError(f"canonical baseline contains an unrequested module: {config}")
+    elif detector == "levir_p2_four_scale":
+        if "[19, 22, 25, 28]" not in text:
+            raise ValueError(f"expected four-scale P2/P3/P4/P5 Detect head: {config}")
     else:
         if "P2/P3/P4" not in text and "p2p3p4" not in config.name.lower():
             raise ValueError(f"expected explicit P2/P3/P4 config: {config}")
