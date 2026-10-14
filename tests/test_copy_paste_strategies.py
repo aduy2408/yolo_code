@@ -199,11 +199,11 @@ def test_actual_yolo_dataset_builds_r5_transform_with_shared_state(tmp_path):
         "perspective": 0.0, "fliplr": 0.0, "flipud": 0.0,
         "copy_paste": 0.0, "copy_paste_mode": "adaptive_negative_canvas",
     })
-    shared_state = SharedProbabilityState(5, [0.20, 0.20, 0.20, 0.20, 0.20])
+    shared_state = SharedProbabilityState(7, [1.0 / 7.0] * 7)
     hyp.copy_paste_enabled = True
     hyp.negative_cp_p = 1.0
-    hyp.r5_scale_bin_edges = [0.0, 8.0, 12.0, 16.0, 20.0, 32.0]
-    hyp.r5_scale_probabilities = [0.20, 0.20, 0.20, 0.20, 0.20]
+    hyp.r5_scale_bin_edges = [0.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0]
+    hyp.r5_scale_probabilities = [1.0 / 7.0] * 7
     hyp.r5_shared_probability_state = shared_state
     dataset = YOLODataset(
         img_path=str(image_dir), imgsz=32, data={"names": {0: "ship"}},
@@ -232,11 +232,11 @@ def test_actual_yolo_dataset_r5_samples_have_consistent_provenance_keys(tmp_path
         "perspective": 0.0, "fliplr": 0.0, "flipud": 0.0,
         "copy_paste": 0.0, "copy_paste_mode": "adaptive_negative_canvas",
     })
-    shared_state = SharedProbabilityState(5, [0.20, 0.20, 0.20, 0.20, 0.20])
+    shared_state = SharedProbabilityState(7, [1.0 / 7.0] * 7)
     hyp.copy_paste_enabled = True
     hyp.negative_cp_p = 1.0
-    hyp.r5_scale_bin_edges = [0.0, 8.0, 12.0, 16.0, 20.0, 32.0]
-    hyp.r5_scale_probabilities = [0.20, 0.20, 0.20, 0.20, 0.20]
+    hyp.r5_scale_bin_edges = [0.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0]
+    hyp.r5_scale_probabilities = [1.0 / 7.0] * 7
     hyp.r5_shared_probability_state = shared_state
     dataset = YOLODataset(
         img_path=str(image_dir), imgsz=32, data={"names": {0: "ship"}},

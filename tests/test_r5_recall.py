@@ -71,14 +71,14 @@ def test_offline_profile_keeps_raw_difficulty_for_single_controller_gamma():
         gamma=2.0,
     )
     assert payload["difficulty_gamma"] == 1.0
-    assert payload["difficulty"] == [1.0, 0.0, 0.0, 0.0, 0.0]
-    controller = ScaleDifficultyController(num_bins=5, gamma=2.0, exploration=0.0)
+    assert payload["difficulty"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    controller = ScaleDifficultyController(num_bins=7, gamma=2.0, exploration=0.0)
     probabilities = controller.probabilities(difficulty=payload["difficulty"])
     assert probabilities[0] == 1.0
 
 
 def test_offline_overrides_preserve_published_profile_probabilities():
-    shared = SharedProbabilityState(5, [0.6, 0.1, 0.1, 0.1, 0.1])
+    shared = SharedProbabilityState(7, [0.6, 1.0 / 10.0, 1.0 / 10.0, 1.0 / 10.0, 1.0 / 10.0, 1.0 / 10.0, 1.0 / 10.0])
     args = Namespace(seed=42, workers=2)
     overrides = _fixed_r5_overrides(args, shared)
     assert np.allclose(overrides["r5_scale_probabilities"], shared.snapshot())
@@ -119,7 +119,7 @@ def test_probe_runner_predictor_uses_current_training_model(tmp_path):
     probe_path = tmp_path / "probe.json"
     probe_path.write_text(json.dumps([{"path": "image.png", "coord_system": "original_xyxy", "gt_boxes": [[0, 0, 4, 4]], "gt_classes": [0]}]))
     args.probe_records = probe_path
-    shared = SharedProbabilityState(5, [0.20] * 5)
+    shared = SharedProbabilityState(7, [1.0 / 7.0] * 7)
     _, probe, _ = _build_components(args, wrapper, shared)
     current_model = object()
     probe.records = [{"path": "image.png", "coord_system": "original_xyxy", "gt_boxes": [[0, 0, 4, 4]], "gt_classes": [0]}]
@@ -152,7 +152,7 @@ def test_runner_rejects_probe_records_without_coordinate_contract(tmp_path):
         profile_source_split="train",
     )
     with pytest.raises(ValueError, match="coord_system"):
-        _build_components(args, object(), SharedProbabilityState(5, [0.20] * 5))
+        _build_components(args, object(), SharedProbabilityState(7, [1.0 / 7.0] * 7))
 
 
 def test_real_yolo_cached_predictor_is_rebound_to_current_model(tmp_path):
@@ -189,7 +189,7 @@ def test_real_yolo_cached_predictor_is_rebound_to_current_model(tmp_path):
         profile_confidence=0.01,
         profile_source_split="train",
     )
-    _, probe, _ = _build_components(args, wrapper, SharedProbabilityState(5, [0.20] * 5))
+    _, probe, _ = _build_components(args, wrapper, SharedProbabilityState(7, [1.0 / 7.0] * 7))
     probe.predict_fn(current.model, {"image": image, "coord_system": "original_xyxy", "gt_boxes": [], "gt_classes": []})
     assert wrapper.predictor is None
     assert cached_model is not current.model
@@ -213,9 +213,9 @@ def test_probe_callback_updates_shared_state_and_restores_model_mode(tmp_path):
         }
     ]
     callback = R5ProbeCallback(
-        evaluator=RecallEvaluator(ScaleBinSpec((0, 8, 12, 16, 20, 32))),
-        controller=ScaleDifficultyController(num_bins=5, beta=0.0, exploration=0.0),
-        shared_state=SharedProbabilityState(5, [0.20] * 5),
+        evaluator=RecallEvaluator(ScaleBinSpec((0, 8, 12, 16, 20, 24, 28, 32))),
+        controller=ScaleDifficultyController(num_bins=7, beta=0.0, exploration=0.0),
+        shared_state=SharedProbabilityState(7, [1.0 / 7.0] * 7),
         records=records,
         predict_fn=lambda model, record: {
             "pred_boxes": [[0, 0, 4, 4]],
@@ -236,9 +236,9 @@ def test_probe_callback_updates_shared_state_and_restores_model_mode(tmp_path):
 def test_probe_callback_state_round_trip_restores_count_and_last_result(tmp_path):
     records = [{"gt_boxes": [[0, 0, 4, 4]], "gt_classes": [0]}]
     kwargs = dict(
-        evaluator=RecallEvaluator(ScaleBinSpec((0, 8, 12, 16, 20, 32))),
-        controller=ScaleDifficultyController(num_bins=5, beta=0.0, exploration=0.0),
-        shared_state=SharedProbabilityState(5, [0.20] * 5),
+        evaluator=RecallEvaluator(ScaleBinSpec((0, 8, 12, 16, 20, 24, 28, 32))),
+        controller=ScaleDifficultyController(num_bins=7, beta=0.0, exploration=0.0),
+        shared_state=SharedProbabilityState(7, [1.0 / 7.0] * 7),
         records=records,
         predict_fn=lambda model, record: {
             "pred_boxes": [[0, 0, 4, 4]],
@@ -258,7 +258,7 @@ def test_probe_callback_state_round_trip_restores_count_and_last_result(tmp_path
 
 
 def test_r5_checkpoint_callback_round_trips_state(tmp_path):
-    state = SharedProbabilityState(5, [0.1, 0.2, 0.3, 0.2, 0.2])
+    state = SharedProbabilityState(7, [0.1, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15])
     callback = R5StateCheckpointCallback(state)
 
     class Trainer:
@@ -266,7 +266,7 @@ def test_r5_checkpoint_callback_round_trips_state(tmp_path):
 
     callback.on_train_end(Trainer())
     assert (tmp_path / "r5_state.json").is_file()
-    restored = SharedProbabilityState(5, [0.20] * 5)
+    restored = SharedProbabilityState(7, [1.0 / 7.0] * 7)
     loader = R5StateCheckpointCallback(restored)
     loader.on_pretrain_routine_start(Trainer())
     assert np.allclose(restored.snapshot(), state.snapshot())

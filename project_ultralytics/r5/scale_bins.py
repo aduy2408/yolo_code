@@ -11,10 +11,10 @@ class ScaleBinSpec:
     """Immutable half-open scale bins with an inclusive final edge.
 
     ``edges=(0, 8, 12, 16, 20)`` yields four bins: [0, 8), [8, 12),
-    [12, 16), [16, 20), and [20, 32]. Sizes are geometric-mean box sizes in pixels.
+    [12, 16), [16, 20), [20, 24), [24, 28), and [28, 32]. Sizes are geometric-mean box sizes in pixels.
     """
 
-    edges: tuple[float, ...] = (0.0, 8.0, 12.0, 16.0, 20.0, 32.0)
+    edges: tuple[float, ...] = (0.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0)
 
     def __post_init__(self) -> None:
         edges = tuple(float(edge) for edge in self.edges)

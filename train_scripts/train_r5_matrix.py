@@ -72,7 +72,7 @@ def _fixed_r5_overrides(args: argparse.Namespace, shared_state) -> dict[str, Any
         "negative_cp_matched_ratio_max": 1.5,
         "negative_cp_degradation": "none",
         "copy_paste_max_trials": 30,
-        "r5_scale_bin_edges": [0.0, 8.0, 12.0, 16.0, 20.0, 32.0],
+        "r5_scale_bin_edges": [0.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0],
         # Pass the already-published distribution. The dataset builder may
         # construct a sampler with this value and publish it again, so a
         # uniform placeholder would erase R5-A's offline initialization.
@@ -95,7 +95,7 @@ def _build_components(args: argparse.Namespace, model, shared_state):
     from project_ultralytics.r5.online_tal import R5EpochFeedbackAdapter
     from project_ultralytics.r5.recall_evaluator import RecallEvaluator
 
-    bin_spec = ScaleBinSpec((0.0, 8.0, 12.0, 16.0, 20.0, 32.0))
+    bin_spec = ScaleBinSpec((0.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0))
     controller = None
     feedback = None
     probe = None
@@ -108,7 +108,7 @@ def _build_components(args: argparse.Namespace, model, shared_state):
         from project_ultralytics.r5.recall_evaluator import RecallProfile
 
         loaded_profile = RecallProfile.from_dict(profile)
-        expected_edges = tuple(float(value) for value in (0.0, 8.0, 12.0, 16.0, 20.0, 32.0))
+        expected_edges = tuple(float(value) for value in (0.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0))
         if loaded_profile.edges != expected_edges:
             raise ValueError("offline profile bins do not match the R5 scale-bin protocol")
         if not np.isclose(loaded_profile.iou_threshold, args.profile_iou):
@@ -360,7 +360,7 @@ def main(argv: list[str] | None = None) -> None:
         model = YOLO(str(baseline_yaml)).load(str(model_path))
     else:
         model = YOLO(args.model)
-    shared_state = SharedProbabilityState(5, [0.20, 0.20, 0.20, 0.20, 0.20])
+    shared_state = SharedProbabilityState(7, [1.0 / 7.0] * 7)
     feedback, probe, checkpoint = _build_components(args, model, shared_state)
     overrides = _fixed_r5_overrides(args, shared_state)
     overrides.update({

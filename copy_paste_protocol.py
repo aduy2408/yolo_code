@@ -78,8 +78,8 @@ VARIANTS = {
         "negative_cp_p": 0.30,
         "negative_cp_donor_policy": "matched",
         "negative_cp_target_max_size": 32.0,
-        "r5_scale_bin_edges": [0.0, 8.0, 12.0, 16.0, 20.0, 32.0],
-        "r5_scale_probabilities": [0.20, 0.20, 0.20, 0.20, 0.20],
+        "r5_scale_bin_edges": [0.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0],
+        "r5_scale_probabilities": [0.142857] * 7,
         "negative_cp_degradation": "none",
     },
     "negative_canvas_cp3_cluster1": {

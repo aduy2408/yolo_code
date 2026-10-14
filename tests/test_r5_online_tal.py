@@ -63,14 +63,14 @@ def test_epoch_adapter_accumulates_and_updates_sampler():
             self.received = None
 
         def end_epoch_from_controller(self, controller, frequency=None, hybrid_ratio=1.0):
-            self.received = controller.probabilities(feasible=[True, True, True, True, True])
+            self.received = controller.probabilities(feasible=[True] * 7)
             controller.reset_pending()
             return self.received.tolist()
 
-    controller = ScaleDifficultyController(num_bins=5, beta=0.0, exploration=0.0)
+    controller = ScaleDifficultyController(num_bins=7, beta=0.0, exploration=0.0)
     adapter = R5EpochFeedbackAdapter(
         DummyTransform(), controller,
-        collector=TALDifficultyCollector(ScaleBinSpec((0, 8, 12, 16, 20, 32)), mode="iou"),
+        collector=TALDifficultyCollector(ScaleBinSpec((0, 8, 12, 16, 20, 24, 28, 32)), mode="iou"),
     )
     adapter.observe(
         pred_bboxes=_inputs()[0],
@@ -83,7 +83,7 @@ def test_epoch_adapter_accumulates_and_updates_sampler():
     )
     probabilities = adapter.end_epoch()
     assert adapter.observations == 3
-    assert len(probabilities) == 5
+    assert len(probabilities) == 7
     assert torch.isfinite(torch.tensor(probabilities)).all()
 
 
@@ -134,7 +134,7 @@ def test_feedback_callback_updates_shared_state_seen_by_real_workers():
     class WorkerSamplingDataset(Dataset):
         def __init__(self, sampler):
             self.sampler = sampler
-            self.values = {0: [4.0], 1: [], 2: [], 3: [16.0], 4: [24.0]}
+            self.values = {0: [4.0], 1: [], 2: [], 3: [16.0], 4: [20.0], 5: [24.0], 6: [28.0]}
 
         def __len__(self):
             return 64
@@ -148,20 +148,20 @@ def test_feedback_callback_updates_shared_state_seen_by_real_workers():
 
         def end_epoch_from_controller(self, controller, frequency=None, hybrid_ratio=1.0):
             controller.end_epoch()
-            probabilities = controller.probabilities(feasible=[True, False, False, True, False])
+            probabilities = controller.probabilities(feasible=[True, False, False, True, False, False, False])
             self.sampler.set_probabilities(probabilities.tolist())
             return probabilities.tolist()
 
     sampler = ScaleBinSampler(
-        ScaleBinSpec((0, 8, 12, 16, 20, 32)),
+        ScaleBinSpec((0, 8, 12, 16, 20, 24, 28, 32)),
         seed=123,
-        probabilities=[1.0, 0.0, 0.0, 0.0, 0.0],
+        probabilities=[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         enable_shared_state=True,
     )
     adapter = R5EpochFeedbackAdapter(
         TransformBridge(sampler),
-        ScaleDifficultyController(num_bins=5, beta=0.0, exploration=0.0),
-        collector=TALDifficultyCollector(ScaleBinSpec((0, 8, 12, 16, 20, 32)), mode="iou"),
+        ScaleDifficultyController(num_bins=7, beta=0.0, exploration=0.0),
+        collector=TALDifficultyCollector(ScaleBinSpec((0, 8, 12, 16, 20, 24, 28, 32)), mode="iou"),
     )
     dataset = WorkerSamplingDataset(sampler)
     first = next(iter(DataLoader(dataset, batch_size=64, num_workers=2)))
@@ -189,7 +189,7 @@ def test_shared_probability_state_reaches_real_dataloader_workers():
     class WorkerSamplingDataset(Dataset):
         def __init__(self, sampler):
             self.sampler = sampler
-            self.values = {0: [4.0], 1: [], 2: [], 3: [16.0], 4: [24.0]}
+            self.values = {0: [4.0], 1: [], 2: [], 3: [16.0], 4: [20.0], 5: [24.0], 6: [28.0]}
 
         def __len__(self):
             return 64
@@ -198,13 +198,13 @@ def test_shared_probability_state_reaches_real_dataloader_workers():
             return self.sampler.sample(self.values)
 
     sampler = ScaleBinSampler(
-        ScaleBinSpec((0, 8, 12, 16, 20, 32)),
+        ScaleBinSpec((0, 8, 12, 16, 20, 24, 28, 32)),
         seed=123,
-        probabilities=[1.0, 0.0, 0.0, 0.0, 0.0],
+        probabilities=[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         enable_shared_state=True,
     )
     first = next(iter(DataLoader(WorkerSamplingDataset(sampler), batch_size=64, num_workers=2)))
     assert torch.all(first == 4.0)
-    sampler.set_probabilities([0.0, 0.0, 0.0, 1.0, 0.0])
+    sampler.set_probabilities([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
     second = next(iter(DataLoader(WorkerSamplingDataset(sampler), batch_size=64, num_workers=2)))
     assert torch.all(second == 16.0)

@@ -802,7 +802,7 @@ def build_small_object_copy_paste(dataset, hyp):
         from .r5.samplers import ScaleBinSampler
         from .r5.scale_bins import ScaleBinSpec
 
-        edges = tuple(float(value) for value in getattr(hyp, "r5_scale_bin_edges", (0.0, 8.0, 12.0, 16.0, 20.0, 32.0)))
+        edges = tuple(float(value) for value in getattr(hyp, "r5_scale_bin_edges", (0.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0)))
         bin_spec = ScaleBinSpec.from_edges(edges)
         probabilities = getattr(hyp, "r5_scale_probabilities", None)
         shared_probability_state = getattr(hyp, "r5_shared_probability_state", None)
@@ -1038,7 +1038,7 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "negative_cp_large_ratio_max": float(getattr(hyp, "negative_cp_large_ratio_max", 2.5)),
         "negative_cp_degradation": str(getattr(hyp, "negative_cp_degradation", "none")),
         "negative_cp_blur_sigma": float(getattr(hyp, "negative_cp_blur_sigma", 0.5)),
-        "r5_scale_bin_edges": list(getattr(hyp, "r5_scale_bin_edges", (0.0, 8.0, 12.0, 16.0, 20.0, 32.0))),
+        "r5_scale_bin_edges": list(getattr(hyp, "r5_scale_bin_edges", (0.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0))),
         "r5_scale_probabilities": getattr(hyp, "r5_scale_probabilities", None),
         "r5_seed": getattr(hyp, "r5_seed", getattr(hyp, "seed", None)),
         "r5_worker_id": int(getattr(hyp, "r5_worker_id", 0)),
