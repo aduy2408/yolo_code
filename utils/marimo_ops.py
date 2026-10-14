@@ -335,6 +335,7 @@ def validate_command_contract(run_dir: Path, command: Sequence[str]) -> None:
     matrix_runner = any(
         "train_all_augmentation_matrix.py" in item
         or "rerun_yolov8_cp_nc_seed43_44.py" in item
+        or "evaluate_yolo_baseline_matrix.py" in item
         for item in command
     )
     baseline_runner = any(
