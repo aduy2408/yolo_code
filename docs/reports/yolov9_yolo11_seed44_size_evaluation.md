@@ -674,7 +674,26 @@ This section adds the YOLOv8 augmentation matrix requested after the YOLOv9/YOLO
 | yolov8 | varroa | negative_canvas_r2 | mosaic | 44 | 0.836708 | 0.284340 | 0.846568 | 0.297688 | 0.069815 | 0.759297 | 0.084304 | 0.765222 | -- |
 | yolov8 | varroa | negative_canvas_r4 | mosaic | 44 | 0.868786 | 0.321302 | 0.866645 | 0.315559 | 0.086710 | 0.743064 | 0.092532 | 0.761338 | -- |
 
-## 5. Notes
+## 5. TinyPerson merged comparison
+
+For TinyPerson model ranking, the official corner-window merged evaluator is the primary test protocol. The native `test/*` metrics remain in the per-run artifacts, but they should not be used as the headline cross-model comparison for TinyPerson. The merged evaluator reports `test_merged/AP50` and `test_merged/mAP50-75`, not `test/mAP50-95`.
+
+| Model | Variant | Seed | test_merged/AP50 | test_merged/mAP50-75 | test_merged/AP50-Small |
+|---|---|---:|---:|---:|---:|
+| YOLOv8 | CP1 | 44 | 0.550225 | 0.325600 | 0.692585 |
+| YOLOv8 | CP2 | 44 | 0.539628 | 0.318738 | 0.670080 |
+| YOLOv8 | NC-R2 | 44 | 0.541239 | 0.316882 | 0.677422 |
+| YOLOv8 | NC-R4 | 44 | 0.551812 | 0.328239 | 0.692035 |
+| YOLOv9 | CP1 | 44 | 0.495550 | 0.285992 | 0.647098 |
+| YOLOv9 | CP2 | 44 | 0.500533 | 0.288294 | 0.652089 |
+| YOLOv9 | NC-R2 | 44 | 0.494225 | 0.286244 | 0.640092 |
+| YOLOv9 | NC-R4 | 44 | 0.484318 | 0.281665 | 0.628518 |
+| YOLOv11 | CP1 | 44 | 0.543205 | 0.319752 | 0.697463 |
+| YOLOv11 | CP2 | 44 | 0.540121 | 0.319037 | 0.688307 |
+| YOLOv11 | NC-R2 | 44 | 0.537931 | 0.315771 | 0.678929 |
+| YOLOv11 | NC-R4 | 44 | 0.544723 | 0.320065 | 0.685296 |
+
+## 6. Notes
 
 - `val/*` and `test/*` are kept explicitly split-qualified.
 - TinyPerson `test_merged/*` metrics are not substituted for native `test/*` metrics.
