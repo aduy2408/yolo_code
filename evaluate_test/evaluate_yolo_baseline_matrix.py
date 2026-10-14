@@ -14,6 +14,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -43,6 +44,12 @@ REQUIRED_METRICS = (
     "test/mAP50-95",
     "test_size/AP50-Small",
     "test_size/AP75",
+)
+REQUIRED_TINYPERSON_MERGED_METRICS = (
+    "test_merged/available",
+    "test_merged/AP50",
+    "test_merged/mAP50-75",
+    "test_merged/AP50-Small",
 )
 
 
@@ -157,7 +164,15 @@ def prepare_dataset(dataset: str, args: argparse.Namespace) -> Path:
     ).resolve()
 
 
-def evaluate_checkpoint(checkpoint: Path, data_yaml: Path, dataset: str, out_dir: Path, args: argparse.Namespace) -> dict[str, float | str]:
+def evaluate_checkpoint(
+    checkpoint: Path,
+    data_yaml: Path,
+    dataset: str,
+    out_dir: Path,
+    args: argparse.Namespace,
+    *,
+    tinyperson_test_root: Path | None = None,
+) -> dict[str, float | str]:
     from evaluate_test.size_bucket_evaluator import evaluate_native_size_buckets
     project_ultralytics()
     from ultralytics import YOLO
@@ -195,7 +210,26 @@ def evaluate_checkpoint(checkpoint: Path, data_yaml: Path, dataset: str, out_dir
     metrics["nms_iou"] = 0.5
     metrics["split_seed"] = args.split_seed
     if dataset == "tinyperson":
-        metrics["test_protocol"] = "TinyPerson standard corner-window test split; merged corner-window metrics are separate"
+        if tinyperson_test_root is None:
+            raise RuntimeError("TinyPerson merged evaluation requires the prepared test root")
+        from train_scripts.train_all_tinyperson import evaluate_merged_test
+
+        merged_args = SimpleNamespace(
+            imgsz=IMAGE_SIZES[dataset],
+            batch_size=args.batch_size,
+            device=args.device,
+            workers=args.workers,
+        )
+        metrics.update(
+            evaluate_merged_test(
+                out_dir,
+                tinyperson_test_root,
+                args.data_root_tinyperson,
+                merged_args,
+            )
+        )
+        metrics["test_protocol"] = "TinyPerson official corner-window merged TinyBenchmark evaluator; IoU=0.50:0.05:0.75"
+        metrics["test_source_artifact"] = str(tinyperson_test_root / "corner_manifest.json")
     else:
         metrics["test_protocol"] = "Native held-out test split"
     return metrics
@@ -227,6 +261,14 @@ def main() -> None:
     args.project.mkdir(parents=True, exist_ok=True)
     api = HfApi(token=token)
     prepared = {dataset: prepare_dataset(dataset, args) for dataset in DATA_ROOTS}
+    tinyperson_test_root = None
+    if "tinyperson" in prepared:
+        from train_scripts import train_all_tinyperson
+
+        tinyperson_test_root = train_all_tinyperson.prepare_test_set(
+            args.data_root_tinyperson,
+            args.dataset_root,
+        )
     jobs = discover_jobs(api, args.jobs)
     print(json.dumps({"jobs": len(jobs), "hf_repo_id": args.hf_repo_id, "split_seed": args.split_seed}, sort_keys=True), flush=True)
     pending: list[CommitOperationAdd] = []
@@ -248,14 +290,24 @@ def main() -> None:
         if not checkpoint.is_file():
             downloaded = hf_hub_download(repo_id=repo, filename=f"{prefix}/weights/best.pt", repo_type="dataset", token=token)
             shutil.copy2(downloaded, checkpoint)
-        metrics = evaluate_checkpoint(checkpoint, prepared[dataset], dataset, out_dir, args)
+        metrics = evaluate_checkpoint(
+            checkpoint,
+            prepared[dataset],
+            dataset,
+            out_dir,
+            args,
+            tinyperson_test_root=tinyperson_test_root,
+        )
         metrics.update({"dataset": dataset, "model": model, "seed": seed, "mode": mode, "source_repo": repo, "source_prefix": prefix, "output_repo": args.hf_repo_id, "output_prefix": output_prefix})
         metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        missing = [key for key in REQUIRED_METRICS if key not in metrics]
+        required_metrics = REQUIRED_METRICS + (
+            REQUIRED_TINYPERSON_MERGED_METRICS if dataset == "tinyperson" else ()
+        )
+        missing = [key for key in required_metrics if key not in metrics]
         if missing:
             raise RuntimeError(f"Missing split-qualified metrics for {output_prefix}: {missing}")
-        manifest_path.write_text(json.dumps({"source_repo": repo, "source_prefix": prefix, "output_repo": args.hf_repo_id, "output_prefix": output_prefix, "dataset": dataset, "model": model, "seed": seed, "mode": mode, "split_seed": args.split_seed, "nms_iou": 0.5, "required_metrics": list(REQUIRED_METRICS), "test_protocol": metrics["test_protocol"]}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        marker_path.write_text(json.dumps({"verified": True, "output_prefix": output_prefix, "required_metrics": list(REQUIRED_METRICS)}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        manifest_path.write_text(json.dumps({"source_repo": repo, "source_prefix": prefix, "output_repo": args.hf_repo_id, "output_prefix": output_prefix, "dataset": dataset, "model": model, "seed": seed, "mode": mode, "split_seed": args.split_seed, "nms_iou": 0.5, "required_metrics": list(required_metrics), "test_protocol": metrics["test_protocol"], "test_source_artifact": metrics.get("test_source_artifact")}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        marker_path.write_text(json.dumps({"verified": True, "output_prefix": output_prefix, "required_metrics": list(required_metrics)}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         for local, remote in ((metrics_path, f"{output_prefix}/evaluation_metrics.json"), (manifest_path, f"{output_prefix}/evaluation_manifest.json"), (marker_path, f"{output_prefix}/evaluation_complete.json")):
             pending.append(CommitOperationAdd(path_in_repo=remote, path_or_fileobj=str(local)))
         print(f"EVALUATION_COMPLETE {output_prefix}", flush=True)
