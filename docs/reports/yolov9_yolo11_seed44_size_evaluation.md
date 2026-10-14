@@ -636,10 +636,48 @@ Each subsection preserves split-qualified names. `-1.000000` means the evaluator
 | `test_size/AP50-Medium` | 0.849569 |
 
 
-## 4. Notes
+## 4. YOLOv8 seed43/44 checkpoint evaluation
+
+This section adds the YOLOv8 augmentation matrix requested after the YOLOv9/YOLO11 table. The 24 leaves are evaluated from existing Hugging Face checkpoints, not retrained.
+
+- Seed 43 output repository: `duyle2408/yolov8-seed43-size-eval-runs`, **12/12** HF `size_metrics_complete.json` markers.
+- Seed 44 output repository: `duyle2408/yolov8-seed44-size-eval-runs`, **12/12** HF `size_metrics_complete.json` markers.
+- Source repository: `duyle2408/yolov8-cp-nc-seed43-44-runs`.
+- Seed 43 TinyPerson `negative_canvas_r2` checkpoint source: `duyle2408/yolov8-cp-nc-recovery-tiny-seed43-r2-runs`.
+- Training seeds: 43 and 44. Fixed split seed: 42. Image size: 640. Batch/workers: 8/8. NMS IoU: 0.50.
+- LEVIR and Varroa use the standard held-out test split. TinyPerson reports both native `test/*` and official corner-window `test_merged/*` metrics.
+
+| Model | Dataset | Variant | Mosaic | Seed | val/AP50 | val/mAP50-95 | test/AP50 | test/mAP50-95 | val/AP75 | val/AP50-Small | test/AP75 | test/AP50-Small | test_merged/AP50-Small |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| yolov8 | levir | cp1_single1 | no_mosaic | 43 | 0.823844 | 0.320812 | 0.795731 | 0.305269 | 0.128696 | 0.846966 | 0.121942 | 0.836443 | -- |
+| yolov8 | levir | cp2_single2 | no_mosaic | 43 | 0.827266 | 0.322724 | 0.784419 | 0.297149 | 0.153514 | 0.840239 | 0.130625 | 0.792833 | -- |
+| yolov8 | levir | negative_canvas_r2 | no_mosaic | 43 | 0.607291 | 0.198015 | 0.559241 | 0.173448 | 0.041586 | 0.513364 | 0.023399 | 0.509755 | -- |
+| yolov8 | levir | negative_canvas_r4 | no_mosaic | 43 | 0.805840 | 0.310896 | 0.787746 | 0.280165 | 0.137415 | 0.841917 | 0.123140 | 0.838341 | -- |
+| yolov8 | tinyperson | cp1_single1 | mosaic | 43 | 0.543802 | 0.197554 | 0.520928 | 0.189652 | 0.106541 | 0.522121 | 0.090345 | 0.524155 | 0.686793 |
+| yolov8 | tinyperson | cp2_single2 | mosaic | 43 | 0.543246 | 0.199315 | 0.520616 | 0.189976 | 0.098124 | 0.529736 | 0.090726 | 0.532601 | 0.693642 |
+| yolov8 | tinyperson | negative_canvas_r2 | mosaic | 43 | 0.563581 | 0.202646 | 0.524530 | 0.190050 | 0.101455 | 0.539846 | 0.092262 | 0.531100 | 0.690789 |
+| yolov8 | tinyperson | negative_canvas_r4 | mosaic | 43 | 0.551399 | 0.201218 | 0.517653 | 0.187190 | 0.107428 | 0.522957 | 0.089134 | 0.519962 | 0.681471 |
+| yolov8 | varroa | cp1_single1 | mosaic | 43 | 0.887407 | 0.328991 | 0.863481 | 0.317983 | 0.113420 | 0.782739 | 0.090894 | 0.784582 | -- |
+| yolov8 | varroa | cp2_single2 | mosaic | 43 | 0.883501 | 0.325195 | 0.876127 | 0.314476 | 0.108723 | 0.789411 | 0.089921 | 0.763258 | -- |
+| yolov8 | varroa | negative_canvas_r2 | mosaic | 43 | 0.881407 | 0.322901 | 0.875426 | 0.322321 | 0.110811 | 0.784263 | 0.090003 | 0.777503 | -- |
+| yolov8 | varroa | negative_canvas_r4 | mosaic | 43 | 0.878444 | 0.324234 | 0.879503 | 0.329663 | 0.097494 | 0.788490 | 0.099539 | 0.774810 | -- |
+| yolov8 | levir | cp1_single1 | no_mosaic | 44 | 0.820540 | 0.326394 | 0.808496 | 0.313284 | 0.131680 | 0.846466 | 0.135775 | 0.829965 | -- |
+| yolov8 | levir | cp2_single2 | no_mosaic | 44 | 0.821043 | 0.321582 | 0.791314 | 0.296743 | 0.142929 | 0.840135 | 0.144097 | 0.830561 | -- |
+| yolov8 | levir | negative_canvas_r2 | no_mosaic | 44 | 0.823522 | 0.331119 | 0.807986 | 0.303509 | 0.135486 | 0.823429 | 0.130442 | 0.848112 | -- |
+| yolov8 | levir | negative_canvas_r4 | no_mosaic | 44 | 0.795615 | 0.306353 | 0.787967 | 0.294389 | 0.152309 | 0.826729 | 0.155370 | 0.830537 | -- |
+| yolov8 | tinyperson | cp1_single1 | mosaic | 44 | 0.546191 | 0.197372 | 0.520192 | 0.189568 | 0.096634 | 0.515131 | 0.091117 | 0.525509 | 0.692585 |
+| yolov8 | tinyperson | cp2_single2 | mosaic | 44 | 0.537659 | 0.191386 | 0.512955 | 0.185965 | 0.088137 | 0.547033 | 0.090486 | 0.526134 | 0.670080 |
+| yolov8 | tinyperson | negative_canvas_r2 | mosaic | 44 | 0.553156 | 0.198880 | 0.513489 | 0.185470 | 0.107539 | 0.556840 | 0.089379 | 0.520643 | 0.677422 |
+| yolov8 | tinyperson | negative_canvas_r4 | mosaic | 44 | 0.544012 | 0.205603 | 0.521398 | 0.190092 | 0.113626 | 0.520612 | 0.091447 | 0.532033 | 0.692035 |
+| yolov8 | varroa | cp1_single1 | mosaic | 44 | 0.862773 | 0.320150 | 0.858092 | 0.318383 | 0.094315 | 0.769011 | 0.095726 | 0.752474 | -- |
+| yolov8 | varroa | cp2_single2 | mosaic | 44 | 0.870502 | 0.320934 | 0.856876 | 0.304599 | 0.090778 | 0.782039 | 0.091023 | 0.737819 | -- |
+| yolov8 | varroa | negative_canvas_r2 | mosaic | 44 | 0.836708 | 0.284340 | 0.846568 | 0.297688 | 0.069815 | 0.759297 | 0.084304 | 0.765222 | -- |
+| yolov8 | varroa | negative_canvas_r4 | mosaic | 44 | 0.868786 | 0.321302 | 0.866645 | 0.315559 | 0.086710 | 0.743064 | 0.092532 | 0.761338 | -- |
+
+## 5. Notes
 
 - `val/*` and `test/*` are kept explicitly split-qualified.
 - TinyPerson `test_merged/*` metrics are not substituted for native `test/*` metrics.
 - Size-bucket metrics are read from the uploaded evaluation artifacts, not inferred from plots or another run.
-- The HF completion marker for each leaf is `size_metrics_complete.json`; all 20 leaves are present in the output repository.
+- The HF completion marker for each leaf is `size_metrics_complete.json`; the original YOLOv9/YOLO11 section has 20 leaves and the YOLOv8 seed43/44 section has 24 leaves, all verified in their task-specific output repositories.
 
