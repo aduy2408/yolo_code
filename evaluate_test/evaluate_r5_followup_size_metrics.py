@@ -38,13 +38,14 @@ def main() -> None:
     require_training_context(hf_repo_id=args.hf_repo_id)
     repo_id = ensure_hf_repo(args.hf_repo_id)
     run_dir = args.run_dir.resolve()
-    metrics_path = run_dir / "evaluation_metrics.json"
-    manifest_path = run_dir / "experiment_manifest.json"
+    artifact_root = run_dir / "artifacts" / "run"
+    metrics_path = artifact_root / "evaluation_metrics.json"
+    manifest_path = artifact_root / "experiment_manifest.json"
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
     for split in ("val", "test"):
         metrics.update(
             evaluate_native_size_buckets(
-                run_dir,
+                artifact_root,
                 args.dataset_yaml.resolve(),
                 split=split,
                 imgsz=args.imgsz,
@@ -80,17 +81,17 @@ def main() -> None:
             f"{args.remote_prefix}/evaluation/test_size_predictions.json",
         ],
     }
-    marker_path = run_dir / "size_metrics_complete.json"
+    marker_path = artifact_root / "size_metrics_complete.json"
     marker_path.write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     api = HfApi(token=os.environ["HF_TOKEN"])
     for local, remote in (
         (metrics_path, "evaluation_metrics.json"),
         (manifest_path, "experiment_manifest.json"),
-        (run_dir / "evaluation/val_size_ground_truth.json", "evaluation/val_size_ground_truth.json"),
-        (run_dir / "evaluation/val_size_predictions.json", "evaluation/val_size_predictions.json"),
-        (run_dir / "evaluation/test_size_ground_truth.json", "evaluation/test_size_ground_truth.json"),
-        (run_dir / "evaluation/test_size_predictions.json", "evaluation/test_size_predictions.json"),
+        (artifact_root / "evaluation/val_size_ground_truth.json", "evaluation/val_size_ground_truth.json"),
+        (artifact_root / "evaluation/val_size_predictions.json", "evaluation/val_size_predictions.json"),
+        (artifact_root / "evaluation/test_size_ground_truth.json", "evaluation/test_size_ground_truth.json"),
+        (artifact_root / "evaluation/test_size_predictions.json", "evaluation/test_size_predictions.json"),
         (marker_path, "size_metrics_complete.json"),
     ):
         api.upload_file(
