@@ -830,7 +830,7 @@ def build_small_object_copy_paste(dataset, hyp):
             degradation=str(getattr(hyp, "negative_cp_degradation", "none")),
             blur_sigma=float(getattr(hyp, "negative_cp_blur_sigma", 0.5)),
             max_trials=int(getattr(hyp, "copy_paste_max_trials", 30)),
-            canvas_scope="negative",
+            canvas_scope=str(getattr(hyp, "negative_cp_canvas_scope", "negative")),
             debug_dir=getattr(hyp, "copy_paste_debug_dir", None),
             rng=getattr(hyp, "copy_paste_rng", None),
         )
@@ -1043,7 +1043,7 @@ def copy_paste_config(hyp) -> dict[str, Any]:
         "r5_seed": getattr(hyp, "r5_seed", getattr(hyp, "seed", None)),
         "r5_worker_id": int(getattr(hyp, "r5_worker_id", 0)),
         "r5_shared_state": bool(getattr(hyp, "r5_shared_state", True)),
-        "canvas_scope": "all" if str(getattr(hyp, "copy_paste_mode", "single")) == "all_canvas" else "negative",
+        "canvas_scope": str(getattr(hyp, "negative_cp_canvas_scope", "negative")),
         "stcp_p": float(getattr(hyp, "stcp_p", 0.30)),
         "stcp_min_pastes": int(getattr(hyp, "stcp_min_pastes", 1)),
         "stcp_max_pastes": int(getattr(hyp, "stcp_max_pastes", 2)),
