@@ -265,6 +265,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _baseline_yaml_for_checkpoint(model_path: Path) -> Path:
+    root = Path(__file__).resolve().parents[1]
+    if model_path.name.startswith("yolov9"):
+        return root / "models_related/ultralytics/ultralytics/cfg/models/v9/yolov9t.yaml"
+    if model_path.name.startswith("yolo11") or model_path.name.startswith("yolov11"):
+        return root / "models_related/ultralytics/ultralytics/cfg/models/11/yolo11.yaml"
+    return root / "models_related/ultralytics/ultralytics/cfg/models/v8/yolov8.yaml"
+
+
+def _load_baseline_model(model_path: Path):
+    from ultralytics import YOLO
+
+    if model_path.suffix.lower() != ".pt":
+        return YOLO(str(model_path))
+    baseline_yaml = _baseline_yaml_for_checkpoint(model_path)
+    return YOLO(str(baseline_yaml)).load(str(model_path))
+
+
 def _complete(run_dir: Path) -> bool:
     return all((run_dir / item).is_file() for item in REQUIRED_ARTIFACTS) and (run_dir / "upload_complete.json").is_file()
 
@@ -351,15 +369,7 @@ def main(argv: list[str] | None = None) -> None:
     args.log_path = args.log_path or args.project / args.name / "r5_feedback.jsonl"
     args.log_path.parent.mkdir(parents=True, exist_ok=True)
     model_path = Path(args.model)
-    if model_path.suffix.lower() == ".pt":
-        # Build the canonical project YOLOv8 P3/P4/P5 graph first, then load
-        # the report checkpoint. Loading a checkpoint directly can retain an
-        # upstream Detect object that lacks project-fork compatibility fields
-        # such as ``box_detail`` used by the R5 probe path.
-        baseline_yaml = Path(__file__).resolve().parents[1] / "models_related/ultralytics/ultralytics/cfg/models/v8/yolov8.yaml"
-        model = YOLO(str(baseline_yaml)).load(str(model_path))
-    else:
-        model = YOLO(args.model)
+    model = _load_baseline_model(model_path)
     shared_state = SharedProbabilityState(7, [1.0 / 7.0] * 7)
     feedback, probe, checkpoint = _build_components(args, model, shared_state)
     overrides = _fixed_r5_overrides(args, shared_state)
