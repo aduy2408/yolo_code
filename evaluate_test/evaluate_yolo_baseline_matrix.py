@@ -66,6 +66,20 @@ def project_ultralytics() -> None:
     sys.path.insert(0, project)
 
 
+def standard_ultralytics():
+    """Load the upstream Ultralytics package for official baseline checkpoints."""
+    project = str(ROOT / "models_related/ultralytics")
+    sys.path[:] = [
+        entry
+        for entry in sys.path
+        if "vendor/ultralytics_upstream" not in str(Path(entry).resolve())
+        and str(Path(entry).resolve()) != str(Path(project).resolve())
+    ]
+    from ultralytics import YOLO
+
+    return YOLO
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root-levir", type=Path, default=Path(DATA_ROOTS["levirship"]))
@@ -174,8 +188,7 @@ def evaluate_checkpoint(
     tinyperson_test_root: Path | None = None,
 ) -> dict[str, float | str]:
     from evaluate_test.size_bucket_evaluator import evaluate_native_size_buckets
-    project_ultralytics()
-    from ultralytics import YOLO
+    YOLO = standard_ultralytics()
 
     model = YOLO(checkpoint)
     metrics: dict[str, float | str] = {}
