@@ -67,6 +67,8 @@ def _fixed_r5_overrides(args: argparse.Namespace, shared_state) -> dict[str, Any
         "copy_paste_unit": "single",
         "copy_paste_copies": 1,
         "negative_cp_p": 0.30 if getattr(args, "negative_cp_p", None) is None else float(args.negative_cp_p),
+        "negative_cp_negative_p": getattr(args, "negative_cp_negative_p", None),
+        "negative_cp_positive_p": getattr(args, "negative_cp_positive_p", None),
         "negative_cp_canvas_scope": getattr(args, "negative_cp_canvas_scope", "negative"),
         "negative_cp_donor_policy": "matched",
         "negative_cp_target_max_size": 32.0 if getattr(args, "negative_cp_target_max_size", None) is None else float(args.negative_cp_target_max_size),
@@ -263,6 +265,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--log-path", type=Path, default=None)
     parser.add_argument("--mosaic", type=float)
     parser.add_argument("--negative-cp-p", type=float)
+    parser.add_argument("--negative-cp-negative-p", type=float)
+    parser.add_argument("--negative-cp-positive-p", type=float)
     parser.add_argument("--negative-cp-canvas-scope", choices=("negative", "all"), default="negative")
     parser.add_argument("--negative-cp-target-max-size", type=float)
     parser.add_argument("--hf-repo-id", required=True)
@@ -417,6 +421,8 @@ def main(argv: list[str] | None = None) -> None:
         "close_mosaic": 10 if args.mosaic else 0,
         "nms_iou": args.nms_iou,
         "negative_cp_p": float(args.negative_cp_p if args.negative_cp_p is not None else 0.30),
+        "negative_cp_negative_p": args.negative_cp_negative_p,
+        "negative_cp_positive_p": args.negative_cp_positive_p,
         "negative_cp_canvas_scope": args.negative_cp_canvas_scope,
         "negative_cp_target_max_size": float(args.negative_cp_target_max_size if args.negative_cp_target_max_size is not None else 32.0),
         "hf_repo_id": args.hf_repo_id,

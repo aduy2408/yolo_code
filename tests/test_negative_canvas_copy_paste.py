@@ -279,6 +279,20 @@ def test_negative_canvas_uses_mode_specific_probability_default(tmp_path):
     assert copy_paste_config(hyp)["negative_cp_p"] == 0.30
 
 
+def test_all_canvas_uses_higher_probability_for_original_negative_images(tmp_path):
+    dataset = _dataset(tmp_path)
+    transform = NegativeCanvasCopyPaste(
+        dataset,
+        p=0.30,
+        negative_p=0.70,
+        positive_p=0.30,
+        canvas_scope="all",
+        rng=random.Random(7),
+    )
+    assert transform.negative_p == 0.70
+    assert transform.positive_p == 0.30
+
+
 def test_donor_filter_uses_effective_rounded_crop_geometry(tmp_path):
     transform = NegativeCanvasCopyPaste(_dataset(tmp_path), donor_policy="matched")
     record = type("Record", (), {"bbox_xyxy": (0.49, 0.49, 15.60, 15.60)})()

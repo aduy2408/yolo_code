@@ -33,6 +33,8 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         self,
         dataset,
         p: float = 0.30,
+        negative_p: float | None = None,
+        positive_p: float | None = None,
         target_policy: str = "empirical",
         donor_policy: str = "matched",
         target_max_size: float = 20.0,
@@ -50,6 +52,10 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
     ) -> None:
         if not 0.0 <= p <= 1.0:
             raise ValueError("p must be in [0, 1]")
+        if negative_p is not None and not 0.0 <= negative_p <= 1.0:
+            raise ValueError("negative_p must be in [0, 1]")
+        if positive_p is not None and not 0.0 <= positive_p <= 1.0:
+            raise ValueError("positive_p must be in [0, 1]")
         if target_policy not in {"empirical", "deficit"}:
             raise ValueError("target_policy must be 'empirical' or 'deficit'")
         if donor_policy not in {"matched", "larger"}:
@@ -94,6 +100,8 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
         self.degradation = degradation
         self.blur_sigma = float(blur_sigma)
         self.canvas_scope = canvas_scope
+        self.negative_p = float(p if negative_p is None else negative_p)
+        self.positive_p = float(p if positive_p is None else positive_p)
         self.target_sizes: list[float] = []
         self.scale_bins: Counter[int] = Counter()
         self.scale_bin_values: dict[int, list[float]] = {}
@@ -301,7 +309,10 @@ class NegativeCanvasCopyPaste(SmallObjectCopyPaste):
             return labels
 
         self._on_eligible_canvas(labels, existing)
-        if self.p <= 0 or self.rng.random() >= self.p:
+        selection_p = self.p
+        if self.canvas_scope == "all":
+            selection_p = self.negative_p if self._is_original_negative(labels) else self.positive_p
+        if selection_p <= 0 or self.rng.random() >= selection_p:
             return labels
         self._on_selected_canvas(labels, existing)
 
