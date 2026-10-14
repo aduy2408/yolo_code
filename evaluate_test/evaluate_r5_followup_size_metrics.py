@@ -5,9 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 from huggingface_hub import HfApi
+
+ROOT = Path(__file__).resolve().parents[1]
+LOCAL_ULTRALYTICS = ROOT / "models_related" / "ultralytics"
+if str(LOCAL_ULTRALYTICS) not in sys.path:
+    sys.path.insert(0, str(LOCAL_ULTRALYTICS))
 
 from evaluate_test.size_bucket_evaluator import evaluate_native_size_buckets
 from utils.marimo_ops import ensure_hf_repo, require_training_context
