@@ -51,13 +51,15 @@ def _dataset(tmp_path):
 
 
 def test_scale_bins_use_shared_edges_and_include_final_edge():
-    spec = ScaleBinSpec((0, 8, 12, 16, 20))
+    spec = ScaleBinSpec((0, 8, 12, 16, 20, 32))
     assert spec.index(0) == 0
     assert spec.index(7.999) == 0
     assert spec.index(8) == 1
     assert spec.index(12) == 2
-    assert spec.index(20) == 3
-    assert spec.index(20.001) is None
+    assert spec.index(20) == 4
+    assert spec.index(31.999) == 4
+    assert spec.index(32) == 4
+    assert spec.index(32.001) is None
 
 
 def test_controller_aggregates_sum_and_count_before_ema():
@@ -135,7 +137,7 @@ def test_r5_builder_reuses_explicit_shared_probability_state(tmp_path):
 
     dataset = _dataset(tmp_path)
     settings = variant_overrides("negative_canvas_r5_uniform")
-    shared_state = SharedProbabilityState(4, [0.25, 0.25, 0.25, 0.25])
+    shared_state = SharedProbabilityState(5, [0.20, 0.20, 0.20, 0.20, 0.20])
     settings["r5_shared_probability_state"] = shared_state
     transform = build_small_object_copy_paste(dataset, SimpleNamespace(**settings))
     assert transform.scale_sampler.shared_state is shared_state
@@ -228,15 +230,15 @@ def test_mixup_preserves_synthetic_provenance_when_merging_instances():
 def test_r5_uniform_protocol_has_explicit_shared_binning():
     settings = variant_overrides("negative_canvas_r5_uniform")
     assert settings["copy_paste_mode"] == "adaptive_negative_canvas"
-    assert settings["r5_scale_bin_edges"] == [0.0, 8.0, 12.0, 16.0, 20.0]
-    assert settings["r5_scale_probabilities"] == [0.25, 0.25, 0.25, 0.25]
+    assert settings["r5_scale_bin_edges"] == [0.0, 8.0, 12.0, 16.0, 20.0, 32.0]
+    assert settings["r5_scale_probabilities"] == [0.20, 0.20, 0.20, 0.20, 0.20]
 
 
 def test_controller_updates_adaptive_sampler_using_only_feasible_bins(tmp_path):
     dataset = _dataset(tmp_path)
     transform = AdaptiveNegativeCanvasCopyPaste(dataset, p=1.0, donor_policy="matched", seed=42)
-    controller = ScaleDifficultyController(num_bins=4, exploration=0.0)
-    controller.accumulate([0, 1, 2, 3], [0.1, 0.2, 0.8, 0.9])
+    controller = ScaleDifficultyController(num_bins=5, exploration=0.0)
+    controller.accumulate([0, 1, 2, 3, 4], [0.1, 0.2, 0.8, 0.9, 0.7])
     probabilities = transform.end_epoch_from_controller(controller)
     assert np.isclose(sum(probabilities), 1.0)
     assert np.allclose(probabilities, transform.scale_sampler.probabilities)
@@ -279,5 +281,5 @@ def test_r5_builder_preserves_negative_canvas_mechanics(tmp_path):
     assert transform.target_policy == "empirical"
     assert transform.donor_policy == "matched"
     assert transform.max_trials == 30
-    assert transform.scale_sampler.probabilities.tolist() == [0.25, 0.25, 0.25, 0.25]
+    assert transform.scale_sampler.probabilities.tolist() == [0.20, 0.20, 0.20, 0.20, 0.20]
     assert out["r5_original_gt_mask"].tolist() == [False]

@@ -77,9 +77,9 @@ VARIANTS = {
         "copy_paste_mode": "adaptive_negative_canvas",
         "negative_cp_p": 0.30,
         "negative_cp_donor_policy": "matched",
-        "negative_cp_target_max_size": 20.0,
-        "r5_scale_bin_edges": [0.0, 8.0, 12.0, 16.0, 20.0],
-        "r5_scale_probabilities": [0.25, 0.25, 0.25, 0.25],
+        "negative_cp_target_max_size": 32.0,
+        "r5_scale_bin_edges": [0.0, 8.0, 12.0, 16.0, 20.0, 32.0],
+        "r5_scale_probabilities": [0.20, 0.20, 0.20, 0.20, 0.20],
         "negative_cp_degradation": "none",
     },
     "negative_canvas_cp3_cluster1": {

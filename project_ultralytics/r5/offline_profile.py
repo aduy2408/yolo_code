@@ -29,7 +29,7 @@ def load_records(path: str | Path) -> list[Mapping[str, Any]]:
 def build_offline_profile(
     records: Iterable[Mapping[str, Any]],
     *,
-    bin_edges: tuple[float, ...] = (0.0, 8.0, 12.0, 16.0, 20.0),
+    bin_edges: tuple[float, ...] = (0.0, 8.0, 12.0, 16.0, 20.0, 32.0),
     iou_threshold: float = 0.5,
     confidence_threshold: float = 0.01,
     source_split: str = "train",
