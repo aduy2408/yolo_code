@@ -506,7 +506,7 @@ def evaluate_tiny_benchmark(prediction_path: Path, merged_gt_path: Path) -> dict
         evaluator = COCOeval(coco_gt, coco_dt, "bbox", True, True)
     finally:
         evaluator_module.np.linspace = old_linspace
-    evaluator.params.iouThrs = np.linspace(0.50, 0.75, 6)
+    evaluator.params.iouThrs = np.linspace(0.50, 0.95, 10)
     had_np_float = hasattr(evaluator_module.np, "float")
     if not had_np_float:
         evaluator_module.np.float = float
@@ -518,18 +518,20 @@ def evaluate_tiny_benchmark(prediction_path: Path, merged_gt_path: Path) -> dict
             del evaluator_module.np.float
 
     area_indices = {name: evaluator.params.areaRngLbl.index(name) for name in ("tiny1", "tiny2", "tiny3", "small", "medium")}
-    all_ap = [precision_ap(evaluator.eval["precision"], index, evaluator.params.areaRngLbl.index("all")) for index in range(6)]
+    all_ap = [precision_ap(evaluator.eval["precision"], index, evaluator.params.areaRngLbl.index("all")) for index in range(10)]
     valid_all_ap = [value for value in all_ap if value > -1]
     metrics = {
         "test_merged/AP50": all_ap[0],
-        "test_merged/AP75": all_ap[-1],
-        "test_merged/mAP50-75": float(np.mean(valid_all_ap)) if valid_all_ap else -1.0,
+        "test_merged/AP75": all_ap[5],
+        "test_merged/AP95": all_ap[-1],
+        "test_merged/mAP50-75": float(np.mean([value for value in all_ap[:6] if value > -1])) if any(value > -1 for value in all_ap[:6]) else -1.0,
+        "test_merged/mAP50-95": float(np.mean(valid_all_ap)) if valid_all_ap else -1.0,
     }
     for name, area_index in area_indices.items():
         metrics[f"test_merged/AP50-{name.title()}"] = precision_ap(evaluator.eval["precision"], 0, area_index)
-        area_ap = [precision_ap(evaluator.eval["precision"], index, area_index) for index in range(6)]
+        area_ap = [precision_ap(evaluator.eval["precision"], index, area_index) for index in range(10)]
         valid_area_ap = [value for value in area_ap if value > -1]
-        metrics[f"test_merged/AP-{name.title()}"] = float(np.mean(valid_area_ap)) if valid_area_ap else -1.0
+        metrics[f"test_merged/mAP50-95-{name.title()}"] = float(np.mean(valid_area_ap)) if valid_area_ap else -1.0
     return metrics
 
 
@@ -609,12 +611,12 @@ def evaluate(run_dir: Path, data_yaml: Path, test_out_dir: Path, data_root: Path
         cached = json.loads(output.read_text(encoding="utf-8"))
         required_metrics = [
             *(f"{split}/metrics/mAP50-75(B)" for split in ("val", "test")),
-            "test_merged/mAP50-75",
-            "test_merged/AP-Tiny1",
-            "test_merged/AP-Tiny2",
-            "test_merged/AP-Tiny3",
-            "test_merged/AP-Small",
-            "test_merged/AP-Medium",
+            "test_merged/mAP50-95",
+            "test_merged/mAP50-95-Tiny1",
+            "test_merged/mAP50-95-Tiny2",
+            "test_merged/mAP50-95-Tiny3",
+            "test_merged/mAP50-95-Small",
+            "test_merged/mAP50-95-Medium",
         ]
         if all(key in cached for key in required_metrics):
             return cached

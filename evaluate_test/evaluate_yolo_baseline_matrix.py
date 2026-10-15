@@ -48,7 +48,7 @@ REQUIRED_METRICS = (
 REQUIRED_TINYPERSON_MERGED_METRICS = (
     "test_merged/available",
     "test_merged/AP50",
-    "test_merged/mAP50-75",
+    "test_merged/mAP50-95",
     "test_merged/AP50-Small",
 )
 
