@@ -40,9 +40,9 @@ The following values come from the requested checkpoint rerun on the authorized 
 | Model | Val AP50 | Val mAP50-95 | Native test AP50 | Native test mAP50-95 | Merged test AP50 | Merged test AP50-small | Merged test mAP50-75 | Status/provenance |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
 | STW YOLO | 0.6262 | 0.2393 | 0.5774 | 0.2238 | 0.5892 | 0.7004 | 0.3603 | Complete. Merged metrics verified in the new STW evaluation artifact. |
-| TPH YOLOv5 | 0.5420 | 0.1920 | 0.5350 | 0.1960 | -- | -- | -- | Incomplete merged evaluation. The real evaluator remained CPU-bound for more than 14 minutes and was stopped without producing `tph_merged_metrics.json`; no unverified merged value is reported. |
+| TPH YOLOv5 | 0.5420 | 0.1920 | 0.5350 | 0.1960 | 0.5475 | 0.6369 | 0.3289 | Complete. Merged metrics verified with CUDA inference (`cuda:0`, batch 32) and vectorized GPU NMS. |
 
-The STW artifact also records merged `AP50-small` 0.7004, merged `AP-Tiny1` 0.2384, merged `AP-Tiny2` 0.3639, merged `AP-Tiny3` 0.4249, and merged `AP-Medium` 0.4394. The TPH native metrics were verified with the upstream TPH-YOLOv5 validator after applying only runtime compatibility patches required by the current Python/NumPy environment.
+The STW artifact also records merged `AP50-small` 0.7004, merged `AP-Tiny1` 0.2384, merged `AP-Tiny2` 0.3639, merged `AP-Tiny3` 0.4249, and merged `AP-Medium` 0.4394. The TPH artifact records merged `AP50-small` 0.6369, merged `AP-Tiny1` 0.2097, merged `AP-Tiny2` 0.3307, merged `AP-Tiny3` 0.3778, and merged `AP-Medium` 0.3989. The TPH native metrics were verified with the upstream TPH-YOLOv5 validator after applying only runtime compatibility patches required by the current Python/NumPy environment. The corrected TPH merged evaluator used CUDA inference on `cuda:0` with batch size 32 and vectorized GPU NMS.
 
 - The main table uses split-qualified native evaluation artifacts for STW YOLO and TPH YOLO, and corrected evaluation-only MMDetection artifacts for FCOS-SR-TOD. AP50-small is explicitly the IoU=0.50, area=small result, not COCO AP-small averaged over IoU=0.50:0.95. TPH TinyPerson uses the official corner-window protocol. FCOS-SR-TOD LEVIR uses the full 584-image val/test split.
 
