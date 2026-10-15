@@ -44,6 +44,17 @@ The following values come from the requested checkpoint rerun on the authorized 
 
 The STW artifact also records merged `AP50-small` 0.7004, merged `AP-Tiny1` 0.2384, merged `AP-Tiny2` 0.3639, merged `AP-Tiny3` 0.4249, and merged `AP-Medium` 0.4394. The TPH artifact records merged `AP50-small` 0.6369, merged `AP-Tiny1` 0.2097, merged `AP-Tiny2` 0.3307, merged `AP-Tiny3` 0.3778, and merged `AP-Medium` 0.3989. The TPH native metrics were verified with the upstream TPH-YOLOv5 validator after applying only runtime compatibility patches required by the current Python/NumPy environment. The corrected TPH merged evaluator used CUDA inference on `cuda:0` with batch size 32 and vectorized GPU NMS.
 
+### Verified FCOS TinyPerson merged rerun (2026-10-15)
+
+These values are from the new GPU Marimo rerun using the exact seed43 checkpoints and configs recovered from the historical Hugging Face artifacts. The evaluator used the canonical MMDetection `tools/test.py` interface followed by `evaluate_tinyperson_metrics.py`, with split seed 42, 640x640 corner-window inference, source-image merging, and class-aware NMS. These are **merged** metrics and must not be substituted into the native corner-window columns above.
+
+| Model | Val merged AP50 | Val merged mAP50-95 | Val merged AP50-small | Test merged AP50 | Test merged mAP50-95 | Test merged AP50-small | Checkpoint/provenance |
+|---|---:|---:|---:|---:|---:|---:|---|
+| FCOS-SET | 0.4084 | 0.1487 | 0.5366 | 0.4247 | 0.1523 | 0.5916 | `duyle2408/set_fcos_runs`, seed43, `best_coco_bbox_mAP_epoch_37.pth` |
+| FCOS-SR-TOD | 0.4157 | 0.1467 | 0.5225 | 0.4616 | 0.1642 | 0.5954 | `duyle2408/srtod-set-mosaic-matrix-runs`, seed43, `best_coco_bbox_mAP_epoch_91.pth` |
+
+The completed artifacts and verified upload are in `duyle2408/fcos-tinyperson-eval-20261015-runs` under `tinyperson/seed43/`, including per-model `final_results.json`, split `metrics.json`, and `upload_verified.json`.
+
 - The main table uses split-qualified native evaluation artifacts for STW YOLO and TPH YOLO, and corrected evaluation-only MMDetection artifacts for FCOS-SR-TOD. AP50-small is explicitly the IoU=0.50, area=small result, not COCO AP-small averaged over IoU=0.50:0.95. TPH TinyPerson uses the official corner-window protocol. FCOS-SR-TOD LEVIR uses the full 584-image val/test split.
 
 The compact table below records the fields that are present in the remote artifacts. TPH and FCOS-SET rows are split-qualified where the source exposes val/test fields. STW YOLO rows expose aggregate YOLO evaluation metrics only. Existing rows are historical results and are not being marked for re-evaluation by the seed plan below.
