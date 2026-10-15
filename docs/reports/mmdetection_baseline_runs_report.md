@@ -193,3 +193,24 @@ Required files verified for all 24 prefixes: `evaluation_metrics.json`, `evaluat
 | no_mosaic | 43 | rtmdet | 0.4850 | 0.1830 | 0.4971 | 0.1788 | 0.4150 | 0.1540 | 0.5109 | 0.1889 |
 
 Acceptance evidence: the detached Marimo queue reached `complete: 24`, the process exited after scoring all 24 combinations, the HF dataset repository contained 122 files with zero missing required files, and `summary.json` contained 24 entries. The runner used split seed `42`, training seeds `42,43`, NMS IoU `0.5`, `/marimo/mmdet-venv/bin/python`, and upload-required mode.
+
+## 9. Baseline merged mAP50-95 rerun on replacement Marimo server
+
+The 24 baseline combinations were rerun on the replacement server using evaluator commit `183793876fe37fa92da28e354d323eb8675678da`. This was a post-hoc re-evaluation of the archived validation/test prediction artifacts, not retraining. The merged mAP50-95 values below are sample mean ± standard deviation across seeds 42 and 43.
+
+| Protocol | Model | n | Val merged mAP50-95 | Test merged mAP50-95 |
+|---|---|---:|---:|---:|
+| mosaic | fcos | 2 | 0.137388 ± 0.002826 | 0.150580 ± 0.002487 |
+| mosaic | faster_rcnn | 2 | 0.110198 ± 0.002501 | 0.136680 ± 0.005323 |
+| mosaic | cascade_rcnn | 2 | 0.194615 ± 0.004896 | 0.187432 ± 0.007633 |
+| mosaic | rtmdet | 2 | 0.182306 ± 0.001945 | 0.190419 ± 0.000357 |
+| mosaic | atss | 2 | 0.149017 ± 0.001447 | 0.153295 ± 0.002370 |
+| mosaic | retinanet | 2 | 0.146394 ± 0.002842 | 0.142067 ± 0.002240 |
+| no_mosaic | fcos | 2 | 0.144804 ± 0.005237 | 0.147630 ± 0.001059 |
+| no_mosaic | faster_rcnn | 2 | 0.110394 ± 0.000082 | 0.132340 ± 0.005369 |
+| no_mosaic | cascade_rcnn | 2 | 0.192454 ± 0.003082 | 0.191667 ± 0.002952 |
+| no_mosaic | rtmdet | 2 | 0.180290 ± 0.002095 | 0.186657 ± 0.003181 |
+| no_mosaic | atss | 2 | 0.153383 ± 0.001216 | 0.153343 ± 0.002735 |
+| no_mosaic | retinanet | 2 | 0.145162 ± 0.008849 | 0.142076 ± 0.010796 |
+
+HF verification after the rerun found `missing=[]` for all 73 required paths: 24 prefixes × 3 per-run artifacts plus `summary.json`. The authoritative output remains `duyle2408/tinyperson-mmdet-merged-eval-20261015-runs`.
