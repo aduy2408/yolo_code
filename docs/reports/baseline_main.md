@@ -115,13 +115,13 @@ The HF audit found `83/83` completion, metric, and manifest artifacts in the con
 
 ## 8. MMDetection baseline supplement
 
-This supplement records the independently evaluated MMDetection baseline jobs for the same three datasets. It does not change the YOLO baseline count in Sections 1-6. The evaluation completed **26/26 jobs**, with all requested validation and test fields present: AP50, AP75, mAP50-95, and AP50-Small.
+This supplement records the independently evaluated MMDetection baseline jobs for the same three datasets. It does not change the YOLO baseline count in Sections 1-6. The earlier missing-row evaluation completed **26/26 jobs**. A separate TinyPerson merged-corner re-evaluation is now verified for **24/24 MMDetection jobs**, with native and merged validation/test fields uploaded below.
 
 **Coverage note:** the first table is the newly evaluated missing-row supplement. It adds 24 Varroa rows, one LEVIR-Ship row (`seed42/no_mosaic/retinanet`), and one TinyPerson row (`seed43/no_mosaic/retinanet`). The merged seed statistics in Section 8.2 combine these new rows with the pre-existing LEVIR-Ship and TinyPerson rows from [`mmdetection_baseline_runs_report.md`](mmdetection_baseline_runs_report.md).
 | Dataset | Protocol | Seed | Model | Val AP50 | Val AP75 | Val mAP50-95 | Val AP50-Small | Test AP50 | Test AP75 | Test mAP50-95 | Test AP50-Small |
 |---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | LEVIR-Ship | no_mosaic | 42 | retinanet | 0.6613 | 0.0774 | 0.2314 | 0.6618 | 0.7074 | 0.0901 | 0.2563 | 0.7034 |
-| TinyPerson | no_mosaic | 43 | retinanet | 0.5591 | 0.0781 | 0.1892 | 0.5277 | 0.0567 | 0.0045 | 0.0172 | 0.0476 |
+| TinyPerson | no_mosaic | 43 | retinanet | 0.4410 | 0.0460 | 0.1380 | 0.1210 | 0.3590 | 0.0320 | 0.1080 | 0.1030 |
 | Varroa | mosaic | 42 | atss | 0.8792 | 0.0810 | 0.3043 | 0.8457 | 0.8778 | 0.0932 | 0.3218 | 0.8434 |
 | Varroa | mosaic | 42 | cascade_rcnn | 0.9007 | 0.0817 | 0.3105 | 0.8788 | 0.8929 | 0.1084 | 0.3157 | 0.8709 |
 | Varroa | mosaic | 42 | faster_rcnn | 0.9183 | 0.0959 | 0.3249 | 0.9015 | 0.8886 | 0.1013 | 0.3216 | 0.8764 |
@@ -155,7 +155,7 @@ This supplement records the independently evaluated MMDetection baseline jobs fo
 - Runner: `/marimo/mmdet-venv/bin/python` through `utils.marimo_ops`.
 - Split seed: `42`. Training seeds represented: `42` and `43`. NMS IoU: `0.50`.
 - Metric source: MMDetection inference output converted to COCO predictions and scored with `pycocotools`. TinyPerson test used the same external COCO scorer because the native evaluator had a category mapping mismatch.
-- This evaluation was local to the Marimo server. No Hugging Face upload was performed.
+- This evaluation was local to the Marimo server. No Hugging Face upload was performed for the original 26-job supplement. The separate TinyPerson merged-corner queue below was uploaded and remotely verified.
 
 ### 8.2 Merged LEVIR-Ship and TinyPerson seed statistics
 
@@ -235,10 +235,10 @@ The following table makes the full baseline-model coverage visible in `baseline_
 | TinyPerson | no_mosaic | 43 | cascade_rcnn | 0.5207 | 0.1047 | 0.1946 | 0.5384 | 0.5195 | 0.1015 | 0.1938 | 0.6092 |
 | TinyPerson | no_mosaic | 43 | rtmdet | 0.4971 | 0.0878 | 0.1788 | 0.5741 | 0.5109 | 0.0973 | 0.1889 | 0.6168 |
 | TinyPerson | no_mosaic | 43 | atss | 0.4331 | 0.0732 | 0.1542 | 0.5988 | 0.4347 | 0.0666 | 0.1514 | 0.5957 |
-| TinyPerson | no_mosaic | 43 | retinanet | 0.5591 | 0.0781 | 0.1892 | 0.5277 | 0.0567 | 0.0045 | 0.0172 | 0.0476 |
+| TinyPerson | no_mosaic | 43 | retinanet | 0.4410 | 0.0460 | 0.1380 | 0.1210 | 0.3590 | 0.0320 | 0.1080 | 0.1030 |
 | TinyPerson | mosaic | 43 | fcos | 0.4048 | 0.0562 | 0.1354 | 0.5682 | 0.4325 | 0.0623 | 0.1488 | 0.5839 |
 | TinyPerson | mosaic | 43 | faster_rcnn | 0.3049 | 0.0532 | 0.1120 | 0.5902 | 0.3722 | 0.0739 | 0.1404 | 0.6238 |
 | TinyPerson | mosaic | 43 | cascade_rcnn | 0.5172 | 0.0991 | 0.1912 | 0.5416 | 0.5185 | 0.0986 | 0.1928 | 0.5998 |
 | TinyPerson | mosaic | 43 | rtmdet | 0.4910 | 0.0859 | 0.1809 | 0.5625 | 0.5204 | 0.0963 | 0.1907 | 0.6376 |
 | TinyPerson | mosaic | 43 | atss | 0.4237 | 0.0612 | 0.1480 | 0.5196 | 0.4348 | 0.0697 | 0.1516 | 0.5555 |
-| TinyPerson | mosaic | 43 | retinanet | 0.4496 | 0.0509 | 0.1444 | 0.5091 | 0.4485 | 0.0508 | 0.1437 | 0.5249 |
+| TinyPerson | mosaic | 43 | retinanet | 0.4600 | 0.0500 | 0.1450 | 0.1320 | 0.3770 | 0.0390 | 0.1160 | 0.1120 |

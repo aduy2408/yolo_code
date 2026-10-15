@@ -1,8 +1,8 @@
 # MMDetection Baseline Runs: Varroa, LEVIR-Ship, TinyPerson
 
-**Updated:** 2026-10-05  
-**Base report:** `yolo_related/docs/reports/complete_main_report.md`  
-**Scope:** YOLO-matched MMDetection baseline runs only. SOTA and architecture variants are excluded from the main matrix.  
+**Updated:** 2026-10-15
+**Base report:** `yolo_related/docs/reports/complete_main_report.md`
+**Scope:** YOLO-matched MMDetection baseline runs only. SOTA and architecture variants are excluded from the main matrix.
 **Metric policy:** values are copied from remote Hugging Face artifacts without inference. `--` means the requested field is absent from the source artifact and should be evaluated or backfilled on the server.
 
 ## 1. Executive status
@@ -11,7 +11,7 @@
 |---|---|---:|---|---|---|
 | Varroa | `duyle2408/varroa_mmdet_yolo_protocol_runs` | 24 | `no_mosaic`, `mosaic` | 42, 43 | Test metrics present. Validation metrics are absent from the uploaded aggregate artifact. |
 | LEVIR-Ship | `duyle2408/levirship_mmdet_yolo_protocol_seed42_runs` + `duyle2408/levirship_mmdet_yolo_protocol_seed43_runs` | 24 planned baseline prefixes | `no_mosaic`, `mosaic` | 42, 43 | Both seeds are present. Seed42 no-mosaic RetinaNet lacks `final_results.json`; seed43 rows are complete. |
-| TinyPerson | `duyle2408/tinyperson_mmdet_yolo_protocol_seed42_runs` + `duyle2408/tinyperson_mmdet_yolo_protocol_seed43_runs` | 24 planned baseline prefixes | `no_mosaic`, `mosaic` | 42, 43 | Both seeds are present. Seed43 no-mosaic RetinaNet lacks `final_results.json`; other rows have validation/test metrics. |
+| TinyPerson | source repos above; verified output `duyle2408/tinyperson-mmdet-merged-eval-20261015-runs` | 24/24 merged-eval jobs | `no_mosaic`, `mosaic` | 42, 43 | Native and merged validation/test metrics uploaded. All 72 per-run required files and summary verified. |
 
 The remote configs inspected for the YOLO-matched matrix record **MuSGD, 100 epochs, early-stop patience 15, batch size 8, split seed 42, and NMS IoU 0.5**. Varroa records image size 640x640. LEVIR-Ship and TinyPerson retain their dataset-specific baseline resize/window protocols.
 
@@ -155,3 +155,41 @@ Repository: `duyle2408/set-fcos-stw-protocol-runs`
 ## 7. Excluded repositories
 
 Repositories containing DynamicVis, PH-DETR, DGFE/API, SRTOD, DINO/DETR, or other architecture and augmentation variants are excluded from the baseline tables unless explicitly listed above. They should be reported separately as SOTA or variant runs to avoid mixing control and treatment experiments.
+
+## 8. TinyPerson merged-corner re-evaluation, verified 2026-10-15
+
+The source checkpoints and prediction artifacts were pulled from the two existing TinyPerson MMDetection HF dataset repositories and re-scored in the live Marimo MMDetection environment. Each row contains native MMDetection COCO metrics plus merged-corner metrics from `evaluate_tinyperson_metrics.py`. Values are fractions, not percentages.
+
+Output dataset repository: `duyle2408/tinyperson-mmdet-merged-eval-20261015-runs`
+Remote summary: `tinyperson_mmdet_merged_eval/summary.json`
+Remote per-run prefix: `tinyperson_mmdet_merged_eval/{protocol}/seed{seed}/{model}`
+Required files verified for all 24 prefixes: `evaluation_metrics.json`, `evaluation_manifest.json`, `source_final_results.json`.
+
+| Protocol | Seed | Model | Val AP50 | Val mAP50-95 | Val merged AP50 | Val merged mAP50-95 | Test AP50 | Test mAP50-95 | Test merged AP50 | Test merged mAP50-95 |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| mosaic | 42 | atss | 0.4170 | 0.1490 | 0.4298 | 0.1500 | 0.3590 | 0.1230 | 0.4469 | 0.1550 |
+| mosaic | 42 | cascade_rcnn | 0.5260 | 0.2000 | 0.5272 | 0.1981 | 0.4050 | 0.1510 | 0.4810 | 0.1820 |
+| mosaic | 42 | faster_rcnn | 0.2770 | 0.1070 | 0.2904 | 0.1084 | 0.2680 | 0.1020 | 0.3526 | 0.1329 |
+| mosaic | 42 | fcos | 0.4010 | 0.1400 | 0.4060 | 0.1394 | 0.3540 | 0.1200 | 0.4415 | 0.1523 |
+| mosaic | 42 | retinanet | 0.4610 | 0.1520 | 0.4515 | 0.1484 | 0.3730 | 0.1170 | 0.4344 | 0.1405 |
+| mosaic | 42 | rtmdet | 0.5000 | 0.1870 | 0.5054 | 0.1837 | 0.4220 | 0.1550 | 0.5191 | 0.1902 |
+| mosaic | 43 | atss | 0.4210 | 0.1490 | 0.4237 | 0.1480 | 0.3510 | 0.1190 | 0.4348 | 0.1516 |
+| mosaic | 43 | cascade_rcnn | 0.5170 | 0.1930 | 0.5172 | 0.1912 | 0.4300 | 0.1580 | 0.5185 | 0.1928 |
+| mosaic | 43 | faster_rcnn | 0.2530 | 0.1020 | 0.3049 | 0.1120 | 0.2860 | 0.1070 | 0.3722 | 0.1404 |
+| mosaic | 43 | fcos | 0.3950 | 0.1340 | 0.4048 | 0.1354 | 0.3450 | 0.1170 | 0.4325 | 0.1488 |
+| mosaic | 43 | retinanet | 0.4600 | 0.1450 | 0.4496 | 0.1444 | 0.3770 | 0.1160 | 0.4485 | 0.1437 |
+| mosaic | 43 | rtmdet | 0.4890 | 0.1870 | 0.4910 | 0.1809 | 0.4250 | 0.1560 | 0.5204 | 0.1907 |
+| no_mosaic | 42 | atss | 0.4210 | 0.1490 | 0.4392 | 0.1525 | 0.3510 | 0.1210 | 0.4413 | 0.1553 |
+| no_mosaic | 42 | cascade_rcnn | 0.5050 | 0.1920 | 0.5106 | 0.1903 | 0.4300 | 0.1550 | 0.5139 | 0.1896 |
+| no_mosaic | 42 | faster_rcnn | 0.2890 | 0.1080 | 0.3092 | 0.1105 | 0.2820 | 0.1040 | 0.3688 | 0.1361 |
+| no_mosaic | 42 | fcos | 0.4080 | 0.1400 | 0.4154 | 0.1411 | 0.3430 | 0.1160 | 0.4305 | 0.1484 |
+| no_mosaic | 42 | retinanet | 0.4810 | 0.1520 | 0.4790 | 0.1514 | 0.3950 | 0.1230 | 0.4668 | 0.1497 |
+| no_mosaic | 42 | rtmdet | 0.4830 | 0.1830 | 0.5061 | 0.1818 | 0.4100 | 0.1510 | 0.5056 | 0.1844 |
+| no_mosaic | 43 | atss | 0.4190 | 0.1510 | 0.4331 | 0.1542 | 0.3470 | 0.1190 | 0.4347 | 0.1514 |
+| no_mosaic | 43 | cascade_rcnn | 0.5230 | 0.1990 | 0.5207 | 0.1946 | 0.4360 | 0.1590 | 0.5195 | 0.1938 |
+| no_mosaic | 43 | faster_rcnn | 0.2690 | 0.1070 | 0.2895 | 0.1103 | 0.2660 | 0.0980 | 0.3488 | 0.1285 |
+| no_mosaic | 43 | fcos | 0.4200 | 0.1480 | 0.4269 | 0.1485 | 0.3420 | 0.1150 | 0.4276 | 0.1469 |
+| no_mosaic | 43 | retinanet | 0.4410 | 0.1380 | 0.4470 | 0.1389 | 0.3590 | 0.1080 | 0.4296 | 0.1344 |
+| no_mosaic | 43 | rtmdet | 0.4850 | 0.1830 | 0.4971 | 0.1788 | 0.4150 | 0.1540 | 0.5109 | 0.1889 |
+
+Acceptance evidence: the detached Marimo queue reached `complete: 24`, the process exited after scoring all 24 combinations, the HF dataset repository contained 122 files with zero missing required files, and `summary.json` contained 24 entries. The runner used split seed `42`, training seeds `42,43`, NMS IoU `0.5`, `/marimo/mmdet-venv/bin/python`, and upload-required mode.
