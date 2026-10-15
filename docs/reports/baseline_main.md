@@ -66,17 +66,17 @@ Sample standard deviation across the available verified seeds. `n` is the number
 
 ### 3.1 TinyPerson merged-corner re-evaluation
 
-The TinyPerson baseline rows below are the replacement reporting view for the new merged-aware evaluation. Validation metrics and native split test metrics remain available, while the final test values use the official merged corner-window evaluator. Values are fractions, not percentages. `n=3` covers seeds `42, 43, 44`.
+The TinyPerson baseline rows below are the replacement reporting view for the corrected merged-aware evaluation. Validation metrics and native split test metrics remain available, while the final merged test metric uses IoU thresholds `0.50:0.05:0.95`. Values are fractions, not percentages. `n=3` covers seeds `42, 43, 44`.
 
-| Model | n | Val AP50 | Val mAP50-95 | Val AP50-Small | Native test AP50 | Native test mAP50-95 | Native test AP50-Small | Merged test AP50 | Merged test mAP50-75 | Merged test AP50-Small |
+| Model | n | Val AP50 | Val mAP50-95 | Val AP50-Small | Native test AP50 | Native test mAP50-95 | Native test AP50-Small | Merged test AP50 | Merged test mAP50-95 | Merged test AP50-Small |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| YOLOv5 | 3 | 0.4923 ± 0.0419 | 0.1707 ± 0.0171 | 0.4525 ± 0.0483 | 0.4809 ± 0.0326 | 0.1689 ± 0.0153 | 0.4730 ± 0.0355 | 0.5082 ± 0.0301 | 0.2928 ± 0.0216 | 0.6494 ± 0.0185 |
-| YOLOv8 | 3 | 0.4963 ± 0.0311 | 0.1751 ± 0.0126 | 0.4454 ± 0.0507 | 0.4812 ± 0.0265 | 0.1693 ± 0.0126 | 0.4737 ± 0.0312 | 0.5057 ± 0.0279 | 0.2928 ± 0.0210 | 0.6525 ± 0.0205 |
-| YOLOv9 | 3 | 0.4955 ± 0.0090 | 0.1771 ± 0.0027 | 0.4516 ± 0.0124 | 0.4954 ± 0.0042 | 0.1766 ± 0.0023 | 0.4971 ± 0.0042 | 0.5189 ± 0.0020 | 0.3024 ± 0.0019 | 0.6675 ± 0.0048 |
-| YOLOv10 | 3 | 0.4643 ± 0.0097 | 0.1676 ± 0.0020 | 0.3717 ± 0.0243 | 0.4439 ± 0.0035 | 0.1637 ± 0.0011 | 0.4332 ± 0.0069 | 0.4924 ± 0.0037 | 0.2786 ± 0.0021 | 0.6414 ± 0.0067 |
-| YOLO11 | 3 | 0.5195 ± 0.0077 | 0.1827 ± 0.0006 | 0.4492 ± 0.0284 | 0.4889 ± 0.0042 | 0.1725 ± 0.0013 | 0.4838 ± 0.0074 | 0.5126 ± 0.0016 | 0.2966 ± 0.0013 | 0.6573 ± 0.0045 |
+| YOLOv5 | 3 | 0.4923 ± 0.0419 | 0.1707 ± 0.0171 | 0.4525 ± 0.0483 | 0.4809 ± 0.0326 | 0.1689 ± 0.0153 | 0.4730 ± 0.0355 | 0.5082 ± 0.0301 | 0.1812 ± 0.0140 | 0.6494 ± 0.0185 |
+| YOLOv8 | 3 | 0.4963 ± 0.0311 | 0.1751 ± 0.0126 | 0.4454 ± 0.0507 | 0.4812 ± 0.0265 | 0.1693 ± 0.0126 | 0.4737 ± 0.0312 | 0.5057 ± 0.0279 | 0.1816 ± 0.0119 | 0.6525 ± 0.0205 |
+| YOLOv9 | 3 | 0.4955 ± 0.0090 | 0.1771 ± 0.0027 | 0.4516 ± 0.0124 | 0.4954 ± 0.0042 | 0.1766 ± 0.0023 | 0.4971 ± 0.0042 | 0.5189 ± 0.0020 | 0.1873 ± 0.0015 | 0.6675 ± 0.0048 |
+| YOLOv10 | 3 | 0.4643 ± 0.0097 | 0.1676 ± 0.0020 | 0.3717 ± 0.0243 | 0.4439 ± 0.0035 | 0.1637 ± 0.0011 | 0.4332 ± 0.0069 | 0.4924 ± 0.0037 | 0.1715 ± 0.0012 | 0.6414 ± 0.0067 |
+| YOLO11 | 3 | 0.5195 ± 0.0077 | 0.1827 ± 0.0006 | 0.4492 ± 0.0284 | 0.4889 ± 0.0042 | 0.1725 ± 0.0013 | 0.4838 ± 0.0074 | 0.5126 ± 0.0016 | 0.1838 ± 0.0005 | 0.6573 ± 0.0045 |
 
-**TinyPerson merged protocol:** official corner-window merged TinyBenchmark evaluator, IoU `0.50:0.05:0.75`, source/output repository `duyle2408/yolo-baseline-merged-recheck-runs`, split seed `42`, image size `640`. The per-seed source artifacts contain `val/AP50`, `val/mAP50-95`, native `test/AP50`, native `test/mAP50-95`, and `test_merged/*` fields.
+**TinyPerson merged protocol:** official corner-window merged TinyBenchmark evaluator, IoU `0.50:0.05:0.95`, source/output repository `duyle2408/tinyperson-baseline-merged-map50-95-runs`, split seed `42`, image size `640`. The per-seed source artifacts contain `val/AP50`, `val/mAP50-95`, native `test/AP50`, native `test/mAP50-95`, and `test_merged/mAP50-95` fields.
 
 ## 4. Per-seed artifact source
 
