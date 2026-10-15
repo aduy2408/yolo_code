@@ -25,7 +25,7 @@ This table is the requested main comparison slice: one selected run per family, 
 | STW YOLO | TinyPerson | 42 | 0.6262 | 0.2393 | -- | 0.5774 | 0.2238 | -- | Verified rerun on Marimo; native corner-window val/test metrics. Merged test metrics are listed in the rerun addendum below |
 | TPH YOLOv5 | Varroa | 42 | 0.8480 | 0.2930 | 0.8486 | 0.8220 | 0.2920 | 0.8275 | Existing evaluation-only artifact from the supplied TPH checkpoint; native val/test metrics plus AP50-small verified |
 | TPH YOLOv5 | LEVIR-Ship | 42 | 0.7140 | 0.2590 | 0.7862 | 0.6740 | 0.2370 | 0.7180 | Existing evaluation-only artifact from the supplied TPH checkpoint; native val/test metrics plus AP50-small verified |
-| TPH YOLOv5 | TinyPerson | 42 | 0.5420 | 0.1920 | -- | 0.5350 | 0.1960 | -- | Verified native TPH-YOLOv5 rerun on Marimo; merged evaluator was attempted but did not produce a verified artifact |
+| TPH YOLOv5 | TinyPerson | 42 | 0.5420 | 0.1920 | -- | 0.5350 | 0.1960 | -- | Verified native TPH-YOLOv5 rerun on Marimo; corrected merged val/test metrics are listed in the rerun addendum below |
 | FCOS-SET | Varroa | 43 | 0.8950 | 0.3070 | 0.2820 | 0.8750 | 0.3180 | 0.2970 | Fresh `tools/test.py` evaluation of supplied HF checkpoint; predictions verified |
 | FCOS-SET | LEVIR-Ship | 43 | 0.7656 | 0.2762 | 0.7683 | 0.7358 | 0.2708 | 0.7330 | Supplied HF `final_results.json`, cross-checked with fresh MMDetection evaluation |
 | FCOS-SET | TinyPerson | 43 | 0.4084 | 0.1487 | 0.5366 | 0.4247 | 0.1523 | 0.5916 | Supplied HF `final_results.json`; val/test fields complete |
@@ -33,17 +33,18 @@ This table is the requested main comparison slice: one selected run per family, 
 | FCOS-SR-TOD | LEVIR-Ship | 43 | 0.7330 | 0.2670 | 0.7375 | 0.6520 | 0.2070 | 0.6466 | Corrected full 584-image val/test rerun from supplied checkpoint; AP50-small recomputed with COCOeval IoU=0.50, area=small |
 | FCOS-SR-TOD | TinyPerson | 43 | 0.4180 | 0.1500 | 0.3712 | 0.3730 | 0.1290 | 0.3466 | Evaluation-only rerun from supplied checkpoint; AP50-small recomputed with COCOeval IoU=0.50, area=small, maxDets=1000 |
 
-### Verified TinyPerson rerun addendum (2026-10-15)
+### Verified TinyPerson merged rerun addendum (2026-10-15)
 
-The following values come from the requested checkpoint rerun on the authorized Marimo server with split seed 42, image size 640, batch size 8, NMS IoU 0.50, and the prepared corner-window TinyPerson split. Native validation/test metrics and merged test metrics are kept as separate protocols.
+These values come from the corrected GPU rerun on the authorized Marimo server using the exact TinyPerson corner-window protocol, split seed 42, image size 640, batch size 32, workers 8, NMS IoU 0.50, and the seed42 STW/TPH checkpoints. The evaluator used native TPH coordinate scaling, manifest corner `[x, y, width, height]` offsets, source-image merging, separate per-model artifacts, and class-agnostic NMS after merging. The TinyPerson COCO evaluator remained unchanged and ran on CPU. All values below are explicitly **merged** metrics.
 
-| Model | Val AP50 | Val mAP50-95 | Native test AP50 | Native test mAP50-95 | Merged test AP50 | Merged test AP50-small | Merged test mAP50-75 | Status/provenance |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| STW YOLO | 0.6262 | 0.2393 | 0.5774 | 0.2238 | 0.5892 | 0.7004 | 0.3603 | Complete. Merged metrics verified in the new STW evaluation artifact. |
-| TPH YOLOv5 | 0.5420 | 0.1920 | 0.5350 | 0.1960 | 0.5475 | 0.6369 | 0.3289 | Complete. Merged metrics verified with CUDA inference (`cuda:0`, batch 32) and vectorized GPU NMS. |
+| Model | Val merged AP50 | Val merged mAP50-95 | Val merged AP50-small | Test merged AP50 | Test merged mAP50-95 | Test merged AP50-small | Device/status |
+|---|---:|---:|---:|---:|---:|---:|---|
+| STW YOLO | 0.6167 | 0.2297 | 0.7192 | 0.5883 | 0.2237 | 0.6989 | `cuda:0`, complete |
+| TPH YOLOv5 | 0.5368 | 0.1897 | 0.6507 | 0.5475 | 0.2042 | 0.6369 | `cuda:0`, complete |
 
-The STW artifact also records merged `AP50-small` 0.7004, merged `AP-Tiny1` 0.2384, merged `AP-Tiny2` 0.3639, merged `AP-Tiny3` 0.4249, and merged `AP-Medium` 0.4394. The TPH artifact records merged `AP50-small` 0.6369, merged `AP-Tiny1` 0.2097, merged `AP-Tiny2` 0.3307, merged `AP-Tiny3` 0.3778, and merged `AP-Medium` 0.3989. The TPH native metrics were verified with the upstream TPH-YOLOv5 validator after applying only runtime compatibility patches required by the current Python/NumPy environment. The corrected TPH merged evaluator used CUDA inference on `cuda:0` with batch size 32 and vectorized GPU NMS.
+The corrected artifacts and upload were verified in `duyle2408/stw-tph-tinyperson-corrected-20261015-runs` under `tinyperson/seed42/corrected_gpu_r4/`. Required files include `final_results.json`, both validation/test merged prediction files for each model, both merged ground-truth files, and `run_contract.json`. The TPH test artifact contains 2,288,316 detections before final report use. These values replace the earlier invalid TPH merged values produced by parsing saved normalized text predictions.
 
+The source artifact records additional split-qualified values, including STW validation/test merged `mAP50-75` 0.3720/0.3596 and TPH validation/test merged `mAP50-75` 0.3074/0.3289.
 ### Verified FCOS TinyPerson merged rerun (2026-10-15)
 
 These values are from the new GPU Marimo rerun using the exact seed43 checkpoints and configs recovered from the historical Hugging Face artifacts. The evaluator used the canonical MMDetection `tools/test.py` interface followed by `evaluate_tinyperson_metrics.py`, with split seed 42, 640x640 corner-window inference, source-image merging, and class-aware NMS. These are **merged** metrics and must not be substituted into the native corner-window columns above.
