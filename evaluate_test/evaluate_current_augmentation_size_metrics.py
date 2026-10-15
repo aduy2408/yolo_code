@@ -38,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--model-yaml", default="source checkpoint weights/best.pt")
     p.add_argument("--data-root", default="matrix")
     p.add_argument("--force", action="store_true")
+    p.add_argument("--defer-upload", action="store_true", help="Evaluate every job first, then upload one verified batch")
     return p.parse_args()
 
 
@@ -65,7 +66,8 @@ def main() -> None:
     pairs = {(j.split("::", 1)[1].split("/")[1], j.split("::", 1)[1].split("/")[2]) for j in args.jobs}
     prepared = {pair: prepare_dataset(pair[0], base, pair[1]) for pair in sorted(pairs)}
     remote_files = set(api.list_repo_files(args.hf_repo_id, repo_type="dataset"))
-    print(json.dumps({"jobs": len(args.jobs), "output_repo": args.hf_repo_id}), flush=True)
+    pending_uploads = []
+    print(json.dumps({"jobs": len(args.jobs), "output_repo": args.hf_repo_id, "defer_upload": args.defer_upload}), flush=True)
     for item in args.jobs:
         source_repo, prefix = item.split("::", 1)
         parts = prefix.split("/")
@@ -107,9 +109,36 @@ def main() -> None:
         marker_path.write_text(json.dumps({"repo_id": args.hf_repo_id, "remote_prefix": out_prefix, "verified": True}, indent=2, sort_keys=True) + "\n")
         uploads = [(metrics_path, f"{out_prefix}/evaluation_metrics.json"), (manifest_path, f"{out_prefix}/size_metrics_manifest.json"), (marker_path, marker_remote)]
         uploads.extend((p, f"{out_prefix}/{p.relative_to(out_dir)}") for p in artifacts if p.is_file())
+        if args.defer_upload:
+            pending_uploads.extend(uploads)
+            print(json.dumps({
+                "prefix": prefix,
+                "status": "LOCAL_COMPLETE",
+                "primary_merged_metric": "test_merged/mAP50-95",
+                "test_merged/mAP50-95": metrics.get("test_merged/mAP50-95"),
+                "test_merged/AP50": metrics.get("test_merged/AP50"),
+                "test_merged/AP50-Small": metrics.get("test_merged/AP50-Small"),
+            }, sort_keys=True), flush=True)
+            continue
         api.create_commit(repo_id=args.hf_repo_id, repo_type="dataset", operations=[CommitOperationAdd(path_in_repo=remote, path_or_fileobj=str(local)) for local, remote in uploads], commit_message=f"Add AP50-small metrics for {prefix}")
         remote_files.update(remote for _, remote in uploads)
         print(json.dumps({"prefix": prefix, "status": "verified", **{k: metrics.get(k) for k in (*standard, "val_size/AP50-small", "test_size/AP50-small")}}, sort_keys=True), flush=True)
+
+    if args.defer_upload and pending_uploads:
+        api.create_commit(
+            repo_id=args.hf_repo_id,
+            repo_type="dataset",
+            operations=[
+                CommitOperationAdd(path_in_repo=remote, path_or_fileobj=str(local))
+                for local, remote in pending_uploads
+            ],
+            commit_message="Upload complete TinyPerson merged mAP50-95 evaluation batch",
+        )
+        remote = set(api.list_repo_files(args.hf_repo_id, repo_type="dataset"))
+        missing = [remote_path for _, remote_path in pending_uploads if remote_path not in remote]
+        if missing:
+            raise RuntimeError(f"Remote verification failed after batch upload: {missing}")
+        print(json.dumps({"status": "BATCH_UPLOAD_VERIFIED", "files": len(pending_uploads), "primary_merged_metric": "test_merged/mAP50-95"}, sort_keys=True), flush=True)
 
 
 if __name__ == "__main__":
