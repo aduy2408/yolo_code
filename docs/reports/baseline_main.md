@@ -9,7 +9,7 @@
 - Hugging Face completion, metrics, and manifests independently verified: **83/83** for the consolidated baseline report, with **10/10** additional Varroa Mosaic jobs verified in `duyle2408/varroa-yolo-baselines-mosaic-two-seed-runs`.
 - Every bundle contains split-qualified validation and test metrics:
   `val/test AP50`, `val/test AP75`, `val/test mAP50-95`, and native size-bucket `AP50/AP75`.
-- TinyPerson `test/*` uses the official `sw640/sh512` corner-window native test protocol. Merged-corner metrics remain a separate protocol.
+- TinyPerson `test/*` uses the native `sw640/sh512` corner-window split, while the authoritative reported test result is now the official merged corner-window protocol summarized in Section 3.1.
 - Two custom P2/P2-offset checkpoints were excluded because they are not part of the requested YOLOv5/v8/v9/v10/v11 baseline families.
 - A live Hugging Face audit confirms that Varroa Mosaic baseline training archives do exist, but their source repositories contain training logs and plots rather than reusable `best.pt` checkpoints or split-qualified evaluation JSON. They were therefore not part of the 73-job re-evaluation queue.
 
@@ -52,7 +52,7 @@ Sample standard deviation across the available verified seeds. `n` is the number
 | TinyPerson | No Mosaic | YOLOv8 | 3 | 0.4963 ± 0.0311 | 0.0840 ± 0.0093 | 0.1751 ± 0.0126 | 0.4454 ± 0.0507 | 0.0831 ± 0.0108 | 0.4812 ± 0.0265 | 0.0758 ± 0.0110 | 0.1693 ± 0.0126 | 0.4737 ± 0.0312 | 0.0749 ± 0.0102 |
 | TinyPerson | No Mosaic | YOLOv9 | 3 | 0.4955 ± 0.0090 | 0.0883 ± 0.0010 | 0.1771 ± 0.0027 | 0.4516 ± 0.0124 | 0.0860 ± 0.0010 | 0.4954 ± 0.0042 | 0.0822 ± 0.0026 | 0.1766 ± 0.0022 | 0.4971 ± 0.0042 | 0.0807 ± 0.0018 |
 | TinyPerson | No Mosaic | YOLOv10 | 3 | 0.4645 ± 0.0092 | 0.0792 ± 0.0018 | 0.1676 ± 0.0020 | 0.3717 ± 0.0243 | 0.0672 ± 0.0034 | 0.4439 ± 0.0035 | 0.0816 ± 0.0010 | 0.1637 ± 0.0011 | 0.4332 ± 0.0069 | 0.0676 ± 0.0011 |
-| TinyPerson | No Mosaic | YOLO11 | 3 | 0.5196 ± 0.0077 | 0.0910 ± 0.0044 | 0.1827 ± 0.0006 | 0.4492 ± 0.0284 | 0.0895 ± 0.0044 | 0.4889 ± 0.0042 | 0.0798 ± 0.0012 | 0.1725 ± 0.0013 | 0.4838 ± 0.0074 | 0.0788 ± 0.0010 |
+| TinyPerson | No Mosaic | YOLO11 | 3 | 0.5195 ± 0.0077 | 0.0910 ± 0.0044 | 0.1827 ± 0.0006 | 0.4492 ± 0.0284 | 0.0895 ± 0.0044 | 0.4889 ± 0.0042 | 0.0798 ± 0.0012 | 0.1725 ± 0.0013 | 0.4838 ± 0.0074 | 0.0788 ± 0.0010 |
 | Varroa | No Mosaic | YOLOv5 | 3 | 0.9074 ± 0.0101 | 0.1024 ± 0.0091 | 0.3261 ± 0.0087 | 0.8246 ± 0.0296 | 0.0967 ± 0.0066 | 0.8940 ± 0.0089 | 0.0998 ± 0.0059 | 0.3289 ± 0.0049 | 0.8045 ± 0.0151 | 0.0954 ± 0.0045 |
 | Varroa | No Mosaic | YOLOv8 | 3 | 0.8952 ± 0.0057 | 0.1034 ± 0.0070 | 0.3256 ± 0.0033 | 0.8441 ± 0.0328 | 0.0980 ± 0.0093 | 0.8973 ± 0.0161 | 0.1094 ± 0.0115 | 0.3294 ± 0.0054 | 0.8393 ± 0.0421 | 0.1042 ± 0.0105 |
 | Varroa | No Mosaic | YOLOv9 | 3 | 0.9144 ± 0.0091 | 0.1031 ± 0.0040 | 0.3303 ± 0.0054 | 0.8742 ± 0.0174 | 0.0956 ± 0.0042 | 0.8995 ± 0.0024 | 0.1137 ± 0.0072 | 0.3304 ± 0.0021 | 0.8619 ± 0.0171 | 0.1076 ± 0.0151 |
@@ -63,6 +63,20 @@ Sample standard deviation across the available verified seeds. `n` is the number
 | Varroa | Mosaic | YOLOv9 | 2 | 0.8967 ± 0.0007 | 0.1057 ± 0.0043 | 0.3259 ± 0.0035 | 0.8825 ± 0.0231 | 0.0954 ± 0.0072 | 0.8865 ± 0.0001 | 0.0968 ± 0.0123 | 0.3183 ± 0.0106 | 0.8685 ± 0.0124 | 0.0909 ± 0.0070 |
 | Varroa | Mosaic | YOLOv10 | 2 | 0.8519 ± 0.0594 | 0.1371 ± 0.0071 | 0.3273 ± 0.0159 | 0.7791 ± 0.1125 | 0.0967 ± 0.0114 | 0.8614 ± 0.0283 | 0.1314 ± 0.0105 | 0.3212 ± 0.0014 | 0.7752 ± 0.0710 | 0.0965 ± 0.0016 |
 | Varroa | Mosaic | YOLO11 | 2 | 0.9131 ± 0.0044 | 0.1116 ± 0.0000 | 0.3341 ± 0.0072 | 0.8866 ± 0.0033 | 0.1053 ± 0.0084 | 0.9022 ± 0.0125 | 0.1084 ± 0.0070 | 0.3293 ± 0.0014 | 0.8624 ± 0.0012 | 0.1035 ± 0.0014 |
+
+### 3.1 TinyPerson merged-corner re-evaluation
+
+The TinyPerson baseline rows below are the replacement reporting view for the new merged-aware evaluation. Validation metrics and native split test metrics remain available, while the final test values use the official merged corner-window evaluator. Values are fractions, not percentages. `n=3` covers seeds `42, 43, 44`.
+
+| Model | n | Val AP50 | Val mAP50-95 | Val AP50-Small | Native test AP50 | Native test mAP50-95 | Native test AP50-Small | Merged test AP50 | Merged test mAP50-75 | Merged test AP50-Small |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| YOLOv5 | 3 | 0.4923 ± 0.0419 | 0.1707 ± 0.0171 | 0.4525 ± 0.0483 | 0.4809 ± 0.0326 | 0.1689 ± 0.0153 | 0.4730 ± 0.0355 | 0.5082 ± 0.0301 | 0.2928 ± 0.0216 | 0.6494 ± 0.0185 |
+| YOLOv8 | 3 | 0.4963 ± 0.0311 | 0.1751 ± 0.0126 | 0.4454 ± 0.0507 | 0.4812 ± 0.0265 | 0.1693 ± 0.0126 | 0.4737 ± 0.0312 | 0.5057 ± 0.0279 | 0.2928 ± 0.0210 | 0.6525 ± 0.0205 |
+| YOLOv9 | 3 | 0.4955 ± 0.0090 | 0.1771 ± 0.0027 | 0.4516 ± 0.0124 | 0.4954 ± 0.0042 | 0.1766 ± 0.0023 | 0.4971 ± 0.0042 | 0.5189 ± 0.0020 | 0.3024 ± 0.0019 | 0.6675 ± 0.0048 |
+| YOLOv10 | 3 | 0.4643 ± 0.0097 | 0.1676 ± 0.0020 | 0.3717 ± 0.0243 | 0.4439 ± 0.0035 | 0.1637 ± 0.0011 | 0.4332 ± 0.0069 | 0.4924 ± 0.0037 | 0.2786 ± 0.0021 | 0.6414 ± 0.0067 |
+| YOLO11 | 3 | 0.5195 ± 0.0077 | 0.1827 ± 0.0006 | 0.4492 ± 0.0284 | 0.4889 ± 0.0042 | 0.1725 ± 0.0013 | 0.4838 ± 0.0074 | 0.5126 ± 0.0016 | 0.2966 ± 0.0013 | 0.6573 ± 0.0045 |
+
+**TinyPerson merged protocol:** official corner-window merged TinyBenchmark evaluator, IoU `0.50:0.05:0.75`, source/output repository `duyle2408/yolo-baseline-merged-recheck-runs`, split seed `42`, image size `640`. The per-seed source artifacts contain `val/AP50`, `val/mAP50-95`, native `test/AP50`, native `test/mAP50-95`, and `test_merged/*` fields.
 
 ## 4. Per-seed artifact source
 
