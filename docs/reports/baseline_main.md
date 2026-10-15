@@ -115,7 +115,7 @@ The HF audit found `83/83` completion, metric, and manifest artifacts in the con
 
 ## 8. MMDetection baseline supplement
 
-This supplement records the independently evaluated MMDetection baseline jobs for the same three datasets. It does not change the YOLO baseline count in Sections 1-6. The earlier missing-row evaluation completed **26/26 jobs**. A separate TinyPerson merged-corner re-evaluation is now verified for **24/24 MMDetection jobs**, with native and merged validation/test fields uploaded below.
+This supplement records the independently evaluated MMDetection baseline jobs for the same three datasets. It does not change the YOLO baseline count in Sections 1-6. The earlier missing-row evaluation completed **26/26 jobs**. A separate TinyPerson merged-corner re-evaluation is now verified for **24/24 MMDetection jobs**, with native and merged validation/test fields uploaded below. The authoritative TinyPerson output is `duyle2408/tinyperson-mmdet-merged-eval-20261015-runs`, summarized in `tinyperson_mmdet_merged_eval/summary.json` and detailed in `mmdetection_baseline_runs_report.md`.
 
 **Coverage note:** the first table is the newly evaluated missing-row supplement. It adds 24 Varroa rows, one LEVIR-Ship row (`seed42/no_mosaic/retinanet`), and one TinyPerson row (`seed43/no_mosaic/retinanet`). The merged seed statistics in Section 8.2 combine these new rows with the pre-existing LEVIR-Ship and TinyPerson rows from [`mmdetection_baseline_runs_report.md`](mmdetection_baseline_runs_report.md).
 | Dataset | Protocol | Seed | Model | Val AP50 | Val AP75 | Val mAP50-95 | Val AP50-Small | Test AP50 | Test AP75 | Test mAP50-95 | Test AP50-Small |
