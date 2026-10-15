@@ -1,8 +1,8 @@
 # SOTA Report: STW YOLO, TPH YOLO, FCOS-SET, FCOS-SR-TOD
 
-**Updated:** 2026-10-05  
+**Updated:** 2026-10-15
 **Scope:** Varroa, LEVIR-Ship, and TinyPerson only. **VisDrone is intentionally excluded.**  
-**Metric policy:** metrics are copied from remote HF artifacts. `--` means missing from the source artifact, not zero. Aggregate metrics without split labels are not relabeled as validation/test.
+**Metric policy:** metrics are copied from remote HF artifacts or directly verified rerun artifacts. `--` means missing or not verified for the stated protocol, not zero. Aggregate metrics without split labels are not relabeled as validation/test. Merged TinyPerson metrics are reported separately from native corner-window metrics.
 
 ## 1. Scope and repositories
 
@@ -22,10 +22,10 @@ This table is the requested main comparison slice: one selected run per family, 
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
 | STW YOLO | Varroa | 42 | 0.9296 | 0.3491 | 0.8978 | 0.9166 | 0.3533 | 0.8818 | Existing split-aware STW evaluation artifact; native val/test metrics plus AP50-small verified |
 | STW YOLO | LEVIR-Ship | 42 | 0.8370 | 0.3413 | 0.8340 | 0.7992 | 0.2954 | 0.8408 | Existing split-aware STW evaluation artifact; native val/test metrics plus AP50-small verified |
-| STW YOLO | TinyPerson | 42 | 0.6262 | 0.2394 | 0.5981 | 0.5775 | 0.2238 | 0.5418 | Existing split-aware STW evaluation artifact; native val/test metrics plus AP50-small verified |
+| STW YOLO | TinyPerson | 42 | 0.6262 | 0.2393 | -- | 0.5774 | 0.2238 | -- | Verified rerun on Marimo; native corner-window val/test metrics. Merged test metrics are listed in the rerun addendum below |
 | TPH YOLOv5 | Varroa | 42 | 0.8480 | 0.2930 | 0.8486 | 0.8220 | 0.2920 | 0.8275 | Existing evaluation-only artifact from the supplied TPH checkpoint; native val/test metrics plus AP50-small verified |
 | TPH YOLOv5 | LEVIR-Ship | 42 | 0.7140 | 0.2590 | 0.7862 | 0.6740 | 0.2370 | 0.7180 | Existing evaluation-only artifact from the supplied TPH checkpoint; native val/test metrics plus AP50-small verified |
-| TPH YOLOv5 | TinyPerson | 42 | 0.5420 | 0.1920 | 0.6381 | 0.5350 | 0.1960 | 0.6315 | Existing evaluation-only artifact from the supplied TPH checkpoint; official corner-window val/test plus AP50-small verified |
+| TPH YOLOv5 | TinyPerson | 42 | 0.5420 | 0.1920 | -- | 0.5350 | 0.1960 | -- | Verified native TPH-YOLOv5 rerun on Marimo; merged evaluator was attempted but did not produce a verified artifact |
 | FCOS-SET | Varroa | 43 | 0.8950 | 0.3070 | 0.2820 | 0.8750 | 0.3180 | 0.2970 | Fresh `tools/test.py` evaluation of supplied HF checkpoint; predictions verified |
 | FCOS-SET | LEVIR-Ship | 43 | 0.7656 | 0.2762 | 0.7683 | 0.7358 | 0.2708 | 0.7330 | Supplied HF `final_results.json`, cross-checked with fresh MMDetection evaluation |
 | FCOS-SET | TinyPerson | 43 | 0.4084 | 0.1487 | 0.5366 | 0.4247 | 0.1523 | 0.5916 | Supplied HF `final_results.json`; val/test fields complete |
@@ -33,10 +33,18 @@ This table is the requested main comparison slice: one selected run per family, 
 | FCOS-SR-TOD | LEVIR-Ship | 43 | 0.7330 | 0.2670 | 0.7375 | 0.6520 | 0.2070 | 0.6466 | Corrected full 584-image val/test rerun from supplied checkpoint; AP50-small recomputed with COCOeval IoU=0.50, area=small |
 | FCOS-SR-TOD | TinyPerson | 43 | 0.4180 | 0.1500 | 0.3712 | 0.3730 | 0.1290 | 0.3466 | Evaluation-only rerun from supplied checkpoint; AP50-small recomputed with COCOeval IoU=0.50, area=small, maxDets=1000 |
 
-### Metric and provenance notes
+### Verified TinyPerson rerun addendum (2026-10-15)
 
-- The main table now uses split-qualified native evaluation artifacts for STW YOLO and TPH YOLO, and corrected evaluation-only MMDetection artifacts for FCOS-SR-TOD. AP50-small is explicitly the IoU=0.50, area=small result, not COCO AP-small averaged over IoU=0.50:0.95. TPH TinyPerson uses the official corner-window protocol. FCOS-SR-TOD LEVIR uses the full 584-image val/test split.
+The following values come from the requested checkpoint rerun on the authorized Marimo server with split seed 42, image size 640, batch size 8, NMS IoU 0.50, and the prepared corner-window TinyPerson split. Native validation/test metrics and merged test metrics are kept as separate protocols.
 
+| Model | Val AP50 | Val mAP50-95 | Native test AP50 | Native test mAP50-95 | Merged test AP50 | Merged test AP50-small | Merged test mAP50-75 | Status/provenance |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| STW YOLO | 0.6262 | 0.2393 | 0.5774 | 0.2238 | 0.5892 | 0.7004 | 0.3603 | Complete. Merged metrics verified in the new STW evaluation artifact. |
+| TPH YOLOv5 | 0.5420 | 0.1920 | 0.5350 | 0.1960 | -- | -- | -- | Incomplete merged evaluation. The real evaluator remained CPU-bound for more than 14 minutes and was stopped without producing `tph_merged_metrics.json`; no unverified merged value is reported. |
+
+The STW artifact also records merged `AP50-small` 0.7004, merged `AP-Tiny1` 0.2384, merged `AP-Tiny2` 0.3639, merged `AP-Tiny3` 0.4249, and merged `AP-Medium` 0.4394. The TPH native metrics were verified with the upstream TPH-YOLOv5 validator after applying only runtime compatibility patches required by the current Python/NumPy environment.
+
+- The main table uses split-qualified native evaluation artifacts for STW YOLO and TPH YOLO, and corrected evaluation-only MMDetection artifacts for FCOS-SR-TOD. AP50-small is explicitly the IoU=0.50, area=small result, not COCO AP-small averaged over IoU=0.50:0.95. TPH TinyPerson uses the official corner-window protocol. FCOS-SR-TOD LEVIR uses the full 584-image val/test split.
 
 The compact table below records the fields that are present in the remote artifacts. TPH and FCOS-SET rows are split-qualified where the source exposes val/test fields. STW YOLO rows expose aggregate YOLO evaluation metrics only. Existing rows are historical results and are not being marked for re-evaluation by the seed plan below.
 
