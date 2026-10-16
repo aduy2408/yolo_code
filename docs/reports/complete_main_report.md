@@ -1,6 +1,6 @@
 # Complete Main Report: Augmentation Matrix
 
-**Updated:** 2026-10-05
+**Updated:** 2026-10-16
 **Scope:** YOLO augmentation matrix only: OACP, Mosaic, and Copy-Paste.  
 **Metric policy:** preserve split-qualified metrics exactly as reported. Use `--` when a metric is absent from the source artifact. Do not relabel unsplit metrics as validation or test metrics.
 
@@ -118,7 +118,7 @@ TinyPerson Standard Mosaic values `0.5245/0.1889` validation and `0.4948/0.1750`
 
 ## 4. Copy-Paste: 4 variants
 
-LEVIR CP1/CP3 use corrected post-hoc split-qualified results. NegativeCanvas R1/R4 have explicit validation/test artifacts. TinyPerson CP1 and CP3 have results in the source report, but only as unsplit metrics, so they are not relabeled as validation or test values here.
+LEVIR CP1/CP3 use corrected post-hoc split-qualified results. NegativeCanvas R1/R4 have explicit validation/test artifacts. The historical TinyPerson CP1/CP3 rows below remain marked as unsplit, while the verified seed42 merged re-evaluation is reported in Section 4.1 with explicit native and `test_merged/*` labels.
 
 | Variant | Dataset | Val AP50 | Val AP75 | Val mAP50-95 | Val AP50-S | Test AP50 | Test AP75 | Test mAP50-95 | Test AP50-S | Status |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
@@ -137,14 +137,38 @@ LEVIR CP1/CP3 use corrected post-hoc split-qualified results. NegativeCanvas R1/
 
 TinyPerson NegativeCanvas `AP50-S` values are merged original-image TinyBenchmark metrics (`test_merged/AP50-Small`), not standard corner-window AP50 values.
 
-TinyPerson unsplit source metrics retained for later evaluation:
+### 4.1 TinyPerson seed42 merged re-evaluation
+
+This table replaces the old unsplit TinyPerson Copy-Paste values for the evaluated seed42 checkpoints. The evaluator used the fixed split seed `42`, training seed `42`, image size `640`, batch size `8`, workers `8`, NMS IoU `0.50`, and the official TinyPerson corner-window merged protocol. Native `test/*` metrics are shown separately from the headline original-image `test_merged/*` metrics. The primary comparison metric is explicitly `test_merged/mAP50-95`.
+
+| Model | Variant | `val/AP50` | `val/mAP50-95` | `test/AP50` | `test/mAP50-95` | `test_merged/AP50` | `test_merged/mAP50-95` | `test_merged/AP50-Small` |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| YOLOv8 | OACP-R2 | 0.5540 | 0.2021 | 0.5243 | 0.1885 | 0.5533 | 0.2010 | 0.6946 |
+| YOLOv9 | OACP-R2 | 0.5212 | 0.1879 | 0.5067 | 0.1812 | 0.5329 | 0.1929 | 0.6795 |
+| YOLOv11 | OACP-R2 | 0.5530 | 0.2008 | 0.5242 | 0.1919 | 0.5500 | 0.2032 | 0.6823 |
+| YOLOv8 | CP1 | 0.5077 | 0.1818 | 0.4955 | 0.1760 | 0.5144 | 0.1848 | 0.6658 |
+| YOLOv9 | CP1 | 0.5145 | 0.1846 | 0.4824 | 0.1712 | 0.5040 | 0.1810 | 0.6487 |
+| YOLOv11 | CP1 | 0.5109 | 0.1828 | 0.4944 | 0.1752 | 0.5159 | 0.1833 | 0.6610 |
+| YOLOv8 | CP2 | 0.5098 | 0.1847 | 0.5031 | 0.1834 | 0.5275 | 0.1935 | 0.6771 |
+| YOLOv9 | CP2 | 0.5061 | 0.1822 | 0.5006 | 0.1814 | 0.5200 | 0.1920 | 0.6630 |
+| YOLOv11 | CP2 | 0.5293 | 0.1968 | 0.5204 | 0.1886 | 0.5412 | 0.1993 | 0.6746 |
+| YOLOv8 | NC-R2 | 0.5084 | 0.1876 | 0.5105 | 0.1837 | 0.5382 | 0.1957 | 0.6757 |
+| YOLOv9 | NC-R2 | 0.4984 | 0.1827 | 0.4806 | 0.1711 | 0.4984 | 0.1791 | 0.6437 |
+| YOLOv11 | NC-R2 | 0.5450 | 0.2013 | 0.5215 | 0.1886 | 0.5476 | 0.2000 | 0.6885 |
+| YOLOv8 | NC-R4 | 0.5282 | 0.1919 | 0.5128 | 0.1843 | 0.5384 | 0.1936 | 0.6807 |
+| YOLOv9 | NC-R4 | 0.4951 | 0.1816 | 0.4892 | 0.1751 | 0.5100 | 0.1843 | 0.6596 |
+| YOLOv11 | NC-R4 | 0.5472 | 0.2015 | 0.5179 | 0.1871 | 0.5414 | 0.1988 | 0.6838 |
+
+**Verified coverage:** 15/15 leaf `evaluation_metrics.json` artifacts and 15/15 `size_metrics_complete.json` markers were verified locally and on Hugging Face. The output repository is `duyle2408/tinyperson-merged-augmentation-seed42-map50-95-runs`. The source artifacts preserve `test_merged/mAP50-75`, but it is not used as the headline metric here. The merged protocol is `TinyPerson official corner-window merged TinyBenchmark evaluator; IoU=0.50:0.05:0.75`.
+
+Historical TinyPerson unsplit source metrics retained for provenance:
 
 | Variant | Dataset | Unsplit AP50 | Unsplit mAP50-95 | Split-qualified fields |
 |---|---|---:|---:|---|
 | CP1 Single-object | TinyPerson | 0.4636 | 0.1669 | -- |
 | CP3 Clustered | TinyPerson | 0.4881 | 0.1751 | -- |
 
-These values remain explicitly unsplit and must not be copied into `val/*` or `test/*` columns.
+These historical values remain explicitly unsplit and must not be copied into `val/*` or `test/*` columns. Use Section 4.1 for the verified seed42 split-qualified and merged metrics.
 
 ---
 
