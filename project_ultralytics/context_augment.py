@@ -244,8 +244,8 @@ def augmentation_config() -> dict[str, Any]:
     if cfg["oacp_protection_policy"] == "size_adaptive" and cfg["oacp_variant"] in {"density", "spacing_adaptive"}:
         raise ValueError("size_adaptive protection cannot be combined with density or spacing_adaptive")
     if profile == "r2":
-        if cfg["oacp_variant"] != "current" or cfg["oacp_placement"] != "pre_transform":
-            raise ValueError("OACP_PROFILE=r2 requires current variant and pre_transform placement")
+        if cfg["oacp_variant"] != "current" or cfg["oacp_placement"] not in {"pre_transform", "post_copy_paste"}:
+            raise ValueError("OACP_PROFILE=r2 requires current variant and pre_transform or post_copy_paste placement")
         if cfg["oacp_probability_policy"] != "fixed" or not np.isclose(cfg["oacp_probability"], 0.40):
             raise ValueError("OACP_PROFILE=r2 requires fixed p=0.40")
         if not np.allclose(cfg["oacp_resolution_scale"], [0.80, 0.95]):

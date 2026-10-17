@@ -13,7 +13,7 @@ from project_ultralytics.context_augment import (
     _hardness_strength_range, _protection, _protection_for_variant, _spacing_adaptive_expands,
     _context_adaptive_scale_range, _context_adaptive_strength_range,
     _contrast_adaptive_expands, _far_context_richness, _far_mask, _object_local_contrast,
-    calibrate_effect_target, oacp_diagnostics,
+    calibrate_effect_target, oacp_diagnostics, augmentation_config,
 )
 from project_ultralytics.oacp_state import OACPSharedState
 from project_ultralytics.hardness import foreground_assignment_hardness
@@ -226,10 +226,22 @@ def test_context_augmentation_placement_switch_orders_transforms():
 
     pre = object()
     context = [object()]
+    copy_paste = object()
     assert _context_aug_sequence(pre, context, "pre_transform") == [context[0], pre]
     assert _context_aug_sequence(pre, context, "post_mosaic") == [pre, context[0]]
+    assert _context_aug_sequence(pre, context, "post_copy_paste", copy_paste) == [pre, copy_paste, context[0]]
+    with pytest.raises(ValueError, match="requires the Copy-Paste"):
+        _context_aug_sequence(pre, context, "post_copy_paste")
     with pytest.raises(ValueError, match="unknown OACP_PLACEMENT"):
         _context_aug_sequence(pre, context, "invalid")
+
+
+def test_r2_allows_post_copy_paste_placement(monkeypatch):
+    monkeypatch.setenv("OACP_PROFILE", "r2")
+    monkeypatch.setenv("OACP_PLACEMENT", "post_copy_paste")
+    cfg = augmentation_config()
+    assert cfg["oacp_variant"] == "current"
+    assert cfg["oacp_placement"] == "post_copy_paste"
 
 
 def test_spatial_load_target_mass_is_normalized_and_monotonic():

@@ -319,8 +319,11 @@ def _evaluate_run(run_dir: Path, data_yaml: Path, args: argparse.Namespace) -> d
 def _run_one(args: argparse.Namespace, data_yaml: Path, variant: str, seed: int) -> Path:
     if args.oacp_variant != "none":
         os.environ["YOLO_CONTEXT_AUG"] = "oacp"
-        os.environ["OACP_VARIANT"] = args.oacp_variant
+        os.environ["OACP_VARIANT"] = "current" if args.oacp_variant == "r2" else args.oacp_variant
         os.environ["YOLO_LEGACY_DOUBLE_OACP"] = "0"
+        if args.oacp_variant == "r2":
+            os.environ["OACP_PROFILE"] = "r2"
+            os.environ["OACP_PLACEMENT"] = "post_copy_paste"
     ultralytics_path = ROOT / "models_related" / "ultralytics"
     if str(ultralytics_path) not in sys.path:
         sys.path.insert(0, str(ultralytics_path))
@@ -425,7 +428,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mosaic-scale-quantile", type=float, default=0.05)
     parser.add_argument("--scene-compatible-mosaic", action="store_true",
                         help="Soft-gate existing Mosaic using dataset-derived scene statistics")
-    parser.add_argument("--oacp-variant", choices=("none", "current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"), default="none")
+    parser.add_argument("--oacp-variant", choices=("none", "r2", "current", "budget", "density", "mass_adaptive", "load_adaptive", "spacing_adaptive"), default="none")
     parser.add_argument("--copy-paste-policy", choices=("fixed", "load_adaptive", "layout_adaptive"), default="fixed")
     parser.add_argument("--copy-paste-stats-path", type=Path, default=None)
     parser.add_argument("--negcp-bank-path", type=Path, default=None)

@@ -3682,13 +3682,17 @@ class RandomLoadText(BaseTransform):
         return labels
 
 
-def _context_aug_sequence(pre_transform, context_aug, placement: str):
+def _context_aug_sequence(pre_transform, context_aug, placement: str, copy_paste=None):
     """Compose context augmentation at the requested pipeline boundary."""
     placement = str(placement).lower()
     if placement == "pre_transform":
         return [*context_aug, pre_transform]
     if placement == "post_mosaic":
         return [pre_transform, *context_aug]
+    if placement == "post_copy_paste":
+        if copy_paste is None:
+            raise ValueError("post_copy_paste requires the Copy-Paste transform")
+        return [pre_transform, copy_paste, *context_aug]
     raise ValueError(f"unknown OACP_PLACEMENT: {placement}")
 
 
@@ -3770,15 +3774,19 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
     # reproduced without changing the post-Mosaic default used by prior runs.
     context_aug = build_context_augment(dataset)
     small_object_copy_paste = build_small_object_copy_paste(dataset, hyp)
-    final_canvas_aug = _context_aug_sequence(
-        pre_transform,
-        context_aug,
-        os.environ.get("OACP_PLACEMENT", "post_mosaic"),
-    )
-    if small_object_copy_paste is not None:
-        # This is deliberately after Mosaic/RandomPerspective and before
-        # photometric transforms, so raw crops are pasted onto the final canvas.
-        final_canvas_aug.append(small_object_copy_paste)
+    placement = os.environ.get("OACP_PLACEMENT", "post_mosaic").lower()
+    if placement == "post_copy_paste":
+        # CACS order: build the final geometric canvas, paste the donor object,
+        # then run OACP so the newly pasted box is included in protection.
+        final_canvas_aug = _context_aug_sequence(
+            pre_transform, context_aug, placement, small_object_copy_paste,
+        )
+    else:
+        final_canvas_aug = _context_aug_sequence(pre_transform, context_aug, placement)
+        if small_object_copy_paste is not None:
+            # This is deliberately after Mosaic/RandomPerspective and before
+            # photometric transforms, so raw crops are pasted onto the final canvas.
+            final_canvas_aug.append(small_object_copy_paste)
     return Compose(
         [
             *final_canvas_aug,
