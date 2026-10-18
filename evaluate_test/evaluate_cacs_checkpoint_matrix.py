@@ -41,6 +41,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--split-seed", type=int, default=42)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--patience", type=int, default=0)
+    parser.add_argument("--model-yaml", default="matrix")
+    parser.add_argument("--image-size", type=int, default=0)
+    parser.add_argument("--data-root", default="matrix")
+    parser.add_argument("--dataset-yaml", default="matrix")
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
