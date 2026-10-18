@@ -179,7 +179,25 @@ def main() -> None:
                     metrics_path = out_dir / "evaluation_metrics.json"
                     metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n")
                     manifest = out_dir / "cacs_evaluation_manifest.json"
-                    manifest.write_text(json.dumps({"source_repo": source_repo, "source_prefix": source_prefix, "output_repo": args.hf_repo_id, "output_prefix": out_prefix, "dataset": dataset, "model": model, "variant": variant, "seed": seed, "split_seed": args.split_seed, "nms_iou": 0.5, "metric_keys": sorted(metrics), "source_artifacts": [str(path.relative_to(out_dir)) for path in artifacts if path.is_file()]}, indent=2, sort_keys=True) + "\n")
+                    manifest_payload = {
+                        "source_repo": source_repo,
+                        "source_prefix": source_prefix,
+                        "output_repo": args.hf_repo_id,
+                        "output_prefix": out_prefix,
+                        "dataset": dataset,
+                        "model": model,
+                        "variant": variant,
+                        "seed": seed,
+                        "split_seed": args.split_seed,
+                        "nms_iou": 0.5,
+                        "size_metric_family": protocol,
+                        "size_metric_protocols": {
+                            key: value for key, value in metrics.items() if key.endswith("/protocol")
+                        },
+                        "size_metric_source_artifacts": [str(path.relative_to(out_dir)) for path in artifacts if path.is_file()],
+                        "metric_keys": sorted(metrics),
+                    }
+                    manifest.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True) + "\n")
                     marker = out_dir / "cacs_evaluation_complete.json"
                     marker.write_text(json.dumps({"repo_id": args.hf_repo_id, "remote_prefix": out_prefix, "verified": True}, indent=2, sort_keys=True) + "\n")
                     uploads = [(metrics_path, f"{out_prefix}/evaluation_metrics.json"), (manifest, f"{out_prefix}/cacs_evaluation_manifest.json"), (marker, marker_remote)]
