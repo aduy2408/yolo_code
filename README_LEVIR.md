@@ -51,7 +51,26 @@ Chi tiết kỹ thuật sâu hơn được trình bày cụ thể trong [approac
 
 ---
 
-## 4. Hướng Dẫn Chạy Thực Nghiệm (Quick Start)
+## 4. Trạng Thái CACS và NegativeCanvas
+
+Bộ đánh giá checkpoint CACS cho **OACP-R2 + NegativeCanvas R2/R4** đã hoàn tất và được xác minh trên Hugging Face:
+
+- **HF repository:** `duyle2408/cacs-checkpoint-eval-20261018-runs`
+- **Coverage:** `24/24` checkpoint evaluations hoàn tất
+- **Ma trận:** YOLOv8/YOLOv9/YOLO11 × LEVIR-Ship/TinyPerson × NC-R2/NC-R4 × seed 42/44
+- **Completion markers:** `24/24` `cacs_evaluation_complete.json`
+- **Evaluation artifacts:** `24/24` `evaluation_metrics.json`
+- **Provenance:** split seed `42`, workers `8`, NMS IoU `0.50`; Copy-Paste được áp dụng trước OACP-R2 trong pipeline CACS
+
+Các bảng kết quả và protocol chi tiết nằm trong:
+
+- [`docs/reports/augmentation_report.md`](docs/reports/augmentation_report.md)
+- [`docs/reports/complete_main_report.md`](docs/reports/complete_main_report.md)
+- [`docs/reports/yolov9_yolo11_seed44_size_evaluation.md`](docs/reports/yolov9_yolo11_seed44_size_evaluation.md)
+
+---
+
+## 5. Hướng Dẫn Chạy Thực Nghiệm (Quick Start)
 
 > [!IMPORTANT]
 > Trước khi chạy bất kỳ script nào, hãy kích hoạt môi trường conda thích hợp:
