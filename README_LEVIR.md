@@ -77,7 +77,7 @@ Các kết quả dưới đây dùng split seed `42`, training seed `42`, NMS Io
 | Model | `test_merged/AP50` | `test_merged/mAP50-95` | `test_merged/AP50-Small` | `test_merged/mAP50-95-Small` |
 | :--- | ---: | ---: | ---: | ---: |
 | STW-YOLO | 0.5892 | 0.2241 | **0.7004** | 0.2903 |
-| TPH-YOLOv5 | pending | pending | pending | pending |
+| TPH-YOLOv5 | 0.5474 | 0.2041 | 0.6370 | 0.2565 |
 
 **Native AP50-Small theo split:**
 
@@ -87,7 +87,7 @@ Các kết quả dưới đây dùng split seed `42`, training seed `42`, NMS Io
 | STW-YOLO | Varroa | 0.8978 | 0.8818 |
 | STW-YOLO | TinyPerson | 0.5982 | 0.5418 |
 
-TPH-YOLOv5 đã sinh xong corner predictions, nhưng bước NMS và merged TinyBenchmark chưa hoàn tất nên các ô TPH merged được giữ là `pending`, không thay bằng validation hoặc native test metrics. Protocol và artifact chi tiết nằm trong `evaluate_test/run_tph_merged_only.py` và các report trong `docs/reports/`.
+TPH-YOLOv5 đã được evaluate theo cùng protocol merged original-image, với corner predictions được dịch về ảnh gốc, NMS IoU `0.50`, sau đó chạy TinyBenchmark evaluator. Artifact merged nằm tại `tph_test_merged_predictions.json` và `merged_summary.json` trên run Marimo tương ứng. Protocol và script nằm trong `evaluate_test/run_tph_merged_only.py` và các report trong `docs/reports/`.
 
 ---
 
