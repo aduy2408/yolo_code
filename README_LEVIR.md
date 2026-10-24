@@ -68,6 +68,27 @@ Các bảng kết quả và protocol chi tiết nằm trong:
 - [`docs/reports/complete_main_report.md`](docs/reports/complete_main_report.md)
 - [`docs/reports/yolov9_yolo11_seed44_size_evaluation.md`](docs/reports/yolov9_yolo11_seed44_size_evaluation.md)
 
+### Kết quả evaluation SOTA trên Marimo
+
+Các kết quả dưới đây dùng split seed `42`, training seed `42`, NMS IoU `0.50`. TinyPerson merged dùng protocol ghép các corner-window về ảnh gốc trước khi chạy TinyBenchmark evaluator.
+
+**TinyPerson merged test:**
+
+| Model | `test_merged/AP50` | `test_merged/mAP50-95` | `test_merged/AP50-Small` | `test_merged/mAP50-95-Small` |
+| :--- | ---: | ---: | ---: | ---: |
+| STW-YOLO | 0.5892 | 0.2241 | **0.7004** | 0.2903 |
+| TPH-YOLOv5 | pending | pending | pending | pending |
+
+**Native AP50-Small theo split:**
+
+| Model | Dataset | `val/AP50-Small` | `test/AP50-Small` |
+| :--- | :--- | ---: | ---: |
+| STW-YOLO | LEVIR-Ship | 0.8340 | 0.8407 |
+| STW-YOLO | Varroa | 0.8978 | 0.8818 |
+| STW-YOLO | TinyPerson | 0.5982 | 0.5418 |
+
+TPH-YOLOv5 đã sinh xong corner predictions, nhưng bước NMS và merged TinyBenchmark chưa hoàn tất nên các ô TPH merged được giữ là `pending`, không thay bằng validation hoặc native test metrics. Protocol và artifact chi tiết nằm trong `evaluate_test/run_tph_merged_only.py` và các report trong `docs/reports/`.
+
 ---
 
 ## 5. Hướng Dẫn Chạy Thực Nghiệm (Quick Start)
