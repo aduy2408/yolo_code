@@ -45,6 +45,17 @@ These values come from the corrected GPU rerun on the authorized Marimo server u
 The corrected artifacts and upload were verified in `duyle2408/stw-tph-tinyperson-corrected-20261015-runs` under `tinyperson/seed42/corrected_gpu_r4/`. Required files include `final_results.json`, both validation/test merged prediction files for each model, both merged ground-truth files, and `run_contract.json`. The TPH test artifact contains 2,288,316 detections before final report use. These values replace the earlier invalid TPH merged values produced by parsing saved normalized text predictions.
 
 The source artifact records additional split-qualified values, including STW validation/test merged `mAP50-75` 0.3720/0.3596 and TPH validation/test merged `mAP50-75` 0.3074/0.3289.
+
+### Latest Marimo merged rerun for STW and TPH (2026-10-24)
+
+This is the latest verified test-only merged rerun for the seed42 STW-YOLO and TPH-YOLOv5 checkpoints. It uses the TinyPerson corner-window manifest, maps detections back to original-image IDs, applies NMS IoU `0.50`, and runs the project TinyBenchmark evaluator. These values supersede the older rounded test-only values above for this rerun, while the 2026-10-15 artifact remains preserved as historical provenance.
+
+| Model | `test_merged/AP50` | `test_merged/mAP50-95` | `test_merged/AP50-Small` | `test_merged/mAP50-95-Small` |
+|---|---:|---:|---:|---:|
+| STW YOLO seed42 | 0.5892 | 0.2241 | 0.7004 | 0.2903 |
+| TPH YOLOv5 seed42 | 0.5474 | 0.2041 | 0.6370 | 0.2565 |
+
+The latest native size-qualified rerun also verified `val/AP50-Small` / `test/AP50-Small` as `0.8340 / 0.8407` for STW on LEVIR-Ship and `0.5982 / 0.5418` for STW on TinyPerson. These are native split metrics and must not be relabeled as merged metrics.
 ### Verified FCOS TinyPerson merged rerun (2026-10-15)
 
 These values are from the new GPU Marimo rerun using the exact seed43 checkpoints and configs recovered from the historical Hugging Face artifacts. The evaluator used the canonical MMDetection `tools/test.py` interface followed by `evaluate_tinyperson_metrics.py`, with split seed 42, 640x640 corner-window inference, source-image merging, and class-aware NMS. These are **merged** metrics and must not be substituted into the native corner-window columns above.

@@ -138,7 +138,14 @@ Source: `docs/reports/mmdetection_baseline_runs_report.md` plus the completed su
 
 ### 4.4 TinyPerson merged-image test protocol
 
-TinyPerson validation is reported on the native corner-window split and includes `val/AP50-Small` in Section 4.3. Merging corner-window predictions back to original images is a **test-only** protocol. Therefore no `val_merged/*` row is reported here. For MMDetection, the verified merged test artifact currently contains merged AP50 and merged mAP50-95, but no merged AP50-Small field. Historical MMDetection runs did contain native `AP50 Small` / `ap50_small` fields, and those are kept in the native validation/test tables rather than relabeled as merged metrics.
+TinyPerson validation is reported on the native corner-window split and includes `val/AP50-Small` where available. Merging corner-window predictions back to original images is a **test-only** protocol. The latest verified seed42 STW/TPH merged test artifacts are:
+
+| Model | `test_merged/AP50` | `test_merged/mAP50-95` | `test_merged/AP50-Small` | `test_merged/mAP50-95-Small` |
+|---|---:|---:|---:|---:|
+| STW YOLO | 0.5892 | 0.2241 | 0.7004 | 0.2903 |
+| TPH YOLOv5 | 0.5474 | 0.2041 | 0.6370 | 0.2565 |
+
+These are test-only merged metrics. They must not be copied into the native validation columns above. The evaluator uses the TinyPerson corner manifest, original-image ID remapping, NMS IoU `0.50`, and the project TinyBenchmark evaluator. The source artifacts are `tph_test_merged_predictions.json` / `merged_summary.json` for TPH and the corresponding STW merged artifacts on the Marimo evaluation runs.
 
 ## 5. SOTA seed coverage audit
 
