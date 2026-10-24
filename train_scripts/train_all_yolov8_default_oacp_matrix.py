@@ -204,7 +204,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--effect-target", type=float, default=2.0)
     p.add_argument("--pretrained", default="yolov8n.pt")
     p.add_argument("--jobs", nargs="+", choices=_job_names(), default=list(_job_names()))
-    p.add_argument("--seed", type=int, default=42)
+    seed_group = p.add_mutually_exclusive_group()
+    seed_group.add_argument("--seed", dest="seeds", type=int, help="single training seed")
+    seed_group.add_argument("--seeds", dest="seed_list", type=int, nargs="+", help="training seeds")
     p.add_argument("--split-seed", type=int, default=42)
     p.add_argument("--epochs", type=int, default=100)
     p.add_argument("--patience", type=int, default=0)
@@ -216,7 +218,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--imgsz-tinyperson", type=int, default=640)
     p.add_argument("--confirm-settings", action="store_true")
     p.add_argument("--prepare-only", action="store_true")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    args.seeds = [args.seeds] if args.seeds is not None else (args.seed_list or [43])
+    del args.seed_list
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -225,8 +230,10 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if not args.confirm_settings:
         raise RuntimeError("refusing to train without --confirm-settings")
-    if (args.seed, args.split_seed, args.epochs, args.patience, args.workers) != (42, 42, 100, 0, 8):
-        raise ValueError("matrix requires seed=42, split-seed=42, epochs=100, patience=0, workers=8")
+    if args.split_seed != 42 or any(seed not in (43, 44) for seed in args.seeds):
+        raise ValueError("matrix requires --split-seed 42 and training seeds limited to 43/44")
+    if (args.epochs, args.patience, args.workers) != (100, 0, 8):
+        raise ValueError("matrix requires epochs=100, patience=0, workers=8")
     _check_canonical_config()
     require_training_context(hf_repo_id=args.hf_repo_levir)
     require_training_context(hf_repo_id=args.hf_repo_tinyperson)
@@ -248,13 +255,15 @@ def main(argv: list[str] | None = None) -> None:
         for dataset, (data_yaml, _) in prepared.items():
             print(f"PREPARED {dataset}: {data_yaml}", flush=True)
         return
-    for dataset, variant in selected:
-        job = f"{dataset}/{variant}"
-        data_yaml, test_root = prepared[dataset]
-        run_dir = train_one(job, data_yaml, args)
-        evaluate_one(run_dir, dataset, data_yaml, test_root, args)
-        upload_and_verify(run_dir, dataset, f"{dataset}_{variant}", args)
-        print(f"COMPLETE {job}/seed_{args.seed}", flush=True)
+    for seed in args.seeds:
+        args.seed = seed
+        for dataset, variant in selected:
+            job = f"{dataset}/{variant}"
+            data_yaml, test_root = prepared[dataset]
+            run_dir = train_one(job, data_yaml, args)
+            evaluate_one(run_dir, dataset, data_yaml, test_root, args)
+            upload_and_verify(run_dir, dataset, f"{dataset}_{variant}", args)
+            print(f"COMPLETE {job}/seed_{args.seed}", flush=True)
 
 
 if __name__ == "__main__":
