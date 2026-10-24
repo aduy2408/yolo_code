@@ -136,29 +136,9 @@ Source: `docs/reports/mmdetection_baseline_runs_report.md` plus the completed su
 | ATSS | 42, 43 / 2 | 0.4268 ± 0.0043 | 0.1490 ± 0.0014 | 0.5595 ± 0.0565 |
 | RetinaNet | 42, 43 / 2 | 0.4506 ± 0.0013 | 0.1464 ± 0.0028 | 0.5055 ± 0.0050 |
 
-### 4.4 TinyPerson merged-image validation supplement
+### 4.4 TinyPerson merged-image test protocol
 
-These metrics are evaluated after merging corner-window predictions back onto the original TinyPerson images. They are a separate protocol from the native corner-window rows in Section 4.3 and must not be substituted into those columns. The MMDetection values are the Mosaic aggregate across seeds 42 and 43. The SOTA rows are the available verified merged artifacts, each currently covering one seed. **Audit note:** the historical MMDetection TinyPerson runs (`duyle2408/tinyperson_mmdet_runs_seed42`, `...seed43`, `...seed44`) did contain native `AP50 Small` / `ap50_small` fields, but the verified merged-evaluation artifact does not contain a merged `AP50-Small` field. Those historical native values are therefore not relabeled as merged metrics.
-
-#### MMDetection merged validation
-
-| Model | Seeds / n | Val merged AP50 | Val merged mAP50-95 |
-|---|---:|---:|---:|
-| FCOS | 42, 43 / 2 | 0.4054 ± 0.0008 | 0.1374 ± 0.0028 |
-| Faster R-CNN | 42, 43 / 2 | 0.2976 ± 0.0103 | 0.1102 ± 0.0025 |
-| Cascade R-CNN | 42, 43 / 2 | 0.5222 ± 0.0071 | 0.1946 ± 0.0049 |
-| RTMDet | 42, 43 / 2 | 0.4982 ± 0.0102 | 0.1823 ± 0.0020 |
-| ATSS | 42, 43 / 2 | 0.4268 ± 0.0043 | 0.1490 ± 0.0014 |
-| RetinaNet | 42, 43 / 2 | 0.4506 ± 0.0013 | 0.1464 ± 0.0028 |
-
-#### SOTA merged validation
-
-| Family | Seed | Val merged AP50 | Val merged mAP50-95 | Val merged AP50-Small |
-|---|---:|---:|---:|---:|
-| STW YOLO | 42 | 0.6167 | 0.2297 | 0.7192 |
-| TPH YOLOv5 | 42 | 0.5368 | 0.1897 | 0.6507 |
-| FCOS-SET | 43 | 0.4084 | 0.1487 | 0.5366 |
-| FCOS-SR-TOD | 43 | 0.4157 | 0.1467 | 0.5225 |
+TinyPerson validation is reported on the native corner-window split and includes `val/AP50-Small` in Section 4.3. Merging corner-window predictions back to original images is a **test-only** protocol. Therefore no `val_merged/*` row is reported here. For MMDetection, the verified merged test artifact currently contains merged AP50 and merged mAP50-95, but no merged AP50-Small field. Historical MMDetection runs did contain native `AP50 Small` / `ap50_small` fields, and those are kept in the native validation/test tables rather than relabeled as merged metrics.
 
 ## 5. SOTA seed coverage audit
 
