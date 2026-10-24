@@ -110,9 +110,9 @@ def resolve_ref(args: argparse.Namespace) -> HuggingFaceRef | None:
     report = args.report
     if args.latest_report:
         reports = report_candidates()
-        if not reports:
-            raise FileNotFoundError("No Markdown reports found under docs/ or approach+results/.")
-        report = reports[0]
+        report = next((candidate for candidate in reports if scan_report(candidate, args.repo_pattern)), None)
+        if report is None:
+            raise FileNotFoundError("No Markdown report with a Hugging Face link was found under docs/ or approach+results/.")
     if report:
         report = report.resolve()
         refs = scan_report(report, args.repo_pattern)
