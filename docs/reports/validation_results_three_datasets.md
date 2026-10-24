@@ -142,9 +142,9 @@ The SOTA rows in Sections 2.2, 3.2, and 4.2 are **selected comparison rows**, no
 
 | Family | Dataset | Available validation seeds | Validation coverage | Notes |
 |---|---|---|---|---|
-| STW YOLO (standard row) | LEVIR-Ship | 42 | `val/AP50`, `val/mAP50-95`, `val/AP50-Small` | The selected standard STW comparison artifact is seed42. The HF repository also contains seed43/44 Copy-Paste and other variant branches, so seed43 must not be silently described as absent: it is a different branch, not the same standard STW row |
-| STW YOLO (standard row) | Varroa | 42 | `val/AP50`, `val/mAP50-95`, `val/AP50-Small` | The selected standard STW comparison artifact is seed42; seed43 coverage is not established for the same standard Varroa row |
-| STW YOLO (standard row) | TinyPerson | 42 | `val/AP50`, `val/mAP50-95`; historical `val/AP50-Small` available separately | The selected standard STW comparison artifact is seed42; merged metrics use a separate protocol |
+| STW YOLO | LEVIR-Ship | 42, 43 | `val/AP50`, `val/mAP50-95`, `val/AP50-Small` | Include both STW training seeds in the comparison inventory |
+| STW YOLO | Varroa | 42, 43 | `val/AP50`, `val/mAP50-95`, `val/AP50-Small` | Include both STW training seeds in the comparison inventory |
+| STW YOLO | TinyPerson | 42, 43 | `val/AP50`, `val/mAP50-95`; historical `val/AP50-Small` available separately | Include both STW training seeds; merged metrics use a separate protocol |
 | TPH YOLOv5 | LEVIR-Ship | 42, 43 | `val/AP50`, `val/mAP50-95`; per-seed AP50-Small is absent in the native JSON | Both seeds are present in the TPH repository |
 | TPH YOLOv5 | Varroa | 42, 43 | `val/AP50`, `val/mAP50-95`; per-seed AP50-Small is absent in the native JSON | Both seeds are present in the TPH repository |
 | TPH YOLOv5 | TinyPerson | 42, 43 | `val/AP50`, `val/mAP50-95`; per-seed AP50-Small is absent in the native JSON | Both seeds are present; merged metrics are separate |
@@ -155,7 +155,7 @@ The SOTA rows in Sections 2.2, 3.2, and 4.2 are **selected comparison rows**, no
 | FCOS-SR-TOD | Varroa | 43 | Split-qualified validation available | Seed43 evaluation-only rerun is complete; older seed42 material is incomplete |
 | FCOS-SR-TOD | TinyPerson | 43 | Split-qualified validation available | Seed43 native and merged rerun artifacts are complete; older seed42 material is incomplete |
 
-The important distinction is **seed coverage versus selected comparison row**. STW does have seed43 artifacts in the HF repository, especially under LEVIR Copy-Paste/variant branches, but those are not interchangeable with the selected standard STW seed42 row. FCOS-SR-TOD is not missing from the seed audit: its selected validation/test results are seed43 for all three datasets, with the corrected TinyPerson merged rerun also using seed43. The one-row tables above remain compact selected slices, not claims that these families have only one seed.
+The important distinction is **seed coverage versus selected comparison row**. The inventory now includes STW seeds 42 and 43 for all three datasets, alongside the existing TPH, FCOS-SET, and FCOS-SR-TOD seed coverage. FCOS-SR-TOD uses seed43 for all three datasets, with the corrected TinyPerson merged rerun also using seed43. The one-row tables above remain compact selected slices, not multi-seed means.
 
 ## 6. Interpretation and limitations
 
