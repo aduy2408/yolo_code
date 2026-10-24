@@ -136,7 +136,28 @@ Source: `docs/reports/mmdetection_baseline_runs_report.md`, Mosaic, seed 42. The
 | ATSS | 42 | 0.4298 | 0.1500 | 0.5995 |
 | RetinaNet | 42 | 0.4515 | 0.1484 | 0.5020 |
 
-## 5. Interpretation and limitations
+## 5. SOTA seed coverage audit
+
+The SOTA rows in Sections 2.2, 3.2, and 4.2 are **selected comparison rows**, not a complete seed sweep. The available seed coverage is:
+
+| Family | Dataset | Available validation seeds | Validation coverage | Notes |
+|---|---|---|---|---|
+| STW YOLO | LEVIR-Ship | 42 | `val/AP50`, `val/mAP50-95`, `val/AP50-Small` | Standard STW artifact is seed42; other seed paths in the repository are Copy-Paste/variant branches, not the same standard STW row |
+| STW YOLO | Varroa | 42 | `val/AP50`, `val/mAP50-95`, `val/AP50-Small` | Standard STW artifact is seed42 |
+| STW YOLO | TinyPerson | 42 | `val/AP50`, `val/mAP50-95`; historical `val/AP50-Small` available separately | Standard STW artifact is seed42; merged metrics use a separate protocol |
+| TPH YOLOv5 | LEVIR-Ship | 42, 43 | `val/AP50`, `val/mAP50-95`; per-seed AP50-Small is absent in the native JSON | Both seeds are present in the TPH repository |
+| TPH YOLOv5 | Varroa | 42, 43 | `val/AP50`, `val/mAP50-95`; per-seed AP50-Small is absent in the native JSON | Both seeds are present in the TPH repository |
+| TPH YOLOv5 | TinyPerson | 42, 43 | `val/AP50`, `val/mAP50-95`; per-seed AP50-Small is absent in the native JSON | Both seeds are present; merged metrics are separate |
+| FCOS-SET | LEVIR-Ship | 42, 43 | Split-qualified validation available for both selected artifacts | Seed42 is the historical STW-protocol artifact; seed43 is the selected rerun |
+| FCOS-SET | Varroa | 42, 43 | Seed42 validation is incomplete; seed43 validation is available | Seed42 source exposes test metrics but not complete validation fields |
+| FCOS-SET | TinyPerson | 42, 43 | Split-qualified validation available for both selected artifacts | TinyPerson merged metrics are separate |
+| FCOS-SR-TOD | LEVIR-Ship | 43 | Split-qualified validation available | Older seed42 artifact set is incomplete |
+| FCOS-SR-TOD | Varroa | 43 | Split-qualified validation available | Older seed42 artifact set is incomplete |
+| FCOS-SR-TOD | TinyPerson | 43 | Split-qualified validation available | Older seed42 artifact set is incomplete |
+
+Therefore, the selected one-row-per-family tables above must not be read as claiming that every SOTA family has only one seed. They are a compact comparison slice. The complete seed inventory is constrained by the artifacts actually exposing split-qualified validation fields.
+
+## 6. Interpretation and limitations
 
 1. The screenshot test table aligns with the selected protocol slices above: LEVIR no-Mosaic YOLO baselines, Varroa Mosaic YOLO baselines, and TinyPerson Mosaic YOLO baselines.
 2. Values are not pooled across unlike protocols. In particular, TinyPerson native corner-window metrics must not be mixed with `test_merged/*` metrics.
