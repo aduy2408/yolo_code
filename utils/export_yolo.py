@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,7 +67,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="0", help="Ultralytics device, e.g. 0, cpu, or 0,1.")
     parser.add_argument("--dynamic", action="store_true", help="Use dynamic input shapes, including dynamic batch dimensions.")
     parser.add_argument("--half", action="store_true", help="Export FP16 where supported. Requires a CUDA-capable device for TensorRT.")
-    parser.add_argument("--int8", action="store_true", help="Export INT8 where supported. TensorRT calibration requirements still apply.")
+    parser.add_argument("--int8", action="store_true", help="Export INT8 where supported. Requires --data for TensorRT calibration.")
+    parser.add_argument("--precision", choices=("fp32", "fp16", "int8"), help="Explicit precision. Overrides the legacy --half/--int8 flags.")
+    parser.add_argument("--data", type=Path, help="Dataset YAML used for INT8 calibration.")
+    parser.add_argument("--fraction", type=float, default=1.0, help="Fraction of calibration data used for INT8 export.")
     parser.add_argument("--workspace", type=float, help="TensorRT workspace size in GiB, passed to Ultralytics when supported.")
     parser.add_argument("--opset", type=int, help="ONNX opset override.")
     parser.add_argument("--overwrite", action="store_true", help="Allow an existing output directory to be reused.")
@@ -166,26 +170,39 @@ def load_model(checkpoint: Path):
 
 def export_one(model, fmt: str, batch: int, args: argparse.Namespace, output_dir: Path) -> Path | str:
     output_dir.mkdir(parents=True, exist_ok=True)
+    precision = args.precision
+    if precision is None:
+        precision = "int8" if args.int8 else "fp16" if args.half else "fp32"
     kwargs: dict[str, object] = {
         "format": fmt,
         "imgsz": args.imgsz[0] if len(args.imgsz) == 1 else tuple(args.imgsz),
         "batch": batch,
         "device": args.device,
         "dynamic": args.dynamic,
-        "half": args.half,
-        "int8": args.int8,
+        "half": precision == "fp16",
+        "int8": precision == "int8",
         "project": str(output_dir),
         "name": f"{fmt}_batch{batch}",
         "exist_ok": args.overwrite,
     }
+    if args.data is not None:
+        kwargs["data"] = str(args.data)
+    if precision == "int8":
+        kwargs["fraction"] = args.fraction
     if args.opset is not None:
         kwargs["opset"] = args.opset
     if args.workspace is not None:
         kwargs["workspace"] = args.workspace
     if fmt == "engine" and args.device == "cpu":
         raise ValueError("TensorRT export requires a CUDA device; do not use --device cpu.")
-    print(f"Exporting format={fmt} batch={batch} dynamic={args.dynamic} device={args.device}")
-    return model.export(**kwargs)
+    print(f"Exporting format={fmt} precision={precision} batch={batch} dynamic={args.dynamic} device={args.device}")
+    exported = Path(model.export(**kwargs))
+    if not exported.is_file():
+        raise FileNotFoundError(f"Ultralytics reported a missing export: {exported}")
+    target = output_dir / f"{exported.stem}_{precision}_batch{batch}{exported.suffix}"
+    if exported.resolve() != target.resolve():
+        shutil.copy2(exported, target)
+    return target
 
 
 def main() -> None:
@@ -194,8 +211,19 @@ def main() -> None:
         raise ValueError("All --batch values must be positive integers.")
     if len(args.imgsz) not in (1, 2) or any(size < 1 for size in args.imgsz):
         raise ValueError("--imgsz accepts one value or height width, both positive.")
-    if args.int8 and not args.half:
-        print("Note: INT8 export selected. Ultralytics/TensorRT may require calibration data.")
+    if args.precision and (args.half or args.int8):
+        raise ValueError("Use either --precision or the legacy --half/--int8 flags, not both.")
+    precision = args.precision or ("int8" if args.int8 else "fp16" if args.half else "fp32")
+    if precision == "int8":
+        if "engine" not in args.format:
+            raise ValueError("INT8 export is supported for TensorRT --format engine, not ONNX.")
+        if args.data is None:
+            raise ValueError("INT8 TensorRT export requires --data DATASET.yaml for calibration.")
+        args.data = args.data.resolve()
+        if not args.data.is_file():
+            raise FileNotFoundError(args.data)
+    if not 0 < args.fraction <= 1:
+        raise ValueError("--fraction must be greater than 0 and at most 1.")
     args.output_dir = args.output_dir.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     ref = resolve_ref(args)

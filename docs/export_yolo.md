@@ -10,7 +10,8 @@ The script supports:
 - `--latest-report` to scan the newest Markdown report under `docs/` and `approach+results/`.
 - `--format onnx engine` for ONNX and TensorRT.
 - Multiple fixed batches with `--batch 1 4 8`, or dynamic shapes with `--dynamic`.
-- `--imgsz 640` or rectangular `--imgsz 640 960`.
+- `--precision fp32|fp16|int8` for explicit precision selection. The legacy `--half` and `--int8` flags remain supported.
+- INT8 TensorRT calibration with `--data path/to/dataset.yaml` and optional `--fraction`.
 
 Run in the project ML environment:
 
@@ -35,6 +36,25 @@ HF_TOKEN="$HF_TOKEN" conda run -n ml2 python utils/export_yolo.py \
 ```
 
 `HF_TOKEN` is read from the environment and is never stored by the script. Do not paste tokens into source files, shell history, reports, or command output. The token shared in chat should be revoked and replaced before use.
+
+For INT8 TensorRT, provide a dataset YAML so Ultralytics can calibrate the engine:
+
+```bash
+conda run -n ml2 python utils/export_yolo.py \
+  --checkpoint exports/baseline_varroa_seed42/yolov8/runs/varroa/yolov8/seed_42/weights/best.pt \
+  --format engine \
+  --precision int8 \
+  --batch 1 \
+  --imgsz 640 \
+  --device 0 \
+  --data datasets/varroa_yolo/varroa.yaml \
+  --fraction 0.25 \
+  --output-dir exports/varroa_yolov8_int8
+```
+
+Use either `--precision` or the legacy `--half`/`--int8` flags, not both. INT8 is calibration-dependent, so compare validation and test metrics against the FP16 engine before adopting it.
+
+Every export is also copied into `--output-dir` with a precision and batch suffix, so FP16 and INT8 outputs do not need to share the same `best.engine` path.
 
 TensorRT export requires a working CUDA/TensorRT installation. `--half` requests FP16, `--int8` requests INT8 calibration, and `--workspace N` sets the TensorRT workspace size when supported by the installed Ultralytics version. Exporting multiple fixed batch sizes creates separate outputs. `--dynamic` creates a dynamic-shape export suitable for variable batch sizes, but the TensorRT engine still needs a compatible optimization profile in the installed exporter.
 
