@@ -168,19 +168,40 @@ def load_model(checkpoint: Path):
     return YOLO(str(checkpoint))
 
 
+def quantize_onnx_int8(source: Path, target: Path) -> None:
+    try:
+        import onnx
+        if not hasattr(onnx.TensorProto, "INT4"):
+            onnx.TensorProto.INT4 = 22
+        if not hasattr(onnx.TensorProto, "UINT4"):
+            onnx.TensorProto.UINT4 = 21
+        from onnxruntime.quantization import QuantType, quantize_dynamic
+    except ImportError as exc:
+        raise RuntimeError("Install onnxruntime and onnx to quantize ONNX INT8 outputs.") from exc
+    quantize_dynamic(
+        model_input=str(source),
+        model_output=str(target),
+        per_channel=True,
+        reduce_range=False,
+        weight_type=QuantType.QInt8,
+    )
+
+
 def export_one(model, fmt: str, batch: int, args: argparse.Namespace, output_dir: Path) -> Path | str:
     output_dir.mkdir(parents=True, exist_ok=True)
     precision = args.precision
     if precision is None:
         precision = "int8" if args.int8 else "fp16" if args.half else "fp32"
+    onnx_int8 = fmt == "onnx" and precision == "int8"
+    export_precision = "fp32" if onnx_int8 else precision
     kwargs: dict[str, object] = {
         "format": fmt,
         "imgsz": args.imgsz[0] if len(args.imgsz) == 1 else tuple(args.imgsz),
         "batch": batch,
         "device": args.device,
         "dynamic": args.dynamic,
-        "half": precision == "fp16",
-        "int8": precision == "int8",
+        "half": export_precision == "fp16",
+        "int8": export_precision == "int8",
         "project": str(output_dir),
         "name": f"{fmt}_batch{batch}",
         "exist_ok": args.overwrite,
@@ -200,7 +221,9 @@ def export_one(model, fmt: str, batch: int, args: argparse.Namespace, output_dir
     if not exported.is_file():
         raise FileNotFoundError(f"Ultralytics reported a missing export: {exported}")
     target = output_dir / f"{exported.stem}_{precision}_batch{batch}{exported.suffix}"
-    if exported.resolve() != target.resolve():
+    if onnx_int8:
+        quantize_onnx_int8(exported, target)
+    elif exported.resolve() != target.resolve():
         shutil.copy2(exported, target)
     return target
 
@@ -215,13 +238,12 @@ def main() -> None:
         raise ValueError("Use either --precision or the legacy --half/--int8 flags, not both.")
     precision = args.precision or ("int8" if args.int8 else "fp16" if args.half else "fp32")
     if precision == "int8":
-        if "engine" not in args.format:
-            raise ValueError("INT8 export is supported for TensorRT --format engine, not ONNX.")
-        if args.data is None:
+        if "engine" in args.format and args.data is None:
             raise ValueError("INT8 TensorRT export requires --data DATASET.yaml for calibration.")
-        args.data = args.data.resolve()
-        if not args.data.is_file():
-            raise FileNotFoundError(args.data)
+        if args.data is not None:
+            args.data = args.data.resolve()
+            if not args.data.is_file():
+                raise FileNotFoundError(args.data)
     if not 0 < args.fraction <= 1:
         raise ValueError("--fraction must be greater than 0 and at most 1.")
     args.output_dir = args.output_dir.resolve()

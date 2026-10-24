@@ -10,7 +10,7 @@ The script supports:
 - `--latest-report` to scan the newest Markdown report under `docs/` and `approach+results/`.
 - `--format onnx engine` for ONNX and TensorRT.
 - Multiple fixed batches with `--batch 1 4 8`, or dynamic shapes with `--dynamic`.
-- `--precision fp32|fp16|int8` for explicit precision selection. The legacy `--half` and `--int8` flags remain supported.
+- `--precision fp32|fp16|int8` for explicit precision selection. For ONNX, INT8 is applied as ONNX Runtime dynamic weight quantization after exporting a FP32 graph. The legacy `--half` and `--int8` flags remain supported.
 - INT8 TensorRT calibration with `--data path/to/dataset.yaml` and optional `--fraction`.
 
 Run in the project ML environment:
@@ -36,6 +36,21 @@ HF_TOKEN="$HF_TOKEN" conda run -n ml2 python utils/export_yolo.py \
 ```
 
 `HF_TOKEN` is read from the environment and is never stored by the script. Do not paste tokens into source files, shell history, reports, or command output. The token shared in chat should be revoked and replaced before use.
+
+For ONNX INT8, the script first exports FP32 ONNX and then applies ONNX Runtime dynamic weight quantization. This differs from TensorRT INT8 activation calibration:
+
+```bash
+conda run -n ml2 python utils/export_yolo.py \
+  --checkpoint exports/baseline_varroa_seed42/yolov8/runs/varroa/yolov8/seed_42/weights/best.pt \
+  --format onnx \
+  --precision int8 \
+  --batch 1 \
+  --imgsz 640 \
+  --device 0 \
+  --output-dir exports/varroa_yolov8_onnx_int8
+```
+
+BF16 is intentionally not exposed as a selectable TensorRT precision for the current compute capability 7.5 GPU. TensorRT FP16 mode already permits layer-level FP16/FP32 fallback. The ONNX INT8 path is dynamic weight quantization and does not perform calibration.
 
 For INT8 TensorRT, provide a dataset YAML so Ultralytics can calibrate the engine:
 
