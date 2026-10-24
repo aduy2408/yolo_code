@@ -38,27 +38,27 @@ Source: `docs/reports/baseline_main.md`, no-Mosaic mean across available seeds.
 
 ### 2.2 SOTA
 
-Source: `docs/reports/SOTA_main_report.md`, selected split-qualified rows.
+Source: `docs/reports/SOTA_main_report.md`. Where seed 42 and seed 43 both expose the same split-qualified validation field, values are mean ± sample standard deviation. Single-seed or partially covered fields remain explicitly marked with `n=1` or `--`.
 
-| Family | Seed | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
+| Family | Seeds / n | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
 |---|---:|---:|---:|---:|
-| STW YOLO | 42 | 0.8370 | 0.3413 | 0.8340 |
-| TPH YOLOv5 | 42 | 0.7140 | 0.2590 | 0.7862 |
-| FCOS-SET | 43 | 0.7656 | 0.2762 | 0.7683 |
-| FCOS-SR-TOD | 43 | 0.7330 | 0.2670 | 0.7375 |
+| STW YOLO | 42 / 1 | 0.8370 | 0.3413 | 0.8340 |
+| TPH YOLOv5 | 42, 43 / 2 | 0.7345 ± 0.0290 | 0.2735 ± 0.0205 | 0.7862 (n=1) |
+| FCOS-SET | 42, 43 / 2 | 0.7490 ± 0.0235 | 0.2680 ± 0.0116 | 0.7511 ± 0.0243 |
+| FCOS-SR-TOD | 43 / 1 | 0.7330 | 0.2670 | 0.7375 |
 
 ### 2.3 MMDetection baseline
 
-Source: `docs/reports/mmdetection_baseline_runs_report.md`, `no_mosaic`, seed 42. The RetinaNet row is the completed supplement recorded in `docs/reports/baseline_main.md`, Section 8.
+Source: `docs/reports/mmdetection_baseline_runs_report.md` plus the completed supplement in `docs/reports/baseline_main.md`, Section 8. `no_mosaic`, aggregate across seeds 42 and 43 using mean ± sample standard deviation. Per-seed values remain in the source reports.
 
-| Model | Seed | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
+| Model | Seeds / n | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
 |---|---:|---:|---:|---:|
-| FCOS | 42 | 0.7227 | 0.2487 | 0.7222 |
-| Faster R-CNN | 42 | 0.7420 | 0.2846 | 0.7459 |
-| Cascade R-CNN | 42 | 0.7265 | 0.2568 | 0.7316 |
-| RTMDet | 42 | 0.5875 | 0.2435 | 0.5889 |
-| ATSS | 42 | 0.7370 | 0.2611 | 0.7372 |
-| RetinaNet | 42 | 0.6613 | 0.2314 | 0.6618 |
+| FCOS | 42, 43 / 2 | 0.7139 ± 0.0124 | 0.2486 ± 0.0001 | 0.7132 ± 0.0127 |
+| Faster R-CNN | 42, 43 / 2 | 0.7484 ± 0.0091 | 0.2857 ± 0.0015 | 0.7509 ± 0.0070 |
+| Cascade R-CNN | 42, 43 / 2 | 0.7365 ± 0.0141 | 0.2683 ± 0.0163 | 0.7415 ± 0.0141 |
+| RTMDet | 42, 43 / 2 | 0.6469 ± 0.0839 | 0.2660 ± 0.0317 | 0.6492 ± 0.0852 |
+| ATSS | 42, 43 / 2 | 0.7318 ± 0.0074 | 0.2603 ± 0.0011 | 0.7330 ± 0.0059 |
+| RetinaNet | 42, 43 / 2 | 0.6899 ± 0.0404 | 0.2445 ± 0.0185 | 0.6909 ± 0.0412 |
 
 ## 3. Varroa validation
 
@@ -76,27 +76,27 @@ Source: `docs/reports/baseline_main.md`, Mosaic mean across available seeds.
 
 ### 3.2 SOTA
 
-Source: `docs/reports/SOTA_main_report.md`, selected split-qualified rows.
+Source: `docs/reports/SOTA_main_report.md`. Aggregates use mean ± sample standard deviation only when both seeds have the requested split-qualified field.
 
-| Family | Seed | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
+| Family | Seeds / n | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
 |---|---:|---:|---:|---:|
-| STW YOLO | 42 | 0.9296 | 0.3491 | 0.8978 |
-| TPH YOLOv5 | 42 | 0.8480 | 0.2930 | 0.8486 |
-| FCOS-SET | 43 | 0.8950 | 0.3070 | 0.2820 |
-| FCOS-SR-TOD | 43 | 0.9140 | 0.3120 | 0.8853 |
+| STW YOLO | 42 / 1 | 0.9296 | 0.3491 | 0.8978 |
+| TPH YOLOv5 | 42, 43 / 2 | 0.8445 ± 0.0049 | 0.2980 ± 0.0071 | 0.8486 (n=1) |
+| FCOS-SET | 43 / 1 | 0.8950 | 0.3070 | 0.2820 |
+| FCOS-SR-TOD | 43 / 1 | 0.9140 | 0.3120 | 0.8853 |
 
 ### 3.3 MMDetection baseline
 
-Source: `docs/reports/baseline_main.md`, Section 8 MMDetection supplement, Mosaic, seed 42.
+Source: `docs/reports/baseline_main.md`, Section 8 MMDetection supplement, Mosaic, aggregate across seeds 42 and 43 using mean ± sample standard deviation. Per-seed values remain in the source report.
 
-| Model | Seed | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
+| Model | Seeds / n | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
 |---|---:|---:|---:|---:|
-| ATSS | 42 | 0.8792 | 0.3043 | 0.8457 |
-| Cascade R-CNN | 42 | 0.9007 | 0.3105 | 0.8788 |
-| Faster R-CNN | 42 | 0.9183 | 0.3249 | 0.9015 |
-| FCOS | 42 | 0.8899 | 0.3102 | 0.8745 |
-| RetinaNet | 42 | 0.8937 | 0.3205 | 0.8780 |
-| RTMDet | 42 | 0.9053 | 0.3398 | 0.9094 |
+| FCOS | 42, 43 / 2 | 0.8885 ± 0.0019 | 0.3117 ± 0.0022 | 0.8609 ± 0.0193 |
+| Faster R-CNN | 42, 43 / 2 | 0.9141 ± 0.0060 | 0.3184 ± 0.0092 | 0.8940 ± 0.0106 |
+| Cascade R-CNN | 42, 43 / 2 | 0.9047 ± 0.0057 | 0.3160 ± 0.0077 | 0.8853 ± 0.0092 |
+| RTMDet | 42, 43 / 2 | 0.9143 ± 0.0127 | 0.3369 ± 0.0041 | 0.9086 ± 0.0011 |
+| ATSS | 42, 43 / 2 | 0.8796 ± 0.0005 | 0.3087 ± 0.0063 | 0.8525 ± 0.0096 |
+| RetinaNet | 42, 43 / 2 | 0.8918 ± 0.0028 | 0.3207 ± 0.0004 | 0.8814 ± 0.0048 |
 
 ## 4. TinyPerson validation
 
@@ -114,27 +114,51 @@ Source: `docs/reports/baseline_main.md`, Mosaic mean across available seeds. The
 
 ### 4.2 SOTA
 
-Source: `docs/reports/SOTA_main_report.md`, native corner-window validation rows.
+Source: `docs/reports/SOTA_main_report.md`, native corner-window validation rows. Aggregates use mean ± sample standard deviation only when both seeds have the requested split-qualified field.
 
-| Family | Seed | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
+| Family | Seeds / n | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
 |---|---:|---:|---:|---:|
-| STW YOLO | 42 | 0.6262 | 0.2393 | -- |
-| TPH YOLOv5 | 42 | 0.5420 | 0.1920 | -- |
-| FCOS-SET | 43 | 0.4084 | 0.1487 | 0.5366 |
-| FCOS-SR-TOD | 43 | 0.4180 | 0.1500 | 0.3712 |
+| STW YOLO | 42 / 1 | 0.6262 | 0.2393 | -- |
+| TPH YOLOv5 | 42, 43 / 2 | 0.5170 ± 0.0354 | 0.1805 ± 0.0163 | -- |
+| FCOS-SET | 42, 43 / 2 | 0.4116 ± 0.0045 | 0.1491 ± 0.0005 | 0.5441 ± 0.0106 |
+| FCOS-SR-TOD | 43 / 1 | 0.4180 | 0.1500 | 0.3712 |
 
 ### 4.3 MMDetection baseline
 
-Source: `docs/reports/mmdetection_baseline_runs_report.md`, Mosaic, seed 42. These are native corner-window validation metrics. Merged validation metrics are maintained separately in the TinyPerson MMDetection re-evaluation section.
+Source: `docs/reports/mmdetection_baseline_runs_report.md` plus the completed supplement in `docs/reports/baseline_main.md`, Section 8. Mosaic, aggregate across seeds 42 and 43 using mean ± sample standard deviation. These are native corner-window validation metrics. Merged validation metrics are maintained separately in the TinyPerson MMDetection re-evaluation section.
 
-| Model | Seed | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
+| Model | Seeds / n | `val/AP50` | `val/mAP50-95` | `val/AP50-Small` |
 |---|---:|---:|---:|---:|
-| FCOS | 42 | 0.4060 | 0.1394 | 0.5862 |
-| Faster R-CNN | 42 | 0.2904 | 0.1084 | 0.5822 |
-| Cascade R-CNN | 42 | 0.5272 | 0.1981 | 0.5981 |
-| RTMDet | 42 | 0.5054 | 0.1837 | 0.5813 |
-| ATSS | 42 | 0.4298 | 0.1500 | 0.5995 |
-| RetinaNet | 42 | 0.4515 | 0.1484 | 0.5020 |
+| FCOS | 42, 43 / 2 | 0.4054 ± 0.0008 | 0.1374 ± 0.0028 | 0.5772 ± 0.0127 |
+| Faster R-CNN | 42, 43 / 2 | 0.2976 ± 0.0103 | 0.1102 ± 0.0025 | 0.5862 ± 0.0057 |
+| Cascade R-CNN | 42, 43 / 2 | 0.5222 ± 0.0071 | 0.1946 ± 0.0049 | 0.5698 ± 0.0400 |
+| RTMDet | 42, 43 / 2 | 0.4982 ± 0.0102 | 0.1823 ± 0.0020 | 0.5719 ± 0.0133 |
+| ATSS | 42, 43 / 2 | 0.4268 ± 0.0043 | 0.1490 ± 0.0014 | 0.5595 ± 0.0565 |
+| RetinaNet | 42, 43 / 2 | 0.4506 ± 0.0013 | 0.1464 ± 0.0028 | 0.5055 ± 0.0050 |
+
+### 4.4 TinyPerson merged-image validation supplement
+
+These metrics are evaluated after merging corner-window predictions back onto the original TinyPerson images. They are a separate protocol from the native corner-window rows in Section 4.3 and must not be substituted into those columns. The MMDetection values are the Mosaic aggregate across seeds 42 and 43. The SOTA rows are the available verified merged artifacts, each currently covering one seed. **Audit note:** the historical MMDetection TinyPerson runs (`duyle2408/tinyperson_mmdet_runs_seed42`, `...seed43`, `...seed44`) did contain native `AP50 Small` / `ap50_small` fields, but the verified merged-evaluation artifact does not contain a merged `AP50-Small` field. Those historical native values are therefore not relabeled as merged metrics.
+
+#### MMDetection merged validation
+
+| Model | Seeds / n | Val merged AP50 | Val merged mAP50-95 |
+|---|---:|---:|---:|
+| FCOS | 42, 43 / 2 | 0.4054 ± 0.0008 | 0.1374 ± 0.0028 |
+| Faster R-CNN | 42, 43 / 2 | 0.2976 ± 0.0103 | 0.1102 ± 0.0025 |
+| Cascade R-CNN | 42, 43 / 2 | 0.5222 ± 0.0071 | 0.1946 ± 0.0049 |
+| RTMDet | 42, 43 / 2 | 0.4982 ± 0.0102 | 0.1823 ± 0.0020 |
+| ATSS | 42, 43 / 2 | 0.4268 ± 0.0043 | 0.1490 ± 0.0014 |
+| RetinaNet | 42, 43 / 2 | 0.4506 ± 0.0013 | 0.1464 ± 0.0028 |
+
+#### SOTA merged validation
+
+| Family | Seed | Val merged AP50 | Val merged mAP50-95 | Val merged AP50-Small |
+|---|---:|---:|---:|---:|
+| STW YOLO | 42 | 0.6167 | 0.2297 | 0.7192 |
+| TPH YOLOv5 | 42 | 0.5368 | 0.1897 | 0.6507 |
+| FCOS-SET | 43 | 0.4084 | 0.1487 | 0.5366 |
+| FCOS-SR-TOD | 43 | 0.4157 | 0.1467 | 0.5225 |
 
 ## 5. SOTA seed coverage audit
 
