@@ -18,6 +18,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 STW_ROOT = Path(os.environ.get("STW_YOLO_ROOT", ROOT / "other_repo" / "STW-YOLO")).resolve()
 if str(STW_ROOT) not in sys.path:
     sys.path.insert(0, str(STW_ROOT))
