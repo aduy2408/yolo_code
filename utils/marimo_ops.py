@@ -884,7 +884,7 @@ def complete_verified(
         if not (value == value and abs(value) != float("inf")):
             raise MarimoOpsError(f"Metric {key} is not finite")
     marker = read_json(artifact_root / "upload_complete.json")
-    verified_files = marker.get("verified")
+    verified_files = marker.get("verified", marker.get("verified_paths"))
     if not marker.get("repo_id") or not marker.get("remote_prefix"):
         raise MarimoOpsError("Upload marker lacks remote verification evidence")
     if not isinstance(verified_files, list) or not all(isinstance(item, str) for item in verified_files):
