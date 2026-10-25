@@ -302,17 +302,35 @@ def _evaluate(run_dir: Path, data_yaml: Path, spec: dict[str, str], args: argpar
             workers=args.workers,
             nms_iou=args.nms_iou,
         )
-        return _evaluate_run(run_dir, data_yaml, eval_args)
+        metrics = _evaluate_run(run_dir, data_yaml, eval_args)
+    else:
+        model = YOLO(run_dir / "weights/best.pt")
+        metrics = {"test_protocol": "LEVIR-Ship standard held-out test split" if spec["dataset"] == "levir" else "Varroa standard held-out test split"}
+        for split in ("val", "test"):
+            result = model.val(
+                data=str(data_yaml), split=split, imgsz=args.imgsz[spec["dataset"]], batch=args.batch_size,
+                device=args.device, workers=args.workers, plots=False, iou=args.nms_iou,
+                project=str(run_dir / "evaluation"), name=split, exist_ok=True,
+            )
+            metrics.update(_split_metrics(result, split))
 
-    model = YOLO(run_dir / "weights/best.pt")
-    metrics: dict[str, Any] = {"test_protocol": "LEVIR-Ship standard held-out test split" if spec["dataset"] == "levir" else "Varroa standard held-out test split"}
-    for split in ("val", "test"):
-        result = model.val(
-            data=str(data_yaml), split=split, imgsz=args.imgsz[spec["dataset"]], batch=args.batch_size,
-            device=args.device, workers=args.workers, plots=False, iou=args.nms_iou,
-            project=str(run_dir / "evaluation"), name=split, exist_ok=True,
-        )
-        metrics.update(_split_metrics(result, split))
+    if getattr(args, "full_bucket_metrics", False):
+        from evaluate_test.size_bucket_evaluator import evaluate_native_size_buckets
+
+        for split in ("val", "test"):
+            metrics.update(
+                evaluate_native_size_buckets(
+                    run_dir,
+                    data_yaml,
+                    split=split,
+                    imgsz=args.imgsz[spec["dataset"]],
+                    batch=args.batch_size,
+                    device=args.device,
+                    workers=args.workers,
+                )
+            )
+        metrics["size_metric_protocol"] = "Native YOLO val/test area buckets; IoU=0.50:0.05:0.75; maxDets=200"
+
     return metrics
 
 
@@ -383,6 +401,8 @@ def _train_one(
         "workers": args.workers,
         "device": args.device,
         "nms_iou": args.nms_iou,
+        "full_bucket_metrics": bool(getattr(args, "full_bucket_metrics", False)),
+        "bucket_metric_protocol": "Native YOLO val/test area buckets; IoU=0.50:0.05:0.75; maxDets=200" if getattr(args, "full_bucket_metrics", False) else None,
         "augmentation_protocol": "baseline_no_mosaic_parity" if args.baseline_augmentation_parity else "augmentation_matrix_current",
         "augmentation": settings,
         "oacp_env": {
@@ -484,6 +504,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--imgsz-tinyperson", type=int, default=640)
     parser.add_argument("--imgsz-varroa", type=int, default=640)
     parser.add_argument("--nms-iou", type=float, default=0.5)
+    parser.add_argument(
+        "--full-bucket-metrics",
+        action="store_true",
+        help="Also evaluate native val/test TinyBenchmark area buckets and persist their JSON artifacts.",
+    )
     parser.add_argument(
         "--baseline-augmentation-parity",
         action=argparse.BooleanOptionalAction,
