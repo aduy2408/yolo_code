@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Run the STW-YOLO model sequentially on the three Marimo-mounted datasets.
+"""Run STW-YOLO with single-pass OACP on Marimo-mounted datasets.
 
-This runner is intentionally upload-required and restart-safe at the dataset level.
-It prepares each dataset once, trains seed 42 for 100 epochs, evaluates at NMS IoU
-0.5, uploads the required artifacts, verifies the remote paths, then advances.
+This runner is upload-required and restart-safe at the dataset/seed level. It keeps
+the dataset split seed fixed at 42, trains the requested seeds, evaluates both val
+and test with the native TinyBenchmark area buckets, uploads the required artifacts,
+and verifies the remote paths before advancing.
 """
 
 from __future__ import annotations
@@ -20,13 +21,29 @@ ROOT = Path(__file__).resolve().parents[1]
 STW_ROOT = Path(os.environ.get("STW_YOLO_ROOT", ROOT / "other_repo" / "STW-YOLO")).resolve()
 if str(STW_ROOT) not in sys.path:
     sys.path.insert(0, str(STW_ROOT))
-SEED = 42
 SPLIT_SEED = 42
 EPOCHS = 100
 BATCH_SIZE = 16
 WORKERS = 8
 NMS_IOU = 0.5
-DEFAULT_HF_REPO = "duyle2408/stw-yolo-runs"
+DEFAULT_HF_REPO = "duyle2408/stw-yolo-oacp-runs"
+
+OACP_ENV = {
+    "YOLO_CONTEXT_AUG": "oacp",
+    "YOLO_LEGACY_DOUBLE_OACP": "0",
+    "OACP_VARIANT": "current",
+    "OACP_PLACEMENT": "pre_transform",
+    "OACP_PROB_POLICY": "fixed",
+    "OACP_P": "0.20",
+    "OACP_EFFECT_POLICY": "fixed",
+    "OACP_STRENGTH_POLICY": "fixed",
+    "OACP_SCALE_POLICY": "fixed",
+    "OACP_PROTECTION_POLICY": "fixed",
+    "OACP_STRENGTH_MIN": "0.20",
+    "OACP_STRENGTH_MAX": "0.40",
+    "OACP_SCALE_MIN": "0.65",
+    "OACP_SCALE_MAX": "0.85",
+}
 
 DATA_ROOTS = {
     "varroa": Path("/marimo/Varroa"),
@@ -138,11 +155,64 @@ def upload_and_verify(repo_id: str, run_dir: Path, remote_prefix: str, required:
     )
 
 
-def run_one(name: str, args: argparse.Namespace, data_yaml: Path, repo_id: str) -> None:
+def _split_metrics(result: object, split: str) -> dict[str, float]:
+    values = getattr(result, "results_dict", {})
+    try:
+        return {
+            f"{split}/AP50": float(values["metrics/mAP50(B)"]),
+            f"{split}/mAP50-95": float(values["metrics/mAP50-95(B)"]),
+        }
+    except KeyError as exc:
+        raise RuntimeError(f"Missing standard {split} metric in evaluator output: {exc}") from exc
+
+
+def _evaluate(run_dir: Path, data_yaml: Path, dataset: str, args: argparse.Namespace) -> dict[str, float | str]:
+    from ultralytics import YOLO
+
+    model = YOLO(str(run_dir / "weights/best.pt"))
+    image_size = IMAGE_SIZES[dataset]
+    metrics: dict[str, float | str] = {
+        "test_protocol": f"{dataset} standard held-out test split",
+        "size_metric_protocol": "TinyBenchmark area buckets on native YOLO val/test images; IoU=0.50:0.05:0.75; maxDets=200",
+    }
+    for split in ("val", "test"):
+        result = model.val(
+            data=str(data_yaml),
+            split=split,
+            imgsz=image_size,
+            batch=BATCH_SIZE,
+            device=args.device,
+            workers=WORKERS,
+            iou=NMS_IOU,
+            plots=False,
+            project=str(run_dir / "evaluation"),
+            name=f"standard_{split}",
+            exist_ok=True,
+        )
+        metrics.update(_split_metrics(result, split))
+
+    from evaluate_test.size_bucket_evaluator import evaluate_native_size_buckets
+
+    for split in ("val", "test"):
+        metrics.update(
+            evaluate_native_size_buckets(
+                run_dir,
+                data_yaml,
+                split=split,
+                imgsz=image_size,
+                batch=BATCH_SIZE,
+                device=args.device,
+                workers=WORKERS,
+            )
+        )
+    return metrics
+
+
+def run_one(name: str, seed: int, args: argparse.Namespace, data_yaml: Path, repo_id: str) -> None:
     from ultralytics import YOLO
 
     image_size = IMAGE_SIZES[name]
-    run_dir = args.project / name / f"seed_{SEED}"
+    run_dir = args.project / name / "oacp" / f"seed_{seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
     required = [
         "weights/best.pt",
@@ -151,6 +221,10 @@ def run_one(name: str, args: argparse.Namespace, data_yaml: Path, repo_id: str) 
         "args.yaml",
         "evaluation_metrics.json",
         "experiment_manifest.json",
+        "evaluation/val_size_ground_truth.json",
+        "evaluation/val_size_predictions.json",
+        "evaluation/test_size_ground_truth.json",
+        "evaluation/test_size_predictions.json",
     ]
     if (run_dir / "upload_complete.json").is_file():
         print(f"Skipping verified run: {run_dir}", flush=True)
@@ -170,34 +244,26 @@ def run_one(name: str, args: argparse.Namespace, data_yaml: Path, repo_id: str) 
             device=args.device,
             workers=WORKERS,
             patience=0,
-            seed=SEED,
+            seed=seed,
             deterministic=True,
             project=str(args.project / name),
-            name=f"seed_{SEED}",
+            name=f"oacp/seed_{seed}",
             exist_ok=True,
         )
     if not best.is_file():
         raise RuntimeError(f"Missing trained checkpoint: {best}")
     model_yaml = STW_ROOT / "Lib/p2_rp5_yolo12s.yaml"
-    validation = YOLO(str(best)).val(
-        data=str(data_yaml),
-        split="test",
-        imgsz=image_size,
-        batch=BATCH_SIZE,
-        device=args.device,
-        workers=WORKERS,
-        iou=NMS_IOU,
-        plots=False,
-    )
-    metrics = getattr(validation, "results_dict", {})
-    (run_dir / "evaluation_metrics.json").write_text(json.dumps(metrics, indent=2, default=float) + "\n", encoding="utf-8")
+    metrics = _evaluate(run_dir, data_yaml, name, args)
+    (run_dir / "evaluation_metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     manifest = {
         "dataset": name,
-        "seed": SEED,
+        "training_seed": seed,
         "split_seed": SPLIT_SEED,
         "data_yaml": str(data_yaml),
         "model_yaml": str(model_yaml),
         "pretrained": "yolo12s.pt",
+        "augmentation": "single-pass OACP",
+        "oacp_env": OACP_ENV,
         "epochs": EPOCHS,
         "patience": 0,
         "imgsz": image_size,
@@ -207,14 +273,15 @@ def run_one(name: str, args: argparse.Namespace, data_yaml: Path, repo_id: str) 
         "source_commit": git_sha(ROOT),
         "stw_yolo_commit": git_sha(STW_ROOT),
         "hf_repo_id": repo_id,
-        "remote_prefix": f"runs/{name}/seed_{SEED}",
+        "remote_prefix": f"runs/{name}/oacp/seed_{seed}",
+        "bucket_metric_protocol": metrics["size_metric_protocol"],
         "upload_required": True,
     }
     (run_dir / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     missing = [path for path in required if not (run_dir / path).is_file()]
     if missing:
         raise RuntimeError(f"Missing required artifacts for {name}: {missing}")
-    upload_and_verify(repo_id, run_dir, f"runs/{name}/seed_{SEED}", required)
+    upload_and_verify(repo_id, run_dir, f"runs/{name}/oacp/seed_{seed}", required)
 
 
 def parse_args() -> argparse.Namespace:
@@ -223,21 +290,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project", type=Path, default=ROOT / "runs/stw_yolo_marimo")
     parser.add_argument("--runtime-root", type=Path, default=ROOT / "scratch/stw_yolo_marimo")
     parser.add_argument("--device", default="0")
+    parser.add_argument("--seeds", nargs="+", type=int, default=[42, 43])
+    parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--hf-repo-id", default=os.environ.get("MARIMO_HF_REPO_ID", DEFAULT_HF_REPO))
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.split_seed != SPLIT_SEED:
+        raise ValueError(f"split seed is fixed at {SPLIT_SEED}; do not reuse a training seed for dataset preparation")
+    if args.seeds != [42, 43]:
+        raise ValueError("This OACP seed comparison requires exactly --seeds 42 43")
+    os.environ.update(OACP_ENV)
     from utils.marimo_ops import require_training_context
     require_training_context(hf_repo_id=args.hf_repo_id)
     args.project = args.project.resolve()
     args.runtime_root = args.runtime_root.resolve()
     args.project.mkdir(parents=True, exist_ok=True)
     args.runtime_root.mkdir(parents=True, exist_ok=True)
-    for name in args.datasets:
-        data_yaml = prepare_dataset(name, args.runtime_root)
-        run_one(name, args, data_yaml, args.hf_repo_id)
+    prepared = {name: prepare_dataset(name, args.runtime_root) for name in args.datasets}
+    for seed in args.seeds:
+        for name in args.datasets:
+            run_one(name, seed, args, prepared[name], args.hf_repo_id)
 
 
 if __name__ == "__main__":
