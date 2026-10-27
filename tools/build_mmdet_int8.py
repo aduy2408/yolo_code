@@ -27,8 +27,13 @@ def parse_args() -> argparse.Namespace:
 class NpzCalibrator(trt.IInt8EntropyCalibrator2):
     def __init__(self, batches: list[Path], input_name: str, cache: Path) -> None:
         super().__init__()
-        import pycuda.autoinit  # noqa: F401
-        import pycuda.driver as cuda
+        try:
+            import pycuda.autoinit  # noqa: F401
+            import pycuda.driver as cuda
+            self._mode = "pycuda"
+        except ImportError:
+            from cuda.bindings import runtime as cuda
+            self._mode = "cuda-python"
 
         self._cuda = cuda
         self._batches = batches
@@ -37,7 +42,12 @@ class NpzCalibrator(trt.IInt8EntropyCalibrator2):
         self._index = 0
         first = np.load(batches[0])[input_name]
         self._batch_size = int(first.shape[0])
-        self._device = cuda.mem_alloc(first.nbytes)
+        if self._mode == "pycuda":
+            self._device = cuda.mem_alloc(first.nbytes)
+        else:
+            error, self._device = cuda.cudaMalloc(first.nbytes)
+            if error != cuda.cudaError_t.cudaSuccess:
+                raise RuntimeError(f"cudaMalloc failed: {error}")
 
     def get_batch_size(self) -> int:
         return self._batch_size
@@ -49,7 +59,17 @@ class NpzCalibrator(trt.IInt8EntropyCalibrator2):
             batch = np.ascontiguousarray(archive[self._input_name], dtype=np.float32)
         if batch.shape[0] != self._batch_size:
             raise ValueError("All NPZ calibration batches must have the same batch size")
-        self._cuda.memcpy_htod(self._device, batch)
+        if self._mode == "pycuda":
+            self._cuda.memcpy_htod(self._device, batch)
+        else:
+            error, = self._cuda.cudaMemcpy(
+                self._device,
+                batch.ctypes.data,
+                batch.nbytes,
+                self._cuda.cudaMemcpyKind.cudaMemcpyHostToDevice,
+            )
+            if error != self._cuda.cudaError_t.cudaSuccess:
+                raise RuntimeError(f"cudaMemcpy failed: {error}")
         self._index += 1
         return [int(self._device)]
 
