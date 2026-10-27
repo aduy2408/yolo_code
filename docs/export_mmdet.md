@@ -38,6 +38,29 @@ The command configures CMake with `BUILD_TENSORRT_OPS=ON`, installs
 `libmmdeploy_tensorrt_ops.so` into the MMDeploy checkout, and verifies that
 `TRTBatchedNMS` is registered.
 
+## Reproduce the verified TensorRT engine
+
+The verified Blackwell build uses NVIDIA's official TensorRT 10.15.1 CUDA 13.1
+tar package and `trtexec`. It restricts CMake to two workers and TensorRT to
+one tactic per layer:
+
+```bash
+python tools/build_mmdet_tensorrt.py \
+  --mmdeploy-root /marimo/mmdeploy \
+  --sdk-root /marimo/tensorrt-official \
+  --cuda-root /usr/local/cuda-13.1 \
+  --cudnn-root /marimo/mmdet-venv/lib/python3.11/site-packages/nvidia/cudnn \
+  --onnx /marimo/mmdet_exports/levir_rtmdet_seed43/tensorrt/end2end.onnx \
+  --download-sdk \
+  --build-plugins \
+  --build-engine \
+  --build-workers 2
+```
+
+The script produces `end2end.engine` and `timing.cache`. The engine is built
+for the fixed `1x3x800x800` input shape. `--maxTactics=1` is intentional: it
+avoids the unbounded first-build tactic search on the RTX PRO 6000 Blackwell.
+
 Run it again without `--install` to verify the environment. The script is
 idempotent for an existing MMDeploy checkout and refuses a directory that is
 not a valid checkout.
