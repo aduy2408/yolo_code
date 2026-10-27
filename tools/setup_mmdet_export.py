@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--build-plugins", action="store_true", help="Build and verify MMDeploy TensorRT custom ops.")
     parser.add_argument("--tensorrt-sdk", type=Path, help="TensorRT SDK root containing include/ and lib/.")
     parser.add_argument("--cudnn-dir", type=Path, help="Optional cuDNN root passed to CMake.")
-    parser.add_argument("--build-dir", type=Path, help="CMake build directory; defaults to <mmdeploy-root>/build.")
+    parser.add_argument("--build-workers", type=int, default=2, help="Maximum parallel CMake build workers.")
     return parser.parse_args()
 
 
@@ -71,7 +71,7 @@ def build_plugins(args: argparse.Namespace) -> None:
     if args.cudnn_dir:
         configure.append("-DCUDNN_DIR=" + str(args.cudnn_dir.resolve()))
     run(configure)
-    run(["cmake", "--build", str(build_dir), "--parallel", "4"])
+    run(["cmake", "--build", str(build_dir), "--parallel", str(args.build_workers)])
     run(["cmake", "--install", str(build_dir)])
 
 
