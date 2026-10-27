@@ -23,6 +23,21 @@ interpreter, and installs ONNX Runtime plus TensorRT:
   --install
 ```
 
+After obtaining a TensorRT SDK with `include/NvInfer.h` and
+`lib/libnvinfer.so`, build the MMDeploy custom plugins:
+
+```bash
+/marimo/mmdet-venv/bin/python tools/setup_mmdet_export.py \
+  --mmdeploy-root /marimo/mmdeploy \
+  --tensorrt-sdk /marimo/tensorrt-sdk \
+  --cudnn-dir /path/to/cudnn \
+  --build-plugins
+```
+
+The command configures CMake with `BUILD_TENSORRT_OPS=ON`, installs
+`libmmdeploy_tensorrt_ops.so` into the MMDeploy checkout, and verifies that
+`TRTBatchedNMS` is registered.
+
 Run it again without `--install` to verify the environment. The script is
 idempotent for an existing MMDeploy checkout and refuses a directory that is
 not a valid checkout.

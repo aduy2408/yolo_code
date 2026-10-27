@@ -17,6 +17,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--python", default=DEFAULT_PYTHON, help="Target Python interpreter.")
     parser.add_argument("--mmdeploy-root", type=Path, default=DEFAULT_MMDEPLOY)
     parser.add_argument("--install", action="store_true", help="Install the pinned export dependencies.")
+    parser.add_argument("--build-plugins", action="store_true", help="Build and verify MMDeploy TensorRT custom ops.")
+    parser.add_argument("--tensorrt-sdk", type=Path, help="TensorRT SDK root containing include/ and lib/.")
+    parser.add_argument("--cudnn-dir", type=Path, help="Optional cuDNN root passed to CMake.")
+    parser.add_argument("--build-dir", type=Path, help="CMake build directory; defaults to <mmdeploy-root>/build.")
     return parser.parse_args()
 
 
@@ -42,6 +46,48 @@ def patch_torch_exporter(root: Path) -> None:
             raise RuntimeError(f"Unsupported MMDeploy exporter source: {path}")
         path.write_text(text.replace(needle, needle + "            dynamo=False,\n", 1), encoding="utf-8")
 
+
+
+def build_plugins(args: argparse.Namespace) -> None:
+    if not args.tensorrt_sdk:
+        raise ValueError("--tensorrt-sdk is required with --build-plugins")
+    sdk = args.tensorrt_sdk.resolve()
+    if not (sdk / "include/NvInfer.h").is_file() or not (sdk / "lib/libnvinfer.so").exists():
+        raise FileNotFoundError(f"TensorRT SDK must contain include/NvInfer.h and lib/libnvinfer.so: {sdk}")
+    build_dir = (args.build_dir or args.mmdeploy_root / "build").resolve()
+    configure = [
+        "cmake",
+        "-S",
+        str(args.mmdeploy_root),
+        "-B",
+        str(build_dir),
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_INSTALL_PREFIX=" + str(args.mmdeploy_root.resolve()),
+        "-DMMDEPLOY_TARGET_DEVICES=cuda;cpu",
+        "-DMMDEPLOY_TARGET_BACKENDS=trt",
+        "-DBUILD_TENSORRT_OPS=ON",
+        "-DTENSORRT_DIR=" + str(sdk),
+    ]
+    if args.cudnn_dir:
+        configure.append("-DCUDNN_DIR=" + str(args.cudnn_dir.resolve()))
+    run(configure)
+    run(["cmake", "--build", str(build_dir), "--parallel", "4"])
+    run(["cmake", "--install", str(build_dir)])
+
+
+def verify_plugins(args: argparse.Namespace) -> None:
+    library = args.mmdeploy_root / "lib/libmmdeploy_tensorrt_ops.so"
+    if not library.is_file():
+        raise FileNotFoundError(f"MMDeploy TensorRT plugin library not found: {library}")
+    probe = """
+import tensorrt as trt
+from mmdeploy.backend.tensorrt import load_tensorrt_plugin
+assert load_tensorrt_plugin()
+names = [creator.name for creator in trt.get_plugin_registry().plugin_creator_list]
+assert 'TRTBatchedNMS' in names, names
+print('TRTBatchedNMS: available')
+"""
+    run([args.python, "-c", probe], cwd=args.mmdeploy_root)
 
 
 def install(args: argparse.Namespace) -> None:
@@ -93,7 +139,11 @@ def main() -> None:
     args = parse_args()
     if args.install:
         install(args)
+    if args.build_plugins:
+        build_plugins(args)
     verify(args)
+    if args.build_plugins:
+        verify_plugins(args)
 
 
 if __name__ == "__main__":
