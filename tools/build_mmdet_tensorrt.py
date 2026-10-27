@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sdk-archive", type=Path)
     parser.add_argument("--cuda-root", type=Path, default=DEFAULT_CUDA)
     parser.add_argument("--cudnn-root", type=Path, default=DEFAULT_CUDNN)
+    parser.add_argument("--cuda-arch", default="120", help="CUDA SM architecture, e.g. 120 for Blackwell or 87 for Jetson Orin.")
     parser.add_argument("--work-dir", type=Path, default=DEFAULT_WORK_DIR)
     parser.add_argument("--onnx", type=Path)
     parser.add_argument("--engine", type=Path)
@@ -108,7 +109,7 @@ def build_plugins(args: argparse.Namespace, env: dict[str, str]) -> None:
             "-DTENSORRT_DIR=" + str(args.sdk_root.resolve()),
             "-DCUDNN_DIR=" + str(args.cudnn_root.resolve()),
             "-DCUDA_TOOLKIT_ROOT_DIR=" + str(args.cuda_root.resolve()),
-            "-DCMAKE_CUDA_ARCHITECTURES=120",
+            "-DCMAKE_CUDA_ARCHITECTURES=" + args.cuda_arch,
         ],
         env=env,
     )

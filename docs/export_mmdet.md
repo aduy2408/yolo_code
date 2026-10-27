@@ -61,6 +61,27 @@ The script produces `end2end.engine` and `timing.cache`. The engine is built
 for the fixed `1x3x800x800` input shape. `--maxTactics=1` is intentional: it
 avoids the unbounded first-build tactic search on the RTX PRO 6000 Blackwell.
 
+The `.engine` file is target-specific. Do not copy this Blackwell engine to a
+Jetson. Copy the ONNX file and build natively on the Jetson with its JetPack
+TensorRT SDK. For Jetson Orin, use SM `87` and omit `--download-sdk`:
+
+```bash
+python tools/build_mmdet_tensorrt.py \
+  --mmdeploy-root /path/to/mmdeploy \
+  --sdk-root /usr/src/tensorrt \
+  --cuda-root /usr/local/cuda \
+  --cudnn-root /usr \
+  --cuda-arch 87 \
+  --onnx /path/to/end2end.onnx \
+  --build-plugins \
+  --build-engine \
+  --build-workers 2
+```
+
+Use the TensorRT and CUDA versions supplied by the JetPack release. The
+MMDeploy plugin must also be compiled on the Jetson; the x86_64 plugin from the
+server is not compatible with Jetson's ARM64 environment.
+
 Run it again without `--install` to verify the environment. The script is
 idempotent for an existing MMDeploy checkout and refuses a directory that is
 not a valid checkout.
