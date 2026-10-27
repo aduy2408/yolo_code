@@ -82,6 +82,42 @@ Use the TensorRT and CUDA versions supplied by the JetPack release. The
 MMDeploy plugin must also be compiled on the Jetson; the x86_64 plugin from the
 server is not compatible with Jetson's ARM64 environment.
 
+## Prepare INT8 calibration data
+
+The current verified engine is FP16. To prepare a later INT8 build, create
+deterministically preprocessed NPZ batches. The defaults match the standard
+MMDetection RGB normalization and the fixed `800x800` export shape:
+
+```bash
+python tools/prepare_mmdet_calibration.py \
+  --images /path/to/LevirShip/images/val \
+  --output-dir /path/to/levir_calibration_npz \
+  --image-size 800 800 \
+  --max-images 500 \
+  --batch-size 1 \
+  --seed 42
+```
+
+Each batch contains an `input` array with shape `1x3x800x800`, dtype
+`float32`. The final batch is padded by repeating its last image so every
+calibration batch has the same shape. `manifest.json` records the source
+images and preprocessing parameters.
+
+Build the INT8 engine later with the precomputed batches:
+
+```bash
+python tools/build_mmdet_int8.py \
+  --onnx /path/to/end2end.onnx \
+  --calibration-dir /path/to/levir_calibration_npz \
+  --sdk-root /usr/src/tensorrt \
+  --plugin /path/to/mmdeploy/mmdeploy/lib/libmmdeploy_tensorrt_ops.so \
+  --engine /path/to/end2end_int8.engine \
+  --cache /path/to/end2end_int8.calibration.cache
+```
+
+Calibration uses images only, not labels. Build and calibrate on the Jetson
+with the JetPack TensorRT/CUDA stack when the deployment target is Jetson.
+
 Run it again without `--install` to verify the environment. The script is
 idempotent for an existing MMDeploy checkout and refuses a directory that is
 not a valid checkout.
