@@ -243,3 +243,11 @@ scratch/
 # Local experiment helpers and benchmark artifacts
 /.jcode_*.py
 /other_repo/
+
+# DUY_DEPLOY source-only commit: keep checkpoints and generated artifacts local.
+/DUY_DEPLOY/checkpoints/
+/DUY_DEPLOY/models/
+/DUY_DEPLOY/results/
+/DUY_DEPLOY/docker/pytorch_jetson/*.whl
+/DUY_DEPLOY/docker/pytorch_jetson/*.deb
+/DUY_DEPLOY/**/__pycache__/

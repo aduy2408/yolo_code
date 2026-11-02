@@ -1,0 +1,20 @@
+# Files in this repository-root folder are runnable local ONNX/TensorRT workflow inputs.
+# Models and datasets stay outside this folder and are supplied via MODELS_ROOT/DATA_ROOT.
+
+rerun.sh
+source/benchmark.py
+source/benchmark_end_to_end.py
+source/summarize_e2e.py
+source/evaluate_tinyperson_merged.py
+source/merge_tinyperson_predictions.py
+source/prepare_cuda_models.py
+source/preflight.py
+source/build_tensorrt_fp16.sh
+source/Dockerfile
+source/requirements.txt
+source/benchmark_ultralytics.py
+
+External model roots expected by rerun.sh:
+- ../DUY_DEPLOY/models/onnx_fp16_dynamic: deployment benchmark inputs
+- ../DUY_DEPLOY/models/onnx_cuda_fp16: raw-head accuracy inputs
+- ../DUY_DEPLOY/models/onnx_cpu_fp32: retained CPU comparison inputs

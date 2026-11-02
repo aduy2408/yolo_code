@@ -1,0 +1,183 @@
+{
+  "purpose": "PyTorch Ultralytics Jetson baseline benchmark",
+  "models": [
+    "yolov5nu",
+    "yolov8n",
+    "yolov9t",
+    "yolov10n",
+    "yolo11n"
+  ],
+  "datasets": [
+    "levirship",
+    "tinyperson",
+    "varroa"
+  ],
+  "seed": 42,
+  "records": [
+    {
+      "dataset": "levirship",
+      "model": "yolov5nu",
+      "seed": 42,
+      "repo_id": "duyle2408/yolo-baselines-no-mosaic-musgd-runs",
+      "revision": "f7763726cd85ca759b6eb6b6029f4924ced1e9e6",
+      "hf_path": "runs/levirship/yolov5/seed_42/weights/best.pt",
+      "local_path": "checkpoints/levirship/yolov5nu/seed_42/best.pt",
+      "size_bytes": 5259906,
+      "sha256": "6f6486931369f519e31ac188fe2e654ef8b5d03c01dc6ddbf8d46784aec9f4aa"
+    },
+    {
+      "dataset": "levirship",
+      "model": "yolov8n",
+      "seed": 42,
+      "repo_id": "duyle2408/yolo-baselines-no-mosaic-musgd-runs",
+      "revision": "f7763726cd85ca759b6eb6b6029f4924ced1e9e6",
+      "hf_path": "runs/levirship/yolov8/seed_42/weights/best.pt",
+      "local_path": "checkpoints/levirship/yolov8n/seed_42/best.pt",
+      "size_bytes": 6238314,
+      "sha256": "a59f749a30d3e2b44cec639a3c06054b0960f763e92d515920070a3ca8f142a8"
+    },
+    {
+      "dataset": "levirship",
+      "model": "yolov9t",
+      "seed": 42,
+      "repo_id": "duyle2408/yolo-baselines-no-mosaic-musgd-runs",
+      "revision": "f7763726cd85ca759b6eb6b6029f4924ced1e9e6",
+      "hf_path": "runs/levirship/yolov9/seed_42/weights/best.pt",
+      "local_path": "checkpoints/levirship/yolov9t/seed_42/best.pt",
+      "size_bytes": 4626569,
+      "sha256": "7f750725944585cd0e528530c73a96cb70e7538d5a263e450117f8e7ee35186e"
+    },
+    {
+      "dataset": "levirship",
+      "model": "yolov10n",
+      "seed": 42,
+      "repo_id": "duyle2408/yolo-baselines-no-mosaic-musgd-runs",
+      "revision": "f7763726cd85ca759b6eb6b6029f4924ced1e9e6",
+      "hf_path": "runs/levirship/yolov10/seed_42/weights/best.pt",
+      "local_path": "checkpoints/levirship/yolov10n/seed_42/best.pt",
+      "size_bytes": 5741050,
+      "sha256": "2270da4611aa8546200cdd442a623109084b489bfa1a05a69b12217477597b1e"
+    },
+    {
+      "dataset": "levirship",
+      "model": "yolo11n",
+      "seed": 42,
+      "repo_id": "duyle2408/yolo-baselines-no-mosaic-musgd-runs",
+      "revision": "f7763726cd85ca759b6eb6b6029f4924ced1e9e6",
+      "hf_path": "runs/levirship/yolo11/seed_42/weights/best.pt",
+      "local_path": "checkpoints/levirship/yolo11n/seed_42/best.pt",
+      "size_bytes": 5462042,
+      "sha256": "899acc5d3107f6801a2ec114aa0ea4bf43a77da1df40da04328d958a42b862e6"
+    },
+    {
+      "dataset": "tinyperson",
+      "model": "yolov5nu",
+      "seed": 42,
+      "repo_id": "duyle2408/tinyperson-yolo-baselines",
+      "revision": "7b0b3e9c4abbc86f08334061ee658add96c9deee",
+      "hf_path": "runs/yolov5/seed_42/weights/best.pt",
+      "local_path": "checkpoints/tinyperson/yolov5nu/seed_42/best.pt",
+      "size_bytes": 16409967,
+      "sha256": "3a4e7e577fea22568d58af09edc317e5fc950674808ac4057faec02f371d0617"
+    },
+    {
+      "dataset": "tinyperson",
+      "model": "yolov8n",
+      "seed": 42,
+      "repo_id": "duyle2408/tinyperson-yolo-baselines",
+      "revision": "7b0b3e9c4abbc86f08334061ee658add96c9deee",
+      "hf_path": "runs/yolov8/seed_42/weights/best.pt",
+      "local_path": "checkpoints/tinyperson/yolov8n/seed_42/best.pt",
+      "size_bytes": 19380639,
+      "sha256": "a0a622ef3771077492e658fbbec426f6382732692a24023c05186bb80bdbbb11"
+    },
+    {
+      "dataset": "tinyperson",
+      "model": "yolov9t",
+      "seed": 42,
+      "repo_id": "duyle2408/tinyperson-yolo-baselines",
+      "revision": "7b0b3e9c4abbc86f08334061ee658add96c9deee",
+      "hf_path": "runs/yolov9/seed_42/weights/best.pt",
+      "local_path": "checkpoints/tinyperson/yolov9t/seed_42/best.pt",
+      "size_bytes": 5242889,
+      "sha256": "bde659ff6772e20ce5eddc193dd375d44dfa1a2dcaa084baf7af81af3deb9572"
+    },
+    {
+      "dataset": "tinyperson",
+      "model": "yolov10n",
+      "seed": 42,
+      "repo_id": "duyle2408/tinyperson-yolo-baselines",
+      "revision": "7b0b3e9c4abbc86f08334061ee658add96c9deee",
+      "hf_path": "runs/yolov10/seed_42/weights/best.pt",
+      "local_path": "checkpoints/tinyperson/yolov10n/seed_42/best.pt",
+      "size_bytes": 6530634,
+      "sha256": "fde1d56e737f554e50b871fb35d33f3e585095c0cdd8c06752cc2f7d04c6bf9a"
+    },
+    {
+      "dataset": "tinyperson",
+      "model": "yolo11n",
+      "seed": 42,
+      "repo_id": "duyle2408/tinyperson-yolo-baselines",
+      "revision": "7b0b3e9c4abbc86f08334061ee658add96c9deee",
+      "hf_path": "runs/yolov11/seed_42/weights/best.pt",
+      "local_path": "checkpoints/tinyperson/yolo11n/seed_42/best.pt",
+      "size_bytes": 16958527,
+      "sha256": "1fb64d20e9a4c767c7e338a5c620c26ac2641cb42d85355ac82401b6bde8c296"
+    },
+    {
+      "dataset": "varroa",
+      "model": "yolov5nu",
+      "seed": 42,
+      "repo_id": "duyle2408/varroa-yolo-baselines-mosaic-two-seed-runs",
+      "revision": "203a082e1c440c4787e811bbdb33340ea1895aad",
+      "hf_path": "runs/varroa/yolov5/seed_42/weights/best.pt",
+      "local_path": "checkpoints/varroa/yolov5nu/seed_42/best.pt",
+      "size_bytes": 5254402,
+      "sha256": "95b0070848a77f35bb7d6918a87a5d8f335f3862cb336d16bad3c7a865dc88a0"
+    },
+    {
+      "dataset": "varroa",
+      "model": "yolov8n",
+      "seed": 42,
+      "repo_id": "duyle2408/varroa-yolo-baselines-mosaic-two-seed-runs",
+      "revision": "203a082e1c440c4787e811bbdb33340ea1895aad",
+      "hf_path": "runs/varroa/yolov8/seed_42/weights/best.pt",
+      "local_path": "checkpoints/varroa/yolov8n/seed_42/best.pt",
+      "size_bytes": 6232874,
+      "sha256": "2d4b276e459ebb59337c7d4d5bea0f122aecf929f19df55539fc56ebc45fb00e"
+    },
+    {
+      "dataset": "varroa",
+      "model": "yolov9t",
+      "seed": 42,
+      "repo_id": "duyle2408/varroa-yolo-baselines-mosaic-two-seed-runs",
+      "revision": "203a082e1c440c4787e811bbdb33340ea1895aad",
+      "hf_path": "runs/varroa/yolov9/seed_42/weights/best.pt",
+      "local_path": "checkpoints/varroa/yolov9t/seed_42/best.pt",
+      "size_bytes": 4621065,
+      "sha256": "ac78a54cfee3956f56241c80b34771afa42ddb8f5290ca83454ad880e0a17b70"
+    },
+    {
+      "dataset": "varroa",
+      "model": "yolov10n",
+      "seed": 42,
+      "repo_id": "duyle2408/varroa-yolo-baselines-mosaic-two-seed-runs",
+      "revision": "203a082e1c440c4787e811bbdb33340ea1895aad",
+      "hf_path": "runs/varroa/yolov10/seed_42/weights/best.pt",
+      "local_path": "checkpoints/varroa/yolov10n/seed_42/best.pt",
+      "size_bytes": 5735546,
+      "sha256": "434d4eb9b4bb54d323a161bb890bb95bb8ee3bf1768bdbacf2c6fe81f93220d0"
+    },
+    {
+      "dataset": "varroa",
+      "model": "yolo11n",
+      "seed": 42,
+      "repo_id": "duyle2408/varroa-yolo-baselines-mosaic-two-seed-runs",
+      "revision": "203a082e1c440c4787e811bbdb33340ea1895aad",
+      "hf_path": "runs/varroa/yolov11/seed_42/weights/best.pt",
+      "local_path": "checkpoints/varroa/yolo11n/seed_42/best.pt",
+      "size_bytes": 5456666,
+      "sha256": "9d43ed7229c933d5374fb06b072d8a150ebde9d4ff3cad2d6e4456b6f22bc22a"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!requirements.txt
+!preflight.py
+!benchmark.py
+!evaluate.py
+!prepare_cuda_models.py

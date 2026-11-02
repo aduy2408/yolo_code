@@ -1,0 +1,637 @@
+"""Focused behavioral tests for OACP, CEA and LEA."""
+from __future__ import annotations
+
+import numpy as np
+import pytest
+import cv2
+from ultralytics.utils.instance import Instances
+
+from project_ultralytics.context_augment import (
+    CEA, LEA, OACP, _load_adaptive_target_mass, _mass_adaptive_budget,
+    _effect_adaptive_strength, _load_adaptive_probability, _load_adaptive_strength_range,
+    _spatial_load_target_mass, _size_adaptive_expands, _curriculum_strength_range,
+    _hardness_strength_range, _protection, _protection_for_variant, _spacing_adaptive_expands,
+    _context_adaptive_scale_range, _context_adaptive_strength_range,
+    _contrast_adaptive_expands, _far_context_richness, _far_mask, _object_local_contrast,
+    calibrate_effect_target, oacp_diagnostics, augmentation_config,
+)
+from project_ultralytics.oacp_state import OACPSharedState
+from project_ultralytics.hardness import foreground_assignment_hardness
+
+
+def _labels(img, boxes):
+    b = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+    return {"img": img.copy(), "instances": Instances(b, None, None, bbox_format="xywh", normalized=True)}
+
+
+def test_oacp_skips_empty_and_protects_tiny_box():
+    rng = np.random.default_rng(11)
+    img = rng.integers(20, 100, (128, 128, 3), dtype=np.uint8)
+    img[60:70, 60:70] = 220
+    empty = OACP(p=1.0)(_labels(img, []))
+    assert np.array_equal(empty["img"], img)
+    out = OACP(p=1.0)(_labels(img, [[65 / 128, 65 / 128, 10 / 128, 10 / 128]]))
+    assert np.array_equal(out["img"][60:70, 60:70], img[60:70, 60:70])
+    assert np.abs(out["img"].astype(np.int16) - img).sum() > 0
+
+
+def test_budget_limits_perturbation_to_valid_background():
+    boxes = np.asarray([[64 - 5, 64 - 5, 64 + 5, 64 + 5]], dtype=np.float32)
+    current = oacp_diagnostics((128, 128), boxes, "current")
+    budget = oacp_diagnostics((128, 128), boxes, "budget", budget=0.4)
+    assert budget["actual_perturbed_area_ratio"] <= budget["perturbable_area_ratio"]
+    assert budget["actual_perturbed_area_ratio"] < current["actual_perturbed_area_ratio"]
+    assert budget["protected_area_ratio"] == current["protected_area_ratio"]
+    assert budget["budget_fraction_of_valid_bg"] == 0.4
+    assert budget["target_perturbed_area_ratio_image"] == pytest.approx(0.4 * budget["perturbable_area_ratio"])
+    assert budget["perturb_gt_overlap_ratio"] == 0.0
+
+
+def test_density_variant_reduces_expansion_for_crowded_scene():
+    sparse = np.asarray([[64, 64, 68, 68]], dtype=np.float32)
+    crowded = np.asarray([
+        [x, y, x + 8, y + 8]
+        for y in range(8, 120, 12)
+        for x in range(8, 120, 12)
+    ], dtype=np.float32)
+    sparse_stats = oacp_diagnostics((128, 128), sparse, "density")
+    crowded_stats = oacp_diagnostics((128, 128), crowded, "density")
+    assert crowded_stats["protected_expand"] < sparse_stats["protected_expand"]
+    assert crowded_stats["perturbable_area_ratio"] >= 0.0
+
+
+def test_density_variant_controls_union_protection_and_logs_budget_fields():
+    boxes = np.asarray([
+        [x, y, x + 8, y + 8]
+        for y in range(8, 120, 12)
+        for x in range(8, 120, 12)
+    ], dtype=np.float32)
+    stats = oacp_diagnostics((128, 128), boxes, "density", budget=0.4)
+    assert stats["density_occupancy"] > 0.0
+    assert stats["density_target_protected_ratio"] > 0.0
+    assert stats["budget_fraction_of_valid_bg"] == 0.4
+    if stats["would_apply"]:
+        assert stats["target_perturbed_area_ratio_image"] == pytest.approx(0.4 * stats["perturbable_area_ratio"])
+    else:
+        assert stats["target_perturbed_area_ratio_image"] == 0.0
+    assert stats["perturb_gt_overlap_ratio"] == 0.0
+
+
+def test_budget_transform_runs_and_writes_sample_record(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_VARIANT", "budget")
+    monkeypatch.setenv("OACP_P", "1.0")
+    log = tmp_path / "oacp.jsonl"
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    img = np.random.default_rng(9).integers(20, 100, (64, 64, 3), dtype=np.uint8)
+    labels = {
+        "img": img,
+        "bboxes": np.asarray([[0.5, 0.5, 0.05, 0.05]], dtype=np.float32),
+        "im_file": "sample.jpg",
+    }
+    out = OACP(p=1.0)(labels)
+    assert out["img"].shape == img.shape
+    record = __import__("json").loads(log.read_text().strip())
+    assert record["budget_fraction_of_valid_bg"] > 0.0
+    assert record["target_perturbed_area_ratio_image"] > 0.0
+    assert record["perturb_gt_overlap_ratio"] == 0.0
+
+
+def test_current_matches_historical_tiny_plus_safety_protection():
+    boxes = np.asarray([[8, 8, 12, 12], [64, 64, 56, 56]], dtype=np.float32)
+    old_mask, old_tiny = _protection(boxes, 128, 128)
+    new_mask, new_tiny, _, _, _ = _protection_for_variant(boxes, 128, 128, "current")
+    assert np.array_equal(new_mask, old_mask)
+    assert np.array_equal(new_tiny, old_tiny)
+
+
+def test_diagnostics_reports_training_skip_as_zero_perturbation():
+    boxes = np.asarray([
+        [x, y, x + 24, y + 24]
+        for y in range(0, 128, 24)
+        for x in range(0, 128, 24)
+    ], dtype=np.float32)
+    stats = oacp_diagnostics((128, 128), boxes, "budget", budget=0.4)
+    assert stats["would_apply"] is False
+    assert stats["skip_reason"] == "protected_coverage_gt_0.55"
+    assert stats["actual_perturbed_area_ratio_image"] == 0.0
+
+
+def test_mass_adaptive_budget_targets_image_mass_and_reports_clipping():
+    boxes = np.asarray([[60, 60, 68, 68]], dtype=np.float32)
+    stats = oacp_diagnostics((128, 128), boxes, "mass_adaptive", target_mass=0.35)
+    assert stats["target_image_mass"] == pytest.approx(0.35)
+    assert stats["valid_background_ratio"] > 0.0
+    assert stats["adaptive_budget"] == pytest.approx(
+        0.35 / stats["valid_background_ratio"]
+    )
+    assert stats["target_perturbed_area_ratio_image"] == pytest.approx(0.35)
+    assert stats["perturb_gt_overlap_ratio"] == 0.0
+
+    budget, clipped = _mass_adaptive_budget(0.95, 0.35, 0.20, 0.70)
+    assert budget == pytest.approx(0.35 / 0.95)
+    assert clipped is False
+    budget, clipped = _mass_adaptive_budget(0.10, 0.35, 0.20, 0.70)
+    assert budget == pytest.approx(0.70)
+    assert clipped is True
+
+
+def test_load_adaptive_target_mass_is_monotonic_and_saturates():
+    values = [_load_adaptive_target_mass(n, 0.25, 0.40, 10)[1] for n in range(1, 13)]
+    assert values[0] == pytest.approx(0.40)
+    assert values[2] == pytest.approx(0.40 - 2 * (0.15 / 9))
+    assert values[-1] == pytest.approx(0.25)
+    assert all(left >= right for left, right in zip(values, values[1:]))
+
+
+def test_load_adaptive_probability_is_monotonic_and_saturates():
+    values = [_load_adaptive_probability(n, 0.20, 0.40, 10) for n in range(0, 13)]
+    assert values[0] == pytest.approx((0.0, 0.0))
+    assert values[1] == pytest.approx((0.0, 0.40))
+    assert values[5][1] == pytest.approx(0.40 - 4 * (0.20 / 9))
+    assert values[-1] == pytest.approx((1.0, 0.20))
+    assert all(left[1] >= right[1] for left, right in zip(values[1:], values[2:]))
+
+
+def test_fixed_probability_policy_preserves_configured_probability(monkeypatch):
+    monkeypatch.setenv("OACP_PROB_POLICY", "fixed")
+    monkeypatch.setenv("OACP_P", "0.40")
+    stats = oacp_diagnostics(
+        (96, 96), np.asarray([[44, 44, 52, 52]], dtype=np.float32), "current"
+    )
+    assert stats["oacp_probability_policy"] == "fixed"
+    assert stats["oacp_probability_effective"] == pytest.approx(0.40)
+
+
+def test_effect_adaptive_strength_targets_and_clips_raw_effect():
+    assert _effect_adaptive_strength(10.0, 2.0, 0.10, 0.25) == pytest.approx(0.20)
+    assert _effect_adaptive_strength(1.0, 2.0, 0.10, 0.25) == pytest.approx(0.25)
+    assert _effect_adaptive_strength(100.0, 2.0, 0.10, 0.25) == pytest.approx(0.10)
+
+
+def test_effect_adaptive_run_records_effect_fields(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_EFFECT_POLICY", "adaptive")
+    monkeypatch.setenv("OACP_TARGET_EFFECT", "2.0")
+    monkeypatch.setenv("OACP_P", "1.0")
+    log = tmp_path / "effect.jsonl"
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    img = np.random.default_rng(51).integers(20, 100, (96, 96, 3), dtype=np.uint8)
+    out = OACP(p=1.0)(_labels(img, [[48 / 96, 48 / 96, 8 / 96, 8 / 96]]))
+    assert out["img"].shape == img.shape
+    record = __import__("json").loads(log.read_text().strip())
+    assert record["oacp_effect_policy"] == "adaptive"
+    assert record["oacp_applied"] is True
+    assert record["raw_effect"] >= 0.0
+    assert 0.10 <= record["effective_strength"] <= 0.25
+    assert record["actual_effect"] >= 0.0
+
+
+def test_load_adaptive_probability_is_policy_only_and_keeps_current_geometry(monkeypatch):
+    boxes = np.asarray([[44, 44, 52, 52]], dtype=np.float32)
+    monkeypatch.setenv("OACP_PROB_POLICY", "fixed")
+    fixed = oacp_diagnostics((96, 96), boxes, "current")
+    monkeypatch.setenv("OACP_PROB_POLICY", "load_adaptive")
+    monkeypatch.setenv("OACP_P_MIN", "0.20")
+    monkeypatch.setenv("OACP_P_MAX", "0.40")
+    adaptive = oacp_diagnostics((96, 96), boxes, "current")
+    for key in ("protected_area_ratio", "perturbable_area_ratio", "protected_expand"):
+        assert adaptive[key] == pytest.approx(fixed[key])
+    assert adaptive["oacp_probability_effective"] == pytest.approx(0.40)
+
+
+def test_zero_eligible_probability_policy_skips_and_records_reason(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_PROB_POLICY", "load_adaptive")
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(tmp_path / "zero.jsonl"))
+    img = np.random.default_rng(41).integers(20, 100, (64, 64, 3), dtype=np.uint8)
+    out = OACP()({
+        "img": img.copy(),
+        "bboxes": np.asarray([[0.5, 0.5, 64 / 64, 64 / 64]], dtype=np.float32),
+    })
+    assert np.array_equal(out["img"], img)
+    record = __import__("json").loads((tmp_path / "zero.jsonl").read_text().strip())
+    assert record["num_eligible"] == 0
+    assert record["oacp_probability_effective"] == 0.0
+    assert record["skip_reason"] == "no_eligible_tiny"
+
+
+def test_context_augmentation_placement_switch_orders_transforms():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).parents[2] / "models_related/ultralytics/ultralytics/data/augment.py"
+    spec = importlib.util.spec_from_file_location("project_legacy_augment", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    _context_aug_sequence = module._context_aug_sequence
+
+    pre = object()
+    context = [object()]
+    copy_paste = object()
+    assert _context_aug_sequence(pre, context, "pre_transform") == [context[0], pre]
+    assert _context_aug_sequence(pre, context, "post_mosaic") == [pre, context[0]]
+    assert _context_aug_sequence(pre, context, "post_copy_paste", copy_paste) == [pre, copy_paste, context[0]]
+    with pytest.raises(ValueError, match="requires the Copy-Paste"):
+        _context_aug_sequence(pre, context, "post_copy_paste")
+    with pytest.raises(ValueError, match="unknown OACP_PLACEMENT"):
+        _context_aug_sequence(pre, context, "invalid")
+
+
+def test_r2_allows_post_copy_paste_placement(monkeypatch):
+    monkeypatch.setenv("OACP_PROFILE", "r2")
+    monkeypatch.setenv("OACP_PLACEMENT", "post_copy_paste")
+    cfg = augmentation_config()
+    assert cfg["oacp_variant"] == "current"
+    assert cfg["oacp_placement"] == "post_copy_paste"
+
+
+def test_spatial_load_target_mass_is_normalized_and_monotonic():
+    values = [_spatial_load_target_mass(r, 0.03, 0.25, 0.25, 0.40) for r in (0.0, 0.03, 0.14, 0.25, 0.40)]
+    assert values[0] == pytest.approx((0.0, 0.40))
+    assert values[2][0] == pytest.approx(0.5)
+    assert values[2][1] == pytest.approx(0.325)
+    assert values[-1] == pytest.approx((1.0, 0.25))
+    assert all(left[0] <= right[0] for left, right in zip(values, values[1:]))
+    assert all(left[1] >= right[1] for left, right in zip(values, values[1:]))
+
+
+def test_spatial_load_keeps_fixed_protection_and_reports_adaptive_fields(monkeypatch):
+    monkeypatch.setenv("OACP_SPATIAL_LOAD_MIN", "0.03")
+    monkeypatch.setenv("OACP_SPATIAL_LOAD_MAX", "0.25")
+    boxes = np.asarray([[60, 60, 68, 68]], dtype=np.float32)
+    count = oacp_diagnostics((128, 128), boxes, "load_adaptive")
+    spatial = oacp_diagnostics((128, 128), boxes, "spatial_load_adaptive")
+    assert spatial["protected_area_ratio"] == pytest.approx(count["protected_area_ratio"])
+    assert spatial["spatial_load"] >= 0.0
+    assert spatial["spatial_load"] <= 1.0
+    assert spatial["target_image_mass"] <= 0.40
+    assert spatial["adaptive_budget"] >= 0.20
+    assert spatial["adaptive_budget"] <= 0.70
+    assert spatial["actual_perturbed_area_ratio"] <= spatial["valid_background_ratio"]
+
+
+def test_spacing_adaptive_retains_context_for_close_objects():
+    close = np.asarray([[20, 20, 28, 28], [28, 20, 36, 28]], dtype=np.float32)
+    isolated = np.asarray([[20, 20, 28, 28]], dtype=np.float32)
+    close_expands, close_records = _spacing_adaptive_expands(
+        close, np.asarray([0]), near_spacing=1.0, far_spacing=6.0,
+        expand_min=1.2, expand_max=3.0,
+    )
+    isolated_expands, isolated_records = _spacing_adaptive_expands(
+        isolated, np.asarray([0]), near_spacing=1.0, far_spacing=6.0,
+        expand_min=1.2, expand_max=3.0,
+    )
+    assert close_records[0]["nearest_gap"] == 0.0
+    assert close_expands[0] == pytest.approx(3.0)
+    assert isolated_records[0]["nearest_gap"] is None
+    assert isolated_records[0]["isolated"] is True
+    assert isolated_expands[0] == pytest.approx(1.2)
+
+
+def test_spacing_diagnostics_use_strict_json_for_isolated_object():
+    stats = oacp_diagnostics(
+        (96, 96), np.asarray([[44, 44, 52, 52]], dtype=np.float32), "spacing_adaptive"
+    )
+    assert stats["mean_nearest_distance_norm"] is None
+    assert stats["spacing_objects"][0]["nearest_gap"] is None
+    assert stats["spacing_objects"][0]["normalized_spacing"] is None
+    assert stats["spacing_objects"][0]["isolated"] is True
+    encoded = __import__("json").dumps(stats, allow_nan=False)
+    assert __import__("json").loads(encoded)["spacing_objects"][0]["isolated"] is True
+
+
+def test_spacing_transform_honors_fixed_budget(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_VARIANT", "spacing_adaptive")
+    monkeypatch.setenv("OACP_P", "1.0")
+    monkeypatch.setenv("OACP_BUDGET_MIN", "0.4")
+    monkeypatch.setenv("OACP_BUDGET_MAX", "0.4")
+    log = tmp_path / "spacing.jsonl"
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    img = np.random.default_rng(31).integers(20, 100, (128, 128, 3), dtype=np.uint8)
+    out = OACP(p=1.0)({
+        "img": img,
+        "bboxes": np.asarray([[0.5, 0.5, 8 / 128, 8 / 128]], dtype=np.float32),
+    })
+    assert out["img"].shape == img.shape
+    record = __import__("json").loads(log.read_text().strip(), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+    assert record["budget_fraction_of_valid_bg"] == pytest.approx(0.4)
+    assert record["actual_perturbed_area_ratio_image"] == pytest.approx(
+        record["target_perturbed_area_ratio_image"], abs=1 / (128 * 128)
+    )
+    assert record["actual_perturbed_area_ratio_image"] < record["perturbable_area_ratio"]
+
+
+@pytest.mark.parametrize("variant", ["mass_adaptive", "load_adaptive", "spatial_load_adaptive", "spacing_adaptive"])
+def test_adaptive_variants_run_and_keep_gt_protected(monkeypatch, variant):
+    monkeypatch.setenv("OACP_VARIANT", variant)
+    monkeypatch.setenv("OACP_P", "1.0")
+    img = np.random.default_rng(23).integers(20, 100, (96, 96, 3), dtype=np.uint8)
+    labels = _labels(img, [[48 / 96, 48 / 96, 8 / 96, 8 / 96]])
+    out = OACP(p=1.0)(labels)
+    assert out["img"].shape == img.shape
+    stats = oacp_diagnostics(
+        (96, 96), np.asarray([[44, 44, 52, 52]], dtype=np.float32), variant
+    )
+    assert stats["perturb_gt_overlap_ratio"] == 0.0
+    assert stats["num_eligible"] == 1
+
+
+def test_lea_changes_low_frequency_but_keeps_shape():
+    rng = np.random.default_rng(7)
+    img = rng.integers(20, 80, (128, 128, 3), dtype=np.uint8)
+    img[60:70, 60:70] = 220
+    out = LEA(p=1.0)(_labels(img, [[65 / 128, 65 / 128, 10 / 128, 10 / 128]]))
+    assert out["img"].shape == img.shape
+    assert np.abs(out["img"].astype(np.int16) - img).sum() > 0
+
+
+def test_cea_keeps_source_protected_region():
+    class Dataset:
+        labels = [{"bboxes": np.empty((0, 4), dtype=np.float32)}]
+
+        def __len__(self):
+            return 1
+
+    img = np.full((128, 128, 3), 80, dtype=np.uint8)
+    img[60:70, 60:70] = 220
+    # Dataset length one must be a no-op, proving the guard does not invent a donor.
+    out = CEA(Dataset(), p=1.0)(_labels(img, [[65 / 128, 65 / 128, 10 / 128, 10 / 128]]))
+    assert np.array_equal(out["img"], img)
+
+
+def test_effect_adaptive_records_corrected_strength_fields(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_EFFECT_POLICY", "adaptive")
+    monkeypatch.setenv("OACP_TARGET_EFFECT", "2.0")
+    monkeypatch.setenv("OACP_P", "1.0")
+    monkeypatch.setenv("OACP_STRENGTH_MIN", "0.10")
+    monkeypatch.setenv("OACP_STRENGTH_MAX", "0.25")
+    log = tmp_path / "effect_corrected.jsonl"
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    img = np.random.default_rng(52).integers(20, 100, (96, 96, 3), dtype=np.uint8)
+    out = OACP(p=1.0)(_labels(img, [[48 / 96, 48 / 96, 8 / 96, 8 / 96]]))
+    assert out["img"].shape == img.shape
+    record = __import__("json").loads(log.read_text().strip())
+    assert record["actual_effect"] >= 0.0
+    assert record["base_strength"] >= record["effective_strength"]
+    assert record["strength_min"] == pytest.approx(0.10)
+    assert record["strength_max"] == pytest.approx(0.25)
+
+
+def test_size_adaptive_expands_smaller_objects_more():
+    boxes = np.asarray([[10, 10, 14, 14], [30, 30, 62, 62]], dtype=np.float32)
+    expands, records = _size_adaptive_expands(
+        boxes, expand_min=2.0, expand_max=4.0, size_smax=32.0
+    )
+    assert expands[0] == pytest.approx(4.0 - 4.0 / 32.0 * 2.0)
+    assert expands[1] == pytest.approx(2.0)
+    assert records[0]["object_size"] < records[1]["object_size"]
+    assert expands[0] > expands[1]
+
+
+def test_size_adaptive_protection_logs_per_object_expands(monkeypatch):
+    monkeypatch.setenv("OACP_PROTECTION_POLICY", "size_adaptive")
+    monkeypatch.setenv("OACP_SIZE_EXPAND_MIN", "2.0")
+    monkeypatch.setenv("OACP_SIZE_EXPAND_MAX", "4.0")
+    boxes = np.asarray([[20, 20, 24, 24], [60, 60, 84, 84]], dtype=np.float32)
+    stats = oacp_diagnostics((128, 128), boxes, "current")
+    assert stats["oacp_protection_policy"] == "size_adaptive"
+    assert stats["min_size_adaptive_expand"] < stats["max_size_adaptive_expand"]
+    assert stats["size_objects"]
+
+
+def test_load_strength_range_preserves_r2_sparse_and_softens_dense():
+    assert _load_adaptive_strength_range(1, (0.10, 0.25), (0.05, 0.15), 10) == pytest.approx((0.0, 0.10, 0.25))
+    load, low, high = _load_adaptive_strength_range(10, (0.10, 0.25), (0.05, 0.15), 10)
+    assert load == pytest.approx(1.0)
+    assert (low, high) == pytest.approx((0.05, 0.15))
+
+
+def test_curriculum_and_hardness_strength_ranges():
+    assert _curriculum_strength_range(0, 100, (0.10, 0.25), (0.05, 0.15), 0.15, 0.10)[0] == "warmup"
+    assert _curriculum_strength_range(50, 100, (0.10, 0.25), (0.05, 0.15), 0.15, 0.10)[0] == "r2"
+    assert _curriculum_strength_range(99, 100, (0.10, 0.25), (0.05, 0.15), 0.15, 0.10)[0] == "cooldown"
+    assert _hardness_strength_range(0.0, (0.10, 0.25), (0.05, 0.15)) == pytest.approx((0.10, 0.25))
+    assert _hardness_strength_range(1.0, (0.10, 0.25), (0.05, 0.15)) == pytest.approx((0.05, 0.15))
+
+
+def test_shared_state_commits_previous_epoch_hardness_ema():
+    state = OACPSharedState(3, beta=0.9)
+    state.set_epoch(5, 100)
+    state.begin_epoch()
+    state.update_hardness([0, 1], [1.0, 3.0])
+    stats = state.finish_epoch()
+    assert stats["hardness_updates"] == 2.0
+    assert state.read_hardness(0) < state.read_hardness(1)
+    assert state.snapshot()["epoch"] == 5
+
+
+def test_calibrate_effect_target_uses_only_applied_records(tmp_path):
+    path = tmp_path / "r2.jsonl"
+    path.write_text(
+        '{"oacp_applied": true, "actual_effect": 1.0}\n'
+        '{"oacp_applied": false, "actual_effect": 100.0}\n'
+        '{"oacp_applied": true, "actual_effect": 3.0}\n'
+    )
+    result = calibrate_effect_target(str(path))
+    assert result["count"] == 2
+    assert result["target_effect"] == pytest.approx(2.0)
+
+
+def test_r2_profile_is_fixed_control(monkeypatch):
+    monkeypatch.setenv("OACP_PROFILE", "r2")
+    monkeypatch.delenv("OACP_P", raising=False)
+    monkeypatch.delenv("OACP_PROB_POLICY", raising=False)
+    monkeypatch.delenv("OACP_SCALE_MIN", raising=False)
+    monkeypatch.delenv("OACP_SCALE_MAX", raising=False)
+    monkeypatch.delenv("OACP_VARIANT", raising=False)
+    monkeypatch.delenv("OACP_PLACEMENT", raising=False)
+    monkeypatch.delenv("OACP_PROTECTED_EXPAND", raising=False)
+    from project_ultralytics.context_augment import augmentation_config
+
+    cfg = augmentation_config()
+    assert cfg["profile"] == "r2"
+    assert cfg["oacp_probability"] == pytest.approx(0.40)
+    assert cfg["oacp_strength"] == pytest.approx([0.10, 0.25])
+    assert cfg["oacp_resolution_scale"] == pytest.approx([0.80, 0.95])
+    assert cfg["oacp_variant"] == "current"
+    assert cfg["oacp_placement"] == "pre_transform"
+
+
+def test_effect_adaptive_requires_positive_target(monkeypatch):
+    monkeypatch.setenv("OACP_STRENGTH_POLICY", "effect_adaptive")
+    monkeypatch.setenv("OACP_EFFECT_POLICY", "adaptive")
+    monkeypatch.setenv("OACP_TARGET_EFFECT", "0")
+    with pytest.raises(ValueError, match="OACP_TARGET_EFFECT"):
+        from project_ultralytics.context_augment import augmentation_config
+
+        augmentation_config()
+
+
+def test_context_richness_increases_on_textured_far_context():
+    smooth = np.full((128, 128, 3), 80, dtype=np.uint8)
+    textured = smooth.copy()
+    rng = np.random.default_rng(91)
+    textured[20:108, 20:108] = rng.integers(0, 255, (88, 88, 3), dtype=np.uint8)
+    protected = _mask_from_boxes_for_test(np.asarray([[56, 56, 72, 72]], dtype=np.float32), 128, 128, 3.0)
+    assert _far_context_richness(textured, protected) > _far_context_richness(smooth, protected)
+
+
+def test_context_richness_is_soft_far_mask_weighted():
+    image = np.random.default_rng(92).integers(20, 180, (64, 64, 3), dtype=np.uint8)
+    protected = _mask_from_boxes_for_test(np.asarray([[28, 28, 36, 36]], dtype=np.float32), 64, 64, 3.0)
+    lum = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
+    gx = cv2.Sobel(lum, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(lum, cv2.CV_32F, 0, 1, ksize=3)
+    gradient = cv2.magnitude(gx, gy)
+    far = _far_mask(protected, 64, 64)
+    expected = float((far * gradient).sum() / far.sum())
+    assert _far_context_richness(image, protected) == pytest.approx(expected)
+
+
+def test_context_adaptive_strength_gets_stronger_with_richness(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
+    (tmp_path / "stats.json").write_text("{}")
+    smooth = _context_adaptive_strength_range(0.0)
+    rich = _context_adaptive_strength_range(1.0)
+    assert smooth == pytest.approx((0.05, 0.15))
+    assert rich == pytest.approx((0.30, 0.50))
+    assert rich[0] > smooth[0] and rich[1] > smooth[1]
+
+
+def test_context_adaptive_scale_gets_lower_with_richness(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
+    (tmp_path / "stats.json").write_text("{}")
+    smooth = _context_adaptive_scale_range(0.0)
+    rich = _context_adaptive_scale_range(1.0)
+    assert smooth == pytest.approx((0.90, 1.00))
+    assert rich == pytest.approx((0.45, 0.70))
+    assert rich[0] < smooth[0] and rich[1] < smooth[1]
+
+
+def test_contrast_adaptive_expand_widens_for_low_contrast(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
+    (tmp_path / "stats.json").write_text(
+        '{"context_richness_q10": 0.0, "context_richness_q90": 1.0, '
+        '"local_contrast_q10": 0.0, "local_contrast_q90": 10.0}'
+    )
+    boxes = np.asarray([[56, 56, 72, 72]], dtype=np.float32)
+    low = np.full((128, 128, 3), 80, dtype=np.uint8)
+    high = low.copy(); high[56:72, 56:72] = 220
+    low_expands, low_records = _contrast_adaptive_expands(low, boxes, np.asarray([0]))
+    high_expands, high_records = _contrast_adaptive_expands(high, boxes, np.asarray([0]))
+    assert low_expands[0] > high_expands[0]
+    assert low_records[0]["fallback"] is False
+    assert high_records[0]["fallback"] is False
+
+
+def test_contrast_measurement_excludes_neighbor_gt():
+    image = np.full((128, 128, 3), 80, dtype=np.uint8)
+    image[56:72, 56:72] = 220
+    boxes = np.asarray([[56, 56, 72, 72], [74, 56, 90, 72]], dtype=np.float32)
+    contrast, count = _object_local_contrast(image, boxes[0], boxes, 2.5)
+    _, without_neighbor_count = _object_local_contrast(image, boxes[0], boxes[:1], 2.5)
+    assert contrast is not None
+    assert count < without_neighbor_count
+
+
+def test_contrast_adaptive_invalid_context_falls_back_to_r2(monkeypatch, tmp_path):
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(tmp_path / "stats.json"))
+    (tmp_path / "stats.json").write_text(
+        '{"context_richness_q10": 0.0, "context_richness_q90": 1.0, '
+        '"local_contrast_q10": 0.0, "local_contrast_q90": 1.0}'
+    )
+    boxes = np.asarray([[0, 0, 2, 2]], dtype=np.float32)
+    expands, records = _contrast_adaptive_expands(
+        np.full((4, 4, 3), 80, dtype=np.uint8), boxes, np.asarray([0])
+    )
+    assert expands[0] == pytest.approx(3.0)
+    assert records[0]["fallback"] is True
+
+
+@pytest.mark.parametrize("payload", [
+    "{}",
+    '{"context_richness_q10": 0, "context_richness_q90": 1, "local_contrast_q10": 0}',
+    '{"context_richness_q10": 1, "context_richness_q90": 0, "local_contrast_q10": 0, "local_contrast_q90": 1}',
+    '{"context_richness_q10": 0, "context_richness_q90": 1, "local_contrast_q10": 0, "local_contrast_q90": "nan"}',
+])
+def test_context_calibration_fails_hard(monkeypatch, tmp_path, payload):
+    path = tmp_path / "stats.json"
+    path.write_text(payload)
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(path))
+    with pytest.raises(ValueError, match="calibration"):
+        from project_ultralytics.context_augment import _context_stats
+        _context_stats()
+
+
+def test_context_adaptive_policies_are_single_axis(monkeypatch, tmp_path):
+    path = tmp_path / "stats.json"
+    path.write_text(
+        '{"context_richness_q10": 0, "context_richness_q90": 1, '
+        '"local_contrast_q10": 0, "local_contrast_q90": 1}'
+    )
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(path))
+    monkeypatch.setenv("OACP_STRENGTH_POLICY", "context_adaptive")
+    monkeypatch.setenv("OACP_SCALE_POLICY", "context_adaptive")
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        from project_ultralytics.context_augment import augmentation_config
+        augmentation_config()
+
+
+def test_c3_uses_fixed_r2_attenuation_reference(monkeypatch, tmp_path):
+    path = tmp_path / "stats.json"
+    path.write_text(
+        '{"context_richness_q10": 0, "context_richness_q90": 1, '
+        '"local_contrast_q10": 0, "local_contrast_q90": 10}'
+    )
+    log = tmp_path / "c3.jsonl"
+    monkeypatch.setenv("OACP_PROFILE", "r2")
+    monkeypatch.setenv("OACP_EFFECT_POLICY", "fixed")
+    monkeypatch.setenv("OACP_STRENGTH_POLICY", "fixed")
+    monkeypatch.setenv("OACP_SCALE_POLICY", "fixed")
+    monkeypatch.setenv("OACP_PROTECTION_POLICY", "contrast_adaptive")
+    monkeypatch.setenv("OACP_CONTEXT_STATS_PATH", str(path))
+    monkeypatch.setenv("OACP_P", "0.40")
+    monkeypatch.setenv("OACP_DIAGNOSTICS_PATH", str(log))
+    image = np.full((96, 96, 3), 80, dtype=np.uint8)
+    image[44:52, 44:52] = 220
+    out = OACP(p=1.0)({"img": image, "bboxes": np.asarray([[48 / 96, 48 / 96, 8 / 96, 8 / 96]], dtype=np.float32)})
+    assert out["img"].shape == image.shape
+    record = __import__("json").loads(log.read_text().strip())
+    assert record["attenuation_reference"] == "r2_fixed"
+    assert record["attenuation"] == pytest.approx(
+        1.0 - _protection(np.asarray([[44, 44, 52, 52]], dtype=np.float32), 96, 96)[0].mean()
+    )
+
+
+def _mask_from_boxes_for_test(boxes, h, w, expand):
+    from project_ultralytics.context_augment import _mask_from_boxes
+    return _mask_from_boxes(boxes, h, w, expand).astype(bool)
+
+
+def test_curriculum_phases_cannot_overlap(monkeypatch):
+    monkeypatch.setenv("OACP_CURRICULUM_WARMUP_FRACTION", "0.7")
+    monkeypatch.setenv("OACP_CURRICULUM_COOLDOWN_FRACTION", "0.3")
+    with pytest.raises(ValueError, match="sum to < 1"):
+        from project_ultralytics.context_augment import augmentation_config
+
+        augmentation_config()
+
+
+def test_r2_profile_rejects_strength_override(monkeypatch):
+    monkeypatch.setenv("OACP_PROFILE", "r2")
+    monkeypatch.setenv("OACP_STRENGTH_MIN", "0.05")
+    with pytest.raises(ValueError, match="base strength range"):
+        from project_ultralytics.context_augment import augmentation_config
+
+        augmentation_config()
+
+
+def test_hardness_uses_foreground_assignments_and_nan_for_empty_images():
+    logits = np.asarray([[[8.0], [-8.0], [0.0]], [[8.0], [8.0], [8.0]]], dtype=np.float32)
+    targets = np.asarray([[[1.0], [0.0], [0.0]], [[0.0], [0.0], [0.0]]], dtype=np.float32)
+    import torch
+
+    hardness = foreground_assignment_hardness(
+        torch.from_numpy(logits), torch.from_numpy(targets), torch.tensor([[True, False, False], [False, False, False]])
+    )
+    assert hardness[0].item() < 0.01
+    assert torch.isnan(hardness[1])
