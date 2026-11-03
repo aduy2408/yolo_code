@@ -180,6 +180,8 @@ python onnx_tensorrt_rerun_20261029/source/evaluate.py \
 
 TensorRT engines are built natively by ONNX Runtime's `TensorrtExecutionProvider` on the Jetson. The provider list contains only TensorRT, so unsupported operators fail instead of silently falling back to CUDA or CPU. The cache is the exported engine store and must remain on the Jetson because TensorRT engines are device/runtime-specific.
 
+An ONNX Runtime TensorRT provider cache is not an Ultralytics `.engine` artifact; do not pass it to `YOLO(...)` unless it was exported and validated in the Ultralytics engine format.
+
 Transfer the updated scripts, then benchmark all 38 dynamic ONNX models:
 
 ```bash

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -132,7 +133,7 @@ def load_coco(data_root: Path, dataset: str, split: str) -> tuple[list[dict[str,
 
 
 def load_yolo_yaml(dataset_yaml: Path, split: str) -> tuple[list[dict[str, Any]], dict[int, list[np.ndarray]]]:
-    """Load one prepared YOLO split and fail closed on missing ground truth."""
+    """Load one prepared YOLO split; missing label files are treated as negatives."""
     config = yaml.safe_load(dataset_yaml.read_text(encoding="utf-8"))
     root = Path(config.get("path", dataset_yaml.parent))
     if not root.is_absolute():
@@ -153,24 +154,27 @@ def load_yolo_yaml(dataset_yaml: Path, split: str) -> tuple[list[dict[str, Any]]
         image_index = len(image_parts) - 1 - image_parts[::-1].index("images")
         relative_image = Path(*image_parts[image_index + 1:]).with_suffix(".txt")
         label_path = Path(*image_parts[:image_index]) / "labels" / relative_image
+        boxes: list[np.ndarray] = []
         if not label_path.is_file():
             missing_labels.append(label_path)
-            continue
-        boxes: list[np.ndarray] = []
-        for line_number, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), 1):
-            fields = line.split()
-            if len(fields) < 5:
-                raise ValueError(f"Malformed YOLO label {label_path}:{line_number}")
-            _, cx, cy, box_w, box_h = map(float, fields[:5])
-            boxes.append(np.array([
-                (cx - box_w / 2) * width, (cy - box_h / 2) * height,
-                (cx + box_w / 2) * width, (cy + box_h / 2) * height,
-            ], dtype=np.float32))
+        else:
+            for line_number, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), 1):
+                fields = line.split()
+                if len(fields) < 5:
+                    raise ValueError(f"Malformed YOLO label {label_path}:{line_number}")
+                _, cx, cy, box_w, box_h = map(float, fields[:5])
+                boxes.append(np.array([
+                    (cx - box_w / 2) * width, (cy - box_h / 2) * height,
+                    (cx + box_w / 2) * width, (cy + box_h / 2) * height,
+                ], dtype=np.float32))
         images.append({"id": image_id, "file_name": str(image_path), "path": str(image_path), "width": width, "height": height})
         annotations[image_id] = boxes
     if missing_labels:
         sample = ", ".join(str(path) for path in missing_labels[:3])
-        raise FileNotFoundError(f"Missing {len(missing_labels)} YOLO label files; examples: {sample}")
+        warnings.warn(
+            f"Treating {len(missing_labels)} images without YOLO labels as negatives; examples: {sample}",
+            stacklevel=2,
+        )
     if not images:
         raise ValueError(f"No images found in {image_dir}")
     ground_truth_count = sum(map(len, annotations.values()))
