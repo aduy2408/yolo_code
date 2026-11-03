@@ -21,6 +21,7 @@ _EVALUATE_SPEC.loader.exec_module(_shared)
 def args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate a YOLO .pt model with the shared ONNX/TensorRT pipeline.")
     parser.add_argument("--model", type=Path, required=True)
+    parser.add_argument("--dataset", choices=tuple(_shared.DATASET_DIRS), required=True)
     parser.add_argument("--data-root", type=Path, default=None, help="Legacy prepared root; prefer --dataset-yaml.")
     parser.add_argument("--dataset-yaml", type=Path, default=None, help="Prepared single-dataset YOLO YAML.")
     parser.add_argument("--split", choices=("val", "test"), required=True)

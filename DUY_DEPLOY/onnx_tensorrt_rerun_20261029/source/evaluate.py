@@ -132,7 +132,7 @@ def load_coco(data_root: Path, dataset: str, split: str) -> tuple[list[dict[str,
 
 
 def load_yolo_yaml(dataset_yaml: Path, split: str) -> tuple[list[dict[str, Any]], dict[int, list[np.ndarray]]]:
-    """Load one prepared YOLO dataset split; no implicit dataset discovery."""
+    """Load one prepared YOLO split and fail closed on missing ground truth."""
     config = yaml.safe_load(dataset_yaml.read_text(encoding="utf-8"))
     root = Path(config.get("path", dataset_yaml.parent))
     if not root.is_absolute():
@@ -143,23 +143,39 @@ def load_yolo_yaml(dataset_yaml: Path, split: str) -> tuple[list[dict[str, Any]]
         raise FileNotFoundError(f"Missing {split} image directory: {image_dir}")
     images: list[dict[str, Any]] = []
     annotations: dict[int, list[np.ndarray]] = {}
+    missing_labels: list[Path] = []
     for image_id, image_path in enumerate(sorted(p for p in image_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS)):
         with Image.open(image_path) as image:
             width, height = image.size
         image_parts = image_path.parts
-        image_index = len(image_parts) - 1 - image_parts[::-1].index("images") if "images" in image_parts else -1
-        label_path = root / "labels" / Path(*image_parts[image_index + 1:]).with_suffix(".txt") if image_index >= 0 else image_path.with_suffix(".txt")
+        if "images" not in image_parts:
+            raise ValueError(f"YOLO image path must contain an images directory: {image_path}")
+        image_index = len(image_parts) - 1 - image_parts[::-1].index("images")
+        relative_image = Path(*image_parts[image_index + 1:]).with_suffix(".txt")
+        label_path = Path(*image_parts[:image_index]) / "labels" / relative_image
+        if not label_path.is_file():
+            missing_labels.append(label_path)
+            continue
         boxes: list[np.ndarray] = []
-        if label_path.is_file():
-            for line in label_path.read_text(encoding="utf-8").splitlines():
-                fields = line.split()
-                if len(fields) < 5:
-                    continue
-                _, cx, cy, box_w, box_h = map(float, fields[:5])
-                boxes.append(np.array([(cx - box_w / 2) * width, (cy - box_h / 2) * height,
-                                       (cx + box_w / 2) * width, (cy + box_h / 2) * height], dtype=np.float32))
+        for line_number, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), 1):
+            fields = line.split()
+            if len(fields) < 5:
+                raise ValueError(f"Malformed YOLO label {label_path}:{line_number}")
+            _, cx, cy, box_w, box_h = map(float, fields[:5])
+            boxes.append(np.array([
+                (cx - box_w / 2) * width, (cy - box_h / 2) * height,
+                (cx + box_w / 2) * width, (cy + box_h / 2) * height,
+            ], dtype=np.float32))
         images.append({"id": image_id, "file_name": str(image_path), "path": str(image_path), "width": width, "height": height})
         annotations[image_id] = boxes
+    if missing_labels:
+        sample = ", ".join(str(path) for path in missing_labels[:3])
+        raise FileNotFoundError(f"Missing {len(missing_labels)} YOLO label files; examples: {sample}")
+    if not images:
+        raise ValueError(f"No images found in {image_dir}")
+    ground_truth_count = sum(map(len, annotations.values()))
+    if ground_truth_count == 0:
+        raise ValueError(f"No ground-truth boxes found for {split} in {dataset_yaml}")
     return images, annotations
 
 
@@ -275,15 +291,18 @@ def evaluate_with_cloned_ultralytics(parsed: argparse.Namespace) -> None:
         raise ValueError("--model/--engine and --dataset-yaml are required for cloned Ultralytics evaluation.")
     if not model_path.is_file():
         raise FileNotFoundError(model_path)
-    import sys
-    import tensorrt_bindings as _trt
-    sys.modules["tensorrt"] = _trt
     from ultralytics import YOLO
-    import ultralytics.nn.backends.tensorrt as _backend
-    _backend.__version__ = getattr(_trt, "__version__", "10.13.3")
-    for _name in ("Logger", "Runtime", "Builder", "nptype", "TensorIOMode"):
-        if hasattr(_trt, _name):
-            setattr(_backend, _name, getattr(_trt, _name))
+    if model_path.suffix.lower() == ".engine":
+        import sys
+        import tensorrt_bindings as _trt
+
+        sys.modules["tensorrt"] = _trt
+        import ultralytics.nn.backends.tensorrt as _backend
+
+        _backend.__version__ = getattr(_trt, "__version__", "10.13.3")
+        for _name in ("Logger", "Runtime", "Builder", "nptype", "TensorIOMode"):
+            if hasattr(_trt, _name):
+                setattr(_backend, _name, getattr(_trt, _name))
 
     parsed.results_root.mkdir(parents=True, exist_ok=True)
     size = image_size(parsed.dataset)

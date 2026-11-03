@@ -164,6 +164,18 @@ Each JSON records the model SHA-256, dataset, split, image count, provider, NMS 
 
 The persistent `/results` mount stores benchmark JSON. TensorRT engine caching is reserved for the later TensorRT phase.
 
+`rerun.sh accuracy` intentionally remains the legacy raw-head ONNX/TensorRT matrix and custom AP path. It does not invoke `model.val()`. For a unified `.pt`/Ultralytics-engine comparison, call the cloned-validator path explicitly with the same prepared YAML:
+
+```bash
+python onnx_tensorrt_rerun_20261029/source/evaluate.py \
+  --model /path/to/model.pt \
+  --dataset levirship \
+  --dataset-yaml /path/to/prepared/levirship.yaml \
+  --split test \
+  --results-root /path/to/results \
+  --conf 0.001 --nms-iou 0.5 --max-det 300
+```
+
 ## TensorRT export and evaluation
 
 TensorRT engines are built natively by ONNX Runtime's `TensorrtExecutionProvider` on the Jetson. The provider list contains only TensorRT, so unsupported operators fail instead of silently falling back to CUDA or CPU. The cache is the exported engine store and must remain on the Jetson because TensorRT engines are device/runtime-specific.
