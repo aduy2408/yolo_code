@@ -21,8 +21,8 @@ _EVALUATE_SPEC.loader.exec_module(_shared)
 def args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate a YOLO .pt model with the shared ONNX/TensorRT pipeline.")
     parser.add_argument("--model", type=Path, required=True)
-    parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--dataset", choices=tuple(_shared.DATASET_DIRS), required=True)
+    parser.add_argument("--data-root", type=Path, default=None, help="Legacy prepared root; prefer --dataset-yaml.")
+    parser.add_argument("--dataset-yaml", type=Path, default=None, help="Prepared single-dataset YOLO YAML.")
     parser.add_argument("--split", choices=("val", "test"), required=True)
     parser.add_argument("--results-root", type=Path, required=True)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -61,7 +61,12 @@ def main() -> None:
     parsed = args()
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required; refusing CPU evaluation")
-    images, ground_truth = _shared.load_coco(parsed.data_root, parsed.dataset, parsed.split)
+    if parsed.dataset_yaml is not None:
+        images, ground_truth = _shared.load_yolo_yaml(parsed.dataset_yaml, parsed.split)
+    elif parsed.data_root is not None:
+        images, ground_truth = _shared.load_coco(parsed.data_root, parsed.dataset, parsed.split)
+    else:
+        raise ValueError("Pass --dataset-yaml for one prepared dataset (or legacy --data-root).")
     model = YOLO(str(parsed.model))
     model.model.to("cuda").eval()
     predicted: dict[int, list[tuple[np.ndarray, float]]] = {}
@@ -94,7 +99,7 @@ def main() -> None:
         "model": str(parsed.model), "dataset": parsed.dataset, "split": parsed.split,
         "provider": "PyTorch/raw-model+shared-pipeline", "precision": "FP32",
         "batch_size": parsed.batch_size, "image_size": _shared.image_size(parsed.dataset),
-        "conf": parsed.conf, "nms_iou": parsed.nms_iou,
+        "conf": parsed.conf, "nms_iou": parsed.nms_iou, "max_det": parsed.max_det,
         "images": len(images), "ground_truth_boxes": sum(map(len, ground_truth.values())), **metrics,
     }
     parsed.results_root.mkdir(parents=True, exist_ok=True)
@@ -102,4 +107,5 @@ def main() -> None:
     print(json.dumps(row, sort_keys=True))
 
 
+if __name__ == "__main__":
     main()

@@ -49,8 +49,9 @@ def _(Path, datetime, mo, os, ort, timezone, torch):
 
     checkpoint = repo_root / "exports/baseline_onnx_matrix/levirship/no_mosaic/yolov8/seed_42/hf_cache/runs/levirship/yolov8/seed_42/weights/best.pt"
     data_root = Path(os.environ.get("DATA_ROOT", repo_root / "datasets"))
-    datasets = ("levirship", "tinyperson", "varroa")
+    datasets = ("levirship",)
     splits = ("test",)
+    batch_size = 1
     confidence = 0.001
     nms_iou = 0.5
     max_det = 300
