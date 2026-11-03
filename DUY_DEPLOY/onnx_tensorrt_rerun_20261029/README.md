@@ -9,6 +9,7 @@ onnx_tensorrt_rerun_20261029/
     ├── benchmark.py
     ├── benchmark_end_to_end.py
     ├── evaluate.py
+    ├── prepare_dataset.py
     ├── evaluate_pytorch.py
     ├── evaluate_tinyperson_merged.py
     ├── merge_tinyperson_predictions.py
@@ -21,6 +22,34 @@ onnx_tensorrt_rerun_20261029/
 ```
 
 The ONNX models are not duplicated. The runner reads `DUY_DEPLOY/models` by default.
+
+`prepare_dataset.py` creates an isolated, split-verified YOLO dataset and YAML. For a LEVIR-Ship run:
+
+```bash
+python source/prepare_dataset.py \
+  --dataset levirship \
+  --raw-root /path/to/data \
+  --output-root /path/to/prepared \
+  --dataset-yaml /path/to/prepared/levirship.yaml \
+  --repo-root /path/to/yolo_related \
+  --split-seed 42
+```
+
+`evaluate.py` supports the cloned Ultralytics validator for one `.pt` or `.engine` model:
+
+```bash
+python source/evaluate.py \
+  --model /path/to/model.engine \
+  --dataset levirship \
+  --dataset-yaml /path/to/prepared/levirship.yaml \
+  --split test \
+  --results-root /path/to/results \
+  --conf 0.001 \
+  --nms-iou 0.5 \
+  --max-det 300
+```
+
+`nms_iou=0.5` and `max_det=300` are the deployment evaluation defaults.
 
 `evaluate_pytorch.py` uses the same `letterbox`, output decoding, confidence filtering, NMS, and AP metric implementation as `evaluate.py`; only the model backend differs. Run it in the PyTorch Jetson image for a direct `.pt` versus TensorRT comparison.
 

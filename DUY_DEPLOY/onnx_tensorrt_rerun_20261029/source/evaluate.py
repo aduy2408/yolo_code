@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import onnxruntime as ort
+import yaml
 from PIL import Image
 
 CUDA_PROVIDER = "CUDAExecutionProvider"
@@ -37,10 +38,13 @@ def provider_config(provider: str, cache_root: Path | None) -> tuple[str, list[o
 
 
 def args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate YOLO ONNX models with CPU, CUDA, or TensorRT.")
-    parser.add_argument("--models-root", type=Path, required=True)
-    parser.add_argument("--data-root", type=Path, required=True)
+    parser = argparse.ArgumentParser(description="Evaluate YOLO models with the cloned Ultralytics validator or the legacy ONNX scorer.")
+    parser.add_argument("--models-root", type=Path, required=False)
+    parser.add_argument("--model", type=Path, default=None, help="One .pt, .onnx, or .engine model for cloned Ultralytics validation.")
+    parser.add_argument("--engine", type=Path, default=None, help="Alias for --model when evaluating a TensorRT engine.")
+    parser.add_argument("--data-root", type=Path, default=None, help="Legacy prepared root; prefer --dataset-yaml.")
     parser.add_argument("--dataset", choices=("levirship", "tinyperson", "varroa"), required=True)
+    parser.add_argument("--dataset-yaml", type=Path, default=None, help="Prepared single-dataset YOLO YAML.")
     parser.add_argument("--split", choices=("val", "test"), nargs="+", required=True)
     parser.add_argument("--results-root", type=Path, required=True)
     parser.add_argument("--predictions-root", type=Path, default=None)
@@ -76,7 +80,7 @@ def letterbox(image: Image.Image, size: int, dtype: np.dtype) -> tuple[np.ndarra
     canvas = Image.new("RGB", (size, size), (114, 114, 114))
     canvas.paste(resized, (round(pad_x), round(pad_y)))
     array = np.asarray(canvas, dtype=np.float32) / 255.0
-    return np.transpose(array, (2, 0, 1)).astype(dtype), scale, pad_x, pad_y
+    return np.ascontiguousarray(np.transpose(array, (2, 0, 1)).astype(dtype, copy=False)), scale, pad_x, pad_y
 
 
 def iou(box: np.ndarray, boxes: np.ndarray) -> np.ndarray:
@@ -124,6 +128,38 @@ def load_coco(data_root: Path, dataset: str, split: str) -> tuple[list[dict[str,
             np.asarray([x, y, x + width, y + height], dtype=np.float32)
         )
     images = [{**row, "path": data_root / dataset_dir / row["file_name"]} for row in payload["images"]]
+    return images, annotations
+
+
+def load_yolo_yaml(dataset_yaml: Path, split: str) -> tuple[list[dict[str, Any]], dict[int, list[np.ndarray]]]:
+    """Load one prepared YOLO dataset split; no implicit dataset discovery."""
+    config = yaml.safe_load(dataset_yaml.read_text(encoding="utf-8"))
+    root = Path(config.get("path", dataset_yaml.parent))
+    if not root.is_absolute():
+        root = (dataset_yaml.parent / root).resolve()
+    split_path = Path(config[split])
+    image_dir = split_path if split_path.is_absolute() else root / split_path
+    if not image_dir.is_dir():
+        raise FileNotFoundError(f"Missing {split} image directory: {image_dir}")
+    images: list[dict[str, Any]] = []
+    annotations: dict[int, list[np.ndarray]] = {}
+    for image_id, image_path in enumerate(sorted(p for p in image_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS)):
+        with Image.open(image_path) as image:
+            width, height = image.size
+        image_parts = image_path.parts
+        image_index = len(image_parts) - 1 - image_parts[::-1].index("images") if "images" in image_parts else -1
+        label_path = root / "labels" / Path(*image_parts[image_index + 1:]).with_suffix(".txt") if image_index >= 0 else image_path.with_suffix(".txt")
+        boxes: list[np.ndarray] = []
+        if label_path.is_file():
+            for line in label_path.read_text(encoding="utf-8").splitlines():
+                fields = line.split()
+                if len(fields) < 5:
+                    continue
+                _, cx, cy, box_w, box_h = map(float, fields[:5])
+                boxes.append(np.array([(cx - box_w / 2) * width, (cy - box_h / 2) * height,
+                                       (cx + box_w / 2) * width, (cy + box_h / 2) * height], dtype=np.float32))
+        images.append({"id": image_id, "file_name": str(image_path), "path": str(image_path), "width": width, "height": height})
+        annotations[image_id] = boxes
     return images, annotations
 
 
@@ -233,8 +269,57 @@ def evaluate(images: list[dict[str, Any]], ground_truth: dict[int, list[np.ndarr
     return metrics
 
 
+def evaluate_with_cloned_ultralytics(parsed: argparse.Namespace) -> None:
+    model_path = parsed.model or parsed.engine
+    if model_path is None or parsed.dataset_yaml is None:
+        raise ValueError("--model/--engine and --dataset-yaml are required for cloned Ultralytics evaluation.")
+    if not model_path.is_file():
+        raise FileNotFoundError(model_path)
+    import sys
+    import tensorrt_bindings as _trt
+    sys.modules["tensorrt"] = _trt
+    from ultralytics import YOLO
+    import ultralytics.nn.backends.tensorrt as _backend
+    _backend.__version__ = getattr(_trt, "__version__", "10.13.3")
+    for _name in ("Logger", "Runtime", "Builder", "nptype", "TensorIOMode"):
+        if hasattr(_trt, _name):
+            setattr(_backend, _name, getattr(_trt, _name))
+
+    parsed.results_root.mkdir(parents=True, exist_ok=True)
+    size = image_size(parsed.dataset)
+    rows: list[dict[str, Any]] = []
+    model = YOLO(str(model_path))
+    for split in parsed.split:
+        metrics = model.val(
+            data=str(parsed.dataset_yaml), split=split, imgsz=size, batch=parsed.batch_size,
+            device=0, conf=parsed.conf, iou=parsed.nms_iou, max_det=parsed.max_det,
+            plots=False, project=str(parsed.results_root / "ultralytics_val"),
+            name=split, exist_ok=True,
+        )
+        values = {
+            key: float(value) for key, value in metrics.results_dict.items()
+            if isinstance(value, (int, float, np.integer, np.floating))
+        }
+        row = {
+            "model": str(model_path), "dataset": parsed.dataset, "split": split,
+            "provider": f"cloned_ultralytics.{model_path.suffix.lstrip('.')}",
+            "dataset_yaml": str(parsed.dataset_yaml), "batch_size": parsed.batch_size,
+            "conf": parsed.conf, "nms_iou": parsed.nms_iou, "image_size": size, **values,
+        }
+        rows.append(row)
+        print(json.dumps(row, sort_keys=True), flush=True)
+    (parsed.results_root / "ultralytics_metrics.json").write_text(
+        json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
 def main() -> None:
     parsed = args()
+    if parsed.model is not None or parsed.engine is not None:
+        evaluate_with_cloned_ultralytics(parsed)
+        return
+    if parsed.models_root is None:
+        raise ValueError("--models-root is required for legacy ONNX evaluation.")
     provider_name, provider_settings = provider_config(parsed.provider, parsed.trt_cache_root)
     sessions: dict[Path, ort.InferenceSession] = {}
     for model_path in sorted(parsed.models_root.rglob("*.onnx")):
@@ -253,7 +338,12 @@ def main() -> None:
         raise FileNotFoundError(f"No ONNX models under {parsed.models_root}")
     parsed.results_root.mkdir(parents=True, exist_ok=True)
     for split in parsed.split:
-        images, ground_truth = load_coco(parsed.data_root, parsed.dataset, split)
+        if parsed.dataset_yaml is not None:
+            images, ground_truth = load_yolo_yaml(parsed.dataset_yaml, split)
+        elif parsed.data_root is not None:
+            images, ground_truth = load_coco(parsed.data_root, parsed.dataset, split)
+        else:
+            raise ValueError("Pass --dataset-yaml for one prepared dataset (or legacy --data-root).")
         for model_path, session in sessions.items():
             started = time.perf_counter()
             predicted = predictions(session, images, image_size(parsed.dataset), parsed.batch_size, parsed.conf, parsed.nms_iou, parsed.max_det)
