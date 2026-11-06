@@ -1,0 +1,104 @@
+{
+  "experiment_id": "sota_tinyperson_merged_seed42_43",
+  "control_config_or_baseline_config": "existing HF checkpoint plus recorded model-specific manifest",
+  "variant_config_or_explicit_change": "evaluation-only; no weights or training changes",
+  "source_commit": {
+    "yolo_code": "bf07e94a1f3c189ea440651e96a621723279ee02",
+    "tph_yolov5": "052dfeb375e51756f17e9ca4f96b7e3e3a7cf3c4"
+  },
+  "runner": "Marimo live kernel; MMDetection jobs use utils.marimo_ops for detached execution",
+  "python_executable": {
+    "yolo": "/tmp/uv-venv/bin/python",
+    "mmdetection": "/marimo/mmdet-venv/bin/python"
+  },
+  "dataset_root": "/marimo/TinyPerson",
+  "split_seed": 42,
+  "image_size": 640,
+  "nms_iou": 0.5,
+  "protocol": {
+    "native": "TinyPerson corner-window val/test metrics",
+    "merged": "sw640/sh512 corner predictions mapped to source-image IDs, class-aware NMS IoU 0.50, official TinyBenchmark COCO evaluator",
+    "small_metric": "AP at IoU=0.50 and area=small; never substitute COCO AP-small averaged over IoU=0.50:0.95"
+  },
+  "models": [
+    {
+      "id": "stw_yolo",
+      "training_seeds": [42, 43],
+      "model_config": "STW-YOLO/Lib/p2_rp5_yolo12s.yaml",
+      "pretrained_source": "Ultralytics yolo12s",
+      "checkpoint_repos": {
+        "42": "duyle2408/stw-yolo-runs:runs/tinyperson/seed_42/weights/best.pt",
+        "43": "duyle2408/stw-yolo-standard-seed43-backfill-runs:runs/tinyperson/seed_43/weights/best.pt"
+      },
+      "native_metrics": {
+        "42": "duyle2408/stw-yolo-runs:runs/tinyperson/seed_42/evaluation_metrics.json",
+        "43": "duyle2408/stw-yolo-standard-seed43-backfill-runs:runs/tinyperson/seed_43/evaluation_metrics.json"
+      },
+      "merged_metrics": {
+        "42": "duyle2408/stw-tph-tinyperson-corrected-20261015-runs:tinyperson/seed42/corrected_gpu_r4/artifacts/final_results.json",
+        "43": null
+      }
+    },
+    {
+      "id": "tph_yolov5",
+      "training_seeds": [42, 43],
+      "model_config": "upstream TPH-YOLOv5 yolov5l-xs-tph",
+      "pretrained_source": "TPH-YOLOv5 upstream checkpoint",
+      "checkpoint_repos": {
+        "42": "duyle2408/varroa-tinyperson-levirship-visdrone-tph-yolov5-runs:runs/tinyperson/seed_42/weights/best.pt",
+        "43": "duyle2408/varroa-tinyperson-levirship-visdrone-tph-yolov5-runs:runs/tinyperson/seed_43/weights/best.pt"
+      },
+      "native_metrics": {
+        "42": "duyle2408/varroa-tinyperson-levirship-visdrone-tph-yolov5-runs:runs/tinyperson/seed_42/evaluation_metrics.json",
+        "43": "duyle2408/varroa-tinyperson-levirship-visdrone-tph-yolov5-runs:runs/tinyperson/seed_43/evaluation_metrics.json"
+      },
+      "merged_metrics": {
+        "42": "duyle2408/stw-tph-tinyperson-corrected-20261015-runs:tinyperson/seed42/corrected_gpu_r4/artifacts/final_results.json",
+        "43": null
+      }
+    },
+    {
+      "id": "fcos_set",
+      "training_seeds": [42, 43],
+      "model_config": "explicit FCOS-SET config recorded in each MMDetection run manifest",
+      "pretrained_source": "MMDetection FCOS-SET checkpoint",
+      "checkpoint_repos": {
+        "42": "duyle2408/set-fcos-stw-protocol-runs:tinyperson/mosaic/patience15/seed42/fcos_set/best_coco_bbox_mAP_epoch_29.pth",
+        "43": "duyle2408/fcos-tinyperson-eval-20261015-runs:tinyperson/seed43/fcos_set/"
+      },
+      "prediction_or_metric_artifacts": {
+        "42": "duyle2408/set-fcos-stw-protocol-runs:tinyperson/mosaic/patience15/seed42/fcos_set/test_results/test/metrics_merged_detections.json",
+        "43": "duyle2408/fcos-tinyperson-eval-20261015-runs:tinyperson/seed43/fcos_set/test/metrics_merged_detections.json"
+      }
+    },
+    {
+      "id": "fcos_sr_tod",
+      "training_seeds": [42, 43],
+      "model_config": "explicit recovered FCOS-SR-TOD config recorded in each MMDetection run manifest",
+      "pretrained_source": "MMDetection FCOS-SR-TOD checkpoint",
+      "checkpoint_repos": {
+        "42": "duyle2408/srtod-set-mosaic-matrix-runs:srtod/tinyperson/fcos/standard_mosaic/seed42_backfill_20261105/",
+        "43": "duyle2408/fcos-tinyperson-eval-20261015-runs:tinyperson/seed43/fcos_sr_tod/"
+      },
+      "prediction_or_metric_artifacts": {
+        "42": "duyle2408/srtod-set-mosaic-matrix-runs:srtod/tinyperson/fcos/standard_mosaic/seed42_backfill_20261105/bucket_eval/",
+        "43": "duyle2408/fcos-tinyperson-eval-20261015-runs:tinyperson/seed43/fcos_sr_tod/test/metrics_merged_detections.json"
+      }
+    }
+  ],
+  "required_artifacts_per_run": [
+    "evaluation_manifest.json",
+    "native_metrics.json or evaluation_metrics.json",
+    "merged_predictions.json when merged evaluation is run",
+    "merged_metrics.json when merged evaluation is run",
+    "completion marker"
+  ],
+  "upload_required": true,
+  "hf_repo": "preserve the source HF repo; do not create a new backfill repo unless a new evaluation is actually executed",
+  "command_notes": {
+    "yolo_native": "python evaluate_test/evaluate_stw_tph_checkpoints.py with explicit --checkpoint, --backend, --data-yaml, --tph-root and --output",
+    "tph_merged": "python evaluate_test/run_tph_merged_only.py with explicit data-root, tph-root, checkpoint, corner_manifest and output",
+    "mmdet_merged": "/marimo/mmdet-venv/bin/python /marimo/mmdet_code/evaluate_tinyperson_metrics.py --res PREDICTIONS --corner-gt /marimo/TinyPerson/annotations/corner/task/tiny_set_test_sw640_sh512_all.json --merged-gt /marimo/TinyPerson/annotations/task/tiny_set_test_all.json --out OUTPUT",
+    "important": "Never use native bucket_metrics.json as test_merged/AP50-Small. Never infer a missing scalar from AP50 or native AP50-Small."
+  }
+}
