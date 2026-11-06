@@ -48,14 +48,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def yaml_map(values: list[str]) -> dict[str, Path]:
+def yaml_map(values: list[str], required: tuple[str, ...] = DATASETS) -> dict[str, Path]:
     result: dict[str, Path] = {}
     for value in values:
         dataset, sep, path = value.partition("=")
         if dataset not in DATASETS or not sep or not path or dataset in result:
             raise ValueError(f"Invalid --data-yaml {value!r}")
         result[dataset] = Path(path).expanduser().resolve()
-    missing = sorted(set(DATASETS) - result.keys())
+    missing = sorted(set(required) - result.keys())
     if missing:
         raise ValueError(f"Missing explicit dataset YAMLs: {missing}")
     for dataset, path in result.items():
@@ -128,7 +128,7 @@ def evaluate_tph(checkpoint: Path, data_yaml: Path, dataset: str, out_dir: Path,
 
 def main() -> None:
     args = parse_args()
-    yamls = yaml_map(args.data_yaml)
+    yamls = yaml_map(args.data_yaml, tuple(args.datasets))
     args.output = args.output.expanduser().resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     evaluator = evaluate_stw if args.backend == "stw" else evaluate_tph
