@@ -37,6 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", action="append", required=True, type=parse_checkpoint,
                         help="MODEL=CHECKPOINT[::SIZE_CHECKPOINT], repeat for STW/TPH")
     parser.add_argument("--backend", choices=("stw", "tph"), required=True)
+    parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS),
+                        help="Datasets to evaluate; defaults to all three")
     parser.add_argument("--data-yaml", action="append", required=True, metavar="DATASET=PATH")
     parser.add_argument("--tph-root", type=Path, help="TPH-YOLO checkout, required with --backend tph")
     parser.add_argument("--output", type=Path, required=True)
@@ -134,7 +136,7 @@ def main() -> None:
     for model_name, checkpoint, size_checkpoint in args.checkpoint:
         if not checkpoint.is_file():
             raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
-        for dataset in DATASETS:
+        for dataset in args.datasets:
             run_dir = args.output / model_name / dataset
             run_dir.mkdir(parents=True, exist_ok=True)
             metrics = evaluator(checkpoint, yamls[dataset], dataset, run_dir, args)
