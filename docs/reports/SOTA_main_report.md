@@ -141,6 +141,19 @@ These values are from the new GPU Marimo rerun using the exact seed43 checkpoint
 
 The completed artifacts and verified upload are in `duyle2408/fcos-tinyperson-eval-20261015-runs` under `tinyperson/seed43/`, including per-model `final_results.json`, split `metrics.json`, and `upload_verified.json`.
 
+### Complete merged TinyPerson seed mean ± sample std (2026-11-06)
+
+All values below are source-image merged test metrics at NMS IoU `0.50`, averaged over training seeds `42` and `43`. `AP50-small` is the merged IoU=0.50 small-object field.
+
+| Model family | AP50 | mAP50-95 | merged AP50-small |
+|---|---:|---:|---:|
+| STW-YOLO | 0.5924 ± 0.0046 | 0.2243 ± 0.0003 | 0.7050 ± 0.0065 |
+| TPH-YOLOv5 | 0.5247 ± 0.0321 | 0.1945 ± 0.0136 | 0.6045 ± 0.0459 |
+| FCOS-SET | 0.4253 ± 0.0009 | 0.1521 ± 0.0003 | 0.5961 ± 0.0064 |
+| FCOS-SR-TOD | 0.4583 ± 0.0047 | 0.1632 ± 0.0015 | 0.5949 ± 0.0007 |
+
+Per-seed inputs and reproducible evaluator: `docs/reports/sota_results_reproducible_20261106.json`, `evaluate_test/evaluate_sota_models.py`.
+
 - The main table uses split-qualified native evaluation artifacts for STW YOLO and TPH YOLO, and corrected evaluation-only MMDetection artifacts for FCOS-SR-TOD. AP50-small is explicitly the IoU=0.50, area=small result, not COCO AP-small averaged over IoU=0.50:0.95. TPH TinyPerson uses the official corner-window protocol. FCOS-SR-TOD LEVIR uses the full 584-image val/test split.
 
 The compact table below records the fields that are present in the remote artifacts. TPH, FCOS-SET, and both seed42/seed43 STW rows are split-qualified; the seed42 STW values were backfilled locally from the existing HF checkpoints and the full bucket audit is recorded separately.
