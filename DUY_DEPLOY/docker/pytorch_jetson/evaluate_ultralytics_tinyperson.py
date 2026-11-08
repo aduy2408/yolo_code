@@ -19,7 +19,7 @@ except ModuleNotFoundError:
 from checkpoint_compat import patch_legacy_modules
 from ultralytics import YOLO
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate TinyPerson windows with Ultralytics and TinyBenchmark COCOeval.")
+    parser = argparse.ArgumentParser(description="Evaluate TinyPerson windows with Ultralytics and TinyBenchmark COCOeval (mAP50-95).")
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--results-root", type=Path, required=True)
@@ -177,7 +177,7 @@ def main() -> None:
 
     module.np.linspace = compatible_linspace
     evaluator = module.COCOeval(merged_gt, coco_dt, "bbox", True, True)
-    evaluator.params.iouThrs = np.linspace(0.50, 0.75, 6)
+    evaluator.params.iouThrs = np.linspace(0.50, 0.95, 10)
     try:
         evaluator.evaluate()
         evaluator.accumulate()
@@ -194,8 +194,9 @@ def main() -> None:
         values = values[values > -1]
         return float(values.mean()) if values.size else None
 
-    all_ap = [mean_slice(index, "all") for index in range(6)]
+    all_ap = [mean_slice(index, "all") for index in range(len(evaluator.params.iouThrs))]
     valid_ap = [value for value in all_ap if value is not None]
+    ap75_index = int(np.flatnonzero(np.isclose(evaluator.params.iouThrs, 0.75))[0])
     metrics = {
         "model": str(args.model),
         "model_sha256": sha256(args.model),
@@ -210,12 +211,13 @@ def main() -> None:
         "max_det": args.max_det,
         "prediction_file": str(merged_prediction_path),
         "evaluator": str(args.evaluator),
-        "protocol": "TinyBenchmark merged original-image test; bundle corner mapping, class-agnostic NMS IoU=0.5, custom TinyBenchmark COCOeval",
+        "protocol": "TinyBenchmark merged original-image test; bundle corner mapping, class-agnostic NMS IoU=0.5, custom TinyBenchmark COCOeval IoU=0.50:0.05:0.95",
         "images_merged": len(merged_gt.dataset["images"]),
         "predictions_after_merge_nms": len(merged_predictions),
         "AP50": all_ap[0],
-        "AP75": all_ap[-1],
-        "mAP50-75": float(np.mean(valid_ap)) if valid_ap else None,
+        "AP75": all_ap[ap75_index],
+        "AP95": all_ap[-1],
+        "mAP50-95": float(np.mean(valid_ap)) if valid_ap else None,
     }
     for area in ("tiny1", "tiny2", "tiny3", "tiny", "small", "medium"):
         if area in labels:
