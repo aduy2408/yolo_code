@@ -86,7 +86,10 @@ def coco_metrics(annotation: Path, detections: list[dict]) -> dict[str, float]:
     coco_gt = COCO(str(annotation))
     coco_dt = coco_gt.loadRes(detections) if detections else coco_gt.loadRes([])
     metrics: dict[str, float] = {}
-    for label, area, suffix in (("all", [0.0, 1e12], "all"), ("small", [0.0, 32.0**2], "Small")):
+    for label, area, suffix in (
+        ("all", [0.0, 1e12], "all"),
+        ("small", [20.0**2, 32.0**2], "Small"),
+    ):
         evaluator = COCOeval(coco_gt, coco_dt, "bbox")
         evaluator.params.iouThrs = IOU_THRESHOLDS
         evaluator.params.maxDets = [1, 10, 300]
