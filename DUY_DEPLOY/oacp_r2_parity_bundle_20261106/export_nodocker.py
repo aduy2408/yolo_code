@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export parity checkpoints to ONNX without Docker."""
+"""Export parity checkpoints to TensorRT engines with Ultralytics, without Docker."""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,7 @@ from pathlib import Path
 
 BUNDLE = Path(__file__).resolve().parent
 CHECKPOINTS = BUNDLE / "checkpoints"
-ONNX = BUNDLE / "output" / "onnx"
+ENGINES = BUNDLE / "output" / "engines"
 SIZES = {"tinyperson": 640, "levirship": 512, "varroa": 640}
 
 
@@ -32,10 +32,9 @@ def main() -> None:
         raise SystemExit(f"No checkpoints under {CHECKPOINTS}")
 
     for checkpoint in checkpoints:
-        relative = checkpoint.relative_to(CHECKPOINTS)
-        dataset, model, seed = relative.parts[:3]
+        dataset, model, seed = checkpoint.relative_to(CHECKPOINTS).parts[:3]
         for precision in precisions:
-            output = ONNX / dataset / model / seed / f"{precision}.onnx"
+            output = ENGINES / dataset / model / seed / f"{precision}.engine"
             output.parent.mkdir(parents=True, exist_ok=True)
             if output.exists():
                 print(f"EXISTS {output}", flush=True)
@@ -44,12 +43,13 @@ def main() -> None:
             loaded = YOLO(str(checkpoint), task="detect")
             exported = Path(
                 loaded.export(
-                    format="onnx",
+                    format="engine",
                     imgsz=SIZES[dataset],
                     batch=1,
                     half=precision == "fp16",
                     dynamic=False,
                     device=args.device,
+                    workspace=4,
                     verbose=False,
                 )
             )

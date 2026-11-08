@@ -162,9 +162,8 @@ max_det: 300
 
 ## No-Docker x86/Colab flow
 
-Use this variant when the host has `ultralytics`, `onnxruntime-gpu`, and the
-ONNX Runtime `TensorrtExecutionProvider`, but does not have Docker or the
-JetPack container images:
+Use this variant when the host has Ultralytics TensorRT export support, but
+does not have Docker or the JetPack container images:
 
 ```bash
 python3 export_nodocker.py --dataset tinyperson --precision both
@@ -181,11 +180,15 @@ python3 evaluate_nodocker.py \
   --data-root /path/to/prepared/data
 ```
 
-`export_nodocker.py` uses the same Ultralytics ONNX export settings as the
-Docker exporter. `evaluate_nodocker.py` invokes the existing TensorRT
-evaluators directly and requires the first active provider to be
-`TensorrtExecutionProvider`; it does not silently fall back to CUDA or CPU.
+`export_nodocker.py` uses `YOLO(...).export(format="engine")` to create
+Ultralytics TensorRT `.engine` files. `evaluate_nodocker.py` invokes the
+existing Ultralytics evaluators with those engines:
 
-This is an x86/Colab TensorRT flow, not a Jetson/JetPack measurement. Keep its
-artifacts separate from Jetson results.
+```text
+DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py
+DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics_tinyperson.py
 ```
+
+Metrics therefore come from `YOLO(engine).predict()`, not the ONNX Runtime
+custom evaluator. This is an x86/Colab TensorRT flow, not a Jetson/JetPack
+measurement; keep its artifacts separate from Jetson results.
