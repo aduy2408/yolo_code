@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
+import sys
 from pathlib import Path
 
 BUNDLE = Path(__file__).resolve().parent
@@ -57,7 +57,7 @@ def main() -> None:
                 result.mkdir(parents=True, exist_ok=True)
                 if dataset == "tinyperson":
                     command = [
-                        "python3",
+                        sys.executable,
                         str(evaluator),
                         "--model",
                         str(model),
@@ -80,7 +80,7 @@ def main() -> None:
                     ]
                 else:
                     command = [
-                        "python3",
+                        sys.executable,
                         str(evaluator),
                         "--model",
                         str(model),
