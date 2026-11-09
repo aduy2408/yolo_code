@@ -21,7 +21,7 @@ def run(command: list[str], env: dict[str, str]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", choices=("tinyperson", "levirship", "all"), default="all")
+    parser.add_argument("--dataset", choices=("tinyperson", "levirship", "varroa", "all"), default="all")
     parser.add_argument("--precision", choices=("fp32", "fp16", "both"), default="both")
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--device", default="0")
@@ -30,7 +30,7 @@ def main() -> None:
     parser.add_argument("--max-det", type=int, default=300)
     args = parser.parse_args()
 
-    datasets = ("tinyperson", "levirship") if args.dataset == "all" else (args.dataset,)
+    datasets = ("tinyperson", "levirship", "varroa") if args.dataset == "all" else (args.dataset,)
     precisions = ("fp32", "fp16") if args.precision == "both" else (args.precision,)
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(
