@@ -96,7 +96,7 @@ def coco_metrics(annotation: Path, detections: list[dict]) -> dict[str, float]:
         evaluator.params.areaRng = [area]
         evaluator.params.areaRngLbl = [label]
         evaluator.evaluate()
-        evaluator.accumulate()
+        precision = evaluator.eval["precision"]
         ap50_values = precision[0, :, :, 0, -1]
         ap_values = precision[:, :, :, 0, -1]
         metrics[f"AP50-{suffix}"] = float(ap50_values[ap50_values > -1].mean())
