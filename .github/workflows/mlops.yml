@@ -138,7 +138,7 @@ jobs:
           import json
           import os
           from pathlib import Path
-
+          config = json.loads(os.environ["MLOPS_CONFIG_JSON"])
           config["repo"] = config["marimo_repo"]
           config["formats"] = config.get("formats", "onnx").split()
           config["poll_seconds"] = 30
