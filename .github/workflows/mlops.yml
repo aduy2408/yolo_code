@@ -146,8 +146,7 @@ jobs:
           config = json.loads(os.environ["MLOPS_CONFIG_JSON"])
           config["repo"] = config["marimo_repo"]
           config["python"] = config["remote_python"]
-          config["formats"] = config.get("formats", "onnx").split()
-          config["poll_seconds"] = 30
+          config["poll_seconds"] = 60
           source = Path("utils/marimo_ci.py").read_text()
           remote = source + "\nrun(" + repr(config) + ")\n"
           Path("marimo-workflow-evidence").mkdir()

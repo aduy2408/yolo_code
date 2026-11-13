@@ -50,6 +50,9 @@ printf '%s\n' '<token mới>' \
 ```
 
 `--watch` chờ run hoàn tất và trả exit code theo conclusion của GitHub Actions.
+Remote polling mặc định dùng interval `60s`; HTTP read timeout của Marimo client
+là `120s`, để tránh fail khi stream không có event trong một khoảng ngắn mà
+process detached vẫn đang chạy.
 Launcher in:
 
 ```text

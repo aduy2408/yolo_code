@@ -17,8 +17,7 @@ from typing import Iterator, Mapping
 
 import requests
 
-DEFAULT_CONFIG_PATH = Path(__file__).with_name("marimo_config.json")
-DEFAULT_TIMEOUT_SECONDS = 30
+DEFAULT_TIMEOUT_SECONDS = 120
 
 
 class MarimoClientError(RuntimeError):
