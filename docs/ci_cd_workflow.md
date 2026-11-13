@@ -36,10 +36,24 @@ printf '%s\n' '<token mới>' \
       --environment marimo-duy \
       --marimo-url 'https://<server-host>' \
       --expected-sha '<SHA-của-checkout-trên-Marimo>' \
+      --epochs 1 \
       --data-root '<LEVIR-Ship-root-trên-Marimo>' \
-      --dataset-yaml '<dataset-yaml-trên-Marimo>' \
-      --hf-repo-id '<user>/ci-oacp-smoke-runs'
+      --hf-repo-id '<user>/ci-oacp-smoke-runs' \
+      --watch
 ```
+
+`--epochs` truyền số epoch vào workflow. `--watch` chờ run hoàn tất và trả
+exit code theo conclusion của GitHub Actions. Launcher in:
+
+```text
+run_id
+url
+status
+conclusion
+```
+
+`dataset_yaml` là optional cho train; khi để trống workflow tự prepare. Nếu
+không truyền `--run-dir`, launcher tự tạo path unique.
 
 Launcher sẽ:
 
