@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--project", type=Path, required=True)
-    parser.add_argument("--hf-repo-prefix", required=True)
+    parser.add_argument("--only", nargs="+", choices=[f"s{s}_x{x}" for s in range(1, 4) for x in range(1, 4)])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=100)
@@ -113,6 +113,9 @@ def _run_args(args: argparse.Namespace, name: str, repo: str, project: Path) -> 
 def main() -> None:
     args = parse_args()
     grid = _grid()
+    if args.only:
+        selected = set(args.only)
+        grid = [(name, spec) for name, spec in grid if name in selected]
     matrix.RUNS = {name: (CONFIG, "oacp", {}) for name, _ in grid}
 
     project = args.project / f"seed{args.seed}"
