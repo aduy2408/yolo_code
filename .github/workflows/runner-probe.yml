@@ -1,0 +1,15 @@
+name: Temporary runner probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm hosted runner
+        run: |
+          set -euo pipefail
+          echo "runner_probe_ok"
+          echo "runner=$RUNNER_NAME"
+          echo "os=$RUNNER_OS"
