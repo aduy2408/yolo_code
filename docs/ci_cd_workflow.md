@@ -103,6 +103,11 @@ Chọn `operation=jetson_evaluate` để chạy
 hoặc `.engine`. Job yêu cầu Jetson đã có checkout deployment, dataset và image
 `duy-yolo-pytorch:jetpack6`.
 
+`operation=jetson_pipeline` gộp hai bước trên trong cùng một remote run:
+chuyển `.pt`, build ONNX và TensorRT engine, rồi evaluate engine ngay trên
+Jetson. Đây là lựa chọn nên dùng khi cần kiểm tra end-to-end và tránh mất
+artifact giữa hai run khác nhau.
+
 GitHub Environment cho Jetson cần thêm:
 
 ```text

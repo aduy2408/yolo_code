@@ -7,7 +7,7 @@ on:
         description: "Remote operation"
         required: true
         type: choice
-        options: [train, evaluate, export, evaluate_jetson, export_jetson]
+        options: [train, evaluate, export, evaluate_jetson, export_jetson, jetson_pipeline]
       marimo_environment:
         description: "GitHub Environment owning this user's Marimo URL and token"
         required: true
@@ -151,7 +151,7 @@ on:
 
 jobs:
   remote-mlops:
-    if: ${{ inputs.operation != 'jetson_export' && inputs.operation != 'jetson_evaluate' }}
+    if: ${{ inputs.operation != 'jetson_export' && inputs.operation != 'jetson_evaluate' && inputs.operation != 'jetson_pipeline' }}
     name: ${{ inputs.operation }} on Marimo
     runs-on: ubuntu-latest
     timeout-minutes: 1440
@@ -209,7 +209,7 @@ jobs:
           retention-days: 14
 
   jetson-mlops:
-    if: ${{ inputs.operation == 'jetson_export' || inputs.operation == 'jetson_evaluate' }}
+    if: ${{ inputs.operation == 'jetson_export' || inputs.operation == 'jetson_evaluate' || inputs.operation == 'jetson_pipeline' }}
     name: ${{ inputs.operation }} on Jetson
     runs-on: ubuntu-latest
     timeout-minutes: 1440
