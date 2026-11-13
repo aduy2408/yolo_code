@@ -154,6 +154,3 @@ def command_for(config: dict[str, Any], python: str, run_dir: Path) -> list[str]
         ]
     raise ValueError(f"Unsupported operation: {operation}")
 
-
-if __name__ == "__main__":
-    run(json.loads(os.environ["MLOPS_CONFIG"]))
