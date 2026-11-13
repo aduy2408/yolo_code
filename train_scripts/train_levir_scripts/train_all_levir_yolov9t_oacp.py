@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 ULTRALYTICS = ROOT / "models_related/ultralytics"
 EXPERIMENT = "levir_yolov9t_oacp_official"
 VARIANT_PREFIX = "yolov9t_oacp"

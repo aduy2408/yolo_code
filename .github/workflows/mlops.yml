@@ -1,0 +1,161 @@
+name: MLOps training, evaluation, and export
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Remote operation"
+        required: true
+        type: choice
+        options: [train, evaluate, export]
+      marimo_environment:
+        description: "GitHub Environment owning this user's Marimo URL and token"
+        required: true
+        type: string
+      marimo_repo:
+        description: "Existing checkout path on the Marimo server"
+        required: true
+        default: "/marimo/yolo_code"
+        type: string
+      expected_sha:
+        description: "Exact Git SHA already checked out on Marimo"
+        required: true
+        type: string
+      run_dir:
+        description: "New run directory; generated when empty"
+        required: false
+        default: ""
+        type: string
+      data_root:
+        description: "Dataset root on Marimo"
+        required: false
+        default: "/marimo/LevirShip/LevirShipData"
+        type: string
+      dataset_root:
+        description: "Dataset preparation root on Marimo"
+        required: false
+        default: "/marimo/yolo_code/datasets/ci"
+        type: string
+      dataset_yaml:
+        description: "Optional existing dataset YAML; train prepares it when empty"
+        required: false
+        default: ""
+        type: string
+      dataset:
+        description: "Dataset key"
+        required: true
+        default: "levirship"
+        type: choice
+        options: [levirship, varroa, tinyperson]
+      hf_repo_id:
+        description: "Task-specific Hugging Face dataset repository"
+        required: false
+        default: "duyle2408/ci-oacp-smoke-runs"
+        type: string
+      seed:
+        description: "Training seed"
+        required: false
+        default: "43"
+        type: string
+      split_seed:
+        description: "Dataset split seed"
+        required: false
+        default: "42"
+        type: string
+      epochs:
+        description: "Training epochs"
+        required: false
+        default: "1"
+        type: string
+      patience:
+        description: "Training patience"
+        required: false
+        default: "0"
+        type: string
+      image_size:
+        description: "Image size"
+        required: false
+        default: "512"
+        type: string
+      batch_size:
+        description: "Batch size"
+        required: false
+        default: "8"
+        type: string
+      workers:
+        description: "Data-loader workers"
+        required: false
+        default: "4"
+        type: string
+      device:
+        description: "CUDA device"
+        required: false
+        default: "0"
+        type: string
+      checkpoint:
+        description: "Checkpoint path on Marimo for evaluate/export"
+        required: false
+        type: string
+      formats:
+        description: "Export formats, space-separated"
+        required: false
+        default: "onnx"
+        type: string
+
+jobs:
+  remote-mlops:
+    name: ${{ inputs.operation }} on Marimo
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440
+    permissions:
+      contents: read
+    environment: ${{ inputs.marimo_environment }}
+    env:
+      MARIMO_URL: ${{ vars.MARIMO_URL }}
+      MARIMO_TOKEN: ${{ secrets.MARIMO_TOKEN }}
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout workflow code
+        uses: actions/checkout@v4
+
+      - name: Validate connection and inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MARIMO_URL"
+          test -n "$MARIMO_TOKEN"
+          test -n "${{ inputs.expected_sha }}"
+          python -c "import requests"
+
+      - name: Validate and run on Marimo
+        shell: bash
+        env:
+          MLOPS_CONFIG_JSON: ${{ toJSON(inputs) }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config["repo"] = config["marimo_repo"]
+          config["formats"] = config.get("formats", "onnx").split()
+          config["poll_seconds"] = 30
+          source = Path("utils/marimo_ci.py").read_text()
+          remote = source + "\nrun(" + repr(config) + ")\n"
+          Path("marimo-workflow-evidence").mkdir()
+          Path("marimo-workflow-evidence/remote_entrypoint.py").write_text(remote)
+          Path("/tmp/marimo_ci_remote.py").write_text(remote)
+          PY
+          python -m utils.marimo_run --file /tmp/marimo_ci_remote.py
+
+      - name: Upload local workflow evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: marimo-${{ inputs.operation }}-${{ github.run_id }}
+          path: |
+            marimo-workflow-evidence/remote_entrypoint.py
+          if-no-files-found: ignore
+          retention-days: 14
