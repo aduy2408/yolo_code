@@ -92,7 +92,7 @@ elif [[ "$operation" != "jetson_export" && "$operation" != "jetson_pipeline" ]];
 fi
 
 scp -r "${ssh_opts[@]}" "$target:$remote_dir/output" "$local_dir/"
-if [[ "$operation" == "jetson_evaluate" ]]; then
+if [[ "$operation" == "jetson_evaluate" || "$operation" == "jetson_pipeline" ]]; then
   scp -r "${ssh_opts[@]}" "$target:$remote_dir/eval" "$local_dir/"
 fi
 printf 'JETSON_COMPLETE operation=%s local_dir=%s\n' "$operation" "$local_dir"
