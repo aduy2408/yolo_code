@@ -62,7 +62,13 @@ for path in json.loads(os.environ["MARIMO_WATCH_PATHS"]):
         if not candidate_roots:
             candidate_roots = sorted(artifact_root.glob("seed*/s*_x*"))
         for seed_root in candidate_roots:
-            present = {item: (seed_root / item).is_file() for item in required}
+            required_for_run = (
+                ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml",
+                 "evaluation_metrics.json", "manifest.json", "upload_complete.json")
+                if re.fullmatch(r"s\d+_x\d+", seed_root.name)
+                else required
+            )
+            present = {item: (seed_root / item).is_file() for item in required_for_run}
             children.append({"run_dir": str(seed_root), "complete": all(present.values()),
                              "progress": progress(seed_root), "required_artifacts": present})
         result.append({key: value.get(key) for key in (
