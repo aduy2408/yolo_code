@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
-    parser.add_argument("--project", type=Path, required=True)
+    parser.add_argument("--hf-repo-prefix", required=True)
     parser.add_argument("--only", nargs="+", choices=[f"s{s}_x{x}" for s in range(1, 4) for x in range(1, 4)])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split-seed", type=int, default=42)
