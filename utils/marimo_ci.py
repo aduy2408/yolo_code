@@ -25,8 +25,8 @@ def run(config: dict[str, Any]) -> None:
             prepare(data_root, dataset_root / f"levir_ship_ci_split_{config['split_seed']}", int(config["split_seed"]))
         )
         config["dataset_yaml"] = dataset_yaml_value
-    if not dataset_yaml_value:
-        raise ValueError("dataset_yaml is required for evaluate/export")
+    if operation == "evaluate" and not dataset_yaml_value:
+        raise ValueError("dataset_yaml is required for evaluate")
     run_dir_value = str(config.get("run_dir") or "").strip()
     run_dir = Path(run_dir_value or repo / "runs/ci" / f"{operation}-{time.strftime('%Y%m%dT%H%M%SZ')}").resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -42,10 +42,11 @@ def run(config: dict[str, Any]) -> None:
         "utils/marimo_ops.py",
         command[1],
     ]
+    dataset_validation = operation in {"train", "evaluate"}
     contract = {
         "dataset": config["dataset"],
-        "data_root": str(data_root) if is_train else "matrix",
-        "dataset_yaml": dataset_yaml_value if is_train else "matrix",
+        "data_root": str(data_root) if dataset_validation else "matrix",
+        "dataset_yaml": dataset_yaml_value if dataset_validation else "matrix",
         "model_yaml": config.get("model_yaml", "matrix"),
         "seed": config.get("seed", "matrix") if is_train else "matrix",
         "split_seed": config.get("split_seed", "matrix") if is_train else "matrix",
@@ -70,8 +71,8 @@ def run(config: dict[str, Any]) -> None:
         patience=int(config["patience"]) if is_train else None,
         upload_required=is_train,
         hf_repo_id=config.get("hf_repo_id") if is_train else None,
-        data_root=data_root,
-        dataset_yaml=Path(dataset_yaml_value),
+        data_root=data_root if dataset_validation else None,
+        dataset_yaml=Path(dataset_yaml_value) if dataset_validation else None,
         contract_json=contract_path,
     )
 

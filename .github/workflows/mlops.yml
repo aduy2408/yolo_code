@@ -7,7 +7,7 @@ on:
         description: "Remote operation"
         required: true
         type: choice
-        options: [train, evaluate, export]
+        options: [train, evaluate, export, evaluate_jetson, export_jetson]
       marimo_environment:
         description: "GitHub Environment owning this user's Marimo URL and token"
         required: true
@@ -106,9 +106,52 @@ on:
         required: false
         default: "onnx"
         type: string
+      precision:
+        description: "Jetson inference/export precision"
+        required: false
+        default: "fp32"
+        type: choice
+        options: [fp32, fp16]
+      splits:
+        description: "Jetson evaluation splits, space-separated"
+        required: false
+        default: "val test"
+        type: string
+      hf_path:
+        description: "Checkpoint file path inside the Hugging Face dataset repo"
+        required: false
+        default: "runs/yolov9t_oacp_seed43/weights/best.pt"
+        type: string
+      jetson_repo:
+        description: "Existing deployment checkout path on Jetson"
+        required: false
+        default: "/home/ait01/jetson_deployment_benchmark"
+        type: string
+      jetson_data_root:
+        description: "Dataset root mounted on Jetson"
+        required: false
+        default: "/home/ait01/jetson_seed42_benchmark/data"
+        type: string
+      jetson_image:
+        description: "Jetson PyTorch/Ultralytics Docker image"
+        required: false
+        default: "duy-yolo-pytorch:jetpack6"
+        type: string
+      model_kind:
+        description: "Model artifact used by Jetson evaluation"
+        required: false
+        default: "engine"
+        type: choice
+        options: [pt, onnx, engine]
+      model_name:
+        description: "Model filename under the Jetson output directory"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   remote-mlops:
+    if: ${{ inputs.operation != 'jetson_export' && inputs.operation != 'jetson_evaluate' }}
     name: ${{ inputs.operation }} on Marimo
     runs-on: ubuntu-latest
     timeout-minutes: 1440
@@ -162,5 +205,63 @@ jobs:
           name: marimo-${{ inputs.operation }}-${{ github.run_id }}
           path: |
             marimo-workflow-evidence/remote_entrypoint.py
+          if-no-files-found: ignore
+          retention-days: 14
+
+  jetson-mlops:
+    if: ${{ inputs.operation == 'jetson_export' || inputs.operation == 'jetson_evaluate' }}
+    name: ${{ inputs.operation }} on Jetson
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440
+    permissions:
+      contents: read
+    environment: ${{ inputs.marimo_environment }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      JETSON_HOST: ${{ vars.JETSON_HOST }}
+      JETSON_USER: ${{ vars.JETSON_USER }}
+      JETSON_SSH_KEY: ${{ secrets.JETSON_SSH_KEY }}
+      HF_REPO_ID: ${{ inputs.hf_repo_id }}
+      HF_PATH: ${{ inputs.hf_path }}
+      JETSON_REPO: ${{ inputs.jetson_repo }}
+      JETSON_DATA_ROOT: ${{ inputs.jetson_data_root }}
+      JETSON_IMAGE: ${{ inputs.jetson_image }}
+      DATASET: ${{ inputs.dataset }}
+      IMAGE_SIZE: ${{ inputs.image_size }}
+      OPERATION: ${{ inputs.operation }}
+      PRECISION: ${{ inputs.precision }}
+      MODEL_KIND: ${{ inputs.model_kind }}
+      MODEL_NAME: ${{ inputs.model_name }}
+      SPLITS: ${{ inputs.splits }}
+      RUN_DIR: jetson-${{ github.run_id }}
+
+    steps:
+      - name: Checkout workflow code
+        uses: actions/checkout@v4
+
+      - name: Validate Jetson credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$HF_REPO_ID"
+          test -n "$HF_PATH"
+          test -n "$JETSON_HOST"
+          test -n "$JETSON_USER"
+          key_path="$RUNNER_TEMP/jetson_key"
+          printf '%s\n' "$JETSON_SSH_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          test -s "$key_path"
+          echo "JETSON_SSH_KEY=$key_path" >> "$GITHUB_ENV"
+
+      - name: Transfer, export, and evaluate on Jetson
+        shell: bash
+        run: scripts/run_jetson_workflow.sh
+
+      - name: Upload Jetson artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: jetson-${{ inputs.operation }}-${{ github.run_id }}
+          path: jetson-${{ github.run_id }}
           if-no-files-found: ignore
           retention-days: 14

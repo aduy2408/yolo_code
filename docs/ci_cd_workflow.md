@@ -88,6 +88,37 @@ Training OACP cũng cần `HF_TOKEN` được cấu hình an toàn trong environ
 server Marimo, vì process training được launch trên Marimo chứ không chạy
 trong GitHub runner.
 
+## Export/evaluate trên Jetson
+
+Chọn `operation=jetson_export` để tải checkpoint từ Hugging Face về runner,
+SCP sang Jetson rồi tạo cả ONNX và TensorRT engine bằng:
+
+```text
+DUY_DEPLOY/docker/pytorch_jetson/export_onnx.py
+DUY_DEPLOY/docker/pytorch_jetson/export_engine.py
+```
+
+Chọn `operation=jetson_evaluate` để chạy
+`DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py` trên `.pt`, `.onnx`,
+hoặc `.engine`. Job yêu cầu Jetson đã có checkout deployment, dataset và image
+`duy-yolo-pytorch:jetpack6`.
+
+GitHub Environment cho Jetson cần thêm:
+
+```text
+Variable:
+  JETSON_HOST
+  JETSON_USER
+
+Secret:
+  JETSON_SSH_KEY
+  HF_TOKEN
+```
+
+`JETSON_SSH_KEY` chỉ được ghi vào file tạm của GitHub runner. Checkpoint tải
+xuống local trước rồi mới chuyển qua SSH; workflow không để token trong command
+hoặc artifact.
+
 ## Contract của runner Marimo
 
 `marimo_repo` phải là một checkout tồn tại trên server Marimo. Trước khi chạy,
@@ -101,7 +132,7 @@ dataset. Default LEVIR mount là `/marimo/LevirShip/LevirShipData`.
 
 ## Pipeline gộp
 
-Workflow chỉ có hai nhóm chính:
+Workflow có ba nhóm chính:
 
 1. **Validate and run on Marimo**
    - kết nối Marimo;
@@ -110,10 +141,17 @@ Workflow chỉ có hai nhóm chính:
    - kiểm tra exact SHA, Python, dataset YAML và artifact context bằng `marimo_ops`;
    - launch detached operation;
    - theo dõi process tới khi kết thúc.
-2. **Upload workflow evidence**
+2. **Transfer and run on Jetson**
+   - tải `.pt` từ Hugging Face về GitHub runner;
+   - chuyển `.pt` sang Jetson bằng SSH/SCP;
+   - chạy Ultralytics ONNX export và TensorRT engine export trong image Jetson;
+   - evaluate `.pt`, `.onnx`, hoặc `.engine` bằng `evaluate_ultralytics.py`;
+   - tải metrics và exported artifacts về GitHub Actions.
+3. **Upload workflow evidence**
    - lưu evidence của invocation GitHub Actions.
 
-`utils/marimo_ops` vẫn là implementation của preflight, launch và status; workflow không tạo launcher thay thế.
+`utils/marimo_ops` vẫn là implementation của preflight, launch và status; workflow
+không tạo launcher train thay thế.
 
 ## Ví dụ chạy OACP smoke
 
