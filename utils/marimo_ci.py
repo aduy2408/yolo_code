@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
 
-from utils.marimo_ops import launch_detached, preflight, read_json, status, write_run_contract
+from utils.marimo_ops import launch_detached, preflight, status, write_run_contract
 
 
 def run(config: dict[str, Any]) -> None:
@@ -90,9 +91,11 @@ def run(config: dict[str, Any]) -> None:
         contract_path=contract_path,
         env=environment,
     )
+    total_epochs = int(config["epochs"]) if operation == "train" and str(config.get("epochs", "")).isdigit() else None
 
     while True:
         report = status(run_dir, emit=False)
+        report["training"] = training_progress(run_dir / "train.log", total_epochs)
         print(json.dumps(report, sort_keys=True), flush=True)
         if not report["process_active"]:
             state = report.get("state") or {}
@@ -100,6 +103,17 @@ def run(config: dict[str, Any]) -> None:
                 raise RuntimeError(f"Remote {operation} failed: returncode={state.get('returncode')}")
             break
         time.sleep(int(config.get("poll_seconds", 30)))
+
+def training_progress(log_path: Path, total_epochs: int | None) -> dict[str, int | float | None]:
+    if not log_path.is_file():
+        return {"epoch": None, "epochs_total": total_epochs, "progress": None}
+    for line in reversed(log_path.read_text(errors="replace").splitlines()):
+        match = re.search(r"(?:^|\s)(\d+)\s*/\s*(\d+)(?:\s|$)", line)
+        if match:
+            epoch = int(match.group(1))
+            epochs_total = int(match.group(2))
+            return {"epoch": epoch, "epochs_total": epochs_total, "progress": epoch / epochs_total}
+    return {"epoch": None, "epochs_total": total_epochs, "progress": None}
 
 
 def command_for(config: dict[str, Any], python: str, run_dir: Path) -> list[str]:

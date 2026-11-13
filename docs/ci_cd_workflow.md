@@ -42,8 +42,15 @@ printf '%s\n' '<token mới>' \
       --watch
 ```
 
-`--epochs` truyền số epoch vào workflow. `--watch` chờ run hoàn tất và trả
-exit code theo conclusion của GitHub Actions. Launcher in:
+`--epochs` truyền số epoch vào workflow. Trong quá trình train, remote runner
+đọc `train.log` và stream progress:
+
+```json
+{"epoch": 37, "epochs_total": 100, "progress": 0.37}
+```
+
+`--watch` chờ run hoàn tất và trả exit code theo conclusion của GitHub Actions.
+Launcher in:
 
 ```text
 run_id
