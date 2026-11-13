@@ -24,8 +24,8 @@ on:
         type: string
       expected_sha:
         description: "Exact Git SHA already checked out on Marimo"
-        required: true
-        type: string
+        required: false
+        default: ""
       run_dir:
         description: "New run directory; generated when empty"
         required: false
@@ -173,7 +173,9 @@ jobs:
           set -euo pipefail
           test -n "$MARIMO_URL"
           test -n "$MARIMO_TOKEN"
-          test -n "${{ inputs.expected_sha }}"
+          if [[ "${{ inputs.operation }}" != "jetson_export" && "${{ inputs.operation }}" != "jetson_evaluate" && "${{ inputs.operation }}" != "jetson_pipeline" ]]; then
+            test -n "${{ inputs.expected_sha }}"
+          fi
           python -c "import requests"
 
       - name: Validate and run on Marimo
