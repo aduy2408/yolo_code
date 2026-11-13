@@ -65,7 +65,7 @@ for path in json.loads(os.environ["MARIMO_WATCH_PATHS"]):
             required_for_run = (
                 ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml",
                  "evaluation_metrics.json", "manifest.json", "upload_complete.json")
-                if re.fullmatch(r"s\d+_x\d+", seed_root.name)
+                if re.fullmatch(r"s\\d+_x\\d+", seed_root.name)
                 else required
             )
             present = {item: (seed_root / item).is_file() for item in required_for_run}
