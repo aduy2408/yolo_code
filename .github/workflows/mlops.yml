@@ -222,6 +222,7 @@ jobs:
           sys.modules["utils"] = _utils
           _source = (_repo / "utils" / "marimo_ci.py").read_text()
           exec(compile(_source, str(_repo / "utils" / "marimo_ci.py"), "exec"), globals())
+          run(config)
           '''
           remote = "config = " + repr(config) + "\n" + bootstrap
           Path("marimo-workflow-evidence").mkdir()
