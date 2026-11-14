@@ -34,7 +34,7 @@ dataset=${DATASET:-levirship}
 image_size=${IMAGE_SIZE:-512}
 splits=${SPLITS:-"val test"}
 local_dir="${GITHUB_WORKSPACE:-.}/${RUN_DIR}"
-remote_dir="${JETSON_REPO}/runs/github-${GITHUB_RUN_ID:-manual}"
+remote_dir="${JETSON_REPO}/runs/github-${GITHUB_RUN_ID:-manual}-attempt-${GITHUB_RUN_ATTEMPT:-1}"
 mkdir -p "$local_dir"
 
 curl_args=(-fsSL)

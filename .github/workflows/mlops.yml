@@ -235,7 +235,7 @@ jobs:
       MODEL_KIND: ${{ inputs.model_kind }}
       MODEL_NAME: ${{ inputs.model_name }}
       SPLITS: ${{ inputs.splits }}
-      RUN_DIR: jetson-${{ github.run_id }}
+      RUN_DIR: jetson-${{ github.run_id }}-attempt-${{ github.run_attempt }}
 
     steps:
       - name: Checkout workflow code
