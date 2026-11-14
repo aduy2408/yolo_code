@@ -20,12 +20,13 @@ Trong mỗi Environment tạo:
 Variable:
   MARIMO_URL=https://<server-host>
 
-Secret:
-  MARIMO_TOKEN=<token hiện tại của server>
-```
+Secrets:
+  MARIMO_TOKEN=<Marimo access token>
+  HF_TOKEN=<Hugging Face token; required for train/upload>
 
-Khi server mới được tạo, chỉ cần cập nhật `MARIMO_URL` và `MARIMO_TOKEN`
-trong Environment tương ứng. User khác không bị ảnh hưởng.
+Workflow tự clone repo vào `marimo_repo` và checkout `github.sha`; không cần
+truyền SHA hoặc clone thủ công trên server. User khác không bị ảnh hưởng nếu
+dùng Environment khác.
 
 Không nhập token vào form GitHub Actions. Chạy launcher local:
 
@@ -35,7 +36,6 @@ printf '%s\n' '<token mới>' \
   | scripts/run_marimo_workflow.sh \
       --environment marimo-duy \
       --marimo-url 'https://<server-host>' \
-      --expected-sha '<SHA-của-checkout-trên-Marimo>' \
       --epochs 1 \
       --data-root '<LEVIR-Ship-root-trên-Marimo>' \
       --hf-repo-id '<user>/ci-oacp-smoke-runs' \
