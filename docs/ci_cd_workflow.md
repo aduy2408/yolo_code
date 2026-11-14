@@ -126,14 +126,17 @@ hoặc artifact.
 
 ## Contract của runner Marimo
 
-`marimo_repo` phải là một checkout tồn tại trên server Marimo. Trước khi chạy,
-checkout đó phải ở đúng `expected_sha` và clean. Với `operation=train`,
-workflow tự gọi `misc.prepare_levir_ship.prepare` khi `dataset_yaml` để trống,
-ghi YAML vào `dataset_root`, rồi mới chạy preflight. Python environment và
-custom Ultralytics code phải tồn tại trên server.
+`marimo_repo` là path checkout trên server Marimo. Trước khi chạy, workflow tự
+clone repository hiện tại vào path này và checkout `expected_sha`; nếu
+`expected_sha` để trống, workflow dùng `github.sha`. Nếu path đã tồn tại nhưng
+không phải Git checkout, workflow fail an toàn và không xóa dữ liệu.
 
-Workflow không cài package, không sửa environment và không tự chọn mount
-dataset. Default LEVIR mount là `/marimo/LevirShip/LevirShipData`.
+Với `operation=train`, workflow tự gọi `misc.prepare_levir_ship.prepare` khi
+`dataset_yaml` để trống, ghi YAML vào `dataset_root`, rồi mới chạy preflight.
+Python environment và custom Ultralytics code phải tồn tại trên server.
+
+Workflow không cài package và không tự chọn mount dataset. Default LEVIR mount
+là `/marimo/LevirShip/LevirShipData`.
 
 ## Quality gates
 
