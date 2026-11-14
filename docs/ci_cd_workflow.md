@@ -90,7 +90,7 @@ trong GitHub runner.
 
 ## Export/evaluate trên Jetson
 
-Chọn `operation=jetson_export` để tải checkpoint từ Hugging Face về runner,
+Chọn `operation=export_jetson` để tải checkpoint từ Hugging Face về runner,
 SCP sang Jetson rồi tạo cả ONNX và TensorRT engine bằng:
 
 ```text
@@ -98,7 +98,7 @@ DUY_DEPLOY/docker/pytorch_jetson/export_onnx.py
 DUY_DEPLOY/docker/pytorch_jetson/export_engine.py
 ```
 
-Chọn `operation=jetson_evaluate` để chạy
+Chọn `operation=evaluate_jetson` để chạy
 `DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py` trên `.pt`, `.onnx`,
 hoặc `.engine`. Job yêu cầu Jetson đã có checkout deployment, dataset và image
 `duy-yolo-pytorch:jetpack6`.

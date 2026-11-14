@@ -10,6 +10,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=Path, required=True)
 parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--imgsz", type=int, required=True)
+parser.add_argument("--precision", choices=("fp32", "fp16"), default="fp16")
 args = parser.parse_args()
 
 args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -21,7 +22,7 @@ exported = model.export(
     imgsz=args.imgsz,
     batch=1,
     device=0,
-    half=True,
+    half=args.precision == "fp16",
     dynamic=False,
     simplify=False,
     opset=17,

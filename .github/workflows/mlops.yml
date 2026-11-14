@@ -151,7 +151,7 @@ on:
 
 jobs:
   remote-mlops:
-    if: ${{ inputs.operation != 'jetson_export' && inputs.operation != 'jetson_evaluate' && inputs.operation != 'jetson_pipeline' }}
+    if: ${{ inputs.operation != 'export_jetson' && inputs.operation != 'evaluate_jetson' && inputs.operation != 'jetson_pipeline' }}
     name: ${{ inputs.operation }} on Marimo
     runs-on: ubuntu-latest
     timeout-minutes: 1440
@@ -173,7 +173,7 @@ jobs:
           set -euo pipefail
           test -n "$MARIMO_URL"
           test -n "$MARIMO_TOKEN"
-          if [[ "${{ inputs.operation }}" != "jetson_export" && "${{ inputs.operation }}" != "jetson_evaluate" && "${{ inputs.operation }}" != "jetson_pipeline" ]]; then
+          if [[ "${{ inputs.operation }}" != "export_jetson" && "${{ inputs.operation }}" != "evaluate_jetson" && "${{ inputs.operation }}" != "jetson_pipeline" ]]; then
             test -n "${{ inputs.expected_sha }}"
           fi
           python -c "import requests"
@@ -211,7 +211,7 @@ jobs:
           retention-days: 14
 
   jetson-mlops:
-    if: ${{ inputs.operation == 'jetson_export' || inputs.operation == 'jetson_evaluate' || inputs.operation == 'jetson_pipeline' }}
+    if: ${{ inputs.operation == 'export_jetson' || inputs.operation == 'evaluate_jetson' || inputs.operation == 'jetson_pipeline' }}
     name: ${{ inputs.operation }} on Jetson
     runs-on: ubuntu-latest
     timeout-minutes: 1440

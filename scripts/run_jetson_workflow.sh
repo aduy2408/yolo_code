@@ -46,7 +46,7 @@ ssh "${ssh_opts[@]}" "$target" "mkdir -p '$remote_dir/checkpoints' '$remote_dir/
 scp "${ssh_opts[@]}" "$local_dir/best.pt" "$target:$remote_dir/checkpoints/best.pt"
 scp "${ssh_opts[@]}" "$local_dir/best.pt" "$target:$remote_dir/output/best.pt"
 
-if [[ "$operation" == "jetson_export" || "$operation" == "jetson_pipeline" ]]; then
+if [[ "$operation" == "export_jetson" || "$operation" == "jetson_pipeline" ]]; then
   ssh "${ssh_opts[@]}" "$target" bash -s -- "$remote_dir" "$JETSON_REPO" "$JETSON_IMAGE" "$precision" "$image_size" <<'REMOTE'
 set -euo pipefail
 remote_dir=$1
@@ -65,7 +65,7 @@ common=(docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=al
   --checkpoint /models/best.pt --output "/out/best_${precision}.engine" --imgsz "$image_size" --precision "$precision"
 REMOTE
 fi
-if [[ "$operation" == "jetson_evaluate" || "$operation" == "jetson_pipeline" ]]; then
+if [[ "$operation" == "evaluate_jetson" || "$operation" == "jetson_pipeline" ]]; then
   ssh "${ssh_opts[@]}" "$target" bash -s -- "$remote_dir" "$JETSON_REPO" "$JETSON_DATA_ROOT" "$JETSON_IMAGE" "$model_kind" "$model_name" "$splits" "$dataset" "$precision" <<'REMOTE'
 set -euo pipefail
 remote_dir=$1
@@ -86,13 +86,13 @@ docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
   --model "/models/$model_name" --data-root /datasets --dataset "$dataset" \
   --split "${split_args[@]}" --results-root /results --device 0 --precision "$precision" --conf 0.001 --iou 0.5 --max-det 300
 REMOTE
-elif [[ "$operation" != "jetson_export" && "$operation" != "jetson_pipeline" ]]; then
+elif [[ "$operation" != "export_jetson" && "$operation" != "jetson_pipeline" ]]; then
   echo "Unsupported OPERATION: $operation" >&2
   exit 2
 fi
 
 scp -r "${ssh_opts[@]}" "$target:$remote_dir/output" "$local_dir/"
-if [[ "$operation" == "jetson_evaluate" || "$operation" == "jetson_pipeline" ]]; then
+if [[ "$operation" == "evaluate_jetson" || "$operation" == "jetson_pipeline" ]]; then
   scp -r "${ssh_opts[@]}" "$target:$remote_dir/eval" "$local_dir/"
 fi
 printf 'JETSON_COMPLETE operation=%s local_dir=%s\n' "$operation" "$local_dir"
