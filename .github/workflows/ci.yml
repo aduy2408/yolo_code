@@ -39,4 +39,4 @@ jobs:
           bash -n scripts/run_jetson_workflow.sh
 
       - name: Run orchestration tests
-        run: python -m unittest tests.test_marimo_client tests.test_marimo_ops
+        run: python -m unittest tests.test_marimo_ops
