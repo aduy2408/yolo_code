@@ -127,14 +127,16 @@ xuống local trước rồi mới chuyển qua SSH; workflow không để token
 hoặc artifact.
 
 Sau khi Jetson export/evaluate xong, output được SCP ngược về GitHub runner.
-Runner lưu tại `jetson-${github.run_id}-attempt-${github.run_attempt}` và:
+Runner lưu đầy đủ tại `jetson-${github.run_id}-attempt-${github.run_attempt}`.
 
-1. upload vào GitHub Actions artifact;
-2. upload và verify vào Hugging Face dưới prefix
-   `runs/jetson/<operation>/github-<run_id>-attempt-<attempt>`.
+GitHub Actions chỉ upload thư mục `eval/` để giữ artifact nhẹ:
 
-Vì vậy Model Artifacts trên Hugging Face và Workflow Outputs trên GitHub Actions
-là hai nơi lưu riêng; Jetson không upload trực tiếp lên Hugging Face.
+1. GitHub Actions artifact: kết quả evaluate;
+2. Hugging Face: toàn bộ run gồm `best.pt`, ONNX, TensorRT engine và `eval/`,
+   dưới prefix `runs/jetson/<operation>/github-<run_id>-attempt-<attempt>`.
+
+Jetson không upload trực tiếp lên Hugging Face; GitHub runner thực hiện bước
+upload sau khi SCP output từ Jetson về local.
 
 ## Contract của runner Marimo
 
