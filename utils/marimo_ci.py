@@ -110,9 +110,11 @@ def run(config: dict[str, Any]) -> None:
         time.sleep(int(config.get("poll_seconds", 30)))
 
 def quality_gate(artifact_root: Path, config: dict[str, Any]) -> None:
+    for name in ("evaluation_metrics.json", "manifest.json"):
+        path = artifact_root / name
+        if not path.is_file():
+            raise RuntimeError(f"Missing required quality-gate artifact: {path}")
     metrics_path = artifact_root / "evaluation_metrics.json"
-    if not metrics_path.is_file():
-        raise RuntimeError(f"Missing evaluation metrics: {metrics_path}")
     metrics = json.loads(metrics_path.read_text())
     if float(metrics.get("nms_iou", -1)) != 0.5:
         raise RuntimeError(f"Expected nms_iou=0.5, got {metrics.get('nms_iou')}")
