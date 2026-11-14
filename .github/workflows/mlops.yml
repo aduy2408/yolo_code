@@ -220,6 +220,9 @@ jobs:
           _utils = types.ModuleType("utils")
           _utils.__path__ = [str(_repo / "utils")]
           sys.modules["utils"] = _utils
+          _misc = types.ModuleType("misc")
+          _misc.__path__ = [str(_repo / "misc")]
+          sys.modules["misc"] = _misc
           _source = (_repo / "utils" / "marimo_ci.py").read_text()
           exec(compile(_source, str(_repo / "utils" / "marimo_ci.py"), "exec"), globals())
           run(config)
