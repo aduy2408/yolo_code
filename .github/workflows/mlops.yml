@@ -183,27 +183,70 @@ jobs:
           set -euo pipefail
           test -n "$MARIMO_URL"
           test -n "$MARIMO_TOKEN"
-          if [[ "${{ inputs.operation }}" != "export_jetson" && "${{ inputs.operation }}" != "evaluate_jetson" && "${{ inputs.operation }}" != "jetson_pipeline" ]]; then
-            test -n "${{ inputs.expected_sha }}"
-          fi
           python -c "import requests"
 
-      - name: Validate and run on Marimo
+      - name: Bootstrap and run on Marimo
         shell: bash
         env:
           MLOPS_CONFIG_JSON: ${{ toJSON(inputs) }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import json
           import os
           from pathlib import Path
+
           config = json.loads(os.environ["MLOPS_CONFIG_JSON"])
           config["repo"] = config["marimo_repo"]
           config["python"] = config["remote_python"]
           config["poll_seconds"] = 60
-          source = Path("utils/marimo_ci.py").read_text()
-          remote = source + "\nrun(" + repr(config) + ")\n"
+          config["expected_sha"] = config.get("expected_sha") or os.environ["GITHUB_SHA"]
+          config["repo_url"] = (
+              f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}.git"
+          )
+          bootstrap = r'''
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          _repo = Path(config["repo"]).expanduser()
+          _sha = config["expected_sha"]
+          _repo_url = config["repo_url"]
+          _repo.parent.mkdir(parents=True, exist_ok=True)
+          if _repo.exists() and not (_repo / ".git").is_dir():
+              raise RuntimeError(f"Refusing to replace non-Git remote path: {_repo}")
+          if not _repo.exists():
+              _tmp = Path(tempfile.mkdtemp(prefix=f"{_repo.name}.", dir=_repo.parent))
+              try:
+                  subprocess.run(
+                      ["git", "clone", "--no-checkout", _repo_url, str(_tmp)],
+                      check=True,
+                  )
+                  subprocess.run(
+                      ["git", "-C", str(_tmp), "checkout", "--detach", _sha],
+                      check=True,
+                  )
+                  _tmp.rename(_repo)
+              except Exception:
+                  subprocess.run(["rm", "-rf", str(_tmp)], check=False)
+                  raise
+          else:
+              subprocess.run(["git", "-C", str(_repo), "fetch", "origin", _sha], check=True)
+              subprocess.run(
+                  ["git", "-C", str(_repo), "checkout", "--detach", _sha],
+                  check=True,
+              )
+          sys.path.insert(0, str(_repo))
+          _source = (_repo / "utils" / "marimo_ci.py").read_text()
+          exec(compile(_source, str(_repo / "utils" / "marimo_ci.py"), "exec"), globals())
+          run(config)
+          '''
+          remote = "config = " + repr(config) + "\n" + bootstrap
           Path("marimo-workflow-evidence").mkdir()
           Path("marimo-workflow-evidence/remote_entrypoint.py").write_text(remote)
           Path("/tmp/marimo_ci_remote.py").write_text(remote)
