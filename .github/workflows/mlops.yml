@@ -315,7 +315,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jetson-${{ inputs.operation }}-${{ github.run_id }}
-          path: jetson-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: jetson-${{ github.run_id }}-attempt-${{ github.run_attempt }}/eval
           if-no-files-found: ignore
           retention-days: 14
 
