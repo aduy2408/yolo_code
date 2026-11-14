@@ -126,6 +126,16 @@ Secret:
 xuống local trước rồi mới chuyển qua SSH; workflow không để token trong command
 hoặc artifact.
 
+Sau khi Jetson export/evaluate xong, output được SCP ngược về GitHub runner.
+Runner lưu tại `jetson-${github.run_id}-attempt-${github.run_attempt}` và:
+
+1. upload vào GitHub Actions artifact;
+2. upload và verify vào Hugging Face dưới prefix
+   `runs/jetson/<operation>/github-<run_id>-attempt-<attempt>`.
+
+Vì vậy Model Artifacts trên Hugging Face và Workflow Outputs trên GitHub Actions
+là hai nơi lưu riêng; Jetson không upload trực tiếp lên Hugging Face.
+
 ## Contract của runner Marimo
 
 `marimo_repo` là path checkout trên server Marimo. Trước khi chạy, workflow tự
