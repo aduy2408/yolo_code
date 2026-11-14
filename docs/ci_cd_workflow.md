@@ -2,7 +2,9 @@
 
 Workflow: `.github/workflows/mlops.yml`.
 
-Workflow này chỉ kích hoạt bằng `workflow_dispatch`. GitHub Actions đóng vai trò client; code train/evaluate/export chạy trên checkout đã có sẵn ở Marimo thông qua `utils.marimo_run` và `utils.marimo_ops`.
+Workflow này chỉ kích hoạt bằng `workflow_dispatch`. GitHub Actions đóng vai trò
+client; workflow tự clone đúng commit vào Marimo rồi chạy train/evaluate/export
+thông qua `utils.marimo_run` và `utils.marimo_ops`.
 
 ## GitHub Environments
 
@@ -127,9 +129,8 @@ hoặc artifact.
 ## Contract của runner Marimo
 
 `marimo_repo` là path checkout trên server Marimo. Trước khi chạy, workflow tự
-clone repository hiện tại vào path này và checkout `expected_sha`; nếu
-`expected_sha` để trống, workflow dùng `github.sha`. Nếu path đã tồn tại nhưng
-không phải Git checkout, workflow fail an toàn và không xóa dữ liệu.
+clone repository hiện tại vào path này và checkout `github.sha`. Nếu path đã tồn
+tại nhưng không phải Git checkout, workflow fail an toàn và không xóa dữ liệu.
 
 Với `operation=train`, workflow tự gọi `misc.prepare_levir_ship.prepare` khi
 `dataset_yaml` để trống, ghi YAML vào `dataset_root`, rồi mới chạy preflight.
