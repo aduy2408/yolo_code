@@ -99,7 +99,8 @@ DUY_DEPLOY/docker/pytorch_jetson/export_engine.py
 ```
 
 Chọn `operation=evaluate_jetson` để chạy
-`DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py` trên `.pt`, `.onnx`,
+`DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py` cho LEVIR-Ship/Varroa
+hoặc `evaluate_ultralytics_tinyperson.py` cho TinyPerson trên `.pt`, `.onnx`,
 hoặc `.engine`. Job yêu cầu Jetson đã có checkout deployment, dataset và image
 `duy-yolo-pytorch:jetpack6`.
 

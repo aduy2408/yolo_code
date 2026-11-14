@@ -42,7 +42,7 @@ test -s "$local_dir/best.pt"
 
 ssh_opts=(-i "$JETSON_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 target="${JETSON_USER}@${JETSON_HOST}"
-ssh "${ssh_opts[@]}" "$target" "mkdir -p '$remote_dir/checkpoints' '$remote_dir/output' && test -f '$JETSON_REPO/DUY_DEPLOY/docker/pytorch_jetson/export_onnx.py' && test -f '$JETSON_REPO/DUY_DEPLOY/docker/pytorch_jetson/export_engine.py' && test -f '$JETSON_REPO/DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py'"
+ssh "${ssh_opts[@]}" "$target" "mkdir -p '$remote_dir/checkpoints' '$remote_dir/output' && test -f '$JETSON_REPO/DUY_DEPLOY/docker/pytorch_jetson/export_onnx.py' && test -f '$JETSON_REPO/DUY_DEPLOY/docker/pytorch_jetson/export_engine.py' && if [[ '$dataset' == tinyperson ]]; then test -f '$JETSON_REPO/DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics_tinyperson.py' && test -f '$JETSON_REPO/vendor/tinyperson_cocoeval.py'; else test -f '$JETSON_REPO/DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py'; fi"
 scp "${ssh_opts[@]}" "$local_dir/best.pt" "$target:$remote_dir/checkpoints/best.pt"
 scp "${ssh_opts[@]}" "$local_dir/best.pt" "$target:$remote_dir/output/best.pt"
 
@@ -78,13 +78,24 @@ splits=$7
 dataset=$8
 precision=$9
 read -r -a split_args <<< "$splits"
-docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
-  -v "$remote_dir/output:/models:ro" -v "$data_root:/datasets:ro" -v "$remote_dir/eval:/results" \
-  -v "$jetson_repo/DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py:/app/evaluate.py:ro" \
-  -v "$jetson_repo/DUY_DEPLOY/docker/pytorch_jetson/checkpoint_compat.py:/app/checkpoint_compat.py:ro" \
-  --entrypoint python3 "$image" /app/evaluate.py \
-  --model "/models/$model_name" --data-root /datasets --dataset "$dataset" \
-  --split "${split_args[@]}" --results-root /results --device 0 --precision "$precision" --conf 0.001 --iou 0.5 --max-det 300
+if [[ "$dataset" == tinyperson ]]; then
+  docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
+    -v "$remote_dir/output:/models:ro" -v "$data_root:/datasets:ro" -v "$remote_dir/eval:/results" \
+    -v "$jetson_repo/DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics_tinyperson.py:/app/evaluate_tinyperson.py:ro" \
+    -v "$jetson_repo/DUY_DEPLOY/docker/pytorch_jetson/checkpoint_compat.py:/app/checkpoint_compat.py:ro" \
+    -v "$jetson_repo/vendor/tinyperson_cocoeval.py:/app/tinyperson_cocoeval.py:ro" \
+    --entrypoint python3 "$image" /app/evaluate_tinyperson.py \
+    --model "/models/$model_name" --data-root /datasets --results-root /results \
+    --evaluator /app/tinyperson_cocoeval.py --device 0 --precision "$precision" --conf 0.001 --iou 0.5 --max-det 300
+else
+  docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
+    -v "$remote_dir/output:/models:ro" -v "$data_root:/datasets:ro" -v "$remote_dir/eval:/results" \
+    -v "$jetson_repo/DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py:/app/evaluate.py:ro" \
+    -v "$jetson_repo/DUY_DEPLOY/docker/pytorch_jetson/checkpoint_compat.py:/app/checkpoint_compat.py:ro" \
+    --entrypoint python3 "$image" /app/evaluate.py \
+    --model "/models/$model_name" --data-root /datasets --dataset "$dataset" \
+    --split "${split_args[@]}" --results-root /results --device 0 --precision "$precision" --conf 0.001 --iou 0.5 --max-det 300
+fi
 REMOTE
 elif [[ "$operation" != "export_jetson" && "$operation" != "jetson_pipeline" ]]; then
   echo "Unsupported OPERATION: $operation" >&2
