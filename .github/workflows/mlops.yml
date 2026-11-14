@@ -12,24 +12,10 @@ on:
         description: "GitHub Environment owning this user's Marimo URL and token"
         required: true
         type: string
-      remote_python:
-        description: "Python executable on Marimo"
-        required: false
-        default: "/tmp/uv-venv/bin/python"
-        type: string
       marimo_repo:
-        description: "Existing checkout path on the Marimo server"
+        description: "Checkout path to bootstrap on the Marimo server"
         required: true
         default: "/marimo/yolo_code"
-        type: string
-      expected_sha:
-        description: "Exact Git SHA already checked out on Marimo"
-        required: false
-        default: ""
-      run_dir:
-        description: "New run directory; generated when empty"
-        required: false
-        default: ""
         type: string
       data_root:
         description: "Dataset root on Marimo"
@@ -57,11 +43,6 @@ on:
         required: false
         default: "duyle2408/ci-oacp-smoke-runs"
         type: string
-      seed:
-        description: "Training seed"
-        required: false
-        default: "43"
-        type: string
       split_seed:
         description: "Dataset split seed"
         required: false
@@ -71,11 +52,6 @@ on:
         description: "Training epochs"
         required: false
         default: "1"
-        type: string
-      patience:
-        description: "Training patience"
-        required: false
-        default: "0"
         type: string
       min_test_map50:
         description: "Optional minimum test mAP50 quality gate"
@@ -101,11 +77,6 @@ on:
         description: "Data-loader workers"
         required: false
         default: "4"
-        type: string
-      device:
-        description: "CUDA device"
-        required: false
-        default: "0"
         type: string
       checkpoint:
         description: "Checkpoint path on Marimo for evaluate/export"
@@ -201,9 +172,12 @@ jobs:
 
           config = json.loads(os.environ["MLOPS_CONFIG_JSON"])
           config["repo"] = config["marimo_repo"]
-          config["python"] = config["remote_python"]
+          config["python"] = "/tmp/uv-venv/bin/python"
           config["poll_seconds"] = 60
-          config["expected_sha"] = config.get("expected_sha") or os.environ["GITHUB_SHA"]
+          config["expected_sha"] = os.environ["GITHUB_SHA"]
+          config.setdefault("seed", "43")
+          config.setdefault("patience", "0")
+          config.setdefault("device", "0")
           config["repo_url"] = (
               f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}.git"
           )
