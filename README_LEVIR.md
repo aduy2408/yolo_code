@@ -195,24 +195,3 @@ Ví dụ trong file config YAML:
    ```bash
    PYTHONPATH=models_related/ultralytics python -c "import torch; from ultralytics import YOLO; m=YOLO('models_related/models_config/yolov8/levir/yolov8n_p2_levir_nudfl_pc_cfr.yaml'); y=m.model(torch.randn(1, 3, 640, 640)); print(type(y))"
    ```
-
-### CI/CD / MLOps
-
-Workflow `.github/workflows/mlops.yml` được kích hoạt thủ công bằng
-`workflow_dispatch`, với các operation:
-`train`, `evaluate`, `export`, `evaluate_jetson`, `export_jetson`, và
-`jetson_pipeline`.
-
-Job Marimo tự clone repository vào `marimo_repo`, checkout đúng SHA của run,
-và tự gọi `misc.prepare_levir_ship.prepare` khi `dataset_yaml` để trống.
-Default smoke training dùng `epochs=1`, `batch_size=8`, `workers=4`.
-
-Training tạo và upload checkpoint, metrics, `manifest.json`, và
-`upload_complete.json` lên Hugging Face. Quality gate bắt buộc
-`evaluation_metrics.json`, `manifest.json`, và `nms_iou=0.5`; có thể bật thêm
-ngưỡng `min_test_map50` và `min_test_map50_95`.
-
-Marimo Environment cần `MARIMO_URL`, `MARIMO_TOKEN`, và `HF_TOKEN`.
-Jetson job tải checkpoint từ Hugging Face, chuyển qua SSH, export ONNX/TensorRT
-và evaluate bằng Ultralytics. Hướng dẫn đầy đủ nằm trong
-[`docs/ci_cd_workflow.md`](docs/ci_cd_workflow.md).
