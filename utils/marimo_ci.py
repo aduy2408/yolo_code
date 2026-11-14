@@ -55,6 +55,8 @@ def run(config: dict[str, Any]) -> None:
         "epochs": config.get("epochs", "matrix") if is_train else "matrix",
         "patience": config.get("patience", "matrix") if is_train else "matrix",
         "nms_iou": 0.5,
+        "min_test_map50": config.get("min_test_map50", ""),
+        "min_test_map50_95": config.get("min_test_map50_95", ""),
         "hf_repo_id": config.get("hf_repo_id", "matrix") if is_train else "matrix",
     }
     contract_path = run_dir / "run_contract.json"
@@ -102,8 +104,26 @@ def run(config: dict[str, Any]) -> None:
             state = report.get("state") or {}
             if state.get("returncode") != 0:
                 raise RuntimeError(f"Remote {operation} failed: returncode={state.get('returncode')}")
+            if is_train:
+                quality_gate(artifact_root, config)
             break
         time.sleep(int(config.get("poll_seconds", 30)))
+
+def quality_gate(artifact_root: Path, config: dict[str, Any]) -> None:
+    metrics_path = artifact_root / "evaluation_metrics.json"
+    if not metrics_path.is_file():
+        raise RuntimeError(f"Missing evaluation metrics: {metrics_path}")
+    metrics = json.loads(metrics_path.read_text())
+    if float(metrics.get("nms_iou", -1)) != 0.5:
+        raise RuntimeError(f"Expected nms_iou=0.5, got {metrics.get('nms_iou')}")
+    values = {
+        "min_test_map50": metrics.get("test/metrics/mAP50(B)"),
+        "min_test_map50_95": metrics.get("test/metrics/mAP50-95(B)"),
+    }
+    for name, value in values.items():
+        threshold = str(config.get(name) or "").strip()
+        if threshold and (value is None or float(value) < float(threshold)):
+            raise RuntimeError(f"Quality gate failed: {name}={value}, required>={threshold}")
 
 def training_progress(log_path: Path, total_epochs: int | None) -> dict[str, int | float | None]:
     if not log_path.is_file():

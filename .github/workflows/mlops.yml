@@ -77,6 +77,16 @@ on:
         required: false
         default: "0"
         type: string
+      min_test_map50:
+        description: "Optional minimum test mAP50 quality gate"
+        required: false
+        default: ""
+        type: string
+      min_test_map50_95:
+        description: "Optional minimum test mAP50-95 quality gate"
+        required: false
+        default: ""
+        type: string
       image_size:
         description: "Image size"
         required: false

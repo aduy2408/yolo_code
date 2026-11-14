@@ -135,6 +135,20 @@ custom Ultralytics code phải tồn tại trên server.
 Workflow không cài package, không sửa environment và không tự chọn mount
 dataset. Default LEVIR mount là `/marimo/LevirShip/LevirShipData`.
 
+## Quality gates
+
+Training luôn phải tạo `evaluation_metrics.json` với `nms_iou=0.5`.
+Có thể bật ngưỡng bằng workflow inputs:
+
+```text
+min_test_map50
+min_test_map50_95
+```
+
+Nếu metric thiếu, NMS IoU sai, hoặc metric thấp hơn ngưỡng, remote job fail.
+Để smoke run không phụ thuộc một threshold nghiên cứu cố định, hai input này
+để trống mặc định; release/full run nên truyền threshold từ baseline đã ghi nhận.
+
 ## Pipeline gộp
 
 Workflow có ba nhóm chính:
