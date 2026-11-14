@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-
+  workflow_dispatch:
 permissions:
   contents: read
 
@@ -28,6 +28,7 @@ jobs:
             utils/marimo_client.py \
             utils/marimo_ops.py \
             utils/marimo_ci.py \
+            utils/upload_hf_folder.py \
             DUY_DEPLOY/docker/pytorch_jetson/export_onnx.py \
             DUY_DEPLOY/docker/pytorch_jetson/export_engine.py \
             DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py \

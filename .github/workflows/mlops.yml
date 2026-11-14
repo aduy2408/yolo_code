@@ -284,6 +284,7 @@ jobs:
       MODEL_KIND: ${{ inputs.model_kind }}
       MODEL_NAME: ${{ inputs.model_name }}
       SPLITS: ${{ inputs.splits }}
+      HF_PREFIX: runs/jetson/${{ inputs.operation }}/github-${{ github.run_id }}-attempt-${{ github.run_attempt }}
       RUN_DIR: jetson-${{ github.run_id }}-attempt-${{ github.run_attempt }}
 
     steps:
@@ -305,6 +306,7 @@ jobs:
           echo "JETSON_SSH_KEY=$key_path" >> "$GITHUB_ENV"
 
       - name: Transfer, export, and evaluate on Jetson
+        id: jetson_run
         shell: bash
         run: scripts/run_jetson_workflow.sh
 
@@ -313,6 +315,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jetson-${{ inputs.operation }}-${{ github.run_id }}
-          path: jetson-${{ github.run_id }}
+          path: jetson-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Upload Jetson results to Hugging Face
+        if: ${{ steps.jetson_run.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-input huggingface_hub
+          python utils/upload_hf_folder.py \
+            --folder "$GITHUB_WORKSPACE/$RUN_DIR" \
+            --repo-id "$HF_REPO_ID" \
+            --prefix "$HF_PREFIX"
