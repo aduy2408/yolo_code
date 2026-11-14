@@ -142,6 +142,7 @@ jobs:
     env:
       MARIMO_URL: ${{ vars.MARIMO_URL }}
       MARIMO_TOKEN: ${{ secrets.MARIMO_TOKEN }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
       PYTHONUNBUFFERED: "1"
 
     steps:
@@ -154,6 +155,9 @@ jobs:
           set -euo pipefail
           test -n "$MARIMO_URL"
           test -n "$MARIMO_TOKEN"
+          if [[ "${{ inputs.operation }}" == "train" ]]; then
+            test -n "$HF_TOKEN"
+          fi
           python -c "import requests"
 
       - name: Bootstrap and run on Marimo
@@ -232,6 +236,17 @@ jobs:
           Path("marimo-workflow-evidence/remote_entrypoint.py").write_text(remote)
           Path("/tmp/marimo_ci_remote.py").write_text(remote)
           PY
+          trap 'rm -f /tmp/marimo_hf_env.py /tmp/marimo_ci_remote.py' EXIT
+          if [[ "${{ inputs.operation }}" == "train" ]]; then
+            python - <<'PY'
+          import os
+          from pathlib import Path
+          Path("/tmp/marimo_hf_env.py").write_text(
+              "import os\nos.environ['HF_TOKEN'] = " + repr(os.environ["HF_TOKEN"]) + "\n"
+          )
+          PY
+            python -m utils.marimo_run --file /tmp/marimo_hf_env.py
+          fi
           python -m utils.marimo_run --file /tmp/marimo_ci_remote.py
 
       - name: Upload local workflow evidence
