@@ -98,11 +98,10 @@ DUY_DEPLOY/docker/pytorch_jetson/export_onnx.py
 DUY_DEPLOY/docker/pytorch_jetson/export_engine.py
 ```
 
-Chọn `operation=evaluate_jetson` để chạy
-`DUY_DEPLOY/docker/pytorch_jetson/evaluate_ultralytics.py` cho LEVIR-Ship/Varroa
-hoặc `evaluate_ultralytics_tinyperson.py` cho TinyPerson trên `.pt`, `.onnx`,
-hoặc `.engine`. Job yêu cầu Jetson đã có checkout deployment, dataset và image
-`duy-yolo-pytorch:jetpack6`.
+Chọn `operation=evaluate_jetson` để evaluate checkpoint `.pt` vừa tải và
+chuyển sang Jetson. Workflow sẽ chọn `best.pt` cho run standalone; không giả
+định engine đã tồn tại trong thư mục run mới. Dùng `jetson_pipeline` nếu cần
+evaluate ONNX/TensorRT engine vừa build.
 
 `operation=jetson_pipeline` gộp hai bước trên trong cùng một remote run:
 chuyển `.pt`, build ONNX và TensorRT engine, rồi evaluate engine ngay trên

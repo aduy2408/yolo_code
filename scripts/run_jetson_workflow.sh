@@ -14,7 +14,13 @@ set -euo pipefail
 operation=${OPERATION:?OPERATION is required}
 precision=${PRECISION:-fp16}
 model_kind=${MODEL_KIND:-engine}
-if [[ -n "${MODEL_NAME:-}" ]]; then
+if [[ "$operation" == "evaluate_jetson" ]]; then
+  if [[ -n "${MODEL_NAME:-}" && "$MODEL_NAME" != "best.pt" ]]; then
+    echo "Standalone evaluate_jetson only has transferred best.pt; use jetson_pipeline for an exported engine." >&2
+    exit 2
+  fi
+  model_name=best.pt
+elif [[ -n "${MODEL_NAME:-}" ]]; then
   model_name=$MODEL_NAME
 else
   case "$model_kind" in
