@@ -1,0 +1,252 @@
+{
+  "protocol": {
+    "batch_size": 1,
+    "conf": 0.001,
+    "nms_iou": 0.5,
+    "max_det": 300,
+    "precision": "fp32",
+    "source_report": "docs/reports/seed43_44_yolov8_yolo11_augmentation_audit.md"
+  },
+  "jobs": [
+    {
+      "job_id": "nc_r2_levirship_yolov11_s43",
+      "dataset": "levirship",
+      "model": "yolov11n_nc_r2",
+      "variant": "nc_r2",
+      "seed": 43,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/yolo11-nc-seed43-baseline-parity-levir-runs/yolov11/levir/copy_paste/negative_canvas_r2/no_mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/yolo11-nc-seed43-baseline-parity-levir-runs/yolov11/levir/copy_paste/negative_canvas_r2/no_mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r2_levirship_yolov11_s44",
+      "dataset": "levirship",
+      "model": "yolov11n_nc_r2",
+      "variant": "nc_r2",
+      "seed": 44,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/yolov9-yolo11-cp-nc-seed44-runs/yolov11/levir/copy_paste/negative_canvas_r2/no_mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/yolov9-yolo11-cp-nc-seed44-runs/yolov11/levir/copy_paste/negative_canvas_r2/no_mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r2_levirship_yolov8_s43",
+      "dataset": "levirship",
+      "model": "yolov8n_nc_r2",
+      "variant": "nc_r2",
+      "seed": 43,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/levir/copy_paste/negative_canvas_r2/no_mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/levir/copy_paste/negative_canvas_r2/no_mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r2_levirship_yolov8_s44",
+      "dataset": "levirship",
+      "model": "yolov8n_nc_r2",
+      "variant": "nc_r2",
+      "seed": 44,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/levir/copy_paste/negative_canvas_r2/no_mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/levir/copy_paste/negative_canvas_r2/no_mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r2_tinyperson_yolov11_s43",
+      "dataset": "tinyperson",
+      "model": "yolov11n_nc_r2",
+      "variant": "nc_r2",
+      "seed": 43,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/yolo11-nc-seed43-baseline-parity-tinyperson-r2-runs/yolov11/tinyperson/copy_paste/negative_canvas_r2/mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/yolo11-nc-seed43-baseline-parity-tinyperson-r2-runs/yolov11/tinyperson/copy_paste/negative_canvas_r2/mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r2_tinyperson_yolov11_s44",
+      "dataset": "tinyperson",
+      "model": "yolov11n_nc_r2",
+      "variant": "nc_r2",
+      "seed": 44,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/yolov9-yolo11-cp-nc-seed44-runs/yolov11/tinyperson/copy_paste/negative_canvas_r2/mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/yolov9-yolo11-cp-nc-seed44-runs/yolov11/tinyperson/copy_paste/negative_canvas_r2/mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r2_tinyperson_yolov8_s43",
+      "dataset": "tinyperson",
+      "model": "yolov8n_nc_r2",
+      "variant": "nc_r2",
+      "seed": 43,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/yolov8-cp-nc-recovery-tiny-seed43-r2-runs/yolov8/tinyperson/copy_paste/negative_canvas_r2/mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/yolov8-cp-nc-recovery-tiny-seed43-r2-runs/yolov8/tinyperson/copy_paste/negative_canvas_r2/mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r2_tinyperson_yolov8_s44",
+      "dataset": "tinyperson",
+      "model": "yolov8n_nc_r2",
+      "variant": "nc_r2",
+      "seed": 44,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/tinyperson/copy_paste/negative_canvas_r2/mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/tinyperson/copy_paste/negative_canvas_r2/mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r4_levirship_yolov11_s43",
+      "dataset": "levirship",
+      "model": "yolov11n_nc_r4",
+      "variant": "nc_r4",
+      "seed": 43,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/yolo11-nc-seed43-baseline-parity-levir-runs/yolov11/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/yolo11-nc-seed43-baseline-parity-levir-runs/yolov11/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r4_levirship_yolov11_s44",
+      "dataset": "levirship",
+      "model": "yolov11n_nc_r4",
+      "variant": "nc_r4",
+      "seed": 44,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/yolov9-yolo11-cp-nc-seed44-runs/yolov11/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/yolov9-yolo11-cp-nc-seed44-runs/yolov11/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r4_levirship_yolov8_s43",
+      "dataset": "levirship",
+      "model": "yolov8n_nc_r4",
+      "variant": "nc_r4",
+      "seed": 43,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r4_levirship_yolov8_s44",
+      "dataset": "levirship",
+      "model": "yolov8n_nc_r4",
+      "variant": "nc_r4",
+      "seed": 44,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/levir/copy_paste/negative_canvas_r4/no_mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r4_tinyperson_yolov11_s43",
+      "dataset": "tinyperson",
+      "model": "yolov11n_nc_r4",
+      "variant": "nc_r4",
+      "seed": 43,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/yolo11-nc-seed43-baseline-parity-tinyperson-r4-runs/yolov11/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/yolo11-nc-seed43-baseline-parity-tinyperson-r4-runs/yolov11/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r4_tinyperson_yolov11_s44",
+      "dataset": "tinyperson",
+      "model": "yolov11n_nc_r4",
+      "variant": "nc_r4",
+      "seed": 44,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/yolov9-yolo11-cp-nc-seed44-runs/yolov11/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/yolov9-yolo11-cp-nc-seed44-runs/yolov11/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r4_tinyperson_yolov8_s43",
+      "dataset": "tinyperson",
+      "model": "yolov8n_nc_r4",
+      "variant": "nc_r4",
+      "seed": 43,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "nc_r4_tinyperson_yolov8_s44",
+      "dataset": "tinyperson",
+      "model": "yolov8n_nc_r4",
+      "variant": "nc_r4",
+      "seed": 44,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/yolov8-cp-nc-seed43-44-runs/yolov8/tinyperson/copy_paste/negative_canvas_r4/mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "oacp_levirship_yolov11_s43",
+      "dataset": "levirship",
+      "model": "yolov11n_oacp",
+      "variant": "oacp",
+      "seed": 43,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov11/levir/oacp/r2/no_mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov11/levir/oacp/r2/no_mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "oacp_levirship_yolov11_s44",
+      "dataset": "levirship",
+      "model": "yolov11n_oacp",
+      "variant": "oacp",
+      "seed": 44,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov11/levir/oacp/r2/no_mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov11/levir/oacp/r2/no_mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "oacp_levirship_yolov8_s43",
+      "dataset": "levirship",
+      "model": "yolov8n_oacp",
+      "variant": "oacp",
+      "seed": 43,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov8/levir/oacp/r2/no_mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov8/levir/oacp/r2/no_mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "oacp_levirship_yolov8_s44",
+      "dataset": "levirship",
+      "model": "yolov8n_oacp",
+      "variant": "oacp",
+      "seed": 44,
+      "image_size": 512,
+      "checkpoint_rel": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov8/levir/oacp/r2/no_mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov8/levir/oacp/r2/no_mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "oacp_tinyperson_yolov11_s43",
+      "dataset": "tinyperson",
+      "model": "yolov11n_oacp",
+      "variant": "oacp",
+      "seed": 43,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov11/tinyperson/oacp/r2/mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov11/tinyperson/oacp/r2/mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "oacp_tinyperson_yolov11_s44",
+      "dataset": "tinyperson",
+      "model": "yolov11n_oacp",
+      "variant": "oacp",
+      "seed": 44,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov11/tinyperson/oacp/r2/mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov11/tinyperson/oacp/r2/mosaic/seed_44/weights/best.pt"
+    },
+    {
+      "job_id": "oacp_tinyperson_yolov8_s43",
+      "dataset": "tinyperson",
+      "model": "yolov8n_oacp",
+      "variant": "oacp",
+      "seed": 43,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov8/tinyperson/oacp/r2/mosaic/seed_43/weights/best.pt",
+      "source_path": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov8/tinyperson/oacp/r2/mosaic/seed_43/weights/best.pt"
+    },
+    {
+      "job_id": "oacp_tinyperson_yolov8_s44",
+      "dataset": "tinyperson",
+      "model": "yolov8n_oacp",
+      "variant": "oacp",
+      "seed": 44,
+      "image_size": 640,
+      "checkpoint_rel": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov8/tinyperson/oacp/r2/mosaic/seed_44/weights/best.pt",
+      "source_path": "duyle2408/levirship-tinyperson-yolov8-yolo11-oacp-seed43-44-runs/yolov8/tinyperson/oacp/r2/mosaic/seed_44/weights/best.pt"
+    }
+  ]
+}

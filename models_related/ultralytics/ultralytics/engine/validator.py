@@ -190,7 +190,11 @@ class BaseValidator:
             pt = fmt == "pt"
             imgsz = check_imgsz(self.args.imgsz, stride=stride)
             if fmt not in {"pt", "torchscript"} and not getattr(model, "dynamic", False):
-                self.args.batch = model.metadata.get("batch", 1)  # export.py models default to batch-size 1
+                backend_bindings = getattr(getattr(model, "backend", None), "bindings", {})
+                input_binding = backend_bindings.get("images") if hasattr(backend_bindings, "get") else None
+                binding_shape = getattr(input_binding, "shape", None)
+                engine_batch = int(binding_shape[0]) if binding_shape is not None and len(binding_shape) else 0
+                self.args.batch = engine_batch or int(model.metadata.get("batch", 1))
                 LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz}, {imgsz})")
 
             if str(self.args.data).rsplit(".", 1)[-1] in {"yaml", "yml"}:
@@ -210,7 +214,8 @@ class BaseValidator:
             model.eval()
             if self.args.compile:
                 model = attempt_compile(model, device=self.device)
-            model.warmup(imgsz=(1 if pt else self.args.batch, self.data["channels"], imgsz, imgsz))  # warmup
+            warmup_batch = self.args.batch if hasattr(model, "metadata") else 1
+            model.warmup(imgsz=(warmup_batch, self.data["channels"], imgsz, imgsz))  # static engines require their configured batch
 
         self.run_callbacks("on_val_start")
         dt = (

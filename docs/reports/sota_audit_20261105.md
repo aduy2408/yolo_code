@@ -101,13 +101,13 @@ This is the complete seed inventory for the four requested SOTA families. It int
 | Model | Dataset | Seed | Val AP50 | Val mAP50-95 | Val AP50-small | Test AP50 | Test mAP50-95 | Test AP50-small | Coverage |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
 | STW-YOLO | LEVIR-Ship | 42 | 0.8321 | 0.3325 | 0.8340 | 0.7934 | 0.2861 | 0.8408 | Complete native backfill |
-| STW-YOLO | LEVIR-Ship | 43 | 0.8295 | 0.3385 | -- | 0.8205 | 0.3208 | -- | Core split metrics; bucket fields not recorded in this audit |
+| STW-YOLO | LEVIR-Ship | 43 | 0.8295 | 0.3385 | 0.8298 | 0.8205 | 0.3208 | 0.8187 | Fresh native size-bucket backfill on the authorized Marimo server |
 | STW-YOLO | TinyPerson | 42 | 0.6190 | 0.2313 | 0.5982 | 0.5684 | 0.2149 | 0.5419 | Complete native backfill |
-| STW-YOLO | TinyPerson | 43 | 0.6241 | 0.2394 | -- | 0.5792 | 0.2204 | -- | Core split metrics; bucket fields not recorded in this audit |
+| STW-YOLO | TinyPerson | 43 | 0.6241 | 0.2394 | -- | 0.5792 | 0.2204 | -- | Core split metrics; merged fields remain in the TinyPerson table |
 | TPH-YOLOv5 | LEVIR-Ship | 42 | 0.7140 | 0.2590 | 0.7862 | 0.6740 | 0.2370 | 0.7180 | Core metrics; AP50-small source-qualified for seed42 |
-| TPH-YOLOv5 | LEVIR-Ship | 43 | 0.7550 | 0.2880 | -- | 0.7430 | 0.2690 | -- | Core split metrics; native AP50-small absent |
-| TPH-YOLOv5 | TinyPerson | 42 | 0.5420 | 0.1920 | -- | 0.5500 | 0.2010 | -- | Core split metrics; native AP50-small absent |
-| TPH-YOLOv5 | TinyPerson | 43 | 0.4920 | 0.1690 | -- | 0.4890 | 0.1750 | -- | Core split metrics; native AP50-small absent |
+| TPH-YOLOv5 | LEVIR-Ship | 43 | 0.7550 | 0.2880 | 0.8323 | 0.7430 | 0.2690 | 0.8006 | Fresh native size-bucket backfill on the authorized Marimo server |
+| TPH-YOLOv5 | TinyPerson | 42 | 0.5420 | 0.1920 | -- | 0.5500 | 0.2010 | -- | Core split metrics; merged fields remain in the TinyPerson table |
+| TPH-YOLOv5 | TinyPerson | 43 | 0.4920 | 0.1690 | -- | 0.4890 | 0.1750 | -- | Core split metrics; merged fields remain in the TinyPerson table |
 | FCOS-SET | LEVIR-Ship | 42 | 0.7324 | 0.2598 | 0.7339 | 0.7740 | 0.2785 | 0.7714 | Complete |
 | FCOS-SET | LEVIR-Ship | 43 | 0.7656 | 0.2762 | 0.7683 | 0.7358 | 0.2708 | 0.7330 | Complete |
 | FCOS-SET | TinyPerson | 42 | 0.4148 | 0.1494 | 0.5516 | 0.4259 | 0.1519 | 0.5722 | Complete |
@@ -117,7 +117,8 @@ This is the complete seed inventory for the four requested SOTA families. It int
 | FCOS-SR-TOD | TinyPerson | 42 | 0.4800 | 0.1590 | 0.6696 | 0.3710 | 0.1280 | 0.6289 | Matched seed42 bucket backfill |
 | FCOS-SR-TOD | TinyPerson | 43 | 0.4180 | 0.1500 | 0.3712 | 0.3730 | 0.1290 | 0.3466 | Complete |
 
-**Status under the requested report contract:** all four selected SOTA models have the required val/test AP50 and mAP50-95 on LEVIR-Ship and TinyPerson. TinyPerson uses merged AP50-small where requested; the verified TPH merged result is seed42 (`val=0.6507`, `test=0.6369`). The native per-seed AP50-small `--` cells for TPH are not blockers and must not be described as missing training seeds or missing core results. The STW seed43 bucket fields are likewise outside the selected seed42 backfill scope.
+**Status under the requested report contract:** all four selected SOTA models have the required val/test AP50 and mAP50-95 on LEVIR-Ship and TinyPerson. LEVIR native AP50-small is now verified for both STW and TPH seeds 42/43; FCOS-SET and FCOS-SR-TOD already had both seed values. TinyPerson uses merged AP50-small where requested; the native per-seed AP50-small `--` cells remain outside that merged protocol.
+The LEVIR-Ship backfill was run on `sb-8c12d8ee4335ea34.sb.molab.run` with the repository checkout at `35e4d0175ea1ba2e46f4ebf285bb83b6f963031a`, image size 512, split seed 42, NMS IoU 0.50, and native val/test images. STW used the project Ultralytics fork; TPH used its legacy evaluator with a compatibility wrapper for PyTorch 2.6 and NumPy aliases, then the shared native bucket scorer.
 
 ## Final two-seed mean ± sample standard deviation
 
@@ -125,9 +126,9 @@ Means and standard deviations below use training seeds 42 and 43 and the same me
 
 | Model | Dataset | Val AP50 | Val mAP50-95 | Test AP50 | Test mAP50-95 | Val AP50-small | Test AP50-small |
 |---|---|---:|---:|---:|---:|---:|---:|
-| STW-YOLO | LEVIR-Ship | 0.8308 ± 0.0018 | 0.3355 ± 0.0042 | 0.8070 ± 0.0192 | 0.3034 ± 0.0245 | -- | -- |
+| STW-YOLO | LEVIR-Ship | 0.8308 ± 0.0018 | 0.3355 ± 0.0042 | 0.8070 ± 0.0192 | 0.3034 ± 0.0245 | 0.8319 ± 0.0030 | 0.8297 ± 0.0156 |
 | STW-YOLO | TinyPerson | 0.6216 ± 0.0036 | 0.2354 ± 0.0057 | 0.5738 ± 0.0076 | 0.2177 ± 0.0039 | -- | -- |
-| TPH-YOLOv5 | LEVIR-Ship | 0.7345 ± 0.0290 | 0.2735 ± 0.0205 | 0.7085 ± 0.0488 | 0.2530 ± 0.0226 | -- | -- |
+| TPH-YOLOv5 | LEVIR-Ship | 0.7345 ± 0.0290 | 0.2735 ± 0.0205 | 0.7085 ± 0.0488 | 0.2530 ± 0.0226 | 0.8092 ± 0.0326 | 0.7593 ± 0.0584 |
 | TPH-YOLOv5 | TinyPerson | 0.5170 ± 0.0354 | 0.1805 ± 0.0163 | 0.5195 ± 0.0431 | 0.1880 ± 0.0184 | -- | -- |
 | FCOS-SET | LEVIR-Ship | 0.7490 ± 0.0235 | 0.2680 ± 0.0116 | 0.7549 ± 0.0270 | 0.2747 ± 0.0054 | 0.7511 ± 0.0243 | 0.7522 ± 0.0272 |
 | FCOS-SET | TinyPerson | 0.4116 ± 0.0045 | 0.1491 ± 0.0005 | 0.4253 ± 0.0008 | 0.1521 ± 0.0003 | 0.5441 ± 0.0106 | 0.5819 ± 0.0137 |

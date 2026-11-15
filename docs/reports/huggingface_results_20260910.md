@@ -29,18 +29,13 @@
 | Dataset / experiment | Seeds | N | Val mAP50 | Val mAP50-95 | Test mAP50 | Test mAP50-95 | Test AP75 | Test P | Test R | Source repos |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | LEVIR OACP b1c490b | 43, 44 | 2 | 0.7413 ± 0.0372 | 0.2760 ± 0.0191 | 0.7225 ± 0.1177 | 0.2576 ± 0.0404 | 0.0832 ± 0.0075 | 0.7684 ± 0.0985 | 0.7187 ± 0.0406 | [levir-yolov8n-p2-oacp-b1c490b-seed43](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-b1c490b-seed43), [levir-yolov8n-p2-oacp-b1c490b-seed44](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-b1c490b-seed44) |
-| LEVIR OACP fixedsplit42 a6af599 | 43, 44 | 2 | 0.8221 ± 0.0109 | 0.3176 ± 0.0020 | 0.7902 ± 0.0030 | 0.2938 ± 0.0009 | 0.1011 ± 0.0101 | 0.8034 ± 0.0088 | 0.7487 ± 0.0038 | [levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed43](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed43), [levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed44](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed44) |
 | LEVIR OACP no-mosaic 2d308a3 | 42, 43, 44 | 3 | 0.8291 ± 0.0182 | 0.3293 ± 0.0121 | 0.8137 ± 0.0197 | 0.3157 ± 0.0126 | 0.1368 ± 0.0193 | 0.8295 ± 0.0212 | 0.7755 ± 0.0127 | [levir-yolov8n-p2-oacp-no-mosaic-2d308a3](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-no-mosaic-2d308a3), [levir-yolov8n-p2-oacp-no-mosaic-2d308a3-seed43](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-no-mosaic-2d308a3-seed43), [levir-yolov8n-p2-oacp-no-mosaic-2d308a3-seed44](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-no-mosaic-2d308a3-seed44) |
-| TinyPerson OACP fixedsplit42 0a2ca54 | 42, 43, 44 | 3 | 0.5712 ± 0.0049 | 0.2089 ± 0.0038 | 0.5259 ± 0.0068 | 0.1929 ± 0.0031 | 0.0926 ± 0.0009 | 0.5925 ± 0.0066 | 0.5114 ± 0.0043 | [tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed42](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed42), [tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed43](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed43), [tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed44](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-0a2ca54-seed44) |
 | TinyPerson OACP no-mosaic servernew 25dcadc | 42, 43, 44 | 3 | 0.5398 ± 0.0075 | 0.1901 ± 0.0018 | 0.4996 ± 0.0052 | 0.1794 ± 0.0026 | 0.0829 ± 0.0020 | 0.5803 ± 0.0084 | 0.4894 ± 0.0032 | [tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc) |
 
 ## 1. LEVIR-Ship: các repository một run (raw theo seed/repository)
 
 | Repository | Run / variant | Seed | Val mAP50 | Val mAP50-95 | Test mAP50 | Test mAP50-95 | Test AP75 | Test P | Test R | Metrics source |
 |---|---|:---:|---:|---:|---:|---:|---:|---:|---:|---|
-| duyle2408/levir-yolov8n-p2-baseline-no-aug-no-mosaic-seed42-d1f8206 | baseline_p2 | 42 | 0.8440 | 0.3395 | 0.8077 | 0.3084 | 0.1278 | 0.8236 | 0.7658 | [runs/baseline_p2/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-baseline-no-aug-no-mosaic-seed42-d1f8206/blob/main/runs/baseline_p2/evaluation_metrics.json) |
-| duyle2408/levir-yolov8n-p2-dmm-lite-no-aug-no-mosaic-seed42-9ad2f90 | r1_dmm_lite | 42 | 0.8428 | 0.3389 | 0.8112 | 0.3085 | 0.1277 | 0.8172 | 0.7836 | [runs/r1_dmm_lite/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-dmm-lite-no-aug-no-mosaic-seed42-9ad2f90/blob/main/runs/r1_dmm_lite/evaluation_metrics.json) |
-| duyle2408/levir-yolov8n-p2-dmm-lite-oacp-no-mosaic-seed44-3844e43 | r1_dmm_lite | 44 | 0.8430 | 0.3328 | 0.8059 | 0.3148 | 0.1441 | 0.8435 | 0.7511 | [runs/r1_dmm_lite/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-dmm-lite-oacp-no-mosaic-seed44-3844e43/blob/main/runs/r1_dmm_lite/evaluation_metrics.json) |
 | duyle2408/levir-yolov8n-p2-oacp-b1c490b-seed43 | baseline_oacp | 43 | 0.7676 | 0.2895 | 0.8057 | 0.2862 | 0.0885 | 0.8381 | 0.7474 | [runs/baseline_oacp/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-b1c490b-seed43/blob/main/runs/baseline_oacp/evaluation_metrics.json) |
 | duyle2408/levir-yolov8n-p2-oacp-b1c490b-seed44 | baseline_oacp | 44 | 0.7150 | 0.2625 | 0.6392 | 0.2290 | 0.0779 | 0.6988 | 0.6900 | [runs/baseline_oacp/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-b1c490b-seed44/blob/main/runs/baseline_oacp/evaluation_metrics.json) |
 | duyle2408/levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed43 | baseline_oacp | 43 | 0.8298 | 0.3162 | 0.7923 | 0.2931 | 0.1082 | 0.7972 | 0.7514 | [runs/baseline_oacp/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-oacp-fixedsplit42-a6af599-seed43/blob/main/runs/baseline_oacp/evaluation_metrics.json) |
@@ -104,6 +99,8 @@
 | duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc | yolov8n_p2p3p4_plain_oacp/seed_42 | 42 | 0.5329 | 0.1889 | 0.4943 | 0.1766 | 0.0806 | 0.5713 | 0.4888 | [runs/yolov8n_p2p3p4_plain_oacp/seed_42/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc/blob/main/runs/yolov8n_p2p3p4_plain_oacp/seed_42/evaluation_metrics.json) |
 | duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc | yolov8n_p2p3p4_plain_oacp/seed_43 | 43 | 0.5386 | 0.1893 | 0.5046 | 0.1816 | 0.0844 | 0.5878 | 0.4929 | [runs/yolov8n_p2p3p4_plain_oacp/seed_43/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc/blob/main/runs/yolov8n_p2p3p4_plain_oacp/seed_43/evaluation_metrics.json) |
 | duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc | yolov8n_p2p3p4_plain_oacp/seed_44 | 44 | 0.5478 | 0.1922 | 0.4998 | 0.1800 | 0.0837 | 0.5818 | 0.4865 | [runs/yolov8n_p2p3p4_plain_oacp/seed_44/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc/blob/main/runs/yolov8n_p2p3p4_plain_oacp/seed_44/evaluation_metrics.json) |
+| duyle2408/tinyperson-yolov9-yolov10-legacy-oacp-mosaic | yolov9/seed_42 | 42 | 0.5310 | 0.1975 | 0.5191 | 0.1890 | 0.0919 | 0.6183 | 0.5054 | [runs/yolov9/seed_42/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/tinyperson-yolov9-yolov10-legacy-oacp-mosaic/blob/main/runs/yolov9/seed_42/evaluation_metrics.json) |
+| duyle2408/tinyperson-yolov9-yolov10-legacy-oacp-mosaic | yolov10/seed_42 | 42 | 0.5194 | 0.1905 | 0.4836 | 0.1808 | 0.0911 | 0.5591 | 0.4722 | [runs/yolov10/seed_42/evaluation_metrics.json](https://huggingface.co/datasets/duyle2408/tinyperson-yolov9-yolov10-legacy-oacp-mosaic/blob/main/runs/yolov10/seed_42/evaluation_metrics.json) |
 
 ## 5. Repository không có `evaluation_metrics.json`
 
@@ -114,14 +111,31 @@
 
 ## 6. Tóm tắt coverage
 
-- Repository entries đã yêu cầu: **31**; số repository unique: **30**.
-- Repository có metric: **28**.
+- Repository entries đã yêu cầu: **32**; số repository unique: **31**.
+- Repository có metric: **29**.
 - Repository không có `evaluation_metrics.json`: **2**.
-- Tổng số run/variant có metric: **53**.
+- Tổng số run/variant có metric: **55**.
 - LEVIR-Ship: **18** single-run rows và **29** multi-variant rows.
-- TinyPerson: **6** rows.
+- TinyPerson: **8** rows.
 
-## 7. Danh sách source repository
+
+
+## 8. CP3 load-adaptive runs completed 2026-09-12
+
+> These two rows were trained after the original report date. They use YOLOv8n, standard Mosaic, CP3 cluster Copy-Paste with load-adaptive application probability, OACP off, training seed 42, split seed 42, 100 epochs, 512px images, batch 8, and 8 workers. The listed metrics are separate test evaluations of `weights/best.pt`. These are **not** matched fixed-CP3 comparisons, so they do not establish an adaptive-vs-fixed gain.
+
+| Dataset | Repository | Method/configuration | Thresholds | Test mAP50 | Test mAP50-95 | Test P | Test R | Artifact status |
+|---|---|---|---|---:|---:|---:|---:|---|
+| LEVIR-Ship | [duyle2408/levir-ship-copy-paste-load-adaptive-mosaic](https://huggingface.co/datasets/duyle2408/levir-ship-copy-paste-load-adaptive-mosaic) | YOLOv8n + standard Mosaic + CP3 cluster, adaptive `p_eff(N)`, OACP off | q33=1, q67=3 | 0.7765 | 0.2969 | 0.7832 | 0.7256 | Local and remote artifacts verified |
+| TinyPerson | [duyle2408/tinyperson-copy-paste-load-adaptive-mosaic](https://huggingface.co/datasets/duyle2408/tinyperson-copy-paste-load-adaptive-mosaic) | YOLOv8n + standard Mosaic + CP3 cluster, adaptive `p_eff(N)`, OACP off; corner-window dataset | q33=2, q67=13 | 0.4830 | 0.1764 | 0.5912 | 0.4645 | Local and remote artifacts verified |
+
+### Interpretation boundary
+
+- Completed: the two adaptive CP3 runs above and their test evaluations.
+- Not completed in this workflow: matched fixed-CP3 controls, CP4/layout-adaptive Copy-Paste, new Mosaic policies, OACP combinations, and sweeps.
+- Therefore, these rows are valid standalone results, but no adaptive-vs-fixed conclusion should be drawn until the fixed-CP3 controls are identified with the same model, split seed, evaluation split, Mosaic protocol, and training protocol.
+
+## 9. Danh sách source repository
 
 - [duyle2408/levir-oacp-double-compare-9a77f69](https://huggingface.co/datasets/duyle2408/levir-oacp-double-compare-9a77f69)
 - [duyle2408/levir-yolov8n-p2-baseline-no-aug-no-mosaic-seed42-d1f8206](https://huggingface.co/datasets/duyle2408/levir-yolov8n-p2-baseline-no-aug-no-mosaic-seed42-d1f8206)
@@ -150,3 +164,4 @@
 - [duyle2408/tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-9dda1cb-seed42](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-fixedsplit42-9dda1cb-seed42)
 - [duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-25dcadc](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-25dcadc)
 - [duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc](https://huggingface.co/datasets/duyle2408/tinyperson-yolov8n-p2p3p4-oacp-no-mosaic-seed-sweep-servernew-25dcadc)
+- [duyle2408/tinyperson-yolov9-yolov10-legacy-oacp-mosaic](https://huggingface.co/datasets/duyle2408/tinyperson-yolov9-yolov10-legacy-oacp-mosaic)

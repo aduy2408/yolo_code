@@ -4,4 +4,5 @@
 !preflight.py
 !benchmark.py
 !evaluate.py
+!evaluate_upstream.py
 !prepare_cuda_models.py

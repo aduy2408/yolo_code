@@ -36,6 +36,7 @@ COPY preflight.py /app/preflight.py
 COPY benchmark.py /app/benchmark.py
 COPY evaluate.py /app/evaluate.py
 COPY prepare_cuda_models.py /app/prepare_cuda_models.py
+COPY evaluate_upstream.py /app/evaluate_upstream.py
 COPY evaluate_tinyperson_merged.py /app/evaluate_tinyperson_merged.py
 COPY merge_tinyperson_predictions.py /app/merge_tinyperson_predictions.py
 

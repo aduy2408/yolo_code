@@ -316,6 +316,7 @@ def evaluate_with_cloned_ultralytics(parsed: argparse.Namespace) -> None:
         metrics = model.val(
             data=str(parsed.dataset_yaml), split=split, imgsz=size, batch=parsed.batch_size,
             device=0, conf=parsed.conf, iou=parsed.nms_iou, max_det=parsed.max_det,
+            rect=False, half=False, augment=False,
             plots=False, project=str(parsed.results_root / "ultralytics_val"),
             name=split, exist_ok=True,
         )

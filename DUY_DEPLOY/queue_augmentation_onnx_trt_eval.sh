@@ -41,65 +41,74 @@ if [[ "${DOWNLOAD_ONLY:-0}" == "1" ]]; then
   echo "DOWNLOAD_COMPLETE out=$OUT"
   exit 0
 fi
-# Phase 1: export every PyTorch checkpoint to a static FP16 ONNX model.
-for spec in \
-  "levir yolov8 oacp 512" "levir yolov8 nc2 512" "levir yolov8 nc4 512" "levir yolov11 oacp 512" "levir yolov11 nc2 512" "levir yolov11 nc4 512" \
-  "tinyperson yolov8 oacp 640" "tinyperson yolov8 nc2 640" "tinyperson yolov8 nc4 640" "tinyperson yolov11 oacp 640" "tinyperson yolov11 nc2 640" "tinyperson yolov11 nc4 640"; do
-  read -r dataset model aug imgsz <<< "$spec"
-  job="$dataset/$model/$aug"; ckpt="$OUT/checkpoints/$job/best.pt"; onnx="$OUT/onnx/$job/best_fp16_batch1.onnx"; log="$OUT/logs/${dataset}_${model}_${aug}/export.log"
-  mkdir -p "$(dirname "$onnx")"
-  echo "EXPORT $job"
-  timeout --signal=TERM --kill-after=30 "$EXPORT_TIMEOUT" docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
-    -v "$ckpt:/models/best.pt:ro" -v "$(dirname "$onnx"):/out" -v "$ROOT/docker/pytorch_jetson/export_onnx.py:/app/export_onnx.py:ro" \
-    -v "$ROOT/runtime_deps:/opt/runtime_deps:ro" -e PYTHONPATH=/opt/runtime_deps:/opt:/opt/project_root:/opt/ultralytics_src_upstream \
-    --entrypoint python3 "$PYTORCH_IMAGE" /app/export_onnx.py --checkpoint /models/best.pt --output /out/best_fp16_batch1.onnx --imgsz "$imgsz" >"$log" 2>&1
-  touch "$OUT/status/${dataset}_${model}_${aug}.onnx_ok"
+# Phase 1: export every checkpoint to separate static FP32 and FP16 ONNX models.
+for precision in fp32 fp16; do
+  for spec in \
+    "levir yolov8 oacp 512" "levir yolov8 nc2 512" "levir yolov8 nc4 512" "levir yolov11 oacp 512" "levir yolov11 nc2 512" "levir yolov11 nc4 512" \
+    "tinyperson yolov8 oacp 640" "tinyperson yolov8 nc2 640" "tinyperson yolov8 nc4 640" "tinyperson yolov11 oacp 640" "tinyperson yolov11 nc2 640" "tinyperson yolov11 nc4 640"; do
+    read -r dataset model aug imgsz <<< "$spec"
+    job="$dataset/$model/$aug"; ckpt="$OUT/checkpoints/$job/best.pt"; onnx="$OUT/onnx/$precision/$job/best_${precision}_batch1.onnx"; log="$OUT/logs/${dataset}_${model}_${aug}/${precision}_export.log"
+    mkdir -p "$(dirname "$onnx")"
+    echo "EXPORT precision=$precision job=$job"
+    timeout --signal=TERM --kill-after=30 "$EXPORT_TIMEOUT" docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
+      -v "$ckpt:/models/best.pt:ro" -v "$(dirname "$onnx"):/out" -v "$ROOT/docker/pytorch_jetson/export_onnx.py:/app/export_onnx.py:ro" \
+      -v "$ROOT/runtime_deps:/opt/runtime_deps:ro" -e PYTHONPATH=/opt/runtime_deps:/opt:/opt/project_root:/opt/ultralytics_src_upstream \
+      --entrypoint python3 "$PYTORCH_IMAGE" /app/export_onnx.py --checkpoint /models/best.pt --output "/out/best_${precision}_batch1.onnx" --imgsz "$imgsz" --precision "$precision" >"$log" 2>&1
+    touch "$OUT/status/${precision}_${dataset}_${model}_${aug}.onnx_ok"
+  done
 done
 
-# Phase 2: build all device-specific TensorRT engines before any full evaluation.
-for spec in \
-  "levir yolov8 oacp 512" "levir yolov8 nc2 512" "levir yolov8 nc4 512" "levir yolov11 oacp 512" "levir yolov11 nc2 512" "levir yolov11 nc4 512" \
-  "tinyperson yolov8 oacp 640" "tinyperson yolov8 nc2 640" "tinyperson yolov8 nc4 640" "tinyperson yolov11 oacp 640" "tinyperson yolov11 nc2 640" "tinyperson yolov11 nc4 640"; do
-  read -r dataset model aug imgsz <<< "$spec"
-  build_dataset="$dataset"
-  [[ "$build_dataset" == "levir" ]] && build_dataset="levirship"
-  job="$dataset/$model/$aug"; onnx="$OUT/onnx/$job/best_fp16_batch1.onnx"; cache="$OUT/engines/$job"; log="$OUT/logs/${dataset}_${model}_${aug}/build.log"
-  mkdir -p "$cache"
-  echo "BUILD $job"
-  timeout --signal=TERM --kill-after=30 "$BUILD_TIMEOUT" docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
-    -v "$onnx:/models/best_fp16_batch1.onnx:ro" -v "$cache:/cache" -v "$DATA_ROOT:/datasets:ro" \
-    -v "$ROOT/docker/jetson_onnx/evaluate.py:/app/evaluate.py:ro" -v "$ROOT/docker/jetson_onnx/build_engine_dataset.py:/app/build_engine_dataset.py:ro" \
-    -v "$ROOT/runtime_deps:/opt/runtime_deps:ro" -e PYTHONPATH=/opt/runtime_deps:/opt:/opt/project_root:/opt/ultralytics_src_upstream \
-    --entrypoint python3 "$ONNX_IMAGE" /app/build_engine_dataset.py --model /models/best_fp16_batch1.onnx --cache /cache --data-root /datasets --dataset "$build_dataset" >"$log" 2>&1
-  touch "$OUT/status/${dataset}_${model}_${aug}.engine_ok"
+# Phase 2: build separate TensorRT FP32 and FP16 engines before evaluation.
+for precision in fp32 fp16; do
+  for spec in \
+    "levir yolov8 oacp 512" "levir yolov8 nc2 512" "levir yolov8 nc4 512" "levir yolov11 oacp 512" "levir yolov11 nc2 512" "levir yolov11 nc4 512" \
+    "tinyperson yolov8 oacp 640" "tinyperson yolov8 nc2 640" "tinyperson yolov8 nc4 640" "tinyperson yolov11 oacp 640" "tinyperson yolov11 nc2 640" "tinyperson yolov11 nc4 640"; do
+    read -r dataset model aug imgsz <<< "$spec"
+    build_dataset="$dataset"
+    [[ "$build_dataset" == "levir" ]] && build_dataset="levirship"
+    job="$dataset/$model/$aug"; onnx="$OUT/onnx/$precision/$job/best_${precision}_batch1.onnx"; cache="$OUT/engines/$precision/$job"; log="$OUT/logs/${dataset}_${model}_${aug}/${precision}_build.log"
+    mkdir -p "$cache"
+    echo "BUILD precision=$precision job=$job"
+    timeout --signal=TERM --kill-after=30 "$BUILD_TIMEOUT" docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
+      -v "$onnx:/models/best_${precision}_batch1.onnx:ro" -v "$cache:/cache" -v "$DATA_ROOT:/datasets:ro" \
+      -v "$ROOT/docker/jetson_onnx/evaluate.py:/app/evaluate.py:ro" -v "$ROOT/docker/jetson_onnx/build_engine_dataset.py:/app/build_engine_dataset.py:ro" \
+      -v "$ROOT/runtime_deps:/opt/runtime_deps:ro" -e PYTHONPATH=/opt/runtime_deps:/opt:/opt/project_root:/opt/ultralytics_src_upstream \
+      --entrypoint python3 "$ONNX_IMAGE" /app/build_engine_dataset.py --model "/models/best_${precision}_batch1.onnx" --cache /cache --data-root /datasets --dataset "$build_dataset" --precision "$precision" >"$log" 2>&1
+    touch "$OUT/status/${precision}_${dataset}_${model}_${aug}.engine_ok"
+  done
 done
+
+# Refuse to start evaluation unless both precision trees are complete.
+python3 "$ROOT/check_dual_precision_artifacts.py" --root "$OUT" --expected-count 12 --manifest "$ROOT/manifests/augmentation_trt_12_manifest.json" --engines-root "$OUT/engines"
 
 # Phase 3: evaluate each completed TensorRT engine. TinyPerson uses merged evaluation.
-for spec in \
-  "levir yolov8 oacp" "levir yolov8 nc2" "levir yolov8 nc4" "levir yolov11 oacp" "levir yolov11 nc2" "levir yolov11 nc4" \
-  "tinyperson yolov8 oacp" "tinyperson yolov8 nc2" "tinyperson yolov8 nc4" "tinyperson yolov11 oacp" "tinyperson yolov11 nc2" "tinyperson yolov11 nc4"; do
-  read -r dataset model aug <<< "$spec"
-  job="$dataset/$model/$aug"; onnx="$OUT/onnx/$job/best_fp16_batch1.onnx"; cache="$OUT/engines/$job"; result="$OUT/results/$job"; log="$OUT/logs/${dataset}_${model}_${aug}/evaluate.log"
-  mkdir -p "$result/metrics" "$result/predictions"
-  echo "EVALUATE $job"
-  if [[ "$dataset" == "levir" ]]; then
-    timeout --signal=TERM --kill-after=30 "$EVAL_TIMEOUT" docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
-      -v "$onnx:/models/best_fp16_batch1.onnx:ro" -v "$cache:/trt_cache" -v "$DATA_ROOT:/datasets:ro" -v "$result:/results" \
-      -v "$ROOT/docker/jetson_onnx/evaluate.py:/app/evaluate.py:ro" \
-      -v "$ROOT/runtime_deps:/opt/runtime_deps:ro" -e PYTHONPATH=/opt/runtime_deps:/opt:/opt/project_root:/opt/ultralytics_src_upstream \
-      --entrypoint python3 "$ONNX_IMAGE" /app/evaluate.py \
-      --models-root /models --data-root /datasets --dataset levirship --split val test --results-root /results/metrics \
-      --provider tensorrt --trt-cache-root /trt_cache --batch-size 1 --conf 0.001 --nms-iou 0.5 --max-det 300 >"$log" 2>&1
-  else
-    timeout --signal=TERM --kill-after=30 "$EVAL_TIMEOUT" docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
-      -v "$onnx:/models/best_fp16_batch1.onnx:ro" -v "$cache:/cache" -v "$DATA_ROOT:/datasets:ro" -v "$result:/results" \
-      -v "$ROOT/docker/jetson_onnx/evaluate.py:/app/evaluate.py:ro" -v "$ROOT/docker/jetson_onnx/evaluate_tinyperson_merged.py:/app/evaluate_tinyperson_merged.py:ro" \
-      -v "$ROOT/runtime_deps:/opt/runtime_deps:ro" -e PYTHONPATH=/opt/runtime_deps:/opt:/opt/project_root:/opt/ultralytics_src_upstream \
-      --entrypoint python3 "$ONNX_IMAGE" /app/evaluate_tinyperson_merged.py --models-root /models --model-path /models/best_fp16_batch1.onnx \
-      --data-root /datasets --results-root /results/metrics --predictions-root /results/predictions --trt-cache-root /cache \
-      --batch-size 1 --conf 0.001 --nms-iou 0.5 --max-det 300 >"$log" 2>&1
-  fi
-  touch "$OUT/status/${dataset}_${model}_${aug}.eval_ok"
+for precision in fp32 fp16; do
+  for spec in \
+    "levir yolov8 oacp" "levir yolov8 nc2" "levir yolov8 nc4" "levir yolov11 oacp" "levir yolov11 nc2" "levir yolov11 nc4" \
+    "tinyperson yolov8 oacp" "tinyperson yolov8 nc2" "tinyperson yolov8 nc4" "tinyperson yolov11 oacp" "tinyperson yolov11 nc2" "tinyperson yolov11 nc4"; do
+    read -r dataset model aug <<< "$spec"
+    job="$dataset/$model/$aug"; onnx="$OUT/onnx/$precision/$job/best_${precision}_batch1.onnx"; cache="$OUT/engines/$precision/$job"; result="$OUT/results/$precision/$job"; log="$OUT/logs/${dataset}_${model}_${aug}/${precision}_evaluate.log"
+    mkdir -p "$result/metrics" "$result/predictions"
+    echo "EVALUATE precision=$precision job=$job"
+    if [[ "$dataset" == "levir" ]]; then
+      timeout --signal=TERM --kill-after=30 "$EVAL_TIMEOUT" docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
+        -v "$onnx:/models/best_${precision}_batch1.onnx:ro" -v "$cache:/trt_cache" -v "$DATA_ROOT:/datasets:ro" -v "$result:/results" \
+        -v "$ROOT/docker/jetson_onnx/evaluate.py:/app/evaluate.py:ro" \
+        -v "$ROOT/runtime_deps:/opt/runtime_deps:ro" -e PYTHONPATH=/opt/runtime_deps:/opt:/opt/project_root:/opt/ultralytics_src_upstream \
+        --entrypoint python3 "$ONNX_IMAGE" /app/evaluate.py \
+        --models-root /models --data-root /datasets --dataset levirship --split val test --results-root /results/metrics \
+        --provider tensorrt --precision "$precision" --trt-cache-root /trt_cache --batch-size 1 --conf 0.001 --nms-iou 0.5 --max-det 300 >"$log" 2>&1
+    else
+      timeout --signal=TERM --kill-after=30 "$EVAL_TIMEOUT" docker run --rm --runtime=nvidia --ipc=host -e NVIDIA_VISIBLE_DEVICES=all \
+        -v "$onnx:/models/best_${precision}_batch1.onnx:ro" -v "$cache:/trt_cache" -v "$DATA_ROOT:/datasets:ro" -v "$result:/results" \
+        -v "$ROOT/docker/jetson_onnx/evaluate.py:/app/evaluate.py:ro" -v "$ROOT/docker/jetson_onnx/evaluate_tinyperson_merged.py:/app/evaluate_tinyperson_merged.py:ro" \
+        -v "$ROOT/runtime_deps:/opt/runtime_deps:ro" -e PYTHONPATH=/opt/runtime_deps:/opt:/opt/project_root:/opt/ultralytics_src_upstream \
+        --entrypoint python3 "$ONNX_IMAGE" /app/evaluate_tinyperson_merged.py --models-root /models --model-path "/models/best_${precision}_batch1.onnx" \
+        --data-root /datasets --results-root /results/metrics --predictions-root /results/predictions --trt-cache-root /trt_cache \
+        --precision "$precision" --batch-size 1 --conf 0.001 --nms-iou 0.5 --max-det 300 >"$log" 2>&1
+    fi
+    touch "$OUT/status/${precision}_${dataset}_${model}_${aug}.eval_ok"
+  done
 done
 
 echo "QUEUE_COMPLETE out=$OUT"

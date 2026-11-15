@@ -11,15 +11,20 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image
 
+
 CUDA_PROVIDER = "CUDAExecutionProvider"
 TENSORRT_PROVIDER = "TensorrtExecutionProvider"
 CPU_PROVIDER = "CPUExecutionProvider"
-DATASET_DIRS = {"levirship": "levir_ship", "tinyperson": "tinyperson", "varroa": "varroa"}
+DATASET_DIRS = {"levirship": "levir_ship", "varroa": "varroa"}
 IOU_THRESHOLDS = np.arange(0.50, 1.00, 0.05)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 
-def provider_config(provider: str, cache_root: Path | None) -> tuple[str, list[object]]:
+def provider_config(
+    provider: str,
+    cache_root: Path | None,
+    precision: str = "fp16",
+) -> tuple[str, list[object]]:
     names = {"cpu": CPU_PROVIDER, "cuda": CUDA_PROVIDER, "tensorrt": TENSORRT_PROVIDER}
     name = names[provider]
     if name not in ort.get_available_providers():
@@ -28,7 +33,11 @@ def provider_config(provider: str, cache_root: Path | None) -> tuple[str, list[o
         return name, [name]
     if provider == "cuda":
         return name, [(name, {"device_id": 0})]
-    options = {"device_id": 0, "trt_fp16_enable": True, "trt_engine_cache_enable": True}
+    options = {
+        "device_id": 0,
+        "trt_fp16_enable": precision == "fp16",
+        "trt_engine_cache_enable": True,
+    }
     if cache_root is not None:
         cache_root.mkdir(parents=True, exist_ok=True)
         options["trt_engine_cache_path"] = str(cache_root)
@@ -36,17 +45,20 @@ def provider_config(provider: str, cache_root: Path | None) -> tuple[str, list[o
 
 
 def args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate YOLO ONNX models with CPU, CUDA, or TensorRT.")
+    parser = argparse.ArgumentParser(description="Evaluate LEVIR-Ship or Varroa YOLO ONNX models with CPU, CUDA, or TensorRT.")
     parser.add_argument("--models-root", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--dataset", choices=("levirship", "tinyperson", "varroa"), required=True)
+    parser.add_argument("--dataset", choices=("levirship", "varroa"), required=True)
     parser.add_argument("--split", choices=("val", "test"), nargs="+", required=True)
     parser.add_argument("--results-root", type=Path, required=True)
+    parser.add_argument("--predictions-root", type=Path, default=None)
+    parser.add_argument("--save-only", action="store_true")
     parser.add_argument("--provider", choices=("cpu", "cuda", "tensorrt"), default="cpu")
+    parser.add_argument("--precision", choices=("fp32", "fp16"), default="fp16")
     parser.add_argument("--trt-cache-root", type=Path, default=None)
     parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--intra-op-threads", type=int, default=0)
     parser.add_argument("--inter-op-threads", type=int, default=0)
+    parser.add_argument("--intra-op-threads", type=int, default=0)
     parser.add_argument("--conf", type=float, default=0.001)
     parser.add_argument("--nms-iou", type=float, default=0.5)
     parser.add_argument("--max-det", type=int, default=300)
@@ -230,7 +242,7 @@ def evaluate(images: list[dict[str, Any]], ground_truth: dict[int, list[np.ndarr
 
 def main() -> None:
     parsed = args()
-    provider_name, provider_settings = provider_config(parsed.provider, parsed.trt_cache_root)
+    provider_name, provider_settings = provider_config(parsed.provider, parsed.trt_cache_root, parsed.precision)
     sessions: dict[Path, ort.InferenceSession] = {}
     for model_path in sorted(parsed.models_root.rglob("*.onnx")):
         options = ort.SessionOptions()
@@ -252,6 +264,26 @@ def main() -> None:
         for model_path, session in sessions.items():
             started = time.perf_counter()
             predicted = predictions(session, images, image_size(parsed.dataset), parsed.batch_size, parsed.conf, parsed.nms_iou, parsed.max_det)
+            model_parts = model_path.parts
+            root_name = "onnx_cpu_fp32" if "onnx_cpu_fp32" in model_parts else "onnx_cuda_fp16"
+            model_key = Path(*model_parts[model_parts.index(root_name) + 1 :]) if root_name in model_parts else model_path.relative_to(parsed.models_root)
+            if parsed.predictions_root is not None:
+                prediction_base = parsed.predictions_root / parsed.dataset / split / model_key.with_suffix("")
+                prediction_base.parent.mkdir(parents=True, exist_ok=True)
+                image_ids, boxes, scores = [], [], []
+                for image_id, detections in predicted.items():
+                    for box, score in detections:
+                        image_ids.append(int(image_id))
+                        boxes.append(np.asarray(box, dtype=np.float32))
+                        scores.append(float(score))
+                np.savez_compressed(
+                    prediction_base.with_suffix(".npz"),
+                    image_ids=np.asarray(image_ids, dtype=np.int64),
+                    boxes=np.asarray(boxes, dtype=np.float32).reshape((-1, 4)),
+                    scores=np.asarray(scores, dtype=np.float32),
+                )
+            if parsed.save_only:
+                continue
             metrics = evaluate(images, ground_truth, predicted)
             row = {"model": str(model_path), "dataset": parsed.dataset, "split": split, "images": len(images), "ground_truth_boxes": sum(map(len, ground_truth.values())), "provider": provider_name, "nms_iou": parsed.nms_iou, "conf": parsed.conf, "batch_size": parsed.batch_size, "image_size": image_size(parsed.dataset), "elapsed_seconds": time.perf_counter() - started, **metrics}
             model_parts = model_path.parts

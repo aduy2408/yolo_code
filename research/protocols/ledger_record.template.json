@@ -1,0 +1,14 @@
+{
+  "run_id": "H001-E001-R001",
+  "hypothesis_id": "H001",
+  "experiment_id": "H001-E001",
+  "status": "planned",
+  "artifacts_verified": false,
+  "decision": "infrastructure-investigation",
+  "code_sha": "<commit SHA>",
+  "run_dir": "<unique run directory>",
+  "metrics": {},
+  "diagnostics": {},
+  "failure_class": null,
+  "notes": "<short evidence-backed note>"
+}

@@ -1,0 +1,36 @@
+{
+  "hypothesis_id": "H001",
+  "experiment_id": "H001-E001",
+  "parent_experiment": null,
+  "purpose": "Test one mechanism against the immutable baseline",
+  "baseline": {
+    "model_yaml": "<exact repository-relative YAML>",
+    "provenance_class": "new",
+    "source_sha": "<commit SHA>",
+    "source_sha_status": "verified",
+    "dataset": "<dataset>",
+    "dataset_yaml": "<verified dataset YAML>",
+    "split_seed": 42,
+    "training_seed": 42,
+    "image_size": 640,
+    "workers": 8,
+    "epochs": 3,
+    "nms_iou": 0.5
+  },
+  "treatment": {
+    "<mechanism_parameter>": "<value>"
+  },
+  "changed_factors": ["<one changed factor>"],
+  "expected_diagnostics": ["<diagnostic metric>"],
+  "promotion_rule": {
+    "must_improve": ["<diagnostic or metric>"],
+    "must_not_reduce": ["<safety metric>"]
+  },
+  "artifact_contract": [
+    "experiment_manifest.json",
+    "results.csv",
+    "evaluation_metrics.json",
+    "failure_analysis.md",
+    "completion_marker.json"
+  ]
+}

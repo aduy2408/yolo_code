@@ -146,6 +146,11 @@ tại nhưng không phải Git checkout, workflow fail an toàn và không xóa 
 
 Với `operation=train`, workflow tự gọi `misc.prepare_levir_ship.prepare` khi
 `dataset_yaml` để trống, ghi YAML vào `dataset_root`, rồi mới chạy preflight.
+`train_script` chọn training entrypoint tương đối với repository root.
+`train_args` là JSON array các argument bổ sung, ví dụ
+`["--amp", "false"]`. `artifact_root` là output path thực tế của training;
+path tương đối được tính từ `run_dir` và hỗ trợ placeholder `{seed}`.
+Ba giá trị này được ghi cùng command đã resolve vào `run_contract.json`.
 Python environment và custom Ultralytics code phải tồn tại trên server.
 
 Workflow không cài package và không tự chọn mount dataset. Default LEVIR mount

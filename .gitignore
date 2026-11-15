@@ -251,3 +251,13 @@ scratch/
 /DUY_DEPLOY/docker/pytorch_jetson/*.whl
 /DUY_DEPLOY/docker/pytorch_jetson/*.deb
 /DUY_DEPLOY/**/__pycache__/
+
+# Local agent/runtime state
+.omp/
+.jcode_runtime/
+.mcp.json
+.hf_venv/
+
+# Local runtime and embedded external repositories
+.hf_venv
+small-obj-detection/

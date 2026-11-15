@@ -1,0 +1,30 @@
+services:
+  duy-deploy-web:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile.workstation
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime}
+    image: ${RUNTIME_TAG:-duy-deploy-web:workstation}
+    runtime: nvidia
+    ipc: host
+    environment:
+      DUY_WEB_PRELOAD_MODELS: ${DUY_WEB_PRELOAD_MODELS:-1}
+      DUY_WEB_DEVICE: ${DUY_WEB_DEVICE:-0}
+      DUY_WEB_DISPLAY_CONF: ${DUY_WEB_DISPLAY_CONF:-0.3}
+      DUY_WEB_REGISTRY: /config/models.json
+      DUY_WEB_MODEL_ROOT: /models
+      DUY_WEB_OUTPUT_ROOT: /tmp/duy_deploy_outputs
+    ports:
+      - "${DUY_WEB_PORT:-8000}:8000"
+    volumes:
+      - ${DUY_WEB_MODELS_DIR:-./models}:/models:ro
+      - ${DUY_WEB_REGISTRY_FILE:-./models.json}:/config/models.json:ro
+      - ${DUY_WEB_OUTPUT_DIR:-./runtime_outputs}:/tmp/duy_deploy_outputs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      start_period: 45s
+      retries: 3

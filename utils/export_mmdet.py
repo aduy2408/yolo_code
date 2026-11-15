@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hf-config-path", help="Exact .py config path in the Hugging Face repository.")
     parser.add_argument("--repo-type", choices=("dataset", "model"), default="dataset")
     parser.add_argument("--deploy-config", type=Path, required=True, help="MMDeploy deploy config for this backend.")
+    parser.add_argument("--mmdeploy-root", type=Path, required=True, help="MMDeploy checkout containing tools/deploy.py.")
     parser.add_argument("--mmdet-root", type=Path, help="MMDetection checkout containing custom project modules.")
     parser.add_argument("--backend", choices=("onnx", "tensorrt"), required=True)
     parser.add_argument("--input", type=Path, required=True, help="Representative image used by MMDeploy export.")
@@ -89,8 +90,13 @@ def main() -> None:
         checkpoint = args.checkpoint
         if config is None:
             raise ValueError("--config is required with --checkpoint")
+        config = config.resolve()
+        checkpoint = checkpoint.resolve()
         if not config.is_file() or not checkpoint.is_file():
             raise FileNotFoundError("Both --config and --checkpoint must point to existing files")
+    args.deploy_config = args.deploy_config.resolve()
+    args.input = args.input.resolve()
+    args.work_dir = args.work_dir.resolve()
     deploy = args.mmdeploy_root / "tools" / "deploy.py"
     if not deploy.is_file():
         raise FileNotFoundError(f"MMDeploy deploy.py not found: {deploy}")

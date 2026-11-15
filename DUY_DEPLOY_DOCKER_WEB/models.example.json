@@ -1,0 +1,54 @@
+{
+  "models": [
+    {
+      "id": "oacp-r2-yolov8-levirship-s43",
+      "dataset": "levirship",
+      "model_family": "yolov8",
+      "variant": "oacp-r2",
+      "seed": 43,
+      "image_size": 512,
+      "artifact_path": "oacp-r2-yolov8-levirship-s43-fp16.engine",
+      "sha256": "REPLACE_WITH_64_HEX_SHA256",
+      "precision": "fp16",
+      "expected_provider": "ultralytics_tensorrt_engine",
+      "source": {
+        "hf_repo": "duyle2408/oacp-r2-parity-rerun-seed43-44",
+        "revision": "RECORD_EXACT_REVISION",
+        "path": "RECORD_CHECKPOINT_PATH",
+        "checkpoint_sha256": "RECORD_CHECKPOINT_SHA256"
+      },
+      "labels": ["ship"],
+      "protocol": {"batch_size": 1, "conf": 0.001, "nms_iou": 0.5, "max_det": 300},
+      "validation": {
+        "status": "validated_on_target",
+        "validated_at": "RECORD_TIMESTAMP",
+        "runtime": "RECORD_JETSON_JETPACK_TENSORRT_ULTRALYTICS"
+      }
+    },
+    {
+      "id": "oacp-r2-yolov8-levirship-s43",
+      "dataset": "levirship",
+      "model_family": "yolov8",
+      "variant": "oacp-r2",
+      "seed": 43,
+      "image_size": 512,
+      "artifact_path": "oacp-r2-yolov8-levirship-s43-fp32.engine",
+      "sha256": "REPLACE_WITH_64_HEX_SHA256",
+      "precision": "fp32",
+      "expected_provider": "ultralytics_tensorrt_engine",
+      "source": {
+        "hf_repo": "duyle2408/oacp-r2-parity-rerun-seed43-44",
+        "revision": "RECORD_EXACT_REVISION",
+        "path": "RECORD_CHECKPOINT_PATH",
+        "checkpoint_sha256": "RECORD_CHECKPOINT_SHA256"
+      },
+      "labels": ["ship"],
+      "protocol": {"batch_size": 1, "conf": 0.001, "nms_iou": 0.5, "max_det": 300},
+      "validation": {
+        "status": "validated_on_target",
+        "validated_at": "RECORD_TIMESTAMP",
+        "runtime": "RECORD_JETSON_JETPACK_TENSORRT_ULTRALYTICS"
+      }
+    }
+  ]
+}

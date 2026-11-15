@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-root", type=Path, required=True)
     parser.add_argument("--trt-cache-root", type=Path, required=True)
     parser.add_argument("--predictions-root", type=Path, required=True)
+    parser.add_argument("--precision", choices=("fp32", "fp16"), default="fp16")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--conf", type=float, default=0.001)
     parser.add_argument("--nms-iou", type=float, default=0.5)
@@ -52,12 +53,12 @@ def nms(items: list[tuple[np.ndarray, float]], threshold: float, max_det: int) -
     return [(boxes[index], float(scores[index])) for index in kept]
 
 
-def providers(cache_root: Path) -> list[object]:
+def providers(cache_root: Path, precision: str) -> list[object]:
     name = "TensorrtExecutionProvider"
     if name not in ort.get_available_providers():
         raise RuntimeError(f"{name} unavailable: {ort.get_available_providers()}")
     cache_root.mkdir(parents=True, exist_ok=True)
-    return [(name, {"device_id": 0, "trt_fp16_enable": True, "trt_engine_cache_enable": True, "trt_engine_cache_path": str(cache_root)})]
+    return [(name, {"device_id": 0, "trt_fp16_enable": precision == "fp16", "trt_engine_cache_enable": True, "trt_engine_cache_path": str(cache_root)})]
 
 
 def main() -> None:
@@ -75,7 +76,7 @@ def main() -> None:
         x, y, width, height = row["bbox"]
         ground_truth[int(row["image_id"])].append(np.asarray([x, y, x + width, y + height], dtype=np.float32))
     images = [{**row, "path": data_root / "images/all" / f"test_{int(row['id']):06d}.jpg"} for row in merged["images"]]
-    provider_settings = providers(args.trt_cache_root)
+    provider_settings = providers(args.trt_cache_root, args.precision)
     args.results_root.mkdir(parents=True, exist_ok=True)
     model_paths = [args.model_path] if args.model_path else sorted(args.models_root.rglob("*.onnx"))
     for model_path in model_paths:

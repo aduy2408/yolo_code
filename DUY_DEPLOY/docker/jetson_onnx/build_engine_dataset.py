@@ -12,16 +12,17 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=Path, required=True)
 parser.add_argument("--cache", type=Path, required=True)
 parser.add_argument("--data-root", type=Path, required=True)
-parser.add_argument("--dataset", choices=("levirship", "tinyperson"), required=True)
+parser.add_argument("--dataset", choices=("levirship", "tinyperson", "varroa"), required=True)
+parser.add_argument("--precision", choices=("fp32", "fp16"), default="fp16")
 args = parser.parse_args()
 
-provider_name, providers = evaluate.provider_config("tensorrt", args.cache)
+provider_name, providers = evaluate.provider_config("tensorrt", args.cache, args.precision)
 session = ort.InferenceSession(str(args.model), providers=providers)
 session.disable_fallback()
 if session.get_providers()[0] != provider_name:
     raise RuntimeError(f"TensorRT was not first: {session.get_providers()}")
-if args.dataset == "levirship":
-    images, _ = evaluate.load_coco(args.data_root, "levirship", "val")
+if args.dataset in ("levirship", "varroa"):
+    images, _ = evaluate.load_coco(args.data_root, args.dataset, "val")
     probe = images[:1]
 else:
     data = args.data_root / "tinyperson"
