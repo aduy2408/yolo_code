@@ -19,6 +19,70 @@ This report consolidates the matrix repository runs for **LEVIR-Ship, TinyPerson
 - RT-DETR implementation commit: `66365c1553ffd121ca4ee2be9d091735faf3c182`
 
 Image size and augmentation are dataset-specific in the manifests. LEVIR-Ship uses its native protocol, TinyPerson uses `640` native tiles with Mosaic, Varroa uses `640` with the recorded no-Mosaic variant, and VisDrone uses `1536×1536`.
+## Recovery evaluation matching the paper table
+
+The following results are a separate recovery evaluation, not replacements for the uploaded matrix rows above. Both models were evaluated with seeds `42` and `43`. `AP50-small` was recomputed from the COCO prediction JSON with `IoU=0.50`, area range `small`, and `maxDets=1000`; it is not the evaluator's `AP-small` (`IoU=0.50:0.95`).
+
+### LEVIR-Ship test
+
+| Model | Seed 42 AP50 | Seed 43 AP50 | Mean AP50 | Seed 42 AP50-small | Seed 43 AP50-small | Mean AP50-small |
+|---|---:|---:|---:|---:|---:|---:|
+| Deformable DETR R50 | 58.62 | 56.24 | 57.43 | 58.40 | 55.93 | 57.17 |
+| RT-DETR R18 | 69.53 | 67.87 | 68.70 | 69.46 | 68.17 | 68.82 |
+
+The paper reports `57.15 / 16.75 / 56.81` for Deformable DETR R50 and `68.56 / 24.40 / 68.67` for RT-DETR R18 (`AP50 / mAP50:95 / AP50-small`). The recovery values are close but not exact; the available checkpoint/configuration artifacts do not prove the paper's exact run.
+
+### LEVIR-Ship validation
+
+| Model | Seed 42 AP50 | Seed 43 AP50 | Mean ± std AP50 | Seed 42 mAP50:95 | Seed 43 mAP50:95 | Mean ± std mAP50:95 | Seed 42 AP50-small | Seed 43 AP50-small | Mean ± std AP50-small |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Deformable DETR R50 | 60.10 | 61.50 | **60.80 ± 0.70** | 17.90 | 16.80 | **17.35 ± 0.55** | 60.37 | 61.38 | **60.88 ± 0.51** |
+| RT-DETR R18 | 75.86 | 77.27 | **76.57 ± 0.71** | 28.03 | 28.01 | **28.02 ± 0.01** | 76.15 | 76.15 | **76.15 ± 0.00** |
+
+### TinyPerson test
+
+These evaluations also used both seeds. The recorded evaluator output contains COCO `AP-small`; a separate `AP50-small` value has not been added until the area/IoU-specific recomputation completes.
+
+| Model | Seed 42 AP50 | Seed 43 AP50 | Mean AP50 | Seed 42 mAP50:95 | Seed 43 mAP50:95 | Mean mAP50:95 |
+|---|---:|---:|---:|---:|---:|---:|
+| Deformable DETR R50 | 19.70 | 21.80 | 20.75 | 5.40 | 6.00 | 5.70 |
+| RT-DETR R18 | 46.41 | 46.28 | 46.35 | 16.58 | 16.43 | 16.51 |
+
+### TinyPerson validation
+
+Validation was run on the recovered 112-image split at `/marimo/mmdet_code/work_dirs/merged_backfill/stw_seed43/data/tinyperson_seed42/val_corner.json`, using both seeds. These are native corner-tile COCO metrics; merged validation predictions have not yet been exported.
+
+| Model | Seed 42 AP50 | Seed 43 AP50 | Mean ± std AP50 | Seed 42 mAP50:95 | Seed 43 mAP50:95 | Mean ± std mAP50:95 |
+|---|---:|---:|---:|---:|---:|---:|
+| Deformable DETR R50 | 24.00 | 25.50 | **24.75 ± 0.75** | 6.90 | 7.20 | **7.05 ± 0.15** |
+| RT-DETR R18 | 54.09 | 55.12 | **54.61 ± 0.52** | 20.03 | 20.27 | **20.15 ± 0.12** |
+
+The native validation evaluator reports COCO `AP-small`; the merged validation bucket metrics are below.
+
+### TinyPerson merged-corner validation
+
+The 112 source-image validation split was reconstructed from the recovered `val_corner.json`; tile detections were translated to source-image coordinates, merged with class-aware NMS at IoU `0.5`, and scored against the matching filtered TinyPerson training-source annotations. Values are percentages; mean and std use seeds `42` and `43` with population `std` (`ddof=0`).
+
+| Model | Seed 42 AP50 | Seed 43 AP50 | Mean ± std AP50 | Seed 42 mAP50:95 | Seed 43 mAP50:95 | Mean ± std mAP50:95 | Seed 42 AP50-small | Seed 43 AP50-small | Mean ± std AP50-small |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Deformable DETR R50 | 6.500 | 6.480 | **6.490 ± 0.010** | 1.873 | 1.840 | **1.857 ± 0.016** | 10.513 | 12.833 | **11.673 ± 1.160** |
+| RT-DETR R18 | 12.674 | 12.715 | **12.694 ± 0.020** | 4.870 | 4.953 | **4.912 ± 0.041** | 13.762 | 15.083 | **14.423 ± 0.660** |
+### TinyPerson merged-corner test
+
+These are the requested merged metrics: corner-tile detections were translated to source-image coordinates, merged with class-aware NMS at IoU `0.5`, and evaluated against `/marimo/TinyPerson/annotations/tiny_set_test.json`. Values are percentages; mean and standard deviation use seeds `42` and `43` with population `std` (`ddof=0`).
+
+| Model | Seed 42 AP50 | Seed 43 AP50 | Mean ± std AP50 | Seed 42 mAP50:95 | Seed 43 mAP50:95 | Mean ± std mAP50:95 | Seed 42 AP50-small | Seed 43 AP50-small | Mean ± std AP50-small |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Deformable DETR R50 | 5.692 | 6.093 | **5.892 ± 0.200** | 1.467 | 1.611 | **1.539 ± 0.072** | 9.451 | 10.207 | **9.829 ± 0.378** |
+| RT-DETR R18 | 11.266 | 10.626 | **10.946 ± 0.320** | 3.906 | 3.524 | **3.715 ± 0.191** | 12.174 | 11.455 | **11.815 ± 0.360** |
+
+These merged values are distinct from the earlier native corner-tile metrics. The four merged metric JSON files and streaming merge logs are under `/marimo/detr_eval_20261106_recovery/merged_fast_one/`, `/marimo/detr_eval_20261106_recovery/merged_rt42/`, and `/marimo/detr_eval_20261106_recovery/merged_rt43/`.
+
+TinyPerson validation remains unavailable because the recovered run does not contain the historical validation corner annotation/ground-truth pair.
+
+## Aggregate results by dataset
+
+Recovery artifacts and logs are under `/marimo/detr_eval_20261106_recovery/`; NMS IoU is `0.5`.
 
 ## Aggregate results by dataset
 

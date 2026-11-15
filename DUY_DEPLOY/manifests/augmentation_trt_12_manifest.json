@@ -1,0 +1,17 @@
+{
+  "job_count": 12,
+  "jobs": [
+    {"job_id": "levir/yolov8/oacp"},
+    {"job_id": "levir/yolov8/nc2"},
+    {"job_id": "levir/yolov8/nc4"},
+    {"job_id": "levir/yolov11/oacp"},
+    {"job_id": "levir/yolov11/nc2"},
+    {"job_id": "levir/yolov11/nc4"},
+    {"job_id": "tinyperson/yolov8/oacp"},
+    {"job_id": "tinyperson/yolov8/nc2"},
+    {"job_id": "tinyperson/yolov8/nc4"},
+    {"job_id": "tinyperson/yolov11/oacp"},
+    {"job_id": "tinyperson/yolov11/nc2"},
+    {"job_id": "tinyperson/yolov11/nc4"}
+  ]
+}

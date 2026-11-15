@@ -54,7 +54,7 @@ def build_plugins(args: argparse.Namespace) -> None:
     sdk = args.tensorrt_sdk.resolve()
     if not (sdk / "include/NvInfer.h").is_file() or not (sdk / "lib/libnvinfer.so").exists():
         raise FileNotFoundError(f"TensorRT SDK must contain include/NvInfer.h and lib/libnvinfer.so: {sdk}")
-    build_dir = (args.build_dir or args.mmdeploy_root / "build").resolve()
+    build_dir = (args.mmdeploy_root / "build").resolve()
     configure = [
         "cmake",
         "-S",

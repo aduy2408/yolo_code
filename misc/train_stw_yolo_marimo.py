@@ -229,6 +229,8 @@ def run_one(name: str, seed: int, args: argparse.Namespace, data_yaml: Path, rep
     from ultralytics import YOLO
 
     image_size = args.image_size or IMAGE_SIZES[name]
+    mosaic = 0.0 if name == "levirship" else 1.0
+    close_mosaic = 0 if name == "levirship" else 10
     run_dir = args.project / name / "oacp" / f"seed_{seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
     required = [
@@ -263,6 +265,8 @@ def run_one(name: str, seed: int, args: argparse.Namespace, data_yaml: Path, rep
             patience=0,
             seed=seed,
             deterministic=True,
+            mosaic=mosaic,
+            close_mosaic=close_mosaic,
             project=str(args.project / name),
             name=f"oacp/seed_{seed}",
             exist_ok=True,
@@ -280,7 +284,11 @@ def run_one(name: str, seed: int, args: argparse.Namespace, data_yaml: Path, rep
         "model_yaml": str(model_yaml),
         "ultralytics_runtime": str(PROJECT_ULTRALYTICS),
         "pretrained": "yolo12s.pt",
-        "augmentation": "single-pass OACP",
+        "augmentation": {
+            "context": "single-pass OACP",
+            "mosaic": mosaic,
+            "close_mosaic": close_mosaic,
+        },
         "oacp_env": OACP_ENV,
         "epochs": EPOCHS,
         "patience": 0,

@@ -118,21 +118,6 @@ on:
         required: false
         default: "runs/yolov9t_oacp_seed43/weights/best.pt"
         type: string
-      jetson_repo:
-        description: "Existing deployment checkout path on Jetson"
-        required: false
-        default: "/home/ait01/jetson_deployment_benchmark"
-        type: string
-      jetson_data_root:
-        description: "Dataset root mounted on Jetson"
-        required: false
-        default: "/home/ait01/jetson_seed42_benchmark/data"
-        type: string
-      jetson_image:
-        description: "Jetson PyTorch/Ultralytics Docker image"
-        required: false
-        default: "duy-yolo-pytorch:jetpack6"
-        type: string
       model_kind:
         description: "Model artifact used by Jetson evaluation"
         required: false
@@ -277,7 +262,7 @@ jobs:
   jetson-mlops:
     if: ${{ inputs.operation == 'export_jetson' || inputs.operation == 'evaluate_jetson' || inputs.operation == 'jetson_pipeline' }}
     name: ${{ inputs.operation }} on Jetson
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 1440
     permissions:
       contents: read
@@ -289,9 +274,9 @@ jobs:
       JETSON_SSH_KEY: ${{ secrets.JETSON_SSH_KEY }}
       HF_REPO_ID: ${{ inputs.hf_repo_id }}
       HF_PATH: ${{ inputs.hf_path }}
-      JETSON_REPO: ${{ inputs.jetson_repo }}
-      JETSON_DATA_ROOT: ${{ inputs.jetson_data_root }}
-      JETSON_IMAGE: ${{ inputs.jetson_image }}
+      JETSON_REPO: ${{ vars.JETSON_REPO || '/home/ait01/jetson_deployment_benchmark' }}
+      JETSON_DATA_ROOT: ${{ vars.JETSON_DATA_ROOT || '/home/ait01/jetson_seed42_benchmark/data' }}
+      JETSON_IMAGE: ${{ vars.JETSON_IMAGE || 'duy-yolo-pytorch:jetpack6' }}
       DATASET: ${{ inputs.dataset }}
       IMAGE_SIZE: ${{ inputs.image_size }}
       OPERATION: ${{ inputs.operation }}

@@ -1,0 +1,14 @@
+services:
+  duy-deploy-web-smoke:
+    build:
+      context: .
+      dockerfile: Dockerfile.smoke
+    image: duy-deploy-web:smoke
+    environment:
+      DUY_WEB_REGISTRY: /config/models.json
+      DUY_WEB_MODEL_ROOT: /models
+      DUY_WEB_PRELOAD_MODELS: "0"
+    ports:
+      - "${DUY_WEB_SMOKE_PORT:-18000}:8000"
+    tmpfs:
+      - /tmp/duy_deploy_outputs

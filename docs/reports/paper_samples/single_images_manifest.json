@@ -1,0 +1,42 @@
+[
+  {
+    "dataset": "LEVIR-Ship",
+    "source": "/mnt/data/varroa/yolo_related/datasets/LevirShipData/All Images/GF1_WFV1_E110.0_N17.9_20200703_L2A0004902374_8192_8704.png",
+    "full": "/mnt/data/varroa/yolo_related/docs/reports/paper_samples/levirship_full.png",
+    "context_crop": "/mnt/data/varroa/yolo_related/docs/reports/paper_samples/levirship_context_crop.png",
+    "object_zoom": "/mnt/data/varroa/yolo_related/docs/reports/paper_samples/levirship_object_zoom.png",
+    "num_boxes": 2,
+    "selected_box_xyxy": [
+      117.98957061767578,
+      427.00799560546875,
+      123.59541320800781,
+      435.7120056152344
+    ]
+  },
+  {
+    "dataset": "Varroa",
+    "source": "/mnt/data/varroa/yolo_related/datasets/varroa_yolo/images/test/val__2017-08-28_16-32-55_30_sec__2017-08-28_16-32-55_30_sec.mp4-bee_id_6672-630-1.png",
+    "full": "/mnt/data/varroa/yolo_related/docs/reports/paper_samples/varroa_full.png",
+    "num_boxes": 3,
+    "selected_box_xyxy": [
+      33.0,
+      144.0,
+      84.0,
+      187.0
+    ]
+  },
+  {
+    "dataset": "TinyPerson",
+    "source": "/mnt/data/varroa/yolo_related/datasets/TinyPerson/test/labeled_images/bb_V0027_I0002200.jpg",
+    "full": "/mnt/data/varroa/yolo_related/docs/reports/paper_samples/tinyperson_full.png",
+    "context_crop": "/mnt/data/varroa/yolo_related/docs/reports/paper_samples/tinyperson_context_crop.png",
+    "object_zoom": "/mnt/data/varroa/yolo_related/docs/reports/paper_samples/tinyperson_object_zoom.png",
+    "num_boxes": 34,
+    "selected_box_xyxy": [
+      1347.427734375,
+      554.6671752929688,
+      1369.0850830078125,
+      562.0925903320312
+    ]
+  }
+]

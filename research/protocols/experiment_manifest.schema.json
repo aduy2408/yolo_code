@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bounded Research Experiment Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "hypothesis_id",
+    "experiment_id",
+    "purpose",
+    "baseline",
+    "treatment",
+    "changed_factors",
+    "expected_diagnostics",
+    "promotion_rule",
+    "artifact_contract"
+  ],
+  "properties": {
+    "hypothesis_id": { "type": "string", "pattern": "^H[0-9]{3,}$" },
+    "experiment_id": { "type": "string", "pattern": "^H[0-9]{3,}-E[0-9]{3,}$" },
+    "parent_experiment": { "type": ["string", "null"] },
+    "purpose": { "type": "string", "minLength": 1 },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_yaml", "provenance_class", "source_sha_status", "dataset", "dataset_yaml", "split_seed", "training_seed", "image_size", "workers", "epochs", "nms_iou"],
+      "properties": {
+        "model_yaml": { "type": "string", "minLength": 1 },
+        "provenance_class": { "type": "string", "enum": ["new", "historical", "recovered"] },
+        "source_sha": { "type": "string", "minLength": 7 },
+        "source_sha_status": { "type": "string", "enum": ["verified", "partial", "unavailable"] },
+        "dataset": { "type": "string", "minLength": 1 },
+        "dataset_yaml": { "type": "string", "minLength": 1 },
+        "split_seed": { "type": "integer" },
+        "training_seed": { "type": "integer" },
+        "image_size": { "type": "integer", "minimum": 1 },
+        "workers": { "type": "integer", "minimum": 0 },
+        "epochs": { "type": "integer", "minimum": 1 },
+        "nms_iou": { "const": 0.5 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "provenance_class": { "const": "new" } } },
+          "then": {
+            "required": ["source_sha"],
+            "properties": { "source_sha_status": { "const": "verified" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "provenance_class": { "enum": ["historical", "recovered"] },
+              "source_sha_status": { "const": "verified" }
+            }
+          },
+          "then": {
+            "required": ["source_sha"]
+          }
+        }
+      ]
+    },
+    "treatment": { "type": "object", "minProperties": 1 },
+    "changed_factors": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "expected_diagnostics": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "promotion_rule": {
+      "type": "object",
+      "required": ["must_improve", "must_not_reduce"],
+      "properties": {
+        "must_improve": { "type": "array", "items": { "type": "string" } },
+        "must_not_reduce": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "artifact_contract": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+  }
+}

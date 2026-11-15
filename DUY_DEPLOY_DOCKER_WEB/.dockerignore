@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+runtime_outputs/
+models/
+*.engine
+*.pt
+*.onnx
+.git/
+PLAN.md
+README.md

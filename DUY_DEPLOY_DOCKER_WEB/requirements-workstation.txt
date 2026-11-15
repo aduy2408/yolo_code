@@ -1,0 +1,4 @@
+# Host workstation runtime: CUDA 12.4 / x86_64 TensorRT engine execution.
+# Keep aligned with the offline export/runtime validation environment.
+ultralytics==8.4.45
+tensorrt-cu12==10.14.1.48.post1

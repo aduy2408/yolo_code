@@ -130,6 +130,13 @@ This is the latest verified test-only merged rerun for the seed42 STW-YOLO and T
 | TPH YOLOv5 seed42 | 0.5474 | 0.2041 | 0.6370 | 0.2565 |
 
 The latest native size-qualified rerun verified `val/AP50-Small` / `test/AP50-Small` as `0.8340 / 0.8408` for STW on LEVIR-Ship and `0.5982 / 0.5419` for STW on TinyPerson. These are native split metrics and must not be relabeled as merged metrics.
+The 2026-11-06 native LEVIR-Ship size-bucket backfill also verified the previously missing seed43 AP50-small fields:
+
+| Model | Seed | Val AP50-small | Test AP50-small | Protocol |
+|---|---:|---:|---:|---|
+| STW YOLO | 43 | 0.8298 | 0.8187 | Native images, TinyBenchmark buckets, IoU 0.50:0.05:0.75 |
+| TPH YOLOv5 | 42 | 0.7862 | 0.7180 | Native images, TPH predictions scored with the shared bucket evaluator |
+| TPH YOLOv5 | 43 | 0.8323 | 0.8006 | Native images, TPH predictions scored with the shared bucket evaluator |
 ### Verified FCOS TinyPerson merged rerun (2026-10-15)
 
 These values are from the new GPU Marimo rerun using the exact seed43 checkpoints and configs recovered from the historical Hugging Face artifacts. The evaluator used the canonical MMDetection `tools/test.py` interface followed by `evaluate_tinyperson_metrics.py`, with split seed 42, 640x640 corner-window inference, source-image merging, and class-aware NMS. These are **merged** metrics and must not be substituted into the native corner-window columns above.

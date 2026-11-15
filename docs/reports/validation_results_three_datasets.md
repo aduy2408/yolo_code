@@ -1,6 +1,6 @@
 # Validation Results Across Three Datasets
 
-**Updated:** 2026-10-24  
+**Updated:** 2026-11-05  
 **Scope:** Validation-only comparison table for the baseline YOLO family, selected SOTA models, and MMDetection baselines on **LEVIR-Ship, Varroa, and TinyPerson**.  
 **Metric policy:** values are fractions, not percentages. Every metric is explicitly validation-labeled.
 
@@ -162,11 +162,23 @@ The SOTA rows in Sections 2.2, 3.2, and 4.2 are **selected comparison rows**, no
 | FCOS-SET | LEVIR-Ship | 42, 43 | Split-qualified validation available for both selected artifacts | Seed42 is the historical STW-protocol artifact; seed43 is the selected rerun |
 | FCOS-SET | Varroa | 42, 43 | Seed42 validation is incomplete; seed43 validation is available | Seed42 source exposes test metrics but not complete validation fields |
 | FCOS-SET | TinyPerson | 42, 43 | Split-qualified validation available for both selected artifacts | TinyPerson merged metrics are separate |
-| FCOS-SR-TOD | LEVIR-Ship | 43 | Split-qualified validation available | Seed43 is the selected/corrected full-split evaluation; older seed42 material is incomplete |
-| FCOS-SR-TOD | Varroa | 43 | Split-qualified validation available | Seed43 evaluation-only rerun is complete; older seed42 material is incomplete |
-| FCOS-SR-TOD | TinyPerson | 43 | Split-qualified validation available | Seed43 native and merged rerun artifacts are complete; older seed42 material is incomplete |
+| FCOS-SR-TOD | LEVIR-Ship | 43 | Split-qualified validation available | Historical seed42 test artifact also exists in `duyle2408/srtod-levir-protocol-runs`, but it is SRTOD FasterRCNN/no-Mosaic/512×512 and is not a matched validation row |
+| FCOS-SR-TOD | Varroa | 43 | Split-qualified validation available | Historical seed42 FCOS artifact also exists in `duyle2408/srtod-set-mosaic-matrix-runs`; selected seed43 row remains the split-qualified comparison row |
+| FCOS-SR-TOD | TinyPerson | 43 | Split-qualified validation available | Historical seed42 test artifact also exists in `duyle2408/srtod-tinyperson-protocol-runs`; selected seed43 native and merged rerun artifacts remain the split-qualified rows |
 
-The important distinction is **seed coverage versus selected comparison row**. The inventory now includes STW seeds 42 and 43 for all three datasets, alongside the existing TPH, FCOS-SET, and FCOS-SR-TOD seed coverage. FCOS-SR-TOD uses seed43 for all three datasets, with the corrected TinyPerson merged rerun also using seed43. The one-row tables above remain compact selected slices, not multi-seed means.
+The important distinction is **seed coverage versus selected comparison row**. The inventory now includes historical seed42 test artifacts for FCOS-SR-TOD on all three datasets, while the selected split-qualified validation rows and corrected TinyPerson merged rerun use seed43. The one-row tables above remain compact selected slices, not multi-seed means.
+
+### 5.1 FCOS-SR-TOD historical seed42 test artifacts
+
+The seed42 artifacts were found during the 2026-11-05 SOTA audit. They are included as historical result coverage, not as matched validation aggregates:
+
+| Dataset | HF repository/prefix | Test AP50 | Test mAP50-95 | COCO `bbox_mAP_s` |
+|---|---|---:|---:|---:|
+| LEVIR-Ship | `duyle2408/srtod-levir-protocol-runs:srtod_faster/` | 0.611 | 0.188 | 0.186 |
+| Varroa | `duyle2408/srtod-set-mosaic-matrix-runs:srtod/varroa/fcos/seed42/` | 0.903 | 0.331 | 0.310 |
+| TinyPerson | `duyle2408/srtod-tinyperson-protocol-runs:fcos/` | 0.216 | 0.072 | 0.061 |
+
+These seed42 files expose COCO `bbox_mAP_s`, not the AP50-small metric used by the corrected seed43 SOTA rows. The artifacts therefore prove seed coverage but do not justify a mean ± standard deviation across the current seed43 protocol.
 
 ## 6. Interpretation and limitations
 

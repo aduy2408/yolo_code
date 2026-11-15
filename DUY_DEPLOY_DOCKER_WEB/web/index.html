@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DUY Deploy Web</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">DUY DEPLOY</p>
+        <h1>TensorRT inference console</h1>
+      </div>
+      <div id="readiness" class="status status-muted">Checking readiness…</div>
+    </header>
+
+    <section class="controls card">
+      <label>Model <select id="model"></select></label>
+      <label>Precision <select id="precision"><option value="fp16">FP16</option><option value="fp32">FP32</option></select></label>
+      <label class="file-picker">Input image <input id="file" type="file" accept="image/jpeg,image/png,image/webp"></label>
+      <button id="run" type="button" disabled>Run inference</button>
+      <p id="error" class="error" role="alert"></p>
+    </section>
+
+    <section class="gallery">
+      <article class="card image-card"><div class="section-title">Input</div><div class="image-frame"><img id="input-preview" alt="Input preview"><span id="input-empty">Choose an image</span></div></article>
+      <article class="card image-card"><div class="section-title">Output</div><div class="image-frame"><img id="output-preview" alt="Annotated output"><span id="output-empty">Run inference to see detections</span></div></article>
+    </section>
+
+    <section class="kpis">
+      <article class="metric card"><span>Total latency</span><strong id="total-latency">—</strong><small id="fps">FPS —</small></article>
+      <article class="metric card"><span>Inference</span><strong id="inference-latency">—</strong><small id="backend">Backend —</small></article>
+      <article class="metric card"><span>Detections</span><strong id="detection-count">—</strong><small id="confidence">Confidence —</small></article>
+      <article class="metric card"><span>Resources</span><strong id="gpu-load">GPU —</strong><small id="cpu-load">CPU —</small><small id="ram-load">RAM —</small><small id="gpu-memory">GPU memory —</small></article>
+    </section>
+
+    <section class="details-grid">
+      <article class="card"><div class="section-title">Latency breakdown</div><div id="timing-bars" class="timing-bars"></div></article>
+      <article class="card"><div class="section-title">Runtime and provenance</div><dl id="provenance" class="provenance"><dt>Model</dt><dd>—</dd></dl></article>
+    </section>
+
+    <section class="card"><div class="section-title">Detections</div><div class="table-wrap"><table><thead><tr><th>Class</th><th>Confidence</th><th>Box (original px)</th></tr></thead><tbody id="detections"><tr><td colspan="3" class="empty">No result yet</td></tr></tbody></table></div></section>
+    <section class="card"><div class="section-title">Recent requests</div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Model</th><th>Precision</th><th>Count</th><th>Total</th><th>Status</th></tr></thead><tbody id="history"><tr><td colspan="6" class="empty">No requests yet</td></tr></tbody></table></div></section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
