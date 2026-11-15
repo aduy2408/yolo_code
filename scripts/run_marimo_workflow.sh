@@ -8,6 +8,7 @@ Usage:
     --environment NAME \
     --marimo-url URL \
     [--data-root PATH] [--dataset-yaml PATH] \
+    [--train-script PATH] [--train-args JSON] [--artifact-root PATH] \
     [--operation train|evaluate|export] \
     [--marimo-repo PATH] [--dataset-root PATH] [--watch]
 
@@ -24,6 +25,9 @@ marimo_url=
 data_root=/marimo/LevirShip/LevirShipData
 dataset_yaml=
 hf_repo_id=duyle2408/ci-oacp-smoke-runs
+train_script=train_scripts/train_levir_scripts/train_all_levir_yolov9t_oacp.py
+train_args='[]'
+artifact_root='project/yolov9t_oacp_seed{seed}'
 epochs=1
 watch=false
 
@@ -36,6 +40,9 @@ while (($#)); do
     --data-root) data_root=$2; shift 2 ;;
     --dataset-root) dataset_root=$2; shift 2 ;;
     --dataset-yaml) dataset_yaml=$2; shift 2 ;;
+    --train-script) train_script=$2; shift 2 ;;
+    --train-args) train_args=$2; shift 2 ;;
+    --artifact-root) artifact_root=$2; shift 2 ;;
     --hf-repo-id) hf_repo_id=$2; shift 2 ;;
     --epochs) epochs=$2; shift 2 ;;
     --watch) watch=true; shift ;;
@@ -73,6 +80,9 @@ gh workflow run mlops.yml \
   -f data_root="$data_root" \
   -f dataset_root="$dataset_root" \
   -f dataset_yaml="$dataset_yaml" \
+  -f train_script="$train_script" \
+  -f train_args="$train_args" \
+  -f artifact_root="$artifact_root" \
   -f dataset=levirship \
   -f hf_repo_id="$hf_repo_id" \
   -f split_seed=42 \

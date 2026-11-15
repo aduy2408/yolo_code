@@ -34,7 +34,7 @@ def run(config: dict[str, Any]) -> None:
     command = command_for(config, python, run_dir)
     is_train = operation == "train"
     artifact_root = (
-        run_dir / "project" / f"yolov9t_oacp_seed{config['seed']}"
+        resolve_artifact_root(config, run_dir)
         if is_train
         else run_dir
     )
@@ -52,6 +52,7 @@ def run(config: dict[str, Any]) -> None:
         "split_seed": config.get("split_seed", "matrix") if is_train else "matrix",
         "workers": config.get("workers", "matrix") if is_train else "matrix",
         "image_size": config.get("image_size", "matrix") if is_train else "matrix",
+        "batch_size": config.get("batch_size", "matrix") if is_train else "matrix",
         "epochs": config.get("epochs", "matrix") if is_train else "matrix",
         "patience": config.get("patience", "matrix") if is_train else "matrix",
         "nms_iou": 0.5,
@@ -139,12 +140,44 @@ def training_progress(log_path: Path, total_epochs: int | None) -> dict[str, int
     return {"epoch": None, "epochs_total": total_epochs, "progress": None}
 
 
+def parse_train_args(config: dict[str, Any]) -> list[str]:
+    raw = config.get("train_args", "[]")
+    try:
+        values = json.loads(raw) if isinstance(raw, str) else raw
+    except json.JSONDecodeError as exc:
+        raise ValueError("train_args must be a JSON array of strings") from exc
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise ValueError("train_args must be a JSON array of strings")
+    return values
+
+
+def resolve_artifact_root(config: dict[str, Any], run_dir: Path) -> Path:
+    template = str(
+        config.get("artifact_root")
+        or f"project/yolov9t_oacp_seed{config.get('seed', '43')}"
+    ).strip()
+    if not template:
+        raise ValueError("artifact_root must not be empty")
+    try:
+        value = template.format(seed=config.get("seed", "43"))
+    except KeyError as exc:
+        raise ValueError(f"Unsupported artifact_root placeholder: {exc.args[0]}") from exc
+    path = Path(value).expanduser()
+    return path.resolve() if path.is_absolute() else (run_dir / path).resolve()
+
+
 def command_for(config: dict[str, Any], python: str, run_dir: Path) -> list[str]:
     operation = config["operation"]
     if operation == "train":
+        train_script = str(
+            config.get("train_script")
+            or "train_scripts/train_levir_scripts/train_all_levir_yolov9t_oacp.py"
+        ).strip()
+        if not train_script or Path(train_script).is_absolute() or ".." in Path(train_script).parts:
+            raise ValueError("train_script must be a repository-relative path")
         return [
             python,
-            config.get("train_script", "train_scripts/train_levir_scripts/train_all_levir_yolov9t_oacp.py"),
+            train_script,
             "--data-root", config["data_root"],
             "--dataset-root", config["dataset_root"],
             "--project", str(run_dir / "project"),
@@ -157,6 +190,7 @@ def command_for(config: dict[str, Any], python: str, run_dir: Path) -> list[str]
             "--batch-size", str(config["batch_size"]),
             "--device", str(config["device"]),
             "--workers", str(config["workers"]),
+            *parse_train_args(config),
         ]
     if operation == "evaluate":
         return [

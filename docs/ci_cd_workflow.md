@@ -201,6 +201,9 @@ run_dir: /marimo/yolo_code/runs/ci/oacp-smoke-<unique-id>
 data_root: /marimo/LevirShip/LevirShipData
 dataset_root: /marimo/yolo_code/datasets/ci
 dataset_yaml: ""
+train_script: train_scripts/train_levir_scripts/train_all_levir_yolov8n_p2_consensus.py
+train_args: ["--amp", "false"]
+artifact_root: project/yolov8n_p2_consensus_seed{seed}
 dataset: levirship
 hf_repo_id: <user>/ci-oacp-smoke-runs
 seed: 43
@@ -213,11 +216,16 @@ workers: 4
 device: 0
 ```
 
-Entrypoint mặc định là:
+Nếu bỏ qua `train_script`, entrypoint mặc định là:
 
 ```text
 train_scripts/train_levir_scripts/train_all_levir_yolov9t_oacp.py
 ```
+
+Training script được chọn phải nhận các argument chuẩn mà workflow truyền
+(`--data-root`, `--project`, `--epochs`, ...), cộng với `train_args`.
+`artifact_root` phải trỏ đúng thư mục chứa `evaluation_metrics.json` và
+`manifest.json`; quality gate dùng path này thay vì giả định output YOLOv9t.
 
 Run directory phải mới và collision-free. Không dùng lại run directory chưa được remote verify.
 
