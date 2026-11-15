@@ -32,6 +32,21 @@ on:
         required: false
         default: ""
         type: string
+      train_script:
+        description: "Training script relative to repository root"
+        required: false
+        default: "train_scripts/train_levir_scripts/train_all_levir_yolov9t_oacp.py"
+        type: string
+      train_args:
+        description: "Extra training arguments as a JSON array of strings"
+        required: false
+        default: "[]"
+        type: string
+      artifact_root:
+        description: "Training artifact path, relative to run_dir unless absolute; supports {seed}"
+        required: false
+        default: "project/yolov9t_oacp_seed{seed}"
+        type: string
       dataset:
         description: "Dataset key"
         required: true
