@@ -27,6 +27,7 @@ from utils.marimo_ops import (
     validate_command_contract,
     write_run_contract,
 )
+from utils.marimo_ci import command_for, run as run_marimo_ci
 from utils.marimo.contracts import (
     DatasetSpec,
     ExecutionSpec,
@@ -555,6 +556,85 @@ class MarimoOpsTests(unittest.TestCase):
             self.assertEqual(state["pid"], result.pid)
             self.assertEqual(state["status"], "exited")
             self.assertEqual(state["returncode"], 0)
+
+
+    def test_command_for_selects_script_and_method_arguments(self) -> None:
+        base = {
+            "operation": "train",
+            "data_root": "/data",
+            "dataset_root": "/datasets",
+            "hf_repo_id": "org/runs",
+            "seed": "43",
+            "split_seed": "42",
+            "epochs": "1",
+            "patience": "0",
+            "image_size": "512",
+            "batch_size": "8",
+            "device": "0",
+            "workers": "4",
+        }
+        methods = (
+            (
+                "train_scripts/train_levir_scripts/train_all_levir_yolov9t_oacp.py",
+                "[]",
+            ),
+            (
+                "train_scripts/train_levir_scripts/train_all_levir_yolov8n_p2_consensus.py",
+                '["--amp", "false"]',
+            ),
+        )
+        for script, train_args in methods:
+            config = {**base, "train_script": script, "train_args": train_args}
+            command = command_for(config, "python", Path("/tmp/ci-run"))
+            expected_args = json.loads(train_args)
+            self.assertEqual(command[1], script)
+            self.assertEqual(command[-len(expected_args):] if expected_args else [], expected_args)
+
+    def test_run_contract_records_selected_training_method(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            artifact_root = run_dir / "project" / "consensus_seed43"
+            artifact_root.mkdir(parents=True)
+            (artifact_root / "evaluation_metrics.json").write_text('{"nms_iou": 0.5}\n')
+            (artifact_root / "manifest.json").write_text("{}\n")
+            data_yaml = root / "dataset.yaml"
+            data_yaml.write_text("path: /data\n")
+            config = {
+                "operation": "train",
+                "repo": str(root),
+                "python": sys.executable,
+                "data_root": str(root),
+                "dataset_root": str(root / "datasets"),
+                "dataset_yaml": str(data_yaml),
+                "dataset": "levirship",
+                "hf_repo_id": "org/runs",
+                "seed": "43",
+                "split_seed": "42",
+                "epochs": "1",
+                "patience": "0",
+                "image_size": "512",
+                "batch_size": "8",
+                "device": "0",
+                "workers": "4",
+                "run_dir": str(run_dir),
+                "train_script": "train_scripts/train_levir_scripts/train_all_levir_yolov8n_p2_consensus.py",
+                "train_args": '["--amp", "false"]',
+                "artifact_root": "project/consensus_seed{seed}",
+                "poll_seconds": "0",
+            }
+            with patch("utils.marimo_ci.preflight"), patch("utils.marimo_ci.launch_detached"), patch(
+                "utils.marimo_ci.status",
+                return_value={"process_active": False, "state": {"returncode": 0}},
+            ):
+                run_marimo_ci(config)
+
+            contract = json.loads((run_dir / "run_contract.json").read_text())
+            self.assertEqual(contract["train_script"], config["train_script"])
+            self.assertEqual(contract["train_args"], ["--amp", "false"])
+            self.assertEqual(contract["artifact_root"], str(artifact_root.resolve()))
+            self.assertEqual(contract["train_command"][1], config["train_script"])
+            self.assertEqual(contract["train_command"][-2:], ["--amp", "false"])
 
 
 if __name__ == "__main__":
