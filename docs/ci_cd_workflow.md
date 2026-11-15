@@ -2,7 +2,9 @@
 
 Workflow: `.github/workflows/mlops.yml`.
 
-Workflow này chỉ kích hoạt bằng `workflow_dispatch`. GitHub Actions đóng vai trò client; code train/evaluate/export chạy trên checkout đã có sẵn ở Marimo thông qua `utils.marimo_run` và `utils.marimo_ops`.
+Workflow này chỉ kích hoạt bằng `workflow_dispatch`. GitHub Actions đóng vai trò
+client; workflow tự clone đúng commit vào Marimo rồi chạy train/evaluate/export
+thông qua `utils.marimo_run` và `utils.marimo_ops`.
 
 ## GitHub Environments
 
@@ -20,12 +22,13 @@ Trong mỗi Environment tạo:
 Variable:
   MARIMO_URL=https://<server-host>
 
-Secret:
-  MARIMO_TOKEN=<token hiện tại của server>
-```
+Secrets:
+  MARIMO_TOKEN=<Marimo access token>
+  HF_TOKEN=<Hugging Face token; required for train/upload>
 
-Khi server mới được tạo, chỉ cần cập nhật `MARIMO_URL` và `MARIMO_TOKEN`
-trong Environment tương ứng. User khác không bị ảnh hưởng.
+Workflow tự clone repo vào `marimo_repo` và checkout `github.sha`; không cần
+truyền SHA hoặc clone thủ công trên server. User khác không bị ảnh hưởng nếu
+dùng Environment khác.
 
 Không nhập token vào form GitHub Actions. Chạy launcher local:
 
@@ -35,7 +38,6 @@ printf '%s\n' '<token mới>' \
   | scripts/run_marimo_workflow.sh \
       --environment marimo-duy \
       --marimo-url 'https://<server-host>' \
-      --expected-sha '<SHA-của-checkout-trên-Marimo>' \
       --epochs 1 \
       --data-root '<LEVIR-Ship-root-trên-Marimo>' \
       --hf-repo-id '<user>/ci-oacp-smoke-runs' \
@@ -124,12 +126,23 @@ Secret:
 xuống local trước rồi mới chuyển qua SSH; workflow không để token trong command
 hoặc artifact.
 
+Sau khi Jetson export/evaluate xong, output được SCP ngược về GitHub runner.
+Runner lưu đầy đủ tại `jetson-${github.run_id}-attempt-${github.run_attempt}`.
+
+GitHub Actions chỉ upload thư mục `eval/` để giữ artifact nhẹ:
+
+1. GitHub Actions artifact: kết quả evaluate;
+2. Hugging Face: toàn bộ run gồm `best.pt`, ONNX, TensorRT engine và `eval/`,
+   dưới prefix `runs/jetson/<operation>/github-<run_id>-attempt-<attempt>`.
+
+Jetson không upload trực tiếp lên Hugging Face; GitHub runner thực hiện bước
+upload sau khi SCP output từ Jetson về local.
+
 ## Contract của runner Marimo
 
 `marimo_repo` là path checkout trên server Marimo. Trước khi chạy, workflow tự
-clone repository hiện tại vào path này và checkout `expected_sha`; nếu
-`expected_sha` để trống, workflow dùng `github.sha`. Nếu path đã tồn tại nhưng
-không phải Git checkout, workflow fail an toàn và không xóa dữ liệu.
+clone repository hiện tại vào path này và checkout `github.sha`. Nếu path đã tồn
+tại nhưng không phải Git checkout, workflow fail an toàn và không xóa dữ liệu.
 
 Với `operation=train`, workflow tự gọi `misc.prepare_levir_ship.prepare` khi
 `dataset_yaml` để trống, ghi YAML vào `dataset_root`, rồi mới chạy preflight.
