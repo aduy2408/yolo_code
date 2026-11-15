@@ -243,3 +243,29 @@ Run directory phải mới và collision-free. Không dùng lại run directory 
 ## Giới hạn xác nhận
 
 Job OACP một epoch là smoke/runtime check, không phải training result nghiên cứu. Kết quả chính thức vẫn phải kiểm tra checkpoint, manifest, metrics, split provenance và artifact upload sau run.
+
+## Self-hosted runner cho Jetson
+
+Job `export_jetson`, `evaluate_jetson`, và `jetson_pipeline` chạy trên
+self-hosted runner có labels:
+
+```text
+self-hosted, Linux, X64
+```
+
+Runner hiện làm gateway trên PC Arch Linux. PC cần luôn online với GitHub và
+phải có `ssh`, `scp`, `curl`, `python`, và quyền chạy GitHub Actions runner.
+Jetson chỉ cần reachable qua LAN từ PC; job vẫn chạy Docker, TensorRT và
+inference trên Jetson thông qua `scripts/run_jetson_workflow.sh`.
+
+`remote-mlops` và `static-smoke` vẫn chạy trên `ubuntu-latest`.
+
+Trước khi dispatch Jetson, kiểm tra runner đang `Idle` và test từ PC:
+
+```bash
+ssh <JETSON_USER>@<JETSON_HOST>
+```
+
+Workflow có 25 `workflow_dispatch` inputs, đúng giới hạn GitHub. Các giá trị
+ổn định `JETSON_REPO`, `JETSON_DATA_ROOT`, và `JETSON_IMAGE` có thể cấu hình
+trong GitHub Environment variables; nếu bỏ trống workflow dùng fallback mặc định.
