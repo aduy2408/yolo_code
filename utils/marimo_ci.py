@@ -60,6 +60,13 @@ def run(config: dict[str, Any]) -> None:
         "min_test_map50_95": config.get("min_test_map50_95", ""),
         "hf_repo_id": config.get("hf_repo_id", "matrix") if is_train else "matrix",
     }
+    if is_train:
+        contract.update({
+            "train_script": command[1],
+            "train_args": parse_train_args(config),
+            "artifact_root": str(artifact_root),
+            "train_command": command,
+        })
     contract_path = run_dir / "run_contract.json"
     if contract_path.exists():
         raise RuntimeError(f"Refusing to reuse run directory: {run_dir}")
