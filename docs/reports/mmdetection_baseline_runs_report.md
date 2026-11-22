@@ -45,30 +45,30 @@ Columns are AP50, AP75, mAP50-95, AP50-Small, and TinyPerson AP50-Tiny1/2/3, spl
 | TinyPerson | mosaic | 42 | rtmdet | 0.5054 | 0.0861 | 0.1837 | 0.5813 | 0.2520 | 0.5368 | 0.5091 | 0.5191 | 0.0980 | 0.1902 | 0.6348 | 0.2179 | 0.4693 | 0.5640 | complete |
 | TinyPerson | mosaic | 42 | atss | 0.4298 | 0.0660 | 0.1500 | 0.5995 | 0.1571 | 0.4366 | 0.4949 | 0.4469 | 0.0707 | 0.1550 | 0.5984 | 0.1356 | 0.3639 | 0.5135 | complete |
 | TinyPerson | mosaic | 42 | retinanet | 0.4515 | 0.0532 | 0.1484 | 0.5020 | 0.2273 | 0.5134 | 0.4677 | 0.4344 | 0.0478 | 0.1405 | 0.4980 | 0.2059 | 0.4146 | 0.4925 | complete |
-| Varroa | no_mosaic | 42 | fcos | -- | -- | -- | -- | -- | -- | -- | 0.8987 | 0.0997 | 0.3257 | 0.8875 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 42 | faster_rcnn | -- | -- | -- | -- | -- | -- | -- | 0.8929 | 0.0919 | 0.3241 | 0.8750 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 42 | cascade_rcnn | -- | -- | -- | -- | -- | -- | -- | 0.8802 | 0.1006 | 0.3128 | 0.8534 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 42 | rtmdet | -- | -- | -- | -- | -- | -- | -- | 0.9047 | 0.1088 | 0.3387 | 0.8930 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 42 | atss | -- | -- | -- | -- | -- | -- | -- | 0.8892 | 0.1021 | 0.3169 | 0.8547 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 42 | retinanet | -- | -- | -- | -- | -- | -- | -- | 0.8819 | 0.1028 | 0.3268 | 0.8727 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 43 | fcos | -- | -- | -- | -- | -- | -- | -- | 0.9133 | 0.0983 | 0.3257 | 0.8985 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 43 | faster_rcnn | -- | -- | -- | -- | -- | -- | -- | 0.8854 | 0.0910 | 0.3108 | 0.8676 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 43 | cascade_rcnn | -- | -- | -- | -- | -- | -- | -- | 0.8774 | 0.0879 | 0.3085 | 0.8408 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 43 | rtmdet | -- | -- | -- | -- | -- | -- | -- | 0.9191 | 0.1193 | 0.3427 | 0.8986 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 43 | atss | -- | -- | -- | -- | -- | -- | -- | 0.8793 | 0.0859 | 0.3086 | 0.8588 | -- | -- | -- | test complete; validation missing |
-| Varroa | no_mosaic | 43 | retinanet | -- | -- | -- | -- | -- | -- | -- | 0.8923 | 0.1036 | 0.3303 | 0.8673 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 42 | fcos | -- | -- | -- | -- | -- | -- | -- | 0.8939 | 0.1089 | 0.3207 | 0.8671 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 42 | faster_rcnn | -- | -- | -- | -- | -- | -- | -- | 0.8886 | 0.1013 | 0.3216 | 0.8764 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 42 | cascade_rcnn | -- | -- | -- | -- | -- | -- | -- | 0.8929 | 0.1084 | 0.3157 | 0.8709 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 42 | rtmdet | -- | -- | -- | -- | -- | -- | -- | 0.9050 | 0.1257 | 0.3447 | 0.8795 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 42 | atss | -- | -- | -- | -- | -- | -- | -- | 0.8778 | 0.0932 | 0.3218 | 0.8434 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 42 | retinanet | -- | -- | -- | -- | -- | -- | -- | 0.8938 | 0.1105 | 0.3316 | 0.8630 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 43 | fcos | -- | -- | -- | -- | -- | -- | -- | 0.9007 | 0.1162 | 0.3247 | 0.8623 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 43 | faster_rcnn | -- | -- | -- | -- | -- | -- | -- | 0.8857 | 0.1036 | 0.3198 | 0.8741 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 43 | cascade_rcnn | -- | -- | -- | -- | -- | -- | -- | 0.8913 | 0.1134 | 0.3267 | 0.8743 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 43 | rtmdet | -- | -- | -- | -- | -- | -- | -- | 0.9134 | 0.1166 | 0.3289 | 0.8991 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 43 | atss | -- | -- | -- | -- | -- | -- | -- | 0.8927 | 0.0837 | 0.3132 | 0.8615 | -- | -- | -- | test complete; validation missing |
-| Varroa | mosaic | 43 | retinanet | -- | -- | -- | -- | -- | -- | -- | 0.8954 | 0.0930 | 0.3352 | 0.8757 | -- | -- | -- | test complete; validation missing |
+| Varroa | no_mosaic | 42 | fcos | 0.917 | 0.083 | 0.320 | 0.8973 | -- | -- | -- | 0.8987 | 0.0997 | 0.3257 | 0.8875 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 42 | faster_rcnn | 0.902 | 0.098 | 0.328 | 0.8777 | -- | -- | -- | 0.8929 | 0.0919 | 0.3241 | 0.8750 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 42 | cascade_rcnn | 0.882 | 0.077 | 0.305 | 0.8720 | -- | -- | -- | 0.8802 | 0.1006 | 0.3128 | 0.8534 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 42 | rtmdet | 0.932 | 0.115 | 0.344 | 0.9303 | -- | -- | -- | 0.9047 | 0.1088 | 0.3387 | 0.8930 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 42 | atss | 0.879 | 0.081 | 0.316 | 0.8457 | -- | -- | -- | 0.8892 | 0.1021 | 0.3169 | 0.8547 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 42 | retinanet | 0.895 | 0.108 | 0.325 | 0.8845 | -- | -- | -- | 0.8819 | 0.1028 | 0.3268 | 0.8727 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 43 | fcos | 0.917 | 0.103 | 0.323 | 0.9002 | -- | -- | -- | 0.9133 | 0.0983 | 0.3257 | 0.8985 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 43 | faster_rcnn | 0.903 | 0.103 | 0.317 | 0.8857 | -- | -- | -- | 0.8854 | 0.0910 | 0.3108 | 0.8676 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 43 | cascade_rcnn | 0.901 | 0.083 | 0.311 | 0.8840 | -- | -- | -- | 0.8774 | 0.0879 | 0.3085 | 0.8408 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 43 | rtmdet | 0.939 | 0.118 | 0.351 | 0.9321 | -- | -- | -- | 0.9191 | 0.1193 | 0.3427 | 0.8986 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 43 | atss | 0.880 | 0.105 | 0.313 | 0.8593 | -- | -- | -- | 0.8793 | 0.0859 | 0.3086 | 0.8588 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | no_mosaic | 43 | retinanet | 0.894 | 0.097 | 0.321 | 0.8862 | -- | -- | -- | 0.8923 | 0.1036 | 0.3303 | 0.8673 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 42 | fcos | 0.890 | 0.089 | 0.310 | 0.8745 | -- | -- | -- | 0.8939 | 0.1089 | 0.3207 | 0.8671 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 42 | faster_rcnn | 0.918 | 0.096 | 0.325 | 0.9015 | -- | -- | -- | 0.8886 | 0.1013 | 0.3216 | 0.8764 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 42 | cascade_rcnn | 0.901 | 0.082 | 0.310 | 0.8788 | -- | -- | -- | 0.8929 | 0.1084 | 0.3157 | 0.8709 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 42 | rtmdet | 0.905 | 0.126 | 0.340 | 0.9094 | -- | -- | -- | 0.9050 | 0.1257 | 0.3447 | 0.8795 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 42 | atss | 0.879 | 0.081 | 0.304 | 0.8457 | -- | -- | -- | 0.8778 | 0.0932 | 0.3218 | 0.8434 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 42 | retinanet | 0.894 | 0.099 | 0.321 | 0.8780 | -- | -- | -- | 0.8938 | 0.1105 | 0.3316 | 0.8630 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 43 | fcos | 0.887 | 0.084 | 0.313 | 0.8472 | -- | -- | -- | 0.9007 | 0.1162 | 0.3247 | 0.8623 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 43 | faster_rcnn | 0.910 | 0.098 | 0.312 | 0.8865 | -- | -- | -- | 0.8857 | 0.1036 | 0.3198 | 0.8741 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 43 | cascade_rcnn | 0.909 | 0.091 | 0.321 | 0.8918 | -- | -- | -- | 0.8913 | 0.1134 | 0.3267 | 0.8743 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 43 | rtmdet | 0.923 | 0.107 | 0.334 | 0.9079 | -- | -- | -- | 0.9134 | 0.1166 | 0.3289 | 0.8991 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 43 | atss | 0.898 | 0.090 | 0.311 | 0.8783 | -- | -- | -- | 0.8927 | 0.0837 | 0.3132 | 0.8615 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
+| Varroa | mosaic | 43 | retinanet | 0.890 | 0.092 | 0.321 | 0.8848 | -- | -- | -- | 0.8954 | 0.0930 | 0.3352 | 0.8757 | -- | -- | -- | complete; validation backfill verified 2026-11-22 |
 
 
 ### 2.1 Seed 43 supplemental table
@@ -106,11 +106,14 @@ The original table above contains seed42 for LEVIR-Ship and TinyPerson. The foll
 
 ### 3.1 Varroa validation metrics
 
-The Varroa remote repository contains complete training/test artifacts and a consolidated `evaluation/20260924/varroa_metrics.json`, but that aggregate artifact is test-only. All 24 Varroa baseline rows therefore have `--` for validation metrics. Run validation-only evaluation on the uploaded best checkpoints and upload one split-qualified metrics artifact per existing prefix.
+The 24 missing Varroa validation rows were re-evaluated on the supplied Marimo server with `/marimo/mmdet-venv/bin/python`, split seed `42`, native validation COCO protocol, NMS IoU `0.5`, and 640×640 inputs. Validation artifacts were uploaded under `validation_eval_20261122` beneath each existing HF prefix; original test artifacts were not overwritten.
 
-| Protocols | Seeds | Models | Missing fields |
+| Protocols | Seeds | Models | Status |
 |---|---|---|---|
-| `no_mosaic`, `mosaic` | 42, 43 | fcos, faster_rcnn, cascade_rcnn, rtmdet, atss, retinanet | Val AP50, AP75, mAP50-95, AP50-Small |
+| `no_mosaic`, `mosaic` | 42, 43 | fcos, faster_rcnn, cascade_rcnn, rtmdet, atss, retinanet | 24/24 validation artifacts complete and remote-verified |
+
+Validation metrics use MMDetection `CocoMetric`; `AP50-Small` is recomputed from the saved validation predictions with `pycocotools`.
+
 
 ### 3.2 LEVIR-Ship and TinyPerson missing rows
 
@@ -145,12 +148,10 @@ Repository: `duyle2408/set-fcos-stw-protocol-runs`
 
 ## 6. Recommended server work
 
-1. Re-evaluate the 24 Varroa best checkpoints on validation with split seed 42 and the original dataset-specific protocol.
-2. Evaluate the existing LEVIR-Ship seed42 no-mosaic RetinaNet checkpoint and the TinyPerson seed43 no-mosaic RetinaNet row, then upload split-qualified `final_results.json` artifacts.
-3. Request or restore access to the seed44 repositories before deciding whether those seeds were run.
-4. Upload validation metrics under the existing Varroa prefixes without overwriting the original test metrics.
-5. Preserve checkpoint, source commit, model, protocol, seed, NMS IoU, and image-size metadata.
-6. After upload, replace only the relevant `--` fields in this report with values from verified remote artifacts.
+1. Evaluate the existing LEVIR-Ship seed42 no-mosaic RetinaNet checkpoint and the TinyPerson seed43 no-mosaic RetinaNet row, then upload split-qualified `final_results.json` artifacts.
+2. Request or restore access to the seed44 repositories before deciding whether those seeds were run.
+3. Preserve checkpoint, source commit, model, protocol, seed, NMS IoU, and image-size metadata for future backfills.
+4. Keep the Varroa validation artifacts under `validation_eval_20261122`; do not overwrite the original test metrics.
 
 ## 7. Excluded repositories
 
