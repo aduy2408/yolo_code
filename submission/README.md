@@ -24,4 +24,4 @@ Datasets: Varroa, LEVIR-Ship, TinyPerson. Split seed: `42`; training seeds are s
 
 OACP `r2` is implemented in `project_ultralytics/context_augment.py`. Copy-Paste `r2` and `r4` are registered as `negative_canvas_r2`, `negative_canvas_r4`, `all_canvas_r2`, and `all_canvas_r4` in `copy_paste_protocol.py`. Do not copy a second implementation into this folder.
 
-Use the launchers under `train/` and `evaluate/`; they delegate to the canonical source above. Training/evaluation through Marimo must use `utils.marimo_ops` and the live Marimo kernel. Never place tokens in commands or files.
+Submission Python entrypoints live in `train/*.py` and `evaluate/*.py`; each delegates to the canonical source above without duplicating it. Training/evaluation through Marimo must use `utils.marimo_ops` and the live Marimo kernel. Never place tokens in commands or files.
