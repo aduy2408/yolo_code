@@ -331,6 +331,40 @@ class MarimoOpsTests(unittest.TestCase):
             verified = complete_verified(run_dir)
             self.assertEqual(verified["artifact_root"], str(artifact_root.resolve()))
 
+    def test_status_reconciles_running_state_after_verified_upload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact_root = root / "outputs"
+            write_run_contract(
+                root,
+                {
+                    "dataset": "levir", "data_root": "/data/levir",
+                    "dataset_yaml": "/data/levir/data.yaml", "model_yaml": "models/yolov8.yaml",
+                    "seed": 43, "split_seed": 42, "workers": 4, "image_size": 512,
+                    "epochs": 100, "patience": 0, "nms_iou": 0.5,
+                    "hf_repo_id": "user/task-runs",
+                },
+            )
+            (root / "state.json").write_text(json.dumps({
+                "status": "running", "cwd": str(root), "artifact_root": str(artifact_root),
+            }))
+            for relative in COMPLETION_ARTIFACTS_FOR_TEST:
+                path = artifact_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}" if path.suffix == ".json" else "artifact")
+            (artifact_root / "upload_complete.json").write_text(json.dumps({
+                "repo_id": "user/task-runs", "remote_prefix": "run-43",
+                "verified": list(COMPLETION_ARTIFACTS_FOR_TEST),
+            }))
+
+            report = status(root, emit=False)
+
+            self.assertEqual(report["observed_status"], "artifacts_present")
+            self.assertTrue(report["upload_verified"])
+            state = json.loads((root / "state.json").read_text())
+            self.assertEqual(state["status"], "exited")
+            self.assertEqual(state["returncode"], 0)
+
     def test_custom_state_file_and_upload_marker_are_consistent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

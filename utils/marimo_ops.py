@@ -757,6 +757,15 @@ def status(
                 upload_verified = False
         except MarimoOpsError:
             upload_verified = False
+    if not active and upload_verified and required_present and isinstance(state, dict):
+        if state.get("status") != "exited":
+            state = {
+                **state,
+                "status": "exited",
+                "returncode": 0,
+                "finished_at": now_utc(),
+            }
+            write_json(state_path, state)
     if active:
         observed_status = "running"
     elif alive and process_identity == "mismatch":
