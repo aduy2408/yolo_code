@@ -28,7 +28,7 @@ hf_repo_id=duyle2408/ci-oacp-smoke-runs
 train_script=train_scripts/train_levir_scripts/train_all_levir_yolov9t_oacp.py
 train_args='[]'
 artifact_root='project/yolov9t_oacp_seed{seed}'
-epochs=1
+epochs=100
 watch=false
 
 while (($#)); do

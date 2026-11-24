@@ -66,7 +66,7 @@ on:
       epochs:
         description: "Training epochs"
         required: false
-        default: "1"
+        default: "100"
         type: string
       min_test_map50:
         description: "Optional minimum test mAP50 quality gate"
