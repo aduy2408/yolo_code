@@ -112,10 +112,10 @@ fi
 printf '%s\n' "$run_json" | python -c '
 import json, sys
 row = json.load(sys.stdin)[0]
-print(f"run_id={row['databaseId']}")
-print(f"url={row['url']}")
-print(f"status={row['status']}")
-print(f"conclusion={row['conclusion']}")
+print("run_id={}".format(row["databaseId"]))
+print("url={}".format(row["url"]))
+print("status={}".format(row["status"]))
+print("conclusion={}".format(row["conclusion"]))
 '
 
 if [[ "$watch" == true ]]; then
