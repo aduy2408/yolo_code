@@ -18,6 +18,7 @@ Datasets: Varroa, LEVIR-Ship, TinyPerson. Split seed: `42`; training seeds are s
 | Copy-Paste implementation | `project_ultralytics/copy_paste.py`, `negative_canvas_copy_paste.py`, `adaptive_negative_canvas.py`, `stcp_copy_paste.py` |
 | Augmentation matrix | `train_scripts/train_all_augmentation_matrix.py` |
 | Marimo preflight/launch/upload verification | `utils/marimo_ops.py` |
+| CI/CD workflow and dispatch | `submission/ci_cd/README.md`, `.github/workflows/ci.yml`, `.github/workflows/mlops.yml` |
 | STW-YOLO | `misc/train_stw_yolo_marimo.py` |
 | TPH-YOLO | `train_scripts/train_tph_yolov5_multidataset.py` |
 
