@@ -313,3 +313,69 @@ class TensorRTGpuPipeline:
             nms_iou,
             max_det,
         )
+
+    def capture_resized_graph(self, bgr_resized: torch.Tensor, confidence: float = 0.001) -> None:
+        """Capture fixed-shape pack, TensorRT, and decode; caller owns the persistent input tensor."""
+        if bgr_resized.shape != (self.input_size, self.input_size, 3) or not bgr_resized.is_cuda:
+            raise ValueError("CUDA Graph input must be a fixed-size CUDA HWC tensor")
+        stream = torch.cuda.current_stream(bgr_resized.device)
+        for _ in range(20):
+            self.preprocessor.pack_resized(bgr_resized, self.input)
+            self.context.set_tensor_address(self.input_name, self.input.data_ptr())
+            self.context.set_tensor_address(self.output_name, self.output.data_ptr())
+            self.context.execute_async_v3(stream.cuda_stream)
+            self.preprocessor.decode(
+                self.output,
+                self.num_classes,
+                confidence,
+                self.decoded_boxes,
+                self.decoded_scores,
+                self.decoded_classes,
+            )
+        torch.cuda.synchronize()
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            self.preprocessor.pack_resized(bgr_resized, self.input)
+            self.context.set_tensor_address(self.input_name, self.input.data_ptr())
+            self.context.set_tensor_address(self.output_name, self.output.data_ptr())
+            self.context.execute_async_v3(stream.cuda_stream)
+            self.preprocessor.decode(
+                self.output,
+                self.num_classes,
+                confidence,
+                self.decoded_boxes,
+                self.decoded_scores,
+                self.decoded_classes,
+            )
+        torch.cuda.synchronize()
+        self._cuda_graph = graph
+        self._cuda_graph_input_ptr = bgr_resized.data_ptr()
+        self._cuda_graph_confidence = confidence
+
+    def infer_resized_graph(
+        self,
+        bgr_resized: torch.Tensor,
+        original_width: int,
+        original_height: int,
+        scale: float,
+        pad_x: int = 0,
+        pad_y: int = 0,
+        nms_iou: float = 0.5,
+        max_det: int = 300,
+    ):
+        if getattr(self, "_cuda_graph", None) is None or bgr_resized.data_ptr() != self._cuda_graph_input_ptr:
+            raise RuntimeError("Call capture_resized_graph with this persistent input tensor first")
+        self._cuda_graph.replay()
+        return gpu_nms_postprocess(
+            self.decoded_boxes.transpose(0, 1),
+            self.decoded_scores,
+            self.decoded_classes,
+            scale,
+            pad_x,
+            pad_y,
+            original_width,
+            original_height,
+            self._cuda_graph_confidence,
+            nms_iou,
+            max_det,
+        )
