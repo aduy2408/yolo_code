@@ -165,6 +165,8 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -174,6 +176,10 @@ jobs:
 
           config = json.loads(os.environ["MLOPS_CONFIG_JSON"])
           config["repo"] = config["marimo_repo"]
+          config["run_dir"] = (
+              f"{config['repo']}/runs/ci/github-{os.environ['GITHUB_RUN_ID']}"
+              f"-attempt-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          )
           config["python"] = "/tmp/uv-venv/bin/python"
           config["poll_seconds"] = 60
           config["expected_sha"] = os.environ["GITHUB_SHA"]
@@ -238,6 +244,36 @@ jobs:
           PY
           trap 'rm -f /tmp/marimo_ci_remote.py' EXIT
           python -m utils.marimo_run --file /tmp/marimo_ci_remote.py
+          run_dir="${{ inputs.marimo_repo }}/runs/ci/github-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+          while true; do
+            watch_result="$(
+              MARIMO_WATCH_SERVER_1_URL="$MARIMO_URL" \
+              MARIMO_WATCH_SERVER_1_TOKEN="$MARIMO_TOKEN" \
+              python utils/marimo_watch.py \
+                --repo "${{ inputs.marimo_repo }}" --path "$run_dir" --once
+            )"
+            read -r process_alive upload_verified observed_status <<<"$(
+              WATCH_RESULT="$watch_result" python -c '
+          import json, os
+          result = json.loads(os.environ["WATCH_RESULT"])["result"][0]
+          if "error" in result:
+              print("unknown unknown error")
+          else:
+              print(str(result.get("process_alive", False)).lower(),
+                    str(result.get("upload_verified", False)).lower(),
+                    result.get("observed_status", "unknown"))
+          '
+            )"
+            echo "remote_status=$observed_status process_alive=$process_alive upload_verified=$upload_verified"
+            if [[ "$process_alive" != true ]]; then
+              [[ "$upload_verified" == true ]] || {
+                echo "Remote training ended without verified Hugging Face upload." >&2
+                exit 1
+              }
+              break
+            fi
+            sleep 60
+          done
 
       - name: Upload local workflow evidence
         if: ${{ always() }}
