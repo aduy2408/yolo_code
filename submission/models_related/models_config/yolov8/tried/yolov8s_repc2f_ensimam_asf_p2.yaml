@@ -1,0 +1,62 @@
+# YOLOv8s Varroa model with P2/P3/P4/P5 heads, RepC2f, EnSimAM, and SOD-YOLO-style ASF.
+# ASF fuses P3/P4/P5 into a refined P3 feature before the BiFPN neck.
+
+nc: 1
+scale: s
+scales:
+  n: [0.33, 0.25, 1024]
+  s: [0.33, 0.50, 1024]
+  m: [0.67, 0.75, 768]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.25, 512]
+
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]]       # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]      # 1-P2/4
+  - [-1, 3, C2f, [128, True]]       # 2-P2/4
+  - [-1, 1, Conv, [256, 3, 2]]      # 3-P3/8
+  - [-1, 6, RepC2f, [256, True]]    # 4-P3/8
+  - [-1, 1, Conv, [512, 3, 2]]      # 5-P4/16
+  - [-1, 6, RepC2f, [512, True]]    # 6-P4/16
+  - [-1, 1, Conv, [1024, 3, 2]]     # 7-P5/32
+  - [-1, 3, RepC2f, [1024, True]]   # 8-P5/32
+  - [-1, 1, SPPF, [1024, 5]]        # 9-P5/32
+
+head:
+  # Lateral channel alignment to one neck width.
+  - [2, 1, Conv, [256, 1, 1]]            # 10-P2/4 lateral
+  - [4, 1, Conv, [256, 1, 1]]            # 11-P3/8 lateral
+  - [6, 1, Conv, [256, 1, 1]]            # 12-P4/16 lateral
+  - [9, 1, Conv, [256, 1, 1]]            # 13-P5/32 lateral
+
+  # Attentional Scale Fusion: P4/P5 are aligned to P3 inside ScalSeq.
+  - [[11, 12, 13], 1, ScalSeq, [256]]    # 14-P3 ASF fused
+  - [-1, 1, ASFAttention, []]            # 15-P3 ASF attention refinement
+
+  # Top-down BiFPN path: P5 -> P4 -> P3 -> P2.
+  - [13, 1, ConvTranspose, [256, 2, 2]]  # 16-P5 up to P4
+  - [[12, 16], 1, WeightedAdd, []]       # 17-P4 top-down weighted sum
+  - [-1, 3, RepC2f, [256]]              # 18-P4 top-down
+  - [-1, 1, ConvTranspose, [256, 2, 2]]  # 19-P4 up to P3
+  - [[15, 19], 1, WeightedAdd, []]       # 20-P3 top-down + ASF
+  - [-1, 3, RepC2f, [256]]              # 21-P3 top-down
+  - [-1, 1, EnSimAM, []]                # 22-P3 attention
+  - [-1, 1, ConvTranspose, [256, 2, 2]]  # 23-P3 up to P2
+  - [[10, 23], 1, WeightedAdd, []]       # 24-P2 weighted sum
+  - [-1, 3, C2f, [256]]                 # 25-P2 output tiny
+  - [-1, 1, EnSimAM, []]                # 26-P2 attention
+
+  # Bottom-up BiFPN path: P2 -> P3 -> P4 -> P5.
+  - [26, 1, Conv, [256, 3, 2]]           # 27-P2 down to P3
+  - [[15, 22, 27], 1, WeightedAdd, []]   # 28-P3 weighted sum
+  - [-1, 3, RepC2f, [256]]              # 29-P3 output small
+  - [-1, 1, EnSimAM, []]                # 30-P3 attention
+  - [-1, 1, Conv, [256, 3, 2]]           # 31-P3 down to P4
+  - [[12, 18, 31], 1, WeightedAdd, []]   # 32-P4 weighted sum
+  - [-1, 3, RepC2f, [256]]              # 33-P4 output medium
+  - [-1, 1, Conv, [256, 3, 2]]           # 34-P4 down to P5
+  - [[13, 34], 1, WeightedAdd, []]       # 35-P5 weighted sum
+  - [-1, 3, RepC2f, [256]]              # 36-P5 output large
+
+  - [[26, 30, 33, 36], 1, Detect, [nc]]

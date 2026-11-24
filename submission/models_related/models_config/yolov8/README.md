@@ -1,0 +1,56 @@
+# YOLOv8 configuration index
+
+These YAMLs are retained for historical reproduction. They are not interchangeable
+with the clean default detector.
+
+## Use this for new default runs
+
+```text
+../ultralytics/ultralytics/cfg/models/v8/yolov8.yaml
+```
+
+That path is the upstream-style P3/P4/P5 YOLOv8 model used by the current Mosaic
+policy matrix. Do not substitute a file from this directory unless the experiment
+explicitly requests a historical architecture.
+
+## Historical groups
+
+| Directory | Count | Scope |
+|---|---:|---|
+| `levir/` | 165 | LEVIR-Ship configs, organized into subcategories below |
+| `tinyperson/` | 4 | TinyPerson detector variants |
+| `varroa/` | 36 | Varroa detector experiments |
+| `visdrone/` | 3 | VisDrone detector experiments |
+| `kvca_sweep/` | 5 | KVCA architecture sweep |
+| `tried/` | 59 | Earlier exploratory configurations |
+
+### LEVIR subcategories
+
+The formerly flat LEVIR directory is now organized physically:
+
+| Directory | Count | Scope |
+|---|---:|---|
+| `levir/baseline_controls/` | 10 | Plain, baseline, and control variants |
+| `levir/attention/` | 34 | CBAM, KVCA, channel, and attention variants |
+| `levir/heads_losses/` | 25 | GAP, DFL/TAL, deep-supervision, and object-aware variants |
+| `levir/evidence_probes/` | 39 | Evidence, probe, cue, DBSS, surgical, and diagnostic variants |
+| `levir/fusion_context/` | 36 | Fusion, contrast, sidecar, FPN/PAN, and context variants |
+| `levir/interaction_ablation/` | 8 | C1-C4, extra8, and single17 interaction ablations |
+| `levir/other/` | 13 | Remaining historical LEVIR experiments |
+
+The old `levir/<name>.yaml` paths are compatibility symlinks to the categorized
+files. New code should use the categorized path directly. The symlinks remain
+because many historical scripts and manifests intentionally record the old path.
+
+## Filename vocabulary
+
+- `p2`, `p2p3`, `p2p3p4`: extra small-object detection scales, not default YOLOv8.
+- `cbam`, `channel`, `attention`, `kvca`, `self_attention`: custom attention or
+  feature-calibration modules.
+- `gap`, `gccc`, `dmm`, `ftal`, `tal`: custom head, loss, or training variants.
+- `plain` and `baseline`: local historical names. They do not prove upstream
+  equivalence; inspect the YAML and use the canonical upstream path for a true
+  baseline.
+
+Do not delete or move these files without updating every runner and test that
+references their paths. Their paths are part of historical experiment provenance.

@@ -1,0 +1,465 @@
+from copy import deepcopy
+from pathlib import Path
+
+import pytest
+import torch
+
+from ultralytics.nn.modules import (
+    DBSS,
+    GCTS,
+    Conv,
+    DualIrreducibilityHIT,
+    P3NUDFLDetect,
+    v10GCTSDetect,
+    v10GCTSP3NUDFLDetect,
+    v10P3NUDFLDetect,
+)
+from ultralytics.nn.tasks import DetectionModel
+from ultralytics.utils.loss import DFLoss
+from ultralytics.utils.torch_utils import fuse_conv_and_bn
+
+
+def batch(with_box=True):
+    return {
+        "img": torch.rand(1, 3, 64, 64),
+        "batch_idx": torch.tensor([0]) if with_box else torch.empty(0),
+        "bboxes": torch.tensor([[0.5, 0.5, 0.2, 0.2]]) if with_box else torch.empty(0, 4),
+    }
+
+
+def test_gcts_is_initially_the_pretrained_conv_path():
+    module = GCTS(8, 16).eval()
+    baseline = Conv(8, 16, 3, 2).eval()
+    baseline.conv.load_state_dict(module.conv.state_dict())
+    baseline.bn.load_state_dict(module.bn.state_dict())
+    x = torch.randn(2, 8, 12, 12)
+    output = module(x)
+    assert output.shape == (2, 16, 6, 6)
+    assert torch.isfinite(output).all()
+    assert torch.equal(output, baseline(x))
+
+    module.gamma.data.fill_(0.25)
+    expected = module(x)
+    fused = deepcopy(module)
+    fused.conv = fuse_conv_and_bn(fused.conv, fused.bn)
+    delattr(fused, "bn")
+    assert torch.allclose(fused.forward_fuse(x), expected, atol=1e-5, rtol=1e-5)
+
+
+def test_gcts_candidate_order_and_targets():
+    packed = torch.nn.functional.pixel_unshuffle(torch.tensor([[[[0.0, 1.0], [2.0, 3.0]]]]), 2)
+    assert packed.flatten().tolist() == [0.0, 1.0, 2.0, 3.0]  # TL, TR, BL, BR
+
+    onehot = GCTS(4, 8, target_mode="onehot")
+    _, _, target = onehot._targets(torch.tensor([[0.125, 0.125], [0.375, 0.375]]), 2, 2)
+    assert torch.equal(target, torch.tensor([[1.0, 0, 0, 0], [0, 0, 0, 1.0]]))
+
+    bilinear = GCTS(4, 8, target_mode="bilinear")
+    _, _, target = bilinear._targets(torch.tensor([[0.25, 0.25], [1.0, 1.0]]), 2, 2)
+    assert torch.allclose(target[0], torch.full((4,), 0.25))
+    assert torch.allclose(target.sum(1), torch.ones(2))
+
+
+def test_gcts_auxiliary_loss_has_selector_gradient_and_handles_empty_gt():
+    module = GCTS(8, 16, loss_weight=0.2).train()
+    module(torch.randn(1, 8, 8, 8, requires_grad=True))
+    loss, metrics = module.auxiliary_loss(batch())
+    assert torch.isfinite(loss) and "loss_gcts_select" in metrics
+    loss.backward()
+    assert module.selector.weight.grad is not None and torch.isfinite(module.selector.weight.grad).all()
+
+    module(torch.randn(1, 8, 8, 8))
+    empty_loss, _ = module.auxiliary_loss(batch(False))
+    assert empty_loss == 0 and empty_loss.requires_grad
+
+
+def test_gcts_v2_is_initially_identity_and_preserves_quadrant_coordinates():
+    head = v10GCTSDetect(nc=1, ch=(8, 16, 32, 64)).train()
+    features = [torch.randn(2, 8, 16, 16), torch.randn(2, 16, 8, 8), torch.randn(2, 32, 4, 4), torch.randn(2, 64, 2, 2)]
+    box_features, cls_features = head._route(features)
+    assert deepcopy(head).last_gcts is None
+    assert torch.equal(box_features[0], features[1])
+    assert torch.equal(cls_features[0], features[1])
+    assert all(torch.equal(a, b) for a, b in zip(box_features[1:], features[2:]))
+
+    centers = torch.tensor([[0.1375, 0.2125], [0.925, 0.8875]])
+    head.last_gcts = {"alpha": torch.empty(1, 4, 8, 8)}
+    batch_data = {"batch_idx": torch.zeros(2), "bboxes": torch.cat((centers, torch.ones(2, 2)), 1)}
+    _, _, _, fractions, target = head._targets(batch_data)
+    expected = torch.stack((target[:, 1] + target[:, 3], target[:, 2] + target[:, 3]), 1)
+    assert torch.allclose(expected, fractions)
+
+
+def test_gcts_v2_routes_separate_box_and_class_features_and_backpropagates():
+    head = v10GCTSDetect(nc=1, epsilon=0.05, tiny_gate=True, ch=(8, 16, 32, 64)).train()
+    head.cls_projection.bias.data.fill_(1)
+    head.pos_projection.bias.data.fill_(1)
+    features = [torch.randn(1, 8, 16, 16), torch.randn(1, 16, 8, 8), torch.randn(1, 32, 4, 4), torch.randn(1, 64, 2, 2)]
+    box_features, cls_features = head._route(features)
+    assert torch.allclose(cls_features[0], features[1] + 1)
+    assert not torch.equal(box_features[0], features[1])
+    assert (box_features[0] - features[1]).abs().max() <= head.epsilon
+
+    batch_data = {
+        "img": torch.rand(1, 3, 64, 64),
+        "batch_idx": torch.tensor([0, 0]),
+        "bboxes": torch.tensor([[0.3, 0.3, 0.1, 0.1], [0.3, 0.3, 0.4, 0.4]]),
+    }
+    loss, metrics = head.auxiliary_loss(batch_data)
+    assert torch.isfinite(loss)
+    assert {"loss_gcts_v2_pos", "loss_gcts_v2_gate", "gcts_v2_coord_mae"} <= metrics.keys()
+    loss.backward()
+    assert head.selector.weight.grad is not None
+
+    no_gate = v10GCTSDetect(nc=1, tiny_gate=False, ch=(8, 16, 32, 64)).train()
+    no_gate._route(features)
+    _, no_gate_metrics = no_gate.auxiliary_loss(batch_data)
+    assert no_gate_metrics["loss_gcts_v2_gate"] == 0
+
+
+def test_gcts_v2_gate_thresholds_collisions_and_background_sampling():
+    head = v10GCTSDetect(nc=1, tiny_gate=True, ch=(8, 16, 32, 64)).train()
+    features = [torch.randn(1, 8, 16, 16), torch.randn(1, 16, 8, 8), torch.randn(1, 32, 4, 4), torch.randn(1, 64, 2, 2)]
+    head._route(features)
+    # All boxes share a cell: the <20 px target must win over ignore (20-24 px) and large (>24 px).
+    boxes = torch.tensor([[0.3, 0.3, 10 / 64, 0.0], [0.3, 0.3, 22 / 64, 0.0], [0.3, 0.3, 30 / 64, 0.0]])
+    batch_data = {"img": torch.rand(1, 3, 64, 64), "batch_idx": torch.zeros(3), "bboxes": boxes}
+    bi, ys, xs, _, _ = head._targets(batch_data)
+    indices, targets = head._gate_targets(batch_data, bi, ys, xs)
+    assert len(indices) == 2  # one labeled cell plus one deterministic background cell
+    assert sorted(targets.tolist()) == [0.0, 1.0]
+
+    # Without the tiny object, a 20-24 px collision remains ignored and only the large cell is labeled.
+    boxes = torch.tensor([[0.3, 0.3, 22 / 64, 0.0], [0.7, 0.7, 30 / 64, 0.0]])
+    batch_data["batch_idx"] = torch.zeros(2)
+    batch_data["bboxes"] = boxes
+    bi, ys, xs, _, _ = head._targets(batch_data)
+    indices, targets = head._gate_targets(batch_data, bi, ys, xs)
+    assert len(indices) == 2 and not targets.any()  # one large negative plus one background negative
+
+
+def test_gcts_v2_gate_loss_is_autocast_safe():
+    head = v10GCTSDetect(nc=1, tiny_gate=True, ch=(8, 16, 32, 64)).train()
+    features = [torch.randn(1, 8, 16, 16), torch.randn(1, 16, 8, 8), torch.randn(1, 32, 4, 4), torch.randn(1, 64, 2, 2)]
+    batch_data = {
+        "img": torch.rand(1, 3, 64, 64),
+        "batch_idx": torch.tensor([0]),
+        "bboxes": torch.tensor([[0.3, 0.3, 0.1, 0.1]]),
+    }
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        head._route(features)
+        loss, _ = head.auxiliary_loss(batch_data)
+    assert torch.isfinite(loss)
+
+
+def test_p3_nonuniform_dfl_targets_and_expectation():
+    bins = torch.tensor([0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 5, 7, 9, 11, 13, 15.0])
+    targets = torch.tensor([[0.0, 0.3, 1.25, 14.5]])
+    right = torch.searchsorted(bins, targets, right=False).clamp(1, len(bins) - 1)
+    left = right - 1
+    right_weight = (targets - bins[left]) / (bins[right] - bins[left])
+    distribution = torch.zeros(4, len(bins))
+    distribution.scatter_(1, left.view(-1, 1), (1 - right_weight).view(-1, 1))
+    distribution.scatter_add_(1, right.view(-1, 1), right_weight.view(-1, 1))
+    assert torch.allclose(distribution.matmul(bins), targets.flatten())
+    logits = distribution.clamp_min(1e-6).log().requires_grad_()
+    loss = DFLoss(len(bins))(logits, targets, bins)
+    assert loss.shape == (1, 1) and torch.isfinite(loss).all()
+    loss.sum().backward()
+    assert torch.isfinite(logits.grad).all()
+
+
+def test_p3_nonuniform_heads_keep_other_levels_uniform():
+    for head in (
+        P3NUDFLDetect(nc=1, ch=(16, 32, 64)),
+        v10P3NUDFLDetect(nc=1, ch=(16, 32, 64)),
+        v10GCTSP3NUDFLDetect(nc=1, ch=(8, 16, 32, 64)),
+    ):
+        assert torch.equal(head.p3_dfl_bins[:8], torch.tensor([0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2.0]))
+        assert torch.equal(head.dfl.conv.weight.flatten(), torch.arange(16, dtype=torch.float))
+
+
+@pytest.mark.parametrize("module", [DBSS(16, embed_channels=8), DualIrreducibilityHIT(16)])
+def test_levir_module_is_initially_identity_and_finite(module):
+    module.train()
+    x = torch.randn(1, 16, 16, 16, requires_grad=True)
+    output = module(x)
+    assert output.shape == x.shape
+    assert torch.isfinite(output).all()
+    assert torch.equal(output, x)
+    output.mean().backward()
+    assert torch.isfinite(x.grad).all()
+
+
+def test_dbss_tal_positive_auxiliary_loss_has_gradient():
+    module = DBSS(16, embed_channels=8, loss_weight=0.5)
+    module.train()
+    module(torch.randn(1, 16, 16, 16, requires_grad=True))
+    mask = torch.zeros(1, 16 * 16, dtype=torch.bool)
+    mask[:, [17, 34]] = True
+    scores = torch.zeros(1, 16 * 16, 1)
+    scores[:, [17, 34]] = torch.tensor((0.25, 0.75)).view(1, 2, 1)
+    context = {"p2_fg_mask": mask, "p2_target_scores": scores, "total_positive_count": torch.tensor(4)}
+    loss, metrics = module.auxiliary_loss(batch(), context)
+    assert torch.isfinite(loss)
+    assert {
+        "loss_dbss_pos", "dbss_q_pre_pos", "dbss_q_post_pos", "dbss_delta_q_pos",
+        "dbss_displacement_ratio", "p2_positive_count",
+    } <= metrics.keys()
+    assert metrics["p2_positive_count"] == 2
+    assert not context["p2_fg_mask"].requires_grad
+    assert not context["p2_target_scores"].requires_grad
+    with torch.no_grad():
+        q_pre = module._residual_ratio(module.last_aux["z_pre"], module.last_aux["bases"])
+        q_post = module._residual_ratio(module.last_aux["z_post"], module.last_aux["bases"])
+        weights = scores.max(-1).values[mask]
+        expected = 0.5 * (
+            weights * torch.relu(module.improvement_margin - q_post[mask] + q_pre[mask])
+        ).sum() / (weights.sum() + 1e-6)
+    assert torch.allclose(loss, expected)
+    loss.backward()
+    assert module.direction[-1].weight.grad is not None
+
+
+@pytest.mark.parametrize("positive", [False, True])
+def test_dbss_routed_without_auxiliary_still_reports_diagnostics(positive):
+    module = DBSS(8, embed_channels=4, candidate_grid=(2, 2), shortlist_size=4, num_bases=2, loss_weight=0)
+    module.train()
+    module(torch.randn(1, 8, 4, 4, requires_grad=True))
+    mask = torch.zeros(1, 16, dtype=torch.bool)
+    mask[:, 0] = positive
+    scores = mask.unsqueeze(-1).float()
+    loss, metrics = module.auxiliary_loss(
+        batch(), {"p2_fg_mask": mask, "p2_target_scores": scores, "total_positive_count": mask.sum()}
+    )
+    assert loss == 0
+    assert torch.isfinite(torch.stack([value.float() for value in metrics.values()])).all()
+    assert "dbss_delta_q_pos" in metrics
+
+
+@pytest.mark.parametrize("name,loss_weight", [("routed", 0.0), ("aware", 0.05)])
+def test_dbss_p2_yaml_routes_bottom_up_around_dbss(name, loss_weight):
+    config = (
+        Path(__file__).parents[2]
+        / f"models_config/yolov8/levir/yolov8n_p2_levir_dbss_p2_{name}.yaml"
+    )
+    model = DetectionModel(config, verbose=False)
+    assert model.model[19].f == -1
+    assert model.model[19].loss_weight == loss_weight
+    assert model.model[20].f == 18
+    assert model.model[-1].f == [19, 22, 25, 28]
+
+
+def test_dbss_p2_correction_only_changes_detect_p2():
+    config = (
+        Path(__file__).parents[2]
+        / "models_config/yolov8/levir/yolov8n_p2_levir_dbss_p2_routed.yaml"
+    )
+    model = DetectionModel(config, verbose=False).eval()
+    captured = {}
+    model.model[20].register_forward_pre_hook(lambda _module, args: captured.setdefault("bottom_up", []).append(args[0].detach().clone()))
+    model.model[-1].register_forward_pre_hook(
+        lambda _module, args: captured.setdefault("detect_p2", []).append(args[0][0].detach().clone())
+    )
+    image = torch.randn(1, 3, 64, 64)
+    with torch.no_grad():
+        model(image)
+        model.model[19].direction[-1].bias.fill_(0.5)
+        model(image)
+    assert torch.equal(captured["bottom_up"][0], captured["bottom_up"][1])
+    assert not torch.equal(captured["detect_p2"][0], captured["detect_p2"][1])
+
+
+def test_dbss_epoch_metrics_use_batch_means_and_global_positive_fraction():
+    model = DetectionModel.__new__(DetectionModel)
+    torch.nn.Module.__init__(model)
+    model._mechanism_epoch_sums = {
+        "loss_dbss_pos": 0.3,
+        "dbss_q_pre_pos": 0.8,
+        "p2_positive_count": 12.0,
+        "p2_positive_fraction": 1.25,
+        "_batch_count": 2.0,
+        "_p2_positive_count": 12.0,
+        "_total_positive_count": 15.0,
+    }
+    metrics = model.mechanism_epoch_metrics()
+    assert metrics["loss_dbss_pos"] == pytest.approx(0.15)
+    assert metrics["dbss_q_pre_pos"] == pytest.approx(0.4)
+    assert metrics["p2_positive_count"] == 12
+    assert metrics["p2_positive_fraction"] == pytest.approx(0.8)
+    model.reset_mechanism_metrics()
+    assert model.mechanism_epoch_metrics() == {}
+
+
+def test_dbss_matches_reference_displacement():
+    torch.manual_seed(7)
+    module = DBSS(8, embed_channels=4, candidate_grid=(2, 2), shortlist_size=4, num_bases=2, gamma_max=0.6)
+    module.train()
+    module.direction[-1].weight.data.normal_(std=0.02)
+    x = torch.randn(2, 8, 6, 6)
+    output = module(x)
+    reference = []
+    embedding = module._embed(x)
+    for index in range(x.shape[0]):
+        emb = embedding[index : index + 1]
+        tokens = emb.flatten(2).squeeze(0).T
+        candidates = torch.nn.functional.adaptive_avg_pool2d(emb, (2, 2)).flatten(2).squeeze(0).T
+        normalized_tokens = torch.nn.functional.normalize(tokens, dim=-1)
+        normalized_candidates = torch.nn.functional.normalize(candidates, dim=-1)
+        scores = (normalized_candidates @ normalized_tokens.T).mean(1)
+        indices = module._select_bases(scores, normalized_candidates)
+        residual = (module._project(tokens, candidates[indices]) - tokens).neg().T.reshape_as(emb)
+        direction = module.direction(torch.cat((x[index : index + 1], residual), 1))
+        gamma = module.magnitude(residual).sigmoid()
+        scale = (x[index : index + 1].square().mean(1, keepdim=True) + 1e-6).sqrt()
+        displacement = module.gamma_max * scale * gamma * direction / (1 + direction.norm(dim=1, keepdim=True))
+        reference.append(x[index : index + 1] + displacement)
+    assert torch.allclose(output, torch.cat(reference), atol=1e-6, rtol=1e-5)
+    assert module.last_aux["displacement_ratio"] < module.gamma_max
+
+
+def test_dbss_ridge_falls_back_to_lstsq(monkeypatch):
+    module = DBSS(8, embed_channels=4, candidate_grid=(2, 2), shortlist_size=4, num_bases=2)
+    original = torch.linalg.solve_ex
+
+    def failed_solve(matrix, rhs, check_errors=False):
+        return torch.full_like(rhs, torch.nan), torch.ones((), device=matrix.device, dtype=torch.int32)
+
+    monkeypatch.setattr(torch.linalg, "solve_ex", failed_solve)
+    projected = module._project(torch.randn(6, 4), torch.randn(2, 4))
+    monkeypatch.setattr(torch.linalg, "solve_ex", original)
+    assert torch.isfinite(projected).all()
+    assert module._ridge_retry_count == 1
+    assert module._ridge_lstsq_count == 1
+
+
+def test_dbss_mixed_precision_is_finite():
+    module = DBSS(8, embed_channels=4, candidate_grid=(2, 2), shortlist_size=4, num_bases=2)
+    x = torch.randn(1, 8, 8, 8, dtype=torch.bfloat16)
+    module = module.to(dtype=torch.bfloat16)
+    assert torch.isfinite(module(x)).all()
+
+
+def test_hit_soft_source_targets_have_object_near_and_background_regions():
+    module = DualIrreducibilityHIT(8, source_target_mode="soft")
+    feature = torch.zeros(1, 8, 16, 16)
+    target = module._source_targets(batch(), feature)[0, 0]
+    assert target[8, 8] == 1
+    assert 0 < target[8, 4] < 1
+    assert target[0, 0] == 0
+
+
+def test_hit_box_source_targets_have_no_near_support():
+    module = DualIrreducibilityHIT(8, source_target_mode="box")
+    target = module._source_targets(batch(), torch.zeros(1, 8, 16, 16))[0, 0]
+    assert target[8, 8] == 1
+    assert target[8, 4] == 0
+    assert target[0, 0] == 0
+
+
+def test_hit_empty_gt_source_loss_is_finite():
+    module = DualIrreducibilityHIT(8)
+    module.train()
+    output = module(torch.randn(1, 8, 16, 16, requires_grad=True))
+    loss, _ = module.auxiliary_loss(batch(False))
+    assert torch.isfinite(loss)
+    (output.mean() + loss).backward()
+
+
+def test_hit_exact_identity_initialization_for_both_modes():
+    x = torch.randn(1, 8, 8, 8)
+    for mode in ("direct", "transport"):
+        module = DualIrreducibilityHIT(8, enhancement_mode=mode).eval()
+        assert torch.allclose(module(x), x)
+
+
+def test_hit_direct_path_is_not_a_noop_after_projection_is_enabled():
+    module = DualIrreducibilityHIT(8, enhancement_mode="direct").eval()
+    module.output_projection.weight.data.fill_(0.1)
+    output = module(torch.randn(1, 8, 8, 8))
+    assert not torch.allclose(output, torch.zeros_like(output))
+
+
+def test_hit_source_selector_receives_gradient():
+    module = DualIrreducibilityHIT(8, enhancement_mode="direct")
+    module.train()
+    x = torch.randn(1, 8, 16, 16, requires_grad=True)
+    output = module(x)
+    loss, _ = module.auxiliary_loss(batch())
+    (output.mean() + loss).backward()
+    assert module.source_selector[0].weight.grad is not None
+    assert torch.isfinite(module.source_selector[0].weight.grad).all()
+
+
+def test_hit_transport_offset_targets_point_to_gt_and_are_clamped():
+    module = DualIrreducibilityHIT(8, max_offset=1, offset_topk=1)
+    module.train()
+    module(torch.randn(1, 8, 16, 16))
+    module.last_aux["source_score"].zero_()
+    module.last_aux["source_score"][0, 0, 8, 6] = 1
+    predictions, targets = module._offset_targets(batch())
+    assert predictions.shape == targets.shape == (1, 2)
+    assert targets.abs().max() <= 1
+    assert torch.allclose(targets[0], torch.tensor([1.0, -0.5]))
+
+
+def test_hit_offset_targets_use_each_gt_support_independently():
+    module = DualIrreducibilityHIT(4, max_offset=20, offset_topk=1)
+    module.train()
+    module(torch.randn(1, 4, 16, 16))
+    module.last_aux["source_score"].zero_()
+    module.last_aux["source_score"][0, 0, 8, 4] = 1
+    module.last_aux["source_score"][0, 0, 8, 12] = 2
+    multi_gt = {
+        "batch_idx": torch.tensor([0.0, 0.0]),
+        "bboxes": torch.tensor([[0.28125, 0.53125, 0.1, 0.1], [0.78125, 0.53125, 0.1, 0.1]]),
+    }
+    _, targets = module._offset_targets(multi_gt)
+    assert targets.shape == (2, 2)
+    assert torch.allclose(targets[0], torch.tensor([0.0, 0.0]), atol=1e-5)
+    assert torch.allclose(targets[1], torch.tensor([0.0, 0.0]), atol=1e-5)
+
+
+def test_hit_gaussian_splat_conserves_mass_and_gradients():
+    module = DualIrreducibilityHIT(1)
+    source = torch.ones(1, 1, 3, 3)
+    offsets = torch.zeros(1, 2, 3, 3, requires_grad=True)
+    sigma = torch.ones(1, 1, 3, 3, requires_grad=True)
+    output = module._gaussian_splat(source, offsets, sigma)
+    assert torch.allclose(output.sum(), source.sum(), atol=1e-5)
+    output.square().sum().backward()
+    assert offsets.grad is not None and sigma.grad is not None
+
+
+def test_hit_gaussian_splat_accepts_amp_mixed_dtypes():
+    module = DualIrreducibilityHIT(1)
+    source = torch.ones(1, 1, 3, 3, dtype=torch.bfloat16)
+    offsets = torch.zeros(1, 2, 3, 3, dtype=torch.float32)
+    output = module._gaussian_splat(source, offsets)
+    assert output.dtype == source.dtype
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_hit_gaussian_splat_large_feature_indices_stay_in_bounds(dtype):
+    module = DualIrreducibilityHIT(1)
+    source = torch.ones(1, 1, 128, 128, dtype=dtype)
+    offsets = torch.zeros(1, 2, 128, 128, dtype=dtype)
+    output = module._gaussian_splat(source, offsets)
+    assert output.shape == source.shape
+    assert torch.isfinite(output).all()
+    assert torch.allclose(output.float().sum(), source.float().sum(), rtol=1e-3)
+
+
+def test_hit_no_transport_is_explicit_direct_mode():
+    module = DualIrreducibilityHIT(8, enhancement_mode="direct")
+    module.train()
+    x = torch.randn(1, 8, 8, 8)
+    assert module(x).shape == x.shape
+    loss, _ = module.auxiliary_loss(batch(False))
+    assert torch.isfinite(loss)
+
+
+@pytest.mark.parametrize("constructor", [lambda: DBSS(8, num_bases=25), lambda: DualIrreducibilityHIT(8, stride=0)])
+def test_invalid_mechanism_configuration(constructor):
+    with pytest.raises(ValueError):
+        constructor()

@@ -1,0 +1,30 @@
+# Ultralytics train config for P2 API boxgrad edge pooling with VFL enabled.
+# Use with:
+# yolo detect train cfg=models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl_train.yaml
+
+model: models_related/models_config/yolov8/yolov8_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl.yaml
+data: datasets/varroa_yolo/varroa.yaml
+task: detect
+mode: train
+
+epochs: 200
+imgsz: 640
+batch: 16
+workers: 4
+device: cuda
+patience: 40
+project: runs/detect/yolo_related/runs/train
+name: yolov8n_varroa_compare_baseline_p2_api_boxgrad_edge_pooling_vfl
+
+bbox_iou_loss: wiou
+wiou_monotonous: false
+
+vfl: true
+vfl_alpha: 0.75
+vfl_gamma: 2.0
+vfl_iou_detach: true
+vfl_pos_q_weight: true
+tal_topk: 10
+tal_beta: 6.0
+vfl_weight_box_by_q: false
+box_q_weight_min: 0.25

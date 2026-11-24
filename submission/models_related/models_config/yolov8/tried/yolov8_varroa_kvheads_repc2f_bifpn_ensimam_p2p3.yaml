@@ -1,0 +1,55 @@
+# YOLOv8n Varroa placement ablation: fixed-width BiFPN + EnSimAM on P2/P3 + KVCA before P2/P3 Detect heads.
+
+nc: 1
+scales:
+  n: [0.33, 0.25, 1024]
+  s: [0.33, 0.50, 1024]
+  m: [0.67, 0.75, 768]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.25, 512]
+
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]
+  - [-1, 1, Conv, [128, 3, 2]]
+  - [-1, 3, C2f, [128, True]]
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [-1, 6, RepC2f, [256, True]]
+  - [-1, 1, Conv, [512, 3, 2]]
+  - [-1, 6, RepC2f, [512, True]]
+  - [-1, 1, Conv, [1024, 3, 2]]
+  - [-1, 3, RepC2f, [1024, True]]
+  - [-1, 1, SPPF, [1024, 5]]
+
+head:
+  - [2, 1, Conv, [256, 1, 1]]
+  - [4, 1, Conv, [256, 1, 1]]
+  - [6, 1, Conv, [256, 1, 1]]
+  - [9, 1, Conv, [256, 1, 1]]
+
+  - [13, 1, ConvTranspose, [256, 2, 2]]
+  - [[12, 14], 1, WeightedAdd, [2]]
+  - [-1, 3, RepC2f, [256]]
+  - [-1, 1, ConvTranspose, [256, 2, 2]]
+  - [[11, 17], 1, WeightedAdd, [2]]
+  - [-1, 3, RepC2f, [256]]
+  - [-1, 1, EnSimAM, []]
+  - [-1, 1, ConvTranspose, [256, 2, 2]]
+  - [[10, 21], 1, WeightedAdd, [2]]
+  - [-1, 3, C2f, [256]]
+  - [-1, 1, EnSimAM, []]            # 24-P2 output
+
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[11, 20, 25], 1, WeightedAdd, [3]]
+  - [-1, 3, RepC2f, [256]]
+  - [-1, 1, EnSimAM, []]            # 28-P3 output
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[12, 16, 29], 1, WeightedAdd, [3]]
+  - [-1, 3, RepC2f, [256]]          # 31-P4 output
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[13, 32], 1, WeightedAdd, [2]]
+  - [-1, 3, RepC2f, [256]]          # 34-P5 output
+
+  - [24, 1, KVCompressedAttention, [256, 4, 8, dwconv]]
+  - [28, 1, KVCompressedAttention, [256, 4, 4, dwconv]]
+
+  - [[35, 36, 31, 34], 1, Detect, [nc]]

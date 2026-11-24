@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Train, evaluate, and upload the YOLOv8n LEVIR FPN-only P2-only Attention experiments."""
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import train_all_levir_yolov8n_p2_routing as workflow
+
+EXPERIMENT_SLUG = "levir_yolov8n_p2_fpn_only_attention"
+
+# Set experiment name and destination repo
+workflow.EXPERIMENT = EXPERIMENT_SLUG
+workflow.HF_REPO = "duyle2408/levir-yolov8n-p2-fpn-only-attention-seed42"
+
+# Set variant configuration mapping
+workflow.VARIANTS = {
+    "fpn_only_kvca_block": ROOT.parent / "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_kvca_block_groupweight.yaml",
+    "fpn_only_kvca_encoder": ROOT.parent / "models_related/models_config/yolov8/levir/yolov8n_p2_fpn_only_kvca_encoder_groupweight.yaml"
+}
+
+_baseline_train_kwargs = workflow.train_kwargs
+_parse_args = workflow.parse_args
+
+def parse_args(argv=None):
+    args = _parse_args(argv)
+    args.runner = Path(__file__)
+    # Override seeds to only seed 42
+    args.seeds = [42]
+    return args
+
+def main() -> None:
+    args = parse_args()
+    # Allow uploading by default; use --no-upload to disable.
+    
+    args.data_root = args.data_root.resolve()
+    args.dataset_root = args.dataset_root.resolve()
+    args.project = args.project.resolve()
+    data_yaml = workflow.prepare_fixed_split(args)
+    
+    amp = {variant: True for variant in args.variants}
+    if not args.no_smoke:
+        for variant in args.variants:
+            amp[variant] = workflow.smoke(variant, data_yaml, args)
+            
+    if args.smoke_only:
+        return
+        
+    uploader = None if getattr(args, "no_upload", False) or args.smoke_only else workflow.Uploader(args)
+    for seed in args.seeds:
+        for variant in args.variants:
+            run_dir = workflow.train(variant, seed, data_yaml, amp[variant], args)
+            workflow.evaluate(run_dir, data_yaml, args)
+            workflow.write_summaries(args)
+            if uploader:
+                uploader.upload_run(run_dir, variant, seed)
+                uploader.upload_metadata(args, data_yaml)
+
+workflow.parse_args = parse_args
+workflow.main = main
+
+if __name__ == "__main__":
+    workflow.main()

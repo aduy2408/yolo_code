@@ -1,0 +1,271 @@
+# CI/CD / MLOps workflow
+
+Workflow: `.github/workflows/mlops.yml`.
+
+Workflow này chỉ kích hoạt bằng `workflow_dispatch`. GitHub Actions đóng vai trò
+client; workflow tự clone đúng commit vào Marimo rồi chạy train/evaluate/export
+thông qua `utils.marimo_run` và `utils.marimo_ops`.
+
+## GitHub Environments
+
+Server Marimo chỉ sống khoảng 12 giờ, nên mỗi user/server dùng một GitHub
+Environment riêng:
+
+```text
+marimo-duy
+marimo-user-2
+```
+
+Trong mỗi Environment tạo:
+
+```text
+Variable:
+  MARIMO_URL=https://<server-host>
+
+Secrets:
+  MARIMO_TOKEN=<Marimo access token>
+  HF_TOKEN=<Hugging Face token; required for train/upload>
+
+Workflow tự clone repo vào `marimo_repo` và checkout `github.sha`; không cần
+truyền SHA hoặc clone thủ công trên server. User khác không bị ảnh hưởng nếu
+dùng Environment khác.
+
+Không nhập token vào form GitHub Actions. Chạy launcher local:
+
+```bash
+gh auth login
+printf '%s\n' '<token mới>' \
+  | scripts/run_marimo_workflow.sh \
+      --environment marimo-duy \
+      --marimo-url 'https://<server-host>' \
+      --epochs 1 \
+      --data-root '<LEVIR-Ship-root-trên-Marimo>' \
+      --hf-repo-id '<user>/ci-oacp-smoke-runs' \
+      --watch
+```
+
+`--epochs` truyền số epoch vào workflow. Trong quá trình train, remote runner
+đọc `train.log` và stream progress:
+
+```json
+{"epoch": 37, "epochs_total": 100, "progress": 0.37}
+```
+
+`--watch` chờ run hoàn tất và trả exit code theo conclusion của GitHub Actions.
+Remote polling mặc định dùng interval `60s`; HTTP read timeout của Marimo client
+là `120s`, để tránh fail khi stream không có event trong một khoảng ngắn mà
+process detached vẫn đang chạy.
+Launcher in:
+
+```text
+run_id
+url
+status
+conclusion
+```
+
+`dataset_yaml` là optional cho train; khi để trống workflow tự prepare. Nếu
+không truyền `--run-dir`, launcher tự tạo path unique.
+
+Launcher sẽ:
+
+1. cập nhật `MARIMO_URL` trong Environment được chọn;
+2. cập nhật `MARIMO_TOKEN` trong Environment đó;
+3. tạo `run_dir` mới;
+4. dispatch workflow với `marimo_environment`;
+5. không in token.
+
+Workflow dùng:
+
+```yaml
+environment: ${{ inputs.marimo_environment }}
+MARIMO_URL: ${{ vars.MARIMO_URL }}
+MARIMO_TOKEN: ${{ secrets.MARIMO_TOKEN }}
+```
+
+Vì vậy một repository có thể chạy đồng thời cho nhiều user mà không có
+shared-secret race và không cần fork.
+
+Training OACP cũng cần `HF_TOKEN` được cấu hình an toàn trong environment của
+server Marimo, vì process training được launch trên Marimo chứ không chạy
+trong GitHub runner.
+
+## Export/evaluate trên Jetson
+
+Chọn `operation=export_jetson` để tải checkpoint từ Hugging Face về runner,
+SCP sang Jetson rồi tạo cả ONNX và TensorRT engine bằng:
+
+```text
+DUY_DEPLOY/docker/pytorch_jetson/export_onnx.py
+DUY_DEPLOY/docker/pytorch_jetson/export_engine.py
+```
+
+Chọn `operation=evaluate_jetson` để evaluate checkpoint `.pt` vừa tải và
+chuyển sang Jetson. Workflow sẽ chọn `best.pt` cho run standalone; không giả
+định engine đã tồn tại trong thư mục run mới. Dùng `jetson_pipeline` nếu cần
+evaluate ONNX/TensorRT engine vừa build.
+
+`operation=jetson_pipeline` gộp hai bước trên trong cùng một remote run:
+chuyển `.pt`, build ONNX và TensorRT engine, rồi evaluate engine ngay trên
+Jetson. Đây là lựa chọn nên dùng khi cần kiểm tra end-to-end và tránh mất
+artifact giữa hai run khác nhau.
+
+GitHub Environment cho Jetson cần thêm:
+
+```text
+Variable:
+  JETSON_HOST
+  JETSON_USER
+
+Secret:
+  JETSON_SSH_KEY
+  HF_TOKEN
+```
+
+`JETSON_SSH_KEY` chỉ được ghi vào file tạm của GitHub runner. Checkpoint tải
+xuống local trước rồi mới chuyển qua SSH; workflow không để token trong command
+hoặc artifact.
+
+Sau khi Jetson export/evaluate xong, output được SCP ngược về GitHub runner.
+Runner lưu đầy đủ tại `jetson-${github.run_id}-attempt-${github.run_attempt}`.
+
+GitHub Actions chỉ upload thư mục `eval/` để giữ artifact nhẹ:
+
+1. GitHub Actions artifact: kết quả evaluate;
+2. Hugging Face: toàn bộ run gồm `best.pt`, ONNX, TensorRT engine và `eval/`,
+   dưới prefix `runs/jetson/<operation>/github-<run_id>-attempt-<attempt>`.
+
+Jetson không upload trực tiếp lên Hugging Face; GitHub runner thực hiện bước
+upload sau khi SCP output từ Jetson về local.
+
+## Contract của runner Marimo
+
+`marimo_repo` là path checkout trên server Marimo. Trước khi chạy, workflow tự
+clone repository hiện tại vào path này và checkout `github.sha`. Nếu path đã tồn
+tại nhưng không phải Git checkout, workflow fail an toàn và không xóa dữ liệu.
+
+Với `operation=train`, workflow tự gọi `misc.prepare_levir_ship.prepare` khi
+`dataset_yaml` để trống, ghi YAML vào `dataset_root`, rồi mới chạy preflight.
+`train_script` chọn training entrypoint tương đối với repository root.
+`train_args` là JSON array các argument bổ sung, ví dụ
+`["--amp", "false"]`. `artifact_root` là output path thực tế của training;
+path tương đối được tính từ `run_dir` và hỗ trợ placeholder `{seed}`.
+Ba giá trị này được ghi cùng command đã resolve vào `run_contract.json`.
+Python environment và custom Ultralytics code phải tồn tại trên server.
+
+Workflow không cài package và không tự chọn mount dataset. Default LEVIR mount
+là `/marimo/LevirShip/LevirShipData`.
+
+## Quality gates
+
+Training luôn phải tạo `evaluation_metrics.json` với `nms_iou=0.5`.
+Có thể bật ngưỡng bằng workflow inputs:
+
+```text
+min_test_map50
+min_test_map50_95
+```
+
+Nếu metric thiếu, NMS IoU sai, hoặc metric thấp hơn ngưỡng, remote job fail.
+Để smoke run không phụ thuộc một threshold nghiên cứu cố định, hai input này
+để trống mặc định; release/full run nên truyền threshold từ baseline đã ghi nhận.
+
+## Pipeline gộp
+
+Workflow có ba nhóm chính:
+
+1. **Validate and run on Marimo**
+   - kết nối Marimo;
+   - prepare dataset/YAML nếu train và chưa truyền YAML;
+   - ghi immutable `run_contract.json`;
+   - kiểm tra exact SHA, Python, dataset YAML và artifact context bằng `marimo_ops`;
+   - launch detached operation;
+   - theo dõi process tới khi kết thúc.
+2. **Transfer and run on Jetson**
+   - tải `.pt` từ Hugging Face về GitHub runner;
+   - chuyển `.pt` sang Jetson bằng SSH/SCP;
+   - chạy Ultralytics ONNX export và TensorRT engine export trong image Jetson;
+   - evaluate `.pt`, `.onnx`, hoặc `.engine` bằng `evaluate_ultralytics.py`;
+   - tải metrics và exported artifacts về GitHub Actions.
+3. **Upload workflow evidence**
+   - lưu evidence của invocation GitHub Actions.
+
+`utils/marimo_ops` vẫn là implementation của preflight, launch và status; workflow
+không tạo launcher train thay thế.
+
+## Ví dụ chạy OACP smoke
+
+Dùng các input sau để chạy một job OACP rất nhỏ trên LEVIR-Ship:
+
+```text
+operation: train
+marimo_environment: marimo-duy
+marimo_repo: /marimo/yolo_code
+expected_sha: <SHA-của-checkout-trên-Marimo>
+run_dir: /marimo/yolo_code/runs/ci/oacp-smoke-<unique-id>
+data_root: /marimo/LevirShip/LevirShipData
+dataset_root: /marimo/yolo_code/datasets/ci
+dataset_yaml: ""
+train_script: train_scripts/train_levir_scripts/train_all_levir_yolov8n_p2_consensus.py
+train_args: ["--amp", "false"]
+artifact_root: project/yolov8n_p2_consensus_seed{seed}
+dataset: levirship
+hf_repo_id: <user>/ci-oacp-smoke-runs
+seed: 43
+split_seed: 42
+epochs: 1
+patience: 0
+image_size: 512
+batch_size: 8
+workers: 4
+device: 0
+```
+
+Nếu bỏ qua `train_script`, entrypoint mặc định là:
+
+```text
+train_scripts/train_levir_scripts/train_all_levir_yolov9t_oacp.py
+```
+
+Training script được chọn phải nhận các argument chuẩn mà workflow truyền
+(`--data-root`, `--project`, `--epochs`, ...), cộng với `train_args`.
+`artifact_root` phải trỏ đúng thư mục chứa `evaluation_metrics.json` và
+`manifest.json`; quality gate dùng path này thay vì giả định output YOLOv9t.
+
+Run directory phải mới và collision-free. Không dùng lại run directory chưa được remote verify.
+
+## Evaluation và export
+
+`operation=evaluate` yêu cầu `checkpoint` trên Marimo và dùng evaluator hiện có với NMS IoU `0.5`.
+
+`operation=export` yêu cầu `checkpoint` trên Marimo. Mặc định export ONNX; TensorRT chỉ dùng trên server có CUDA/TensorRT tương ứng.
+
+## Giới hạn xác nhận
+
+Job OACP một epoch là smoke/runtime check, không phải training result nghiên cứu. Kết quả chính thức vẫn phải kiểm tra checkpoint, manifest, metrics, split provenance và artifact upload sau run.
+
+## Self-hosted runner cho Jetson
+
+Job `export_jetson`, `evaluate_jetson`, và `jetson_pipeline` chạy trên
+self-hosted runner có labels:
+
+```text
+self-hosted, Linux, X64
+```
+
+Runner hiện làm gateway trên PC Arch Linux. PC cần luôn online với GitHub và
+phải có `ssh`, `scp`, `curl`, `python`, và quyền chạy GitHub Actions runner.
+Jetson chỉ cần reachable qua LAN từ PC; job vẫn chạy Docker, TensorRT và
+inference trên Jetson thông qua `scripts/run_jetson_workflow.sh`.
+
+`remote-mlops` và `static-smoke` vẫn chạy trên `ubuntu-latest`.
+
+Trước khi dispatch Jetson, kiểm tra runner đang `Idle` và test từ PC:
+
+```bash
+ssh <JETSON_USER>@<JETSON_HOST>
+```
+
+Workflow có 25 `workflow_dispatch` inputs, đúng giới hạn GitHub. Các giá trị
+ổn định `JETSON_REPO`, `JETSON_DATA_ROOT`, và `JETSON_IMAGE` có thể cấu hình
+trong GitHub Environment variables; nếu bỏ trống workflow dùng fallback mặc định.

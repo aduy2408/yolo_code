@@ -1,27 +1,23 @@
 # Submission code map
 
-Branch: `submission`. This repository remains the Ultralytics base. The submission folder is a small, stable entrypoint map; canonical implementations stay in their existing paths so imports and history remain intact.
+Branch: `submission`. This folder is the self-contained YOLO submission payload. The repository's unrelated research/runtime files remain outside it.
 
-## Scope
+## Included payload
 
-Datasets: Varroa, LEVIR-Ship, TinyPerson. Split seed: `42`; training seeds are selected by each runner. Datasets, checkpoints, `runs/`, `weights/`, caches, and generated reports are runtime artifacts and are not submission source.
-
-| Area | Canonical source |
+| Area | Submission source |
 |---|---|
-| Varroa conversion | `misc/prepare_dataset.py` |
-| LEVIR-Ship conversion | `misc/prepare_levir_ship.py` |
-| TinyPerson conversion and merged test evaluation | `train_scripts/train_all_tinyperson.py` |
-| YOLO baselines | `train_scripts/train_all_yolo_baselines_no_mosaic.py` |
-| YOLO baseline evaluation | `evaluate_test/evaluate_yolo_baseline_matrix.py` |
-| OACP implementation | `project_ultralytics/context_augment.py` |
-| Copy-Paste protocol registry | `copy_paste_protocol.py` |
-| Copy-Paste implementation | `project_ultralytics/copy_paste.py`, `negative_canvas_copy_paste.py`, `adaptive_negative_canvas.py`, `stcp_copy_paste.py` |
-| Augmentation matrix | `train_scripts/train_all_augmentation_matrix.py` |
-| Marimo preflight/launch/upload verification | `utils/marimo_ops.py` |
-| CI/CD workflow and dispatch | `submission/ci_cd/README.md`, `.github/workflows/ci.yml`, `.github/workflows/mlops.yml` |
-| STW-YOLO | `misc/train_stw_yolo_marimo.py` |
-| TPH-YOLO | `train_scripts/train_tph_yolov5_multidataset.py` |
+| Ultralytics project base | `submission/models_related/ultralytics/` |
+| Upstream Ultralytics base | `submission/vendor/ultralytics_upstream/` |
+| Custom model configs | `submission/models_related/models_config/` |
+| Dataset preparation | `submission/misc/prepare_dataset.py`, `submission/misc/prepare_levir_ship.py`, `submission/train_scripts/train_all_tinyperson.py` |
+| Baseline training | `submission/train_scripts/train_all_yolo_baselines_no_mosaic.py` |
+| Augmentation/OACP/Copy-Paste training | `submission/train_scripts/train_all_augmentation_matrix.py`, `submission/project_ultralytics/`, `submission/copy_paste_protocol.py` |
+| STW/TPH training | `submission/misc/train_stw_yolo_marimo.py`, `submission/train_scripts/train_tph_yolov5_multidataset.py` |
+| Baseline/SOTA evaluation | `submission/evaluate_test/` |
+| Python entrypoints | `submission/train/*.py`, `submission/evaluate/*.py` |
+| Marimo workflow | `submission/utils/`, `submission/.agents/workflows/`, `submission/marimo/` |
+| CI/CD and Jetson workflow | `submission/.github/workflows/`, `submission/scripts/`, `submission/ci_cd/` |
 
-OACP `r2` is implemented in `project_ultralytics/context_augment.py`. Copy-Paste `r2` and `r4` are registered as `negative_canvas_r2`, `negative_canvas_r4`, `all_canvas_r2`, and `all_canvas_r4` in `copy_paste_protocol.py`. Do not copy a second implementation into this folder.
+The three dataset roots are runtime inputs: Varroa, LEVIR-Ship, and TinyPerson. Split seed is `42`; training defaults are 100 epochs, patience `0`, and seeds `42,43,44` in the full matrix runners. Runtime datasets, checkpoints, `runs/`, caches, and generated reports are excluded.
 
-Submission Python entrypoints live in `train/*.py` and `evaluate/*.py`; each delegates to the canonical source above without duplicating it. Training/evaluation through Marimo must use `utils.marimo_ops` and the live Marimo kernel. Never place tokens in commands or files.
+Run from the submission root so the copied scripts resolve `models_related/` and `vendor/` locally. Do not copy a second implementation into the payload.
