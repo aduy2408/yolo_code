@@ -125,9 +125,11 @@ def gpu_postprocess(
     nms_iou: float = 0.5,
     max_det: int = 300,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Decode YOLOv8 [1,84,8400] and class-aware NMS without leaving the GPU."""
-    if prediction.shape != (1, 84, 8400) or not prediction.is_cuda:
-        raise ValueError("prediction must be a CUDA tensor with shape [1,84,8400]")
+    """Decode YOLOv8 [1,4+classes,8400] and class-aware NMS without leaving the GPU."""
+    if prediction.ndim != 3 or prediction.shape[0] != 1 or prediction.shape[1] < 5 or prediction.shape[2] != 8400:
+        raise ValueError("prediction must have shape [1,4+classes,8400]")
+    if not prediction.is_cuda:
+        raise ValueError("prediction must be a CUDA tensor")
     values = prediction[0].transpose(0, 1)
     boxes = xywh2xyxy(values[:, :4])
     scores, classes = values[:, 4:].max(dim=1)
@@ -155,7 +157,11 @@ class TensorRTGpuPipeline:
         self.input_size = input_size
         self.preprocessor = CudaPreprocessor(input_size)
         self.runtime = trt.Runtime(trt.Logger(trt.Logger.ERROR))
-        self.engine = self.runtime.deserialize_cuda_engine(Path(engine_path).read_bytes())
+        engine_bytes = Path(engine_path).read_bytes()
+        payload_start = engine_bytes.find(b"ftrt")
+        if payload_start > 0:
+            engine_bytes = engine_bytes[payload_start:]
+        self.engine = self.runtime.deserialize_cuda_engine(engine_bytes)
         if self.engine is None:
             raise RuntimeError(f"Could not load TensorRT engine: {engine_path}")
         names = [self.engine.get_tensor_name(i) for i in range(self.engine.num_io_tensors)]
@@ -163,11 +169,13 @@ class TensorRTGpuPipeline:
         self.output_name = next(name for name in names if self.engine.get_tensor_mode(name) == trt.TensorIOMode.OUTPUT)
         if tuple(self.engine.get_tensor_shape(self.input_name)) != (1, 3, input_size, input_size):
             raise ValueError("TensorRT engine input shape does not match the fixed pipeline")
-        if tuple(self.engine.get_tensor_shape(self.output_name)) != (1, 84, 8400):
-            raise ValueError("TensorRT engine must expose raw YOLOv8 output [1,84,8400]")
+        output_shape = tuple(self.engine.get_tensor_shape(self.output_name))
+        if len(output_shape) != 3 or output_shape[0] != 1 or output_shape[1] < 5 or output_shape[2] != 8400:
+            raise ValueError("TensorRT engine must expose raw YOLOv8 output [1,4+classes,8400]")
+        self.output_shape = output_shape
         self.context = self.engine.create_execution_context()
         self.input = torch.empty((1, 3, input_size, input_size), device="cuda", dtype=torch.float32)
-        self.output = torch.empty((1, 84, 8400), device="cuda", dtype=torch.float32)
+        self.output = torch.empty(output_shape, device="cuda", dtype=torch.float32)
 
     def infer(self, bgr: torch.Tensor, confidence: float = 0.001, nms_iou: float = 0.5, max_det: int = 300):
         prepared, scale, pad_x, pad_y = self.preprocessor(bgr, self.input)
