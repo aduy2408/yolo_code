@@ -69,7 +69,48 @@ __global__ void pack_kernel(const unsigned char* source, float* output, int widt
     output[2 * pixels + index] = source[pixel] / 255.0F;
 }
 
+__global__ void decode_kernel(const float* prediction, float* boxes, float* scores, int* classes,
+                              int num_classes, float confidence) {
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    constexpr int candidates = 8400;
+    if (index >= candidates) {
+        return;
+    }
+    int best_class = 0;
+    float best_score = prediction[4 * candidates + index];
+    for (int class_id = 1; class_id < num_classes; ++class_id) {
+        const float score = prediction[(4 + class_id) * candidates + index];
+        if (score > best_score) {
+            best_score = score;
+            best_class = class_id;
+        }
+    }
+    scores[index] = best_score;
+    classes[index] = best_class;
+    const float center_x = prediction[index];
+    const float center_y = prediction[candidates + index];
+    const float width = prediction[2 * candidates + index];
+    const float height = prediction[3 * candidates + index];
+    boxes[index] = center_x - width / 2.0F;
+    boxes[candidates + index] = center_y - height / 2.0F;
+    boxes[2 * candidates + index] = center_x + width / 2.0F;
+    boxes[3 * candidates + index] = center_y + height / 2.0F;
+    if (best_score < confidence) {
+        scores[index] = 0.0F;
+    }
+}
+
 }  // namespace
+
+extern "C" int launch_yolo_decode(const float* prediction, float* boxes, float* scores, int* classes,
+                                  int num_classes, float confidence, void* stream) {
+    if (!prediction || !boxes || !scores || !classes || num_classes <= 0) {
+        return static_cast<int>(cudaErrorInvalidValue);
+    }
+    decode_kernel<<<(8400 + 255) / 256, 256, 0, static_cast<cudaStream_t>(stream)>>>(
+        prediction, boxes, scores, classes, num_classes, confidence);
+    return static_cast<int>(cudaGetLastError());
+}
 
 extern "C" int launch_yolo_pack(const unsigned char* source, float* output, int width, int height, void* stream) {
     if (!source || !output || width <= 0 || height <= 0) {

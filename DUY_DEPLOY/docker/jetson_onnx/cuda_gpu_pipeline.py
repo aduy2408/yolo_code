@@ -40,6 +40,16 @@ class CudaPreprocessor:
             ctypes.c_void_p,
         ]
         self._library.launch_yolo_preprocess.restype = ctypes.c_int
+        self._library.launch_yolo_decode.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_float,
+            ctypes.c_void_p,
+        ]
+        self._library.launch_yolo_decode.restype = ctypes.c_int
 
     def _output(self, bgr: torch.Tensor, output: torch.Tensor | None) -> torch.Tensor:
         if bgr.ndim != 3 or bgr.shape[2] != 3 or bgr.dtype != torch.uint8 or not bgr.is_cuda:
@@ -89,6 +99,33 @@ class CudaPreprocessor:
         if status != 0:
             raise RuntimeError(f"CUDA packing failed with error code {status}")
         return output
+
+    def decode(
+        self,
+        prediction: torch.Tensor,
+        num_classes: int,
+        confidence: float,
+        boxes: torch.Tensor | None = None,
+        scores: torch.Tensor | None = None,
+        classes: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if prediction.shape != (1, num_classes + 4, 8400) or not prediction.is_cuda:
+            raise ValueError("prediction shape does not match the class count")
+        boxes = boxes if boxes is not None else torch.empty((4, 8400), device=prediction.device)
+        scores = scores if scores is not None else torch.empty((8400,), device=prediction.device)
+        classes = classes if classes is not None else torch.empty((8400,), device=prediction.device, dtype=torch.int32)
+        status = self._library.launch_yolo_decode(
+            ctypes.c_void_p(prediction.data_ptr()),
+            ctypes.c_void_p(boxes.data_ptr()),
+            ctypes.c_void_p(scores.data_ptr()),
+            ctypes.c_void_p(classes.data_ptr()),
+            num_classes,
+            confidence,
+            ctypes.c_void_p(torch.cuda.current_stream(prediction.device).cuda_stream),
+        )
+        if status != 0:
+            raise RuntimeError(f"CUDA decode failed with error code {status}")
+        return boxes.transpose(0, 1), scores, classes
 
 
 def build_cuda_pipeline(output: Path = DEFAULT_LIBRARY, arch: str | None = None) -> Path:
@@ -148,6 +185,34 @@ def gpu_postprocess(
     return boxes, scores[keep], classes[keep]
 
 
+def gpu_nms_postprocess(
+    boxes: torch.Tensor,
+    scores: torch.Tensor,
+    classes: torch.Tensor,
+    scale: float,
+    pad_x: int,
+    pad_y: int,
+    original_width: int,
+    original_height: int,
+    confidence: float = 0.001,
+    nms_iou: float = 0.5,
+    max_det: int = 300,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    selected = scores >= confidence
+    boxes = boxes[selected]
+    scores = scores[selected]
+    classes = classes[selected]
+    if not boxes.numel():
+        return boxes.reshape(0, 4), scores, classes
+    keep = nms(boxes + classes[:, None].float() * 7680.0, scores, nms_iou)[:max_det]
+    boxes = boxes[keep]
+    boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad_x) / scale
+    boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad_y) / scale
+    boxes[:, [0, 2]] = boxes[:, [0, 2]].clamp(0, original_width)
+    boxes[:, [1, 3]] = boxes[:, [1, 3]].clamp(0, original_height)
+    return boxes, scores[keep], classes[keep]
+
+
 class TensorRTGpuPipeline:
     """Persistent TensorRT execution with CUDA preprocess and GPU-only postprocess."""
 
@@ -173,9 +238,13 @@ class TensorRTGpuPipeline:
         if len(output_shape) != 3 or output_shape[0] != 1 or output_shape[1] < 5 or output_shape[2] != 8400:
             raise ValueError("TensorRT engine must expose raw YOLOv8 output [1,4+classes,8400]")
         self.output_shape = output_shape
+        self.num_classes = output_shape[1] - 4
         self.context = self.engine.create_execution_context()
         self.input = torch.empty((1, 3, input_size, input_size), device="cuda", dtype=torch.float32)
         self.output = torch.empty(output_shape, device="cuda", dtype=torch.float32)
+        self.decoded_boxes = torch.empty((4, 8400), device="cuda", dtype=torch.float32)
+        self.decoded_scores = torch.empty((8400,), device="cuda", dtype=torch.float32)
+        self.decoded_classes = torch.empty((8400,), device="cuda", dtype=torch.int32)
 
     def infer(self, bgr: torch.Tensor, confidence: float = 0.001, nms_iou: float = 0.5, max_det: int = 300):
         prepared, scale, pad_x, pad_y = self.preprocessor(bgr, self.input)
@@ -183,8 +252,18 @@ class TensorRTGpuPipeline:
         self.context.set_tensor_address(self.output_name, self.output.data_ptr())
         if not self.context.execute_async_v3(torch.cuda.current_stream(bgr.device).cuda_stream):
             raise RuntimeError("TensorRT enqueue failed")
-        return gpu_postprocess(
+        boxes, scores, classes = self.preprocessor.decode(
             self.output,
+            self.num_classes,
+            confidence,
+            self.decoded_boxes,
+            self.decoded_scores,
+            self.decoded_classes,
+        )
+        return gpu_nms_postprocess(
+            boxes,
+            scores,
+            classes,
             scale,
             pad_x,
             pad_y,
@@ -213,8 +292,18 @@ class TensorRTGpuPipeline:
         self.context.set_tensor_address(self.output_name, self.output.data_ptr())
         if not self.context.execute_async_v3(torch.cuda.current_stream(bgr_resized.device).cuda_stream):
             raise RuntimeError("TensorRT enqueue failed")
-        return gpu_postprocess(
+        boxes, scores, classes = self.preprocessor.decode(
             self.output,
+            self.num_classes,
+            confidence,
+            self.decoded_boxes,
+            self.decoded_scores,
+            self.decoded_classes,
+        )
+        return gpu_nms_postprocess(
+            boxes,
+            scores,
+            classes,
             scale,
             pad_x,
             pad_y,
