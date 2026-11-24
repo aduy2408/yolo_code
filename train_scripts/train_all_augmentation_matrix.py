@@ -538,7 +538,12 @@ def main(argv: list[str] | None = None) -> None:
     args.hard_negative_banks = {"levir": args.hard_negative_bank_levir, "tinyperson": args.hard_negative_bank_tinyperson, "varroa": args.hard_negative_bank_varroa}
     if args.seeds is not None and args.seed is not None:
         raise ValueError("Use either --seed or --seeds, not both")
-    args.training_seeds = list(args.seeds if args.seeds is not None else [args.seed if args.seed is not None else 42])
+    if args.seeds is not None:
+        args.training_seeds = list(args.seeds)
+    elif args.seed is not None:
+        args.training_seeds = [args.seed]
+    else:
+        args.training_seeds = [42, 43, 44]
     if not args.training_seeds or len(set(args.training_seeds)) != len(args.training_seeds):
         raise ValueError("Training seeds must be non-empty and unique")
     if any(seed < 0 for seed in args.training_seeds):

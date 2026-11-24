@@ -316,7 +316,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project", type=Path, default=ROOT / "runs/stw_yolo_marimo")
     parser.add_argument("--runtime-root", type=Path, default=ROOT / "scratch/stw_yolo_marimo")
     parser.add_argument("--device", default="0")
-    parser.add_argument("--seeds", nargs="+", type=int, default=[42, 43])
+    parser.add_argument("--seeds", nargs="+", type=int, default=[42, 43, 44])
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--patience", type=int, default=0)
@@ -335,8 +335,8 @@ def main() -> None:
     args = parse_args()
     if args.split_seed != SPLIT_SEED:
         raise ValueError(f"split seed is fixed at {SPLIT_SEED}; do not reuse a training seed for dataset preparation")
-    if not args.seeds or any(seed not in (42, 43) for seed in args.seeds) or len(set(args.seeds)) != len(args.seeds):
-        raise ValueError("This OACP seed comparison only permits unique training seeds 42 and 43")
+    if not args.seeds or any(seed not in (42, 43, 44) for seed in args.seeds) or len(set(args.seeds)) != len(args.seeds):
+        raise ValueError("This OACP seed comparison only permits unique training seeds 42, 43, and 44")
     if (args.epochs, args.patience, args.workers, args.batch_size, args.nms_iou) != (100, 0, 8, 16, 0.5):
         raise ValueError("OACP run requires epochs=100, patience=0, workers=8, batch-size=16, nms-iou=0.5")
     if len(args.datasets) != 1 and (args.data_root or args.dataset_yaml or args.model_yaml or args.image_size):
