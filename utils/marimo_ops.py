@@ -740,14 +740,18 @@ def status(
         try:
             marker = read_json(upload_marker_path)
             verified_files = marker.get("verified")
-            upload_verified = bool(
-                marker.get("repo_id")
-                and marker.get("remote_prefix")
-                and isinstance(verified_files, list)
+            remote_verified = marker.get("remote_verified") is True
+            listed_files_verified = (
+                isinstance(verified_files, list)
                 and all(
                     _remote_artifact_verified(verified_files, marker.get("remote_prefix"), item)
                     for item in REMOTE_REQUIRED_ARTIFACTS
                 )
+            )
+            upload_verified = bool(
+                marker.get("repo_id")
+                and marker.get("remote_prefix")
+                and (remote_verified or listed_files_verified)
             )
             contract_path = run_dir / "run_contract.json"
             if upload_verified and contract_path.is_file():

@@ -354,7 +354,7 @@ class MarimoOpsTests(unittest.TestCase):
                 path.write_text("{}" if path.suffix == ".json" else "artifact")
             (artifact_root / "upload_complete.json").write_text(json.dumps({
                 "repo_id": "user/task-runs", "remote_prefix": "run-43",
-                "verified": list(COMPLETION_ARTIFACTS_FOR_TEST),
+                "remote_verified": True,
             }))
 
             report = status(root, emit=False)
