@@ -21,8 +21,10 @@ import json
 import os
 import csv
 import re
+import importlib
 from pathlib import Path
-from utils.marimo_ops import status
+import utils.marimo_ops as _marimo_ops
+status = importlib.reload(_marimo_ops).status
 os.chdir(os.environ["MARIMO_WATCH_REPO"])
 result = []
 required = ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml",

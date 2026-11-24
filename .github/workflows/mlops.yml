@@ -231,6 +231,9 @@ jobs:
           _misc = types.ModuleType("misc")
           _misc.__path__ = [str(_repo / "misc")]
           sys.modules["misc"] = _misc
+          for module_name in tuple(sys.modules):
+              if module_name == "utils.marimo_ops" or module_name.startswith("utils.marimo."):
+                  del sys.modules[module_name]
           _source = (_repo / "utils" / "marimo_ci.py").read_text()
           exec(compile(_source, str(_repo / "utils" / "marimo_ci.py"), "exec"), globals())
           if not os.environ.get("HF_TOKEN") and globals().get("HF_TOKEN"):
