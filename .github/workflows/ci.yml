@@ -2,7 +2,7 @@ name: Static and orchestration CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, submission]
   pull_request:
   workflow_dispatch:
 permissions:

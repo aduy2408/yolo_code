@@ -10,11 +10,11 @@ Usage:
     [--data-root PATH] [--dataset-yaml PATH] \
     [--train-script PATH] [--train-args JSON] [--artifact-root PATH] \
     [--operation train|evaluate|export] \
-    [--marimo-repo PATH] [--dataset-root PATH] [--watch]
-
-The Marimo URL and token are updated only in the selected GitHub Environment.
-The token is read silently from stdin or the interactive prompt.
+    [--marimo-repo PATH] [--dataset-root PATH] [--ref BRANCH_OR_SHA] [--watch]
 EOF
+  echo
+  echo "The Marimo URL and token are updated only in the selected GitHub Environment."
+  echo "The token is read silently from stdin or the interactive prompt."
 }
 
 operation=train
@@ -30,6 +30,8 @@ train_args='[]'
 artifact_root='project/yolov9t_oacp_seed{seed}'
 epochs=100
 watch=false
+workflow_ref="$(git branch --show-current 2>/dev/null || true)"
+workflow_ref="${workflow_ref:-main}"
 
 while (($#)); do
   case "$1" in
@@ -45,8 +47,9 @@ while (($#)); do
     --artifact-root) artifact_root=$2; shift 2 ;;
     --hf-repo-id) hf_repo_id=$2; shift 2 ;;
     --epochs) epochs=$2; shift 2 ;;
-    --watch) watch=true; shift ;;
+    --ref) workflow_ref=$2; shift 2 ;;
     -h|--help) usage; exit 0 ;;
+    --watch) watch=true; shift ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
@@ -73,7 +76,7 @@ printf '%s' "$marimo_token" | gh secret set MARIMO_TOKEN --env "$marimo_environm
 unset marimo_token
 
 dispatch_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-gh workflow run mlops.yml \
+gh workflow run mlops.yml --ref "$workflow_ref" \
   -f operation="$operation" \
   -f marimo_environment="$marimo_environment" \
   -f marimo_repo="$marimo_repo" \

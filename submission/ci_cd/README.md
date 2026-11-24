@@ -21,5 +21,6 @@ Typical local entrypoints:
 python -m utils.marimo_ops preflight --help
 python -m utils.marimo_ops launch --help
 python utils/marimo_run.py -c 'print("connected")'
-./scripts/run_marimo_workflow.sh --help
+./scripts/run_marimo_workflow.sh -h
+./scripts/run_marimo_workflow.sh --ref submission ...
 ```
